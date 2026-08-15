@@ -554,7 +554,7 @@ export function buildKashimo() {
           // [-8, 0, -10] only works because the STANCE changed with it: with
           // the elbow dropped to -34 the rod continues the forearm down and
           // out, so it hangs beside the silhouette instead of bisecting it.
-          hand: { bone: 'HandR', pos: [0, -0.055, 0.015], rot: [-8, 0, -10] },
+          hand: { bone: 'HandR', pos: [0, -0.055, 0.015], rot: [20, -16, -49] },
           // planted, butt into the floor: Discharge Strike's chamber and the
           // taunt both lean on it
           planted: { bone: 'HandR', pos: [0, -0.055, 0.015], rot: [-172, 0, -8] },

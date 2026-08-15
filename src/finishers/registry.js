@@ -413,7 +413,7 @@ export const FINISHERS_BY_PICK = {
       // Inventory Curse is a wardrobe he changes weapons out of mid-fight.
       // First tool out is the Playful Cloud.
       {
-        win: 'drawCloud', op: 'fGuardUp', span: 0.80, shot: S.handWin({ d: 1.1 }),
+        win: 'drawCloud', op: 'fGuardUp', span: 0.80, shot: two({ d: 2.6, side: 1, y: 1.42, fov: 38, push: 0.4 }), dofBase: 0.5,
         fx: d => {
           d.win.model.attachProp?.('playful_cloud', 'hand');
           d.win.model.attachProp?.('curse', 'hand');
@@ -430,8 +430,8 @@ export const FINISHERS_BY_PICK = {
       // 天逆鉾 comes out of the inventory curse — the SPEAR, named, in shot, and
       // held point-up in a reverse grip because that is how he carries it
       {
-        win: 'arsenal', op: 'fGuardUp', span: 1.05, shot: closeOn('win', 'HandR', { d: 0.95, side: 0.6, fov: 32 }),
-        dofBase: 0.9,
+        win: 'arsenal', op: 'fGuardUp', span: 1.05, shot: two({ d: 2.3, side: -1, y: 1.45, fov: 36, push: 0.35 }),
+        dofBase: 0.55,
         fx: d => {
           // and he changes weapon MID-FIGHT, which is the whole point of the
           // curse: the cloud goes back in and the spear comes out
