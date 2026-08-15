@@ -57,7 +57,12 @@ const GIANT_MOVE = {
   fCleave: 'gBackhand', fOverhead: 'gSmash', fGrab: 'gSweep',
   rSnapHead: 'rgRock', rFoldGut: 'rgRock', rSpin: 'rgRock', rLaunch: 'rgKneel',
   rSlam: 'rgKneel', rBlockPush: 'rgRock', rStagger: 'rgRock',
-  rFinish: 'rgKneel', rFall: 'rgTopple'
+  rFinish: 'rgKneel', rFall: 'rgTopple',
+  // the authored deaths. Nothing that size gets thrown across a street or
+  // corkscrewed by a punch, so every one of them resolves to the same kneel —
+  // what differs on a giant is the FX and the shot, not the physics.
+  rThroat: 'rgKneel', rSplit: 'rgKneel', rBurn: 'rgKneel', rCrumple: 'rgKneel',
+  rBlownBack: 'rgKneel', rTorque: 'rgKneel', rKneel: 'rgKneel', rKneelFall: 'rgTopple'
 };
 
 function sizedMove(f, name) {
