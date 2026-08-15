@@ -550,7 +550,14 @@ export class Finishers {
         a.hold = Math.max(a.hold, HITSTOP * 0.5 * power);
         a.overlay.impact(0.08);
       }
-      if (act.onContact) { try { act.onContact(this._ctx(a), at); } catch (e) { } }
+      // A THROW HERE IS AN AUTHORING BUG, not a runtime condition — a wrong FX
+      // name or a bad argument — and swallowing it silently meant a finisher
+      // could lose its entire impact effect with nothing anywhere saying so.
+      // It still must not take the cinematic down, so it is caught and LOUD.
+      if (act.onContact) {
+        try { act.onContact(this._ctx(a), at); }
+        catch (e) { console.warn('[finisher] onContact failed', a.def.id, e); }
+      }
       return;
     }
 
@@ -575,7 +582,10 @@ export class Finishers {
     a.mark.set(victim, to);
     this._tween(a, victim, to, a.t, a.t + 0.10 + power * 0.16, 'out');
 
-    if (act.onContact) { try { act.onContact(this._ctx(a), at); } catch (e) { } }
+    if (act.onContact) {
+      try { act.onContact(this._ctx(a), at); }
+      catch (e) { console.warn('[finisher] onContact failed', a.def.id, e); }
+    }
   }
 
   // Where the blow actually connects, in world space — used for the spark, the
@@ -706,6 +716,27 @@ export class Finishers {
     // the bodies are now posed for this frame — so this is the honest moment to
     // ask whether anything has landed
     if (dt > 0) this._fireContacts(a);
+
+    // ---- AMBIENCE ---------------------------------------------------------
+    // An optional per-frame hook on the finisher itself, for the effects that
+    // are a STATE rather than an event: Jogo steaming for the whole scene and
+    // the body he set alight still burning three actions later, the arcs
+    // coming off Kashimo between his own strikes. Everything else in this
+    // feature fires on a beat, and a technique that only exists on beats reads
+    // as a character who switches their power on twice and off again.
+    //
+    // THROTTLED, deliberately. Called at ~11 Hz rather than per frame, because
+    // every one of these spawns particles and a finisher that spawns them 60
+    // times a second is a finisher that drops frames on the hardware this game
+    // is built to run on.
+    if (a.def.ambient && dt > 0) {
+      a.ambT = (a.ambT || 0) + dt;
+      if (a.ambT >= 0.09) {
+        a.ambT = 0;
+        try { a.def.ambient(this._ctx(a), a.t); }
+        catch (e) { console.warn('[finisher] ambient failed', a.def.id, e); }
+      }
+    }
 
     // THE CAMERA. One shot per action, cut hard, with its own shake.
     const u = act ? clamp((a.t - act.t0) / act.span, 0, 1) : 0;

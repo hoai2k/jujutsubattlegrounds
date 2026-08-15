@@ -1201,6 +1201,122 @@ export class FXSystem {
     this._ring(pos.clone().setY(0.1), 0xffe8c0, { size: 0.6, growRate: 18, life: 0.5 });
   }
 
+  // =========================================================================
+  // FINISHER-GRADE EFFECTS
+  // -------------------------------------------------------------------------
+  // A finisher holds on one technique for a second and a half with the camera
+  // a metre away from it, which is a completely different exposure from the
+  // same technique going off in a fight at four metres and 60 frames a second.
+  // The gameplay effects above are tuned for the second case and read as thin
+  // when a cinematic sits on them; these are built for the first — layered,
+  // longer-lived, and expensive enough that nothing should fire one per frame.
+  //
+  // All of them are composed from the same two primitives as everything else
+  // in this file (`_spawn` and `_ring`), so they cost what a normal effect
+  // costs, and they inherit the pooled update for free.
+  // =========================================================================
+
+  // A BODY ON FIRE. Flames licking UP the silhouette rather than a fireball
+  // in front of it: the particles are seeded along the body's own height, they
+  // rise, and they narrow as they go, which is what separates "burning" from
+  // "standing in an explosion". Jogo does not knock people down — he cooks
+  // them, and until this existed there was no way to show it.
+  bodyBurn(fighter, k = 1, opts = {}) {
+    const g = fighter.model.group;
+    const H = (fighter.model.H ?? 1.8) * (g.scale.y || 1);
+    const n = Math.round(10 * k);
+    for (let i = 0; i < n; i++) {
+      const u = rand(0.05, 0.95);                     // where up the body
+      const r = (0.16 + 0.12 * (1 - u)) * H;          // wider at the feet
+      const a = rand(0, Math.PI * 2);
+      this._spawn(v3(g.position.x + Math.cos(a) * r, g.position.y + u * H, g.position.z + Math.sin(a) * r), {
+        color: u > 0.7 ? 0xffd98f : (i % 3 ? 0xff7a2f : 0xff4a1f),
+        size: rand(0.14, 0.34) * (1.2 - u * 0.5) * H / 1.8,
+        life: rand(0.35, 0.8),
+        vel: v3(rand(-0.4, 0.4), rand(1.6, 3.6), rand(-0.4, 0.4)),
+        gravity: -1.6,                                 // fire ACCELERATES upward
+        grow: -0.25
+      });
+    }
+    // embers that outlive the flame and fall
+    for (let i = 0; i < Math.round(4 * k); i++) {
+      this._spawn(v3(g.position.x + rand(-0.4, 0.4), g.position.y + rand(0.3, 1.4) * H / 1.8, g.position.z + rand(-0.4, 0.4)), {
+        color: 0xffb03c, size: rand(0.05, 0.12), life: rand(0.7, 1.4),
+        vel: v3(rand(-1.2, 1.2), rand(1, 3), rand(-1.2, 1.2)), gravity: 5
+      });
+    }
+    if (opts.ground !== false) {
+      this._ring(v3(g.position.x, 0.05, g.position.z), 0xff5a1f,
+        { size: 0.5 * k, growRate: 1.6, life: 0.5 });
+    }
+  }
+
+  // THE GROUND REMEMBERS IT. A scorch left where something enormous landed:
+  // a dark scar, a hot rim, and smoke coming off it. Draws once and lingers.
+  scorch(pos, radius = 2, color = 0xff5a1f) {
+    const at = pos.clone().setY(0.05);
+    this._ring(at, 0x140a06, { size: radius * 0.6, growRate: 0.5, life: 1.6 });
+    this._ring(at, color, { size: radius * 0.42, growRate: 1.4, life: 1.1 });
+    for (let i = 0; i < 14; i++) {
+      const a = rand(0, Math.PI * 2), d = rand(0.2, radius);
+      this._spawn(v3(at.x + Math.cos(a) * d, 0.1, at.z + Math.sin(a) * d), {
+        color: i % 3 ? 0x3a3a44 : 0x6a5a4a, size: rand(0.3, 0.8), life: rand(0.9, 1.8),
+        vel: v3(rand(-0.3, 0.3), rand(0.4, 1.2), rand(-0.3, 0.3)), gravity: -0.4, grow: 0.7
+      });
+    }
+  }
+
+  // THE HIT THAT ENDS IT. Three rings on three different clocks plus a shard
+  // burst — one ring reads as a spark, three read as an event. Every finisher
+  // used to hand-roll its own stack of `_ring` calls with slightly different
+  // numbers; this is that stack, authored once, in the finisher's own colour.
+  impactBloom(pos, color, k = 1) {
+    this._ring(pos, 0xffffff, { size: 0.12 * k, growRate: 34 * k, life: 0.22, flat: false });
+    this._ring(pos, color, { size: 0.30 * k, growRate: 20 * k, life: 0.45, flat: false });
+    this._ring(pos, 0x0a0a10, { size: 0.55 * k, growRate: 12 * k, life: 0.55, flat: false });
+    const flash = this._spawn(pos, { color: 0xffffff, size: 0.7 * k, life: 0.12, vel: v3(), grow: 6 * k });
+    flash.mesh.quaternion.copy(this.camera.quaternion);
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + rand(-0.2, 0.2);
+      this._spawn(pos, {
+        color: i % 4 ? color : 0xffffff, size: rand(0.1, 0.3) * k, aspect: 0.35,
+        life: rand(0.25, 0.6),
+        vel: v3(Math.cos(a) * rand(4, 11) * k, rand(-2, 6), Math.sin(a) * rand(4, 11) * k),
+        gravity: 7
+      });
+    }
+  }
+
+  // CHARGE. Energy pulled INWARD to a point — the opposite of every other
+  // effect in this file, and the reason a wind-up reads as a wind-up. The
+  // particles are spawned out at the radius and given a velocity aimed back at
+  // the centre, so they converge and arrive together.
+  techCharge(at, color, k = 1) {
+    for (let i = 0; i < Math.round(16 * k); i++) {
+      const a = rand(0, Math.PI * 2), e = rand(-0.7, 0.9), d = rand(1.1, 2.6) * k;
+      const p = v3(at.x + Math.cos(a) * d, at.y + e * d * 0.7, at.z + Math.sin(a) * d);
+      const life = rand(0.25, 0.5);
+      this._spawn(p, {
+        color, size: rand(0.08, 0.2), life,
+        vel: v3((at.x - p.x) / life, (at.y - p.y) / life, (at.z - p.z) / life)
+      });
+    }
+    this._ring(at, color, { size: 1.5 * k, growRate: -2.6 * k, life: 0.5, flat: false });
+  }
+
+  // FLOOR COMING UP. Chunks thrown off the deck by something that landed on
+  // it — the cheap, universal way to say "that had weight".
+  debris(pos, n = 12, color = 0x6b6f78) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2);
+      this._spawn(v3(pos.x + Math.cos(a) * rand(0.2, 1.2), 0.15, pos.z + Math.sin(a) * rand(0.2, 1.2)), {
+        color, size: rand(0.12, 0.4), life: rand(0.5, 1.1),
+        vel: v3(Math.cos(a) * rand(1.5, 5), rand(3, 8), Math.sin(a) * rand(1.5, 5)),
+        gravity: 14, spin: rand(-6, 6)
+      });
+    }
+  }
+
   update(dt) {
     for (let i = this.parts.length - 1; i >= 0; i--) {
       const p = this.parts[i];

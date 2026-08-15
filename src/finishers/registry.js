@@ -78,7 +78,18 @@ export const FINISHERS_BY_PICK = {
       { op: 'fHook', strike: 'op', hit: false, miss: true, win: 'fStepThrough', shot: S.dollyL(), speed: 1.1 },
       // one jab, on the 24-frame grid, and it lands
       { op: 'fBodyRip', strike: 'op', hit: true, react: 'rFoldGut', win: null, shot: S.otsWin(), power: 1.0, knock: 0.5 },
-      { win: 'fJab', strike: 'win', hit: true, react: 'rSnapHead', op: 'fGuardUp', shot: S.hitR(), speed: 1.15 },
+      // 投射呪法. He stops being where he was: six positions inside a quarter
+      // of a second, an afterimage standing in every one of them, and one of
+      // them arrives on their jaw. This is the technique, not a punch.
+      {
+        win: 'rush', strike: 'win', blast: { at: 0.26, aim: 'head', power: 1.3, kind: 'punch' }, hit: true, react: 'rSnapHead', op: 'fGuardUp',
+        span: 0.95, speed: 1.15, power: 1.3, knock: 0.9, shot: S.dollyR(), impact: 0.12,
+        fx: d => { d.fx.dashTrail(d.win); d.fx.dashTrail(d.win); },
+        onContact: (d, at) => {
+          d.fx.warpBlink(d.win.pos.clone(), at.clone(), 0xe8c85a);
+          d.fx.impactBloom(at, 0xe8c85a, 0.7);
+        }
+      },
       // THE MOMENT. A roundhouse goes past his head and he is fixing his hair.
       {
         win: 'naoyaBrush', op: 'fRound', strike: 'op', hit: false, miss: true, span: 1.45,
@@ -92,8 +103,9 @@ export const FINISHERS_BY_PICK = {
         win: 'framekick', strike: 'win', contact: { bone: 'FootL', at: 0.27, aim: 'head', reach: 0.16, power: 1.9, kind: 'kick', blade: 85 }, hit: true, react: 'rBlownBack', op: 'fGuardUp',
         span: 0.95, power: 1.9, knock: 3.0, shot: S.bigHit(), sting: true, impact: 0.2, flash: 0.5,
         onContact: (d, at) => {
-          d.fx._ring(at, 0xe8c85a, { size: 0.4, growRate: 16, life: 0.4, flat: false });
+          d.fx.impactBloom(at, 0xe8c85a, 1.4);
           d.fx.warpBlink?.(d.win.pos.clone(), at.clone(), 0xe8c85a);
+          d.fx.debris(d.lose.pos.clone(), 10);
           d.sfx.frameKick?.();
         }
       },
@@ -134,7 +146,18 @@ export const FINISHERS_BY_PICK = {
         power: 1.4, knock: 1.4, shot: S.hitR(), snd: 'red', impact: 0.14,
         fx: d => d.fx.redBlast(d.win, 4)
       },
-      { op: 'fHook', strike: 'op', hit: false, miss: true, win: 'fSlip', shot: S.otsLose() },
+      // 蒼. The other one does not push — it PULLS, and they come off their
+      // feet toward the hand rather than away from it. Negative knock is the
+      // whole point of the technique and nothing else in the game does it.
+      {
+        win: 'ct2', strike: 'win', blast: { at: 0.30, aim: 'chest', power: 1.3, kind: 'blast' }, hit: true, react: 'rFoldGut', op: 'fGuardUp', span: 1.0,
+        power: 1.3, knock: -1.4, shot: S.midL(), impact: 0.14,
+        fx: d => { d.sfx.blue?.(); d.fx.blueOrb(d.bone(d.win, 'HandL')); },
+        onContact: (d, at) => {
+          d.fx.techCharge(d.bone(d.win, 'HandL'), 0x66b8ff, 1.4);
+          d.fx.impactBloom(at, 0x66b8ff, 0.9);
+        }
+      },
       // BOTH HANDS OUT. Red in one, blue in the other, held apart long enough
       // to read as two different things — the shot is the two hands, not him.
       {
@@ -162,7 +185,9 @@ export const FINISHERS_BY_PICK = {
         fx: d => d.sfx.purple(),
         onContact: (d, at) => {
           d.fx.purpleBeam(d.bone(d.win, 'HandR'), d.dir());
-          d.fx._ring(at, 0xb47fff, { size: 0.6, growRate: 26, life: 0.6, flat: false });
+          d.fx.impactBloom(at, 0xb47fff, 2.0);
+          d.fx.debris(d.lose.pos.clone(), 24, 0xb47fff);
+          d.fx.scorch(d.lose.pos.clone(), 4.0, 0xb47fff);
           d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.5), 5.5, 150, { kind: 'body' });
         }
       },
@@ -201,7 +226,7 @@ export const FINISHERS_BY_PICK = {
         power: 2.0, knock: 3.6, shot: closeOn('lose', 'Chest', { d: 1.3, side: -0.7, fov: 44 }),
         sting: true, impact: 0.24, flash: 0.9, snd: 'red',
         fx: d => d.fx.redBlast(d.win, 3.4),
-        onContact: (d, at) => d.fx._ring(at, 0xff5a4a, { size: 0.34, growRate: 24, life: 0.45, flat: false })
+        onContact: (d, at) => { d.fx.impactBloom(at, 0xff5a4a, 1.5); d.fx.debris(d.lose.pos.clone(), 14); }
       },
       ...OUTRO('idle', {
         fallShot: S.wideR(), heroClip: 'gojoPockets', heroSpan: 1.4,
@@ -231,10 +256,12 @@ export const FINISHERS_BY_PICK = {
         shot: S.lowL(1.5), span: 0.95,
         onContact: d => d.audio.accent(220, { gain: 0.1 })
       },
-      // one hand, and they leave the ground
+      // and then one cut, thrown without looking, that opens them up
       {
-        win: 'fPalm', strike: 'win', hit: true, react: 'rLaunch', op: 'fGuardUp',
-        power: 1.5, knock: 1.6, shot: S.hitR(), impact: 0.14
+        win: 'ct1', strike: 'win', blast: { at: 0.26, aim: 'chest', power: 1.5, kind: 'blade' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 0.95,
+        power: 1.5, knock: 1.2, shot: S.hitR(), impact: 0.14,
+        fx: d => { d.fx.dismantleSlash(d.win, d.dir(), 5, 1.1); d.sfx.dismantle(); },
+        onContact: (d, at) => { d.fx.cleaveCut?.(d.win, d.lose, 0.5); d.fx.impactBloom(at, 0xff2f45, 0.8); }
       },
       // the head tilt. Four eyes, and no interest at all.
       {
@@ -249,7 +276,13 @@ export const FINISHERS_BY_PICK = {
         power: 2.0, knock: 0.35, shot: closeOn('win', 'HandR', { d: 1.1, side: -0.6, fov: 38, lead: 0.12 }),
         sting: true, impact: 0.24, flash: 0.55, reactSpeed: 0.85,
         fx: d => { d.fx.dismantleSlash(d.win, d.dir(), 6, 1.4); d.sfx.dismantle(); },
-        onContact: (d, at) => { d.fx.cleaveCut?.(d.win, d.lose, 0.7); d.fx._ring(at, 0xff2f45, { size: 0.3, growRate: 20, life: 0.35, flat: false }); }
+        onContact: (d, at) => {
+          // the cut lands as a LATTICE — Dismantle is not one line
+          d.fx.cleaveCut?.(d.win, d.lose, 0.7);
+          d.fx.dismantleSlash(d.win, d.dir(), 6, 2.2);
+          d.fx.impactBloom(at, 0xff2f45, 1.5);
+          d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.5), 5, 140, { kind: 'body' });
+        }
       },
       // he never came out of the fold, so that is what he is left standing in
       ...OUTRO('sukunaFold', {
@@ -273,11 +306,23 @@ export const FINISHERS_BY_PICK = {
     actions: [
       { op: 'fCross', strike: 'op', hit: false, win: 'fGuardUp', shot: S.lowR(), power: 1.0 },
       { op: 'fKnee', strike: 'op', hit: true, react: 'rFoldGut', win: 'fGuardUp', shot: S.otsWin(), power: 0.8, knock: 0.4 },
-      { win: 'fUpper', strike: 'win', hit: true, react: 'rLaunch', op: 'fGuardUp', shot: S.hitL(), power: 1.4, knock: 1.2 },
+      // the vessel's hands still cut. Two of them, crossed, off one wrist.
+      {
+        win: 'ct1', strike: 'win', blast: { at: 0.26, aim: 'chest', power: 1.4, kind: 'blade' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 0.95,
+        power: 1.4, knock: 1.1, shot: S.hitL(), impact: 0.12,
+        fx: d => { d.fx.dismantleSlash(d.win, d.dir(), 5, 1.2); d.sfx.dismantle(); },
+        onContact: (d, at) => d.fx.impactBloom(at, 0xff2f45, 0.8)
+      },
       { op: 'fCross', strike: 'op', hit: false, miss: true, win: 'fStepThrough', shot: S.dollyR() },
+      // 伏魔御廚子. The arms cross, and everything inside the radius is
+      // already inside the technique — there is no barrier to put up.
       {
         win: 'sukunaShrine', op: 'fGuardUp', span: 1.3, shot: S.lowR(1.7), dofBase: 0.3,
-        fx: d => { d.sfx.domainCast?.(); d.audio.accent(146, { gain: 0.12, dur: 1.1 }); }
+        fx: d => {
+          d.sfx.domainCast?.(); d.audio.accent(146, { gain: 0.12, dur: 1.1 });
+          d.fx.techCharge(d.win.pos.clone().setY(d.win.pos.y + 1.3), 0xff2f45, 1.8);
+          d.fx.buffAura(d.win, 3, 0xff2f45);
+        }
       },
       {
         win: 'sukunaShrine', strike: 'win', blast: { at: 0.60, aim: 'chest', power: 2.0, kind: 'blade' }, hit: true, react: 'rSplit', op: 'fGuardUp', span: 1.05,
@@ -289,6 +334,8 @@ export const FINISHERS_BY_PICK = {
           d.fx.shrineSlash(at, 1.0, false);
           d.fx.shrineSlash(at.clone().setY(at.y - 0.6), 0.9, true);
           d.fx.shrineSlash(at.clone().setY(at.y - 1.1), 0.7, false);
+          d.fx.impactBloom(at, 0xff2f45, 1.6);
+          d.fx.debris(d.lose.pos.clone(), 18);
           d.sfx.shrineSlash();
           d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.4), 4.0, 110, { kind: 'body' });
         }
@@ -312,7 +359,15 @@ export const FINISHERS_BY_PICK = {
     actions: [
       { op: 'fHook', strike: 'op', hit: false, win: 'fParry', shot: S.lowL(), power: 1.0 },
       { op: 'fCross', strike: 'op', hit: true, react: 'rSnapHead', win: 'fGuardUp', shot: S.otsWin(), power: 0.9, knock: 0.5 },
-      { win: 'fCross', strike: 'win', hit: true, react: 'rSpin', op: 'fGuardUp', shot: S.hitR(), power: 1.3 },
+      // he counts the fingers he has eaten, and the count is the threat
+      {
+        win: 'finger', op: 'fGuardUp', span: 1.0, shot: S.handWin({ d: 1.05 }), dofBase: 0.85,
+        fx: d => {
+          d.fx.fingerFlare?.(d.win, 4); d.sfx.fingerEat?.();
+          d.fx.techCharge(d.bone(d.win, 'HandR'), 0xff2f45, 1.1);
+          d.audio.accent(233, { gain: 0.1, dur: 0.9 });
+        }
+      },
       { op: 'fRound', strike: 'op', hit: false, miss: true, win: 'fDuck', shot: S.midL() },
       // the palm comes up and the light in the scene changes
       {
@@ -326,7 +381,9 @@ export const FINISHERS_BY_PICK = {
         onContact: (d, at) => {
           d.fx.fireArrowBeam(d.win, d.dir(), 18, 1.5);
           d.fx.eruptionBlast(d.lose.pos.clone(), 3.0);
-          d.fx._ring(at, 0xff7a2f, { size: 0.7, growRate: 26, life: 0.6, flat: false });
+          d.fx.impactBloom(at, 0xff7a2f, 1.8);
+          d.fx.bodyBurn(d.lose, 1.8);
+          d.fx.scorch(d.lose.pos.clone(), 4.2);
           d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.4), 6.0, 160, { kind: 'body' });
         }
       },
@@ -352,8 +409,23 @@ export const FINISHERS_BY_PICK = {
       { op: 'fCross', strike: 'op', hit: false, miss: true, win: 'tojiBored', shot: S.faceWin({ d: 1.3 }), dofBase: 0.85, span: 1.2 },
       { op: 'fHook', strike: 'op', hit: true, react: 'rSnapHead', win: null, shot: S.otsWin(), power: 0.9, knock: 0.4 },
       { op: 'fCross', strike: 'op', hit: false, win: 'fCatch', shot: S.otsLose(), power: 0.9 },
-      // and he hits them ONCE, in the body, and it is not a technique
-      { win: 'fBodyRip', strike: 'win', hit: true, react: 'rFoldGut', op: 'fGuardUp', shot: S.hitL(), power: 1.2 },
+      // HE HAS NO CURSED ENERGY, so his technique is the arsenal — and the
+      // Inventory Curse is a wardrobe he changes weapons out of mid-fight.
+      // First tool out is the Playful Cloud.
+      {
+        win: 'drawCloud', op: 'fGuardUp', span: 0.80, shot: S.handWin({ d: 1.1 }),
+        fx: d => {
+          d.win.model.attachProp?.('playful_cloud', 'hand');
+          d.win.model.attachProp?.('curse', 'hand');
+          d.sfx.swordGrab?.(); d.audio.accent(147, { gain: 0.08 });
+        }
+      },
+      {
+        win: 'ct1Cloud', strike: 'win', blast: { at: 0.32, aim: 'chest', power: 1.5, kind: 'blade' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.0,
+        power: 1.5, knock: 1.3, shot: S.hitL(), impact: 0.14,
+        fx: d => d.sfx.swordSwing?.(),
+        onContact: (d, at) => d.fx.impactBloom(at, 0x6ea88a, 0.8)
+      },
       { op: 'fKnee', strike: 'op', hit: false, miss: true, win: 'fStepThrough', shot: S.dollyL() },
       // 天逆鉾 comes out of the inventory curse — the SPEAR, named, in shot, and
       // held point-up in a reverse grip because that is how he carries it
@@ -361,9 +433,12 @@ export const FINISHERS_BY_PICK = {
         win: 'arsenal', op: 'fGuardUp', span: 1.05, shot: closeOn('win', 'HandR', { d: 0.95, side: 0.6, fov: 32 }),
         dofBase: 0.9,
         fx: d => {
+          // and he changes weapon MID-FIGHT, which is the whole point of the
+          // curse: the cloud goes back in and the spear comes out
           d.win.model.attachProp?.('inverted_spear', 'hand');
           d.win.model.attachProp?.('playful_cloud', 'away');
           d.win.model.attachProp?.('split_soul', 'away');
+          d.win.model.attachProp?.('curse', 'away');
           d.sfx.swordGrab(); d.audio.accent(196, { gain: 0.09 });
         }
       },
@@ -380,6 +455,9 @@ export const FINISHERS_BY_PICK = {
         power: 2.0, knock: 0.15, shot: two({ d: 3.05, side: -1, y: 1.5, fov: 40, push: 0.55 }),
         sting: true, impact: 0.26, flash: 0.3, snd2: 'blade', reactSpeed: 0.9,
         onContact: (d, at) => {
+          // no bloom on this one. A weapon going into a throat is quiet, and
+          // the restraint is the character — everything else in the roster
+          // gets a light show and Toji gets a ring and a sound.
           d.fx.executionThrust(d.win);
           d.fx._ring(at, 0x9fd8bd, { size: 0.16, growRate: 5, life: 0.55, flat: false });
           d.sfx.swordSwing?.();
@@ -415,13 +493,30 @@ export const FINISHERS_BY_PICK = {
     actions: [
       { op: 'fCross', strike: 'op', hit: false, win: 'fGuardUp', shot: S.lowR(), power: 1.1 },
       { op: 'fRound', strike: 'op', hit: true, react: 'rBlockPush', win: 'fGuardUp', shot: S.otsWin(), power: 1.2, knock: 0.7 },
-      // the blunt sword, once, across the body
-      { win: 'fCleave', strike: 'win', hit: true, react: 'rSpin', op: 'fGuardUp', shot: S.hitL(), power: 1.4, fx: d => { d.fx.cleaveArc(d.win, false); d.sfx.cleave(false); } },
+      // the blunt sword, once, across the body — his own technique clip, on
+      // the ratio, not a library swing
+      {
+        win: 'ct1', strike: 'win', blast: { at: 0.30, aim: 'chest', power: 1.4, kind: 'blade' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 0.95,
+        power: 1.4, knock: 0.9, shot: S.hitL(), impact: 0.12,
+        fx: d => { d.fx.cleaveArc(d.win, false); d.sfx.cleave(false); },
+        onContact: (d, at) => { d.fx.ratioStrike(at, 1); d.fx.impactBloom(at, 0xf2b23c, 0.7); }
+      },
       { op: 'fHook', strike: 'op', hit: false, miss: true, win: 'fDuck', shot: S.midR() },
       // THE WATCH. He looks at it while they are still coming.
       {
         win: 'nanamiWatch', op: 'fGuardUp', span: 1.3, shot: closeOn('win', 'HandL', { d: 1.0, side: 0.5, fov: 34 }),
         dofBase: 0.95, fx: d => d.audio.accent(660, { gain: 0.07, dur: 0.7 })
+      },
+      // OVERTIME. He decides this counts as after hours, and a tired man
+      // stops being tired — the aura is the technique, and it is the only
+      // moment in the character where he spends anything on himself.
+      {
+        win: 'ult', op: 'fGuardUp', span: 1.05, shot: S.lowR(1.5), dofBase: 0.35, flash: 0.3,
+        fx: d => {
+          d.fx.overtimeAura(d.win, 4); d.fx.buffAura(d.win, 3, 0xf2b23c);
+          d.fx.techCharge(d.win.pos.clone().setY(d.win.pos.y + 1.1), 0xf2b23c, 1.5);
+          d.sfx.overtime?.(); d.audio.accent(392, { gain: 0.12, dur: 1.0 });
+        }
       },
       // 7:3 — down, and it STOPS on the line. A cut to a mark, not a swing.
       {
@@ -433,6 +528,7 @@ export const FINISHERS_BY_PICK = {
         onContact: (d, at) => {
           d.fx.ratioStrike(at, 3); d.fx.ratioMark?.(at); d.sfx.ratioChime();
           d.fx.cleaveCut?.(d.win, d.lose, 0.8);
+          d.fx.impactBloom(at, 0xf2b23c, 1.5);
         }
       },
       // and he checks the time again, because the overtime is still running
@@ -457,8 +553,17 @@ export const FINISHERS_BY_PICK = {
       // it lands on him and he keeps coming
       { op: 'fCross', strike: 'op', hit: true, react: 'rSnapHead', win: 'fGuardUp', shot: S.lowR(), power: 1.2, knock: 0.6 },
       { op: 'fHook', strike: 'op', hit: false, win: 'fParry', shot: S.otsWin(), power: 1.0 },
-      { win: 'fJab', strike: 'win', hit: true, react: 'rSnapHead', op: 'fGuardUp', shot: S.hitR(), speed: 1.15, fx: d => d.fx.divergentJab(d.win) },
-      { win: 'fBodyRip', strike: 'win', hit: true, react: 'rFoldGut', op: 'fGuardUp', shot: S.midL(), power: 1.1 },
+      // 逕庭拳 — the divergent fist. The blow lands, and then it lands AGAIN
+      // a beat later, which is the technique he has before he has Black Flash.
+      {
+        win: 'ct1', strike: 'win', blast: { at: 0.24, aim: 'chest', power: 1.2, kind: 'punch' }, hit: true, react: 'rFoldGut', op: 'fGuardUp', span: 1.0,
+        power: 1.2, knock: 0.8, shot: S.hitR(), speed: 1.1, impact: 0.12,
+        fx: d => d.fx.divergentJab(d.win),
+        onContact: (d, at) => {
+          d.fx.impactBloom(at, 0xff5f74, 0.6);
+          d.fx.divergentJab(d.win);          // the second impact, on a delay
+        }
+      },
       { op: 'fKnee', strike: 'op', hit: false, miss: true, win: 'fDuck', shot: S.dollyR() },
       // the coil. Everything goes quiet.
       {
@@ -478,8 +583,9 @@ export const FINISHERS_BY_PICK = {
           // the black core first, then the red, then the lattice — in that
           // order, because that is the order the frame reads in
           d.fx._ring(at, 0x1a0a12, { size: 0.5, growRate: 14, life: 0.4, flat: false });
-          d.fx._ring(at, 0xff2d3c, { size: 0.3, growRate: 26, life: 0.5, flat: false });
+          d.fx.impactBloom(at, 0xff2d3c, 1.7);
           d.fx._ring(at, 0xffd7dd, { size: 0.14, growRate: 34, life: 0.3, flat: false });
+          d.fx.debris(d.lose.pos.clone(), 16);
           d.sfx.blackFlash();
           d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.5), 3.5, 100, { kind: 'body' });
         }
@@ -527,8 +633,9 @@ export const FINISHERS_BY_PICK = {
         power: 2.0, knock: 3.4, shot: S.lowR(1.3), sting: true, impact: 0.30, flash: 1.0, impactFrame: 0.24,
         onContact: (d, at) => {
           d.fx._ring(at, 0x1a0a12, { size: 0.6, growRate: 16, life: 0.4, flat: false });
-          d.fx._ring(at, 0xff2d3c, { size: 0.3, growRate: 30, life: 0.5, flat: false });
+          d.fx.impactBloom(at, 0xff2d3c, 1.7);
           d.fx.ceShockwave(d.win, 4);
+          d.fx.debris(d.lose.pos.clone(), 16);
           d.sfx.blackFlash();
         }
       },
@@ -563,7 +670,24 @@ export const FINISHERS_BY_PICK = {
         win: 'todoGrin', op: 'fHook', strike: 'op', hit: false, miss: true, span: 1.3,
         shot: S.lowR(1.7), fx: d => d.audio.accent(523, { gain: 0.1, dur: 0.8 })
       },
-      { win: 'fGrab', strike: 'win', hit: true, react: 'rSnapHead', op: 'fGuardUp', shot: S.otsWin(), power: 0.5, knock: -0.35 },
+      // BROTHERHOOD. Not one swap — five, around a body that has stopped
+      // being able to guess which side the next one is coming from.
+      {
+        win: 'ult', strike: 'win', blast: { at: 0.42, aim: 'chest', power: 1.4, kind: 'punch' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.15,
+        power: 1.4, knock: 0.6, shot: S.dollyL(), impact: 0.14,
+        fx: d => {
+          d.sfx.clap();
+          const c = d.lose.pos.clone();
+          for (let i = 0; i < 5; i++) {
+            const a = i * 1.257;
+            d.fx.boogieSwap(
+              c.clone().add({ x: Math.cos(a) * 2.2, y: 0, z: Math.sin(a) * 2.2 }),
+              c.clone().add({ x: Math.cos(a + 2.4) * 2.2, y: 0, z: Math.sin(a + 2.4) * 2.2 }),
+              0xff5fc8);
+          }
+        },
+        onContact: (d, at) => { d.fx.impactBloom(at, 0xff5fc8, 1.0); d.fx.ceShockwave(d.win, 3.5); }
+      },
       // A SECOND CLAP, and the palm arrives from the side they stopped
       // watching. The swap is the attack; the hand is just where it lands.
       {
@@ -574,7 +698,8 @@ export const FINISHERS_BY_PICK = {
         fx: d => { d.sfx.clap(); d.fx.boogieSwap(d.win.pos.clone(), d.lose.pos.clone(), 0xff5fc8); },
         onContact: (d, at) => {
           d.fx.ceShockwave(d.win, 5); d.sfx.ceSmash?.();
-          d.fx._ring(at, 0xff5fc8, { size: 0.5, growRate: 24, life: 0.5, flat: false });
+          d.fx.impactBloom(at, 0xff5fc8, 1.5);
+          d.fx.debris(d.lose.pos.clone(), 18, 0xff5fc8);
         }
       },
       // arms wide, head back, absolutely delighted with himself
@@ -595,39 +720,96 @@ export const FINISHERS_BY_PICK = {
     id: 'jogo_meteor',
     moment: 'Maximum: Meteor — the last stand against Sukuna.',
     color: '#ff5a1f', grade: 'volcano', chord: 'brutal', root: 138.59,
+    // HE IS A VOLCANO FOR THE WHOLE SCENE, not only on the beats he attacks
+    // on — and what he sets alight stays alight. The gate is the time of his
+    // first fire beat: before it they are simply fighting, after it there is a
+    // man on fire in every subsequent shot, including the ones he is losing.
+    ambient: (d, t) => {
+      d.fx.bodyBurn(d.win, 0.30, { ground: false });
+      if (t > 1.4) d.fx.bodyBurn(d.lose, 0.45, { ground: t > 5 });
+    },
     actions: [
       // he is not a good fighter. He is a disaster, and he takes it badly.
       { op: 'fCross', strike: 'op', hit: true, react: 'rSnapHead', win: 'fGuardUp', shot: S.lowR(), power: 1.3, knock: 0.9 },
-      { op: 'fKnee', strike: 'op', hit: true, react: 'rFoldGut', win: 'fGuardUp', shot: S.otsWin(), power: 1.1, knock: 0.6 },
+      // SO HE STOPS TRYING TO FIGHT AND SETS THEM ON FIRE. He does not throw a
+      // punch in this finisher after the first exchange — he is a volcano, and
+      // the answer to everything is heat.
+      {
+        win: 'ct1', strike: 'win', blast: { at: 0.30, aim: 'chest', power: 1.3, kind: 'blast' }, hit: true, react: 'rBurn', op: 'fGuardUp', span: 1.0,
+        power: 1.3, knock: 1.0, shot: S.hitL(), impact: 0.12, reactSpeed: 1.4,
+        fx: d => d.sfx.erupt(),
+        onContact: (d, at) => {
+          d.fx.eruptionBlast(d.lose.pos.clone(), 2.2);
+          d.fx.bodyBurn(d.lose, 1.1);            // and now they are alight
+          d.fx.impactBloom(at, 0xff5a1f, 0.8);
+        }
+      },
+      // they are still burning while they close the distance and hit him
+      {
+        op: 'fKnee', strike: 'op', hit: true, react: 'rFoldGut', win: 'fGuardUp', shot: S.otsWin(), power: 1.1, knock: 0.6,
+        fx: d => d.fx.bodyBurn(d.lose, 0.7)
+      },
       // and the ground opens under them
       {
-        win: 'ct1', strike: 'win', blast: { at: 0.30, aim: 'gut', power: 1.4, kind: 'blast' }, hit: true, react: 'rLaunch', op: 'fGuardUp', span: 1.0,
-        power: 1.4, knock: 1.4, shot: S.hitL(), impact: 0.12,
-        fx: d => { d.fx.eruptionBlast(d.lose.pos.clone(), 2.2); d.sfx.erupt(); }
+        win: 'ct2', strike: 'win', blast: { at: 0.34, aim: 'gut', power: 1.5, kind: 'blast' }, hit: true, react: 'rLaunch', op: 'fGuardUp', span: 1.05,
+        power: 1.5, knock: 1.4, shot: S.lowL(1.6), impact: 0.14, flash: 0.4,
+        fx: d => { d.sfx.erupt(); d.fx.bodyBurn(d.lose, 0.8); },
+        onContact: d => {
+          d.fx.eruptionBlast(d.lose.pos.clone(), 3.4);
+          d.fx.scorch(d.lose.pos.clone(), 2.6);
+          d.fx.debris(d.lose.pos.clone(), 14, 0x5a3a26);
+          d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.4), 3.5, 90, { kind: 'body' });
+        }
       },
-      { win: 'overheat', op: 'fGuardUp', span: 0.9, shot: S.midL(), fx: d => d.sfx.overheat() },
+      // HIS OWN BODY GOES MOLTEN. Overheat is not a buff here, it is the
+      // character: the top of his head opens and the heat comes off him.
+      {
+        win: 'overheat', op: 'fGuardUp', span: 1.0, shot: S.faceWin({ d: 1.5, side: 0.6 }), dofBase: 0.8,
+        fx: d => {
+          d.sfx.overheat(); d.fx.bodyBurn(d.win, 1.4, { ground: false });
+          d.fx.buffAura(d.win, 3, 0xff5a1f); d.fx.bodyBurn(d.lose, 0.6);
+          d.audio.accent(87, { gain: 0.13, dur: 1.0 });
+        }
+      },
       // both arms up. He is calling it, not aiming it.
       {
         win: 'jogoMeteor', op: 'fCross', strike: 'op', hit: false, miss: true, span: 1.5,
-        shot: S.crane({ d: 5.4, top: 4.6 }), fx: d => { d.sfx.eruptPrime(); d.audio.accent(110, { gain: 0.14, dur: 1.3 }); }
+        shot: S.crane({ d: 5.4, top: 4.6 }),
+        fx: d => {
+          d.sfx.eruptPrime(); d.audio.accent(110, { gain: 0.14, dur: 1.3 });
+          // everything in the arena is pulled toward the point above his hands
+          d.fx.techCharge(d.win.pos.clone().setY(d.win.pos.y + 3.2), 0xff7a2f, 1.6);
+          d.fx.bodyBurn(d.win, 1.0, { ground: false });
+          d.fx.bodyBurn(d.lose, 0.6);
+        }
       },
       {
         win: 'jogoMeteor', strike: 'win', blast: { at: 1.20, aim: 'head', power: 2.0, kind: 'blast' }, hit: true, react: 'rSlam', op: 'fGuardUp', span: 1.2, speed: 0.9,
         power: 2.0, knock: 0.6, shot: S.crane({ d: 6.4, top: 5.2 }), sting: true, impact: 0.30, flash: 1.0,
         onContact: (d, at) => {
+          // A MOUNTAIN LANDS ON THEM. Four effects on four clocks: the fireball,
+          // the shockwave off the deck, the floor coming up, and the crater it
+          // is all standing in afterwards.
           d.fx.eruptionBlast(d.lose.pos.clone(), 5.5);
+          d.fx.impactBloom(at, 0xff7a2f, 1.8);
+          d.fx.debris(d.lose.pos.clone(), 26, 0x5a3a26);
+          d.fx.scorch(d.lose.pos.clone(), 4.5);
+          d.fx.bodyBurn(d.lose, 2.0);
           d.fx._ring(d.lose.pos.clone().setY(0.06), 0xff7a2f, { size: 1.2, growRate: 26, life: 0.7 });
           d.fx._ring(d.lose.pos.clone().setY(0.06), 0x2a1206, { size: 2.0, growRate: 18, life: 0.9 });
           d.sfx.erupt();
           d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.4), 6.5, 200, { kind: 'body' });
         }
       },
-      // it took everything he had and he is still standing in the crater
+      // it took everything he had, and the body is still burning in the crater
       ...OUTRO('idle', {
         fall: null,
         heroClip: 'overheat', heroSpan: 1.5, heroSpeed: 0.8,
         heroShot: S.hero({ d: 5.2, from: 0.5, sweep: 0.5, y: 0.35 }), heroDof: 0.3,
-        heroFx: d => { d.fx.eruptionBlast(d.lose.pos.clone(), 1.4); d.sfx.overheat?.(); }
+        heroFx: d => {
+          d.fx.bodyBurn(d.lose, 1.6); d.fx.bodyBurn(d.win, 0.8, { ground: false });
+          d.fx.eruptionBlast(d.lose.pos.clone(), 1.4); d.sfx.overheat?.();
+        }
       })
     ]
   },
@@ -645,6 +827,15 @@ export const FINISHERS_BY_PICK = {
       { op: 'fCross', strike: 'op', hit: true, react: 'rSnapHead', win: 'fGuardUp', shot: S.lowR(), power: 1.0, knock: 0.7 },
       // his head comes back round and the shape of it is wrong now
       { win: 'bwBlade', strike: 'win', blast: { at: 0.30, aim: 'chest', power: 1.2, kind: 'blade' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 0.9, shot: S.hitL(), power: 1.2, fx: d => d.sfx.bodyMorph(1) },
+      // and he sends something that used to be a person to do the fighting
+      {
+        win: 'summon', op: 'fGuardUp', span: 1.15, shot: S.lowR(1.6),
+        fx: d => {
+          d.sfx.bodyMorph?.(2); d.fx.soulGrasp(d.win);
+          d.fx.techCharge(d.win.pos.clone().setY(d.win.pos.y + 1.0), 0x9fb0c4, 1.2);
+          d.audio.accent(155, { gain: 0.11, dur: 1.0 });
+        }
+      },
       { op: 'fHook', strike: 'op', hit: false, win: 'fCatch', shot: S.otsLose(), power: 0.9 },
       // the hand. Slow, open, unhurried, and they are still swinging at him.
       {
@@ -663,7 +854,11 @@ export const FINISHERS_BY_PICK = {
         sting: true, impact: 0.14, flash: 0.35, impactFrame: 0.08, reactSpeed: 0.8,
         fx: d => { d.fx.soulGrasp(d.win); d.sfx.transfigure(); },
         onContact: (d, at) => {
+          // the body comes apart QUIETLY. Slow rings, no shards, no shockwave:
+          // Idle Transfiguration does not hit anybody hard enough to explode.
           d.fx._ring(at, 0xdfe6ee, { size: 0.24, growRate: 6, life: 0.7, flat: false });
+          d.fx._ring(at, 0x9fb0c4, { size: 0.5, growRate: 3, life: 0.9, flat: false });
+          d.fx.corrosiveSpray?.(d.win, 1.6, 0.6);
           d.sfx.bodyMorph?.(1);
         }
       },
@@ -720,6 +915,18 @@ export const FINISHERS_BY_PICK = {
     color: '#8fb6d8', grade: 'shadow', chord: 'grim', root: 146.83,
     actions: [
       { op: 'fCross', strike: 'op', hit: false, win: 'fGuardUp', shot: S.lowR(), power: 1.1 },
+      // 玉犬. He does not throw a punch — he sends the dogs, and they go in
+      // low and from two sides at once.
+      {
+        win: 'summonLow', strike: 'win', blast: { at: 0.40, aim: 'gut', power: 1.3, kind: 'blade' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.05,
+        power: 1.3, knock: 0.9, shot: S.midR(), impact: 0.12,
+        fx: d => { d.sfx.shikigami?.(); d.fx.shadowPuff?.(d.win.pos.clone()); },
+        onContact: (d, at) => {
+          d.fx.shadowPuff?.(d.lose.pos.clone());
+          d.fx.impactBloom(at, 0x8fb6d8, 0.7);
+          d.sfx.shikigamiBite?.();
+        }
+      },
       { op: 'fHook', strike: 'op', hit: true, react: 'rSnapHead', win: 'fGuardUp', shot: S.otsWin(), power: 1.0, knock: 0.6 },
       // he goes into the floor rather than backwards
       {
@@ -743,8 +950,13 @@ export const FINISHERS_BY_PICK = {
         win: 'summonBoth', strike: 'win', blast: { at: 0.45, aim: 'gut', power: 2.0, kind: 'blade' }, hit: true, react: 'rSlam', op: 'fGuardUp', span: 1.10,
         power: 2.0, knock: 0.5, shot: S.crane({ d: 5.0, side: -0.9, top: 1.2 }), sting: true, impact: 0.24, flash: 0.45,
         onContact: (d, at) => {
-          d.fx.shadowPuff?.(d.lose.pos.clone());
+          // EVERYTHING HE OWNS, out of the floor at once
+          for (let i = 0; i < 5; i++) {
+            const a = i * 1.257, r = 1.4;
+            d.fx.shadowPuff?.(d.lose.pos.clone().add({ x: Math.cos(a) * r, y: 0, z: Math.sin(a) * r }));
+          }
           d.fx.shadowPuff?.(d.lose.pos.clone().setY(d.lose.pos.y + 0.9));
+          d.fx.impactBloom(at, 0x8fb6d8, 1.3);
           d.fx._ring(d.lose.pos.clone().setY(0.06), 0x05060c, { size: 1.0, growRate: 16, life: 0.7 });
           d.fx._ring(d.lose.pos.clone().setY(0.06), 0x8fb6d8, { size: 0.5, growRate: 22, life: 0.5 });
           d.sfx.shikigamiBite();
@@ -796,7 +1008,12 @@ export const FINISHERS_BY_PICK = {
           d.fx.worldCut(d.win, d.dir(), 16, 2.0); d.sfx.worldCut();
           d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.5), 7, 200, { kind: 'body' });
         },
-        onContact: (d, at) => d.fx.cleaveCut?.(d.win, d.lose, 1.0)
+        onContact: (d, at) => {
+          d.fx.cleaveCut?.(d.win, d.lose, 1.0);
+          d.fx.impactBloom(at, 0xc6ac72, 1.7);
+          d.fx.debris(d.lose.pos.clone(), 24);
+          d.fx.scorch(d.lose.pos.clone(), 3.6, 0xc6ac72);
+        }
       },
       // the wheel is still turning. It does not celebrate; it waits.
       ...OUTRO('idle', {
@@ -820,7 +1037,19 @@ export const FINISHERS_BY_PICK = {
     actions: [
       { op: 'fCross', strike: 'op', hit: true, react: 'rSnapHead', win: 'fGuardUp', shot: S.lowL(), power: 1.1, knock: 0.8 },
       { op: 'fHook', strike: 'op', hit: false, win: 'fParry', shot: S.otsWin() },
-      { win: 'fJab', strike: 'win', hit: true, react: 'rSnapHead', op: 'fGuardUp', shot: S.hitR() },
+      // 没収 — CONFISCATION. He takes the technique off them first, which is
+      // the part of the character everybody forgets: the sentence is passed on
+      // somebody who has already been disarmed.
+      {
+        win: 'ct1', strike: 'win', blast: { at: 0.34, aim: 'chest', power: 1.1, kind: 'grab' }, hit: true, react: 'rBlockPush', op: 'fGuardUp', span: 1.05,
+        power: 1.1, knock: 0.5, shot: S.midR(), impact: 0.12,
+        fx: d => { d.fx.confiscate?.(d.win); d.sfx.confiscate?.(); },
+        onContact: (d, at) => {
+          d.fx.judgmentArc?.(d.win, 2.8);
+          d.fx.techCharge(d.bone(d.win, 'HandR'), 0xd8c78a, 1.2);
+          d.fx.impactBloom(at, 0xd8c78a, 0.7);
+        }
+      },
       // THE GAVEL. Held a beat too long, then down.
       {
         win: 'higurumaGavel', op: 'fGuardUp', span: 1.3, shot: S.handWin({ d: 1.15 }),
@@ -856,7 +1085,12 @@ export const FINISHERS_BY_PICK = {
         // standing and a man not, which is the whole content of the beat
         power: 2.0, knock: 0.1, shot: two({ d: 3.2, side: 1, y: 1.15, fov: 40, push: 0.45 }),
         sting: true, impact: 0.26, flash: 0.55,
-        onContact: d => { d.fx.executionThrust(d.win); d.sfx.executionSwing(); d.sfx.gavelFinal(); }
+        onContact: (d, at) => {
+          d.fx.executionThrust(d.win);
+          d.fx.impactBloom(at, 0xd8c78a, 1.4);
+          d.fx.debris(d.lose.pos.clone(), 12, 0xd8c78a);
+          d.sfx.executionSwing(); d.sfx.gavelFinal();
+        }
       },
       ...OUTRO('swordIdle', {
         fall: 'rKneelFall', fallSpan: 1.35, fallShot: S.wideL(),
@@ -886,8 +1120,32 @@ export const FINISHERS_BY_PICK = {
         win: 'hakariHeal', op: 'fGuardUp', span: 1.0, speed: 0.9, shot: S.faceWin({ d: 1.35, side: -0.5 }),
         fx: d => { d.sfx.rctHeal(); d.fx.buffAura(d.win, 3, 0xffc93c); d.audio.accent(659, { gain: 0.1, dur: 0.9 }); }
       },
-      { win: 'fJab', strike: 'win', hit: true, react: 'rSnapHead', op: 'fGuardUp', shot: S.hitR(), speed: 1.2 },
-      { win: 'fHook', strike: 'win', hit: true, react: 'rSpin', op: 'fGuardUp', shot: S.midL(), power: 1.2 },
+      // THE SHUTTER GOES UP. He does not win this with punches, he wins it
+      // with a slot machine — so the machine is on screen before the flurry.
+      {
+        win: 'shutter', op: 'fGuardUp', span: 1.05, shot: S.lowL(1.6), flash: 0.3,
+        fx: d => {
+          d.fx.shutterUp?.(d.win, 2.2); d.sfx.shutterUp?.();
+          d.fx.buffAura(d.win, 4, 0xffc93c);
+          d.audio.accent(523, { gain: 0.11, dur: 0.9 });
+        }
+      },
+      // and then the flurry, which is what unlimited cursed energy buys
+      {
+        win: 'jFlurryL', strike: 'win', blast: { at: 0.22, aim: 'head', power: 1.1, kind: 'punch' }, hit: true, react: 'rSnapHead', op: 'fGuardUp', span: 0.62,
+        power: 1.1, knock: 0.4, shot: S.hitR(), speed: 1.25, impact: 0.08,
+        onContact: (d, at) => d.fx.impactBloom(at, 0xffc93c, 0.5)
+      },
+      {
+        win: 'jFlurryR', strike: 'win', blast: { at: 0.22, aim: 'gut', power: 1.1, kind: 'punch' }, hit: true, react: 'rFoldGut', op: 'fGuardUp', span: 0.62,
+        power: 1.1, knock: 0.4, shot: S.hitL(), speed: 1.25, impact: 0.08,
+        onContact: (d, at) => d.fx.impactBloom(at, 0xffc93c, 0.5)
+      },
+      {
+        win: 'jFlurryEnd', strike: 'win', blast: { at: 0.30, aim: 'chest', power: 1.4, kind: 'punch' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 0.85,
+        power: 1.4, knock: 1.0, shot: S.midL(), impact: 0.12,
+        onContact: (d, at) => { d.fx.impactBloom(at, 0xffc93c, 0.9); d.fx.ceShockwave(d.win, 3); }
+      },
       // the reels land
       {
         win: 'jackpotPose', op: 'fCross', strike: 'op', hit: false, miss: true, span: 1.2, shot: S.lowR(1.6),
@@ -905,7 +1163,8 @@ export const FINISHERS_BY_PICK = {
         onContact: (d, at) => {
           d.fx.jackpotBeam(d.win, d.dir(), 12, 1.4);
           d.fx.ceShockwave(d.win, 5);
-          d.fx._ring(at, 0xffc93c, { size: 0.5, growRate: 26, life: 0.55, flat: false });
+          d.fx.impactBloom(at, 0xffc93c, 1.6);
+          d.fx.debris(d.lose.pos.clone(), 18, 0xffc93c);
           d.sfx.jackpotFanfare?.();
         }
       },
@@ -927,11 +1186,34 @@ export const FINISHERS_BY_PICK = {
     id: 'kashimo_amber',
     moment: 'The limiter comes off — Mythical Beast Amber, from the Hakari fight.',
     color: '#a46bff', grade: 'void', chord: 'bright', root: 185,
+    // four hundred years of stored charge does not switch off between strikes
+    ambient: d => {
+      const p = d.bone(d.win, 'HandR');
+      d.fx._spawn(p, {
+        color: 0xa46bff, size: 0.10 + Math.random() * 0.12, aspect: 0.3, life: 0.22,
+        vel: { x: (Math.random() - 0.5) * 5, y: (Math.random() - 0.5) * 5, z: (Math.random() - 0.5) * 5 }
+      });
+    },
     actions: [
       { op: 'fCross', strike: 'op', hit: false, miss: true, win: 'arcdash', span: 0.9, shot: S.dollyL(), fx: d => { d.sfx.arcDash(); d.fx.dashTrail(d.win); } },
-      { win: 'fThrust', strike: 'win', hit: true, react: 'rFoldGut', op: 'fGuardUp', shot: S.hitR(), power: 1.2, fx: d => d.sfx.lightningBolt(2) },
+      // 雷 — the staff is a lightning rod and he is the storm. Neither of
+      // these is a swing: one is a bolt, one is a discharge.
+      {
+        win: 'bolt', strike: 'win', blast: { at: 0.30, aim: 'chest', power: 1.3, kind: 'blast' }, hit: true, react: 'rFoldGut', op: 'fGuardUp', span: 1.0,
+        power: 1.3, knock: 0.9, shot: S.hitR(), impact: 0.12, flash: 0.35,
+        fx: d => d.sfx.lightningBolt(2),
+        onContact: (d, at) => { d.fx.impactBloom(at, 0xa46bff, 0.8); d.fx.techCharge(at, 0xa46bff, 0.9); }
+      },
       { op: 'fRound', strike: 'op', hit: true, react: 'rBlockPush', win: 'fGuardUp', shot: S.otsWin(), power: 1.1, knock: 0.6 },
-      { win: 'fCleave', strike: 'win', hit: true, react: 'rSpin', op: 'fGuardUp', shot: S.midR(), power: 1.3, fx: d => d.sfx.lightningBolt(3) },
+      // 幻獣琥珀 — the limiter comes off, and the body itself changes
+      {
+        win: 'ult', op: 'fGuardUp', span: 1.1, shot: S.lowL(1.6), flash: 0.4,
+        fx: d => {
+          d.fx.chargedAura?.(d.win); d.fx.buffAura(d.win, 4, 0xa46bff);
+          d.fx.techCharge(d.win.pos.clone().setY(d.win.pos.y + 1.1), 0xa46bff, 1.8);
+          d.sfx.amber?.(); d.audio.accent(880, { gain: 0.12, dur: 1.0 });
+        }
+      },
       // the staff comes round and plants
       {
         win: 'kashimoSpin', op: 'fGuardUp', span: 1.15, shot: S.handWin({ d: 1.1 }),
@@ -947,7 +1229,8 @@ export const FINISHERS_BY_PICK = {
         fx: d => { d.sfx.discharge(3); d.fx.dashTrail(d.win); },
         onContact: (d, at) => {
           d.fx.ceShockwave(d.win, 5);
-          d.fx._ring(at, 0xa46bff, { size: 0.5, growRate: 24, life: 0.5, flat: false });
+          d.fx.impactBloom(at, 0xa46bff, 1.5);
+          d.fx.debris(d.lose.pos.clone(), 16, 0xa46bff);
           d.sfx.lightningBolt?.(3);
         }
       },
@@ -970,6 +1253,17 @@ export const FINISHERS_BY_PICK = {
     id: 'choso_piercing',
     moment: 'Flowing Red Scale into Piercing Blood, point blank.',
     color: '#c4142c', grade: 'ko', chord: 'grim', root: 116.54,
+    // the technique costs him blood and the cost is visible: it comes off him
+    // for the entire scene, not only when he fires
+    ambient: (d, t) => {
+      if (t < 1.0) return;
+      const p = d.bone(d.win, 'Chest');
+      d.fx._spawn(p, {
+        color: 0xc4142c, size: 0.08 + Math.random() * 0.10, life: 0.5,
+        vel: { x: (Math.random() - 0.5) * 1.4, y: 0.6 + Math.random(), z: (Math.random() - 0.5) * 1.4 },
+        gravity: 4
+      });
+    },
     actions: [
       // he blocks it on his forearms and it costs him
       { op: 'fRound', strike: 'op', hit: true, react: 'chosoGuard', win: null, span: 1.0, power: 1.4, knock: 0.9, shot: S.lowR(), impact: 0.12 },
@@ -977,8 +1271,28 @@ export const FINISHERS_BY_PICK = {
         win: 'redScale', op: 'fGuardUp', span: 1.0, shot: S.faceWin({ d: 1.4, side: 0.6 }),
         fx: d => { d.fx.redScaleBurst(d.win); d.sfx.redScale(); d.audio.accent(174, { gain: 0.11 }); }
       },
-      { win: 'fCross', strike: 'win', hit: true, react: 'rSnapHead', op: 'fGuardUp', shot: S.hitL(), power: 1.2 },
-      { op: 'fHook', strike: 'op', hit: false, miss: true, win: 'fSlip', shot: S.otsLose() },
+      // 血塗 — the blood leaves him and goes in ahead of the fist
+      {
+        win: 'ct1', strike: 'win', blast: { at: 0.28, aim: 'chest', power: 1.3, kind: 'blade' }, hit: true, react: 'rSnapHead', op: 'fGuardUp', span: 0.95,
+        power: 1.3, knock: 0.8, shot: S.hitL(), impact: 0.12,
+        fx: d => { d.fx.bloodEdgeCast(d.win); d.sfx.bloodCharge?.(); },
+        onContact: (d, at) => { d.fx.bloodEdgeTrail?.(at, d.dir()); d.fx.impactBloom(at, 0xc4142c, 0.7); }
+      },
+      // 超新星 — SUPERNOVA. Compressed to a point and let go of, which is the
+      // one thing in his kit that is not a straight line.
+      {
+        win: 'ult', strike: 'win', blast: { at: 0.55, aim: 'gut', power: 1.6, kind: 'blast' }, hit: true, react: 'rLaunch', op: 'fGuardUp', span: 1.15,
+        power: 1.6, knock: 1.5, shot: S.lowR(1.5), impact: 0.16, flash: 0.5,
+        fx: d => {
+          d.fx.supernovaCore?.(d.bone(d.win, 'HandR'), 1);
+          d.fx.techCharge(d.bone(d.win, 'HandR'), 0xc4142c, 1.4);
+          d.sfx.bloodCharge?.();
+        },
+        onContact: (d, at) => {
+          d.fx.supernovaBurst?.(at, 3.2, 26);
+          d.fx.impactBloom(at, 0xc4142c, 1.2);
+        }
+      },
       // two fingers up, and the blood loads behind them
       {
         win: 'chosoGuard', op: 'fGuardUp', span: 1.1, speed: 0.7, shot: S.handWin({ d: 1.05 }), dofBase: 0.9,
@@ -994,7 +1308,7 @@ export const FINISHERS_BY_PICK = {
         onContact: (d, at) => {
           d.fx.piercingBlood(d.bone(d.win, 'HandR'), d.dir(), 14, 0.9);
           d.fx.bloodEdgeTrail?.(at, d.dir());
-          d.fx._ring(at, 0xc4142c, { size: 0.2, growRate: 18, life: 0.5, flat: false });
+          d.fx.impactBloom(at, 0xc4142c, 1.1);
         }
       },
       ...OUTRO('idle', {
@@ -1020,7 +1334,17 @@ export const FINISHERS_BY_PICK = {
       // she takes a piece of them on the way past
       { win: 'ct1', strike: 'win', blast: { at: 0.30, aim: 'head', power: 0.9, kind: 'blade' }, hit: true, react: 'rSnapHead', op: 'fGuardUp', span: 0.85, shot: S.hitR(), power: 0.9, fx: d => d.sfx.nailThrow() },
       { op: 'fKnee', strike: 'op', hit: false, win: 'fParry', shot: S.otsWin() },
-      { win: 'fHook', strike: 'win', hit: true, react: 'rSpin', op: 'fGuardUp', shot: S.midL(), power: 1.1, fx: d => d.sfx.hammer(false) },
+      // and the ones already in them go off
+      {
+        win: 'detonate', strike: 'win', blast: { at: 0.32, aim: 'chest', power: 1.4, kind: 'blast' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.0,
+        power: 1.4, knock: 1.0, shot: S.midL(), impact: 0.14,
+        fx: d => d.sfx.hammer(false),
+        onContact: (d, at) => {
+          d.fx.nailBlast?.(at, 1.4);
+          d.fx.impactBloom(at, 0xe07a34, 0.9);
+          d.sfx.nailBlast?.();
+        }
+      },
       // the grin, and the nail held up between two fingers
       {
         win: 'nobaraGrin', op: 'fCross', strike: 'op', hit: false, miss: true, span: 1.25,
@@ -1039,9 +1363,13 @@ export const FINISHERS_BY_PICK = {
         sting: true, impact: 0.22, flash: 0.6, reactSpeed: 0.9,
         fx: d => { d.sfx.hammer(true); d.sfx.resonanceHit(1); },
         onContact: (d, at) => {
-          d.fx.resonanceHit?.(at, 1.0);
+          // RESONANCE lands everywhere at once, because the doll is the target
+          // and they are only connected to it
+          d.fx.fullReleaseHit?.(at, 1);
+          d.fx.resonanceHit?.(at.clone().setY(at.y + 0.5), 0.8);
+          d.fx.resonanceHit?.(at.clone().setY(at.y - 0.5), 0.8);
           d.fx.nailBlast?.(at, 1.2);
-          d.fx._ring(at, 0xf0e2b8, { size: 0.4, growRate: 20, life: 0.5, flat: false });
+          d.fx.impactBloom(at, 0xf0e2b8, 1.2);
         }
       },
       // and she flicks the nail away, which is the last thing you see of her
@@ -1075,7 +1403,17 @@ export const FINISHERS_BY_PICK = {
         win: 'pandaDrum', op: 'fHook', strike: 'op', hit: false, miss: true, span: 1.4, shot: S.lowL(1.5),
         fx: d => { d.sfx.drummingBeat(); d.audio.accent(147, { gain: 0.13, dur: 1.0 }); }, shake: 0.35
       },
-      { win: 'fBodyRip', strike: 'win', hit: true, react: 'rFoldGut', op: 'fGuardUp', shot: S.hitR(), power: 1.4 },
+      // and the Gorilla core's own strikes, which are not a person's
+      {
+        win: 'ct1Gor', strike: 'win', blast: { at: 0.28, aim: 'gut', power: 1.4, kind: 'punch' }, hit: true, react: 'rFoldGut', op: 'fGuardUp', span: 0.95,
+        power: 1.4, knock: 1.0, shot: S.hitR(), impact: 0.14,
+        onContact: (d, at) => { d.fx.impactBloom(at, 0xd9a94e, 0.8); d.fx.ceShockwave(d.win, 2.6); }
+      },
+      {
+        win: 'ct2Gor', strike: 'win', blast: { at: 0.34, aim: 'chest', power: 1.5, kind: 'punch' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.0,
+        power: 1.5, knock: 1.2, shot: S.midR(), impact: 0.14,
+        onContact: (d, at) => { d.fx.impactBloom(at, 0xd9a94e, 0.9); d.fx.debris(d.lose.pos.clone(), 10); }
+      },
       // and the Gorilla core charges. Down onto the knuckles, then forward as
       // one mass — the shoulder is the weapon, the fist is where it touches.
       {
@@ -1086,7 +1424,8 @@ export const FINISHERS_BY_PICK = {
         fx: d => { d.sfx.pandaPalm(); },
         onContact: (d, at) => {
           d.fx.ceShockwave(d.win, 4.5);
-          d.fx._ring(at, 0xd9a94e, { size: 0.5, growRate: 22, life: 0.5, flat: false });
+          d.fx.impactBloom(at, 0xd9a94e, 1.5);
+          d.fx.debris(d.lose.pos.clone(), 22);
           d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.4), 4.0, 120, { kind: 'body' });
         }
       },
@@ -1110,8 +1449,24 @@ export const FINISHERS_BY_PICK = {
     color: '#9ec46a', grade: 'shadow', chord: 'grim', root: 98,
     actions: [
       { op: 'fCross', strike: 'op', hit: true, react: 'rBlockPush', win: 'fGuardUp', shot: S.lowR(), power: 1.2, knock: 0.5 },
-      // the club arm, once, and it is enormous
-      { win: 'fCleave', strike: 'win', hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.0, shot: S.hitL(), power: 1.5, fx: d => d.sfx.woodImpact() },
+      // 杜 — it does not swing at them, it grows something and drops it
+      {
+        win: 'ct1', strike: 'win', blast: { at: 0.34, aim: 'chest', power: 1.5, kind: 'blade' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.05,
+        power: 1.5, knock: 1.1, shot: S.hitL(), impact: 0.14,
+        fx: d => { d.sfx.woodImpact(); d.fx.woodenBall?.(d.lose.pos.clone().setY(d.lose.pos.y + 2.4), 1.1); },
+        onContact: (d, at) => { d.fx.rootBurst(d.lose.pos.clone(), 1.8, true); d.fx.impactBloom(at, 0x9ec46a, 0.8); }
+      },
+      // and the floor between them turns into a field of it
+      {
+        win: 'rootField', op: 'fGuardUp', span: 1.05, shot: S.crane({ d: 4.4, side: 0.9, top: 1.0 }),
+        fx: d => {
+          d.sfx.rootField(); d.shake(0.35);
+          for (let i = 0; i < 4; i++) {
+            const a = i * 1.57;
+            d.fx.rootBurst(d.lose.pos.clone().add({ x: Math.cos(a) * 1.6, y: 0, z: Math.sin(a) * 1.6 }), 1.4, true);
+          }
+        }
+      },
       { op: 'fRound', strike: 'op', hit: false, win: 'fGuardUp', shot: S.otsWin(), power: 1.1 },
       // down onto one knee, palm flat, and it waits
       {
@@ -1128,10 +1483,11 @@ export const FINISHERS_BY_PICK = {
         win: 'hanamiClench', strike: 'win', blast: { at: 0.64, aim: 'gut', power: 2.0, kind: 'grab' }, hit: true, react: 'rSlam', op: 'fGuardUp', span: 1.10,
         power: 2.0, knock: 0.3, shot: closeOn('win', 'HandR', { d: 1.1, side: 0.6, fov: 36 }),
         sting: true, impact: 0.26, flash: 0.5, reactSpeed: 0.85,
-        onContact: d => {
+        onContact: (d, at) => {
           d.fx.rootBurst(d.lose.pos.clone(), 4.5, true);
           d.fx.rootBurst(d.lose.pos.clone().setY(d.lose.pos.y + 1.0), 2.6, true);
-          d.fx._ring(d.lose.pos.clone().setY(0.06), 0x9ec46a, { size: 1.0, growRate: 16, life: 0.8 });
+          d.fx.impactBloom(at, 0x9ec46a, 1.4);
+          d.fx.debris(d.lose.pos.clone(), 16, 0x4a6a2a);
           d.sfx.rootErupt();
         }
       },
@@ -1161,7 +1517,13 @@ export const FINISHERS_BY_PICK = {
         win: 'growth', op: 'fGuardUp', span: 1.2, shot: S.lowL(1.9),
         fx: d => { d.sfx.growl(2); d.audio.accent(110, { gain: 0.14, dur: 1.2 }); d.shake(0.6); d.flash(0.3); }
       },
-      { win: 'fCleave', strike: 'win', hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.0, shot: S.hitR(), power: 1.4 },
+      // 暴食 — the swarm goes first, and it takes pieces
+      {
+        win: 'ct1', strike: 'win', blast: { at: 0.32, aim: 'chest', power: 1.4, kind: 'blade' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.0,
+        power: 1.4, knock: 1.0, shot: S.hitR(), impact: 0.14,
+        fx: d => { d.sfx.swarmHiss?.(1); d.fx.corrosiveSpray?.(d.win, 2.6, 0.9); },
+        onContact: (d, at) => d.fx.impactBloom(at, 0xd8a02a, 0.8)
+      },
       {
         win: 'ct2', op: 'fHook', strike: 'op', hit: false, miss: true, span: 1.1, shot: S.dollyL(),
         fx: d => { d.sfx.swarmRelease(); d.fx.corrosiveSpray(d.win, 3, 0.8); }
@@ -1177,7 +1539,8 @@ export const FINISHERS_BY_PICK = {
         fx: d => d.sfx.devourBite(),
         onContact: (d, at) => {
           d.fx.corrosiveSpray?.(d.win, 2.6, 1.2);
-          d.fx._ring(at, 0xd8a02a, { size: 0.6, growRate: 16, life: 0.5, flat: false });
+          d.fx.impactBloom(at, 0xd8a02a, 1.3);
+          d.fx.corrosiveSpray?.(d.win, 3.4, 1.4);
         }
       },
       // it is bigger than it was when the round started, and it is still eating
@@ -1202,6 +1565,14 @@ export const FINISHERS_BY_PICK = {
     actions: [
       { op: 'fCross', strike: 'op', hit: true, react: 'rSnapHead', win: 'fGuardUp', shot: S.lowR(), power: 1.3, knock: 0.9 },
       { win: 'swordSlash', strike: 'win', blast: { at: 0.28, aim: 'chest', power: 1.3, kind: 'blade' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 0.95, shot: S.hitL(), power: 1.3, fx: d => d.sfx.swordSwing() },
+      // 模倣 — he does not fight with one technique, he fights with everybody
+      // else's, and the one standing behind him throws it with him.
+      {
+        win: 'ct2', strike: 'win', blast: { at: 0.34, aim: 'chest', power: 1.4, kind: 'blast' }, hit: true, react: 'rFoldGut', op: 'fGuardUp', span: 1.05,
+        power: 1.4, knock: 1.1, shot: S.midR(), impact: 0.14,
+        fx: d => { d.fx.rikaFlash(d.win, 'manifest'); d.sfx.rikaSwing?.(); },
+        onContact: (d, at) => { d.fx.impactBloom(at, 0x9ff5c9, 0.9); d.fx.techCharge(at, 0x9ff5c9, 1.0); }
+      },
       { op: 'fRound', strike: 'op', hit: false, win: 'fParry', shot: S.otsWin(), power: 1.1 },
       // THE CALL. The hand goes back and something answers.
       {
@@ -1219,7 +1590,8 @@ export const FINISHERS_BY_PICK = {
         fx: d => { d.fx.rikaFlash(d.win, 'blast'); d.sfx.swordSwing?.(); },
         onContact: (d, at) => {
           d.fx.cleaveCut?.(d.win, d.lose, 0.9);
-          d.fx._ring(at, 0x9ff5c9, { size: 0.5, growRate: 22, life: 0.5, flat: false });
+          d.fx.rikaFlash(d.win, 'blast');
+          d.fx.impactBloom(at, 0x9ff5c9, 1.5);
         }
       },
       // and he turns to the empty air beside him, because she is standing there
@@ -1241,6 +1613,13 @@ export const FINISHERS_BY_PICK = {
     id: 'geto_uzumaki',
     moment: 'Maximum: Uzumaki — every curse he owns, compressed and thrown.',
     color: '#6b2fa0', grade: 'void', chord: 'regal', root: 110,
+    // a thousand curses in a bag, and a few of them always drifting loose
+    ambient: (d, t) => {
+      const a = t * 1.7, r = 1.5;
+      d.fx._spawn(
+        d.win.pos.clone().add({ x: Math.cos(a) * r, y: 1.2 + Math.sin(t * 2.3) * 0.4, z: Math.sin(a) * r }),
+        { color: 0x6b2fa0, size: 0.14, life: 0.45, vel: { x: 0, y: 0.3, z: 0 } });
+    },
     actions: [
       // something else takes the hit for him
       {
@@ -1250,6 +1629,17 @@ export const FINISHERS_BY_PICK = {
       { win: 'summonGrand', strike: 'win', blast: { at: 0.50, aim: 'chest', power: 1.4, kind: 'grab' }, hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.1, shot: S.hitL(), power: 1.4, fx: d => d.sfx.curseAttack() },
       { op: 'fHook', strike: 'op', hit: true, react: 'rSnapHead', win: null, shot: S.otsWin(), power: 0.9, knock: 0.4 },
       { win: 'reabsorb', op: 'fGuardUp', span: 0.9, shot: S.midR(), fx: d => d.sfx.curseRecall() },
+      // and he spins the whole collection up. Every curse he owns is in the
+      // air before the one that matters comes down.
+      {
+        win: 'wheel', op: 'fGuardUp', span: 1.05, shot: S.lowL(1.6),
+        fx: d => {
+          d.sfx.curseSummon?.('grand');
+          d.fx.techCharge(d.win.pos.clone().setY(d.win.pos.y + 1.6), 0x6b2fa0, 1.9);
+          d.fx.buffAura(d.win, 3, 0x6b2fa0);
+          d.audio.accent(174, { gain: 0.11, dur: 1.0 });
+        }
+      },
       // the palm. He is choosing which of them to spend.
       {
         win: 'getoPalm', op: 'fGuardUp', span: 1.25, shot: S.handWin({ d: 1.05 }), dofBase: 0.9,
@@ -1263,8 +1653,9 @@ export const FINISHERS_BY_PICK = {
         fx: d => d.sfx.uzumaki(),
         onContact: (d, at) => {
           d.fx.ceShockwave(d.win, 5);
-          d.fx._ring(at, 0x6b2fa0, { size: 0.8, growRate: 22, life: 0.6, flat: false });
-          d.fx._ring(at, 0xd0a8ff, { size: 0.3, growRate: 30, life: 0.45, flat: false });
+          d.fx.impactBloom(at, 0x6b2fa0, 1.8);
+          d.fx.debris(d.lose.pos.clone(), 20, 0x6b2fa0);
+          d.fx.scorch(d.lose.pos.clone(), 3.4, 0x6b2fa0);
           d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.5), 5.5, 150, { kind: 'body' });
         }
       },
