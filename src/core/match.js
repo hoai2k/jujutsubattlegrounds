@@ -1,0 +1,1413 @@
+// Match: two fighters, arena, camera, FX, domains, HUD, CPU — the whole round.
+import * as THREE from 'three';
+import { Fighter } from '../combat/fighter.js';
+// PANDA: the ring / toast tint per core, so the three swaps are visually
+// distinct at a glance. Kept next to the match's other presentation constants
+// rather than in the character config, because it is a colour choice about
+// this screen and not a gameplay number.
+const CORE_TINT = { panda: 0xf2f2ec, gorilla: 0xd9a94e, trike: 0xe08aa8 };
+import { resolveMelee } from '../combat/hits.js';
+import { Effects } from '../combat/effects.js';
+import { CPU } from '../combat/ai.js';
+import { DomainSystem } from '../domains/domains.js';
+import { GambleSystem } from '../domains/jackpot.js';
+import { Minions } from '../combat/minion.js';
+import { Judgemen } from '../combat/judgeman.js';
+import { ShikigamiSystem } from '../combat/shikigami.js';
+import { FloraSystem } from '../combat/flora.js';
+import { SwarmSystem } from '../combat/swarm.js';
+import { CurseSystem } from '../combat/curses.js';
+import { FreezeSystem } from '../combat/freeze.js';
+import { DomainFX } from '../fx/domainfx.js';
+import { FXSystem } from '../fx/fx.js';
+import { BubbleSystem } from '../fx/bubble.js';
+import { tauntWeight, pickTaunt } from '../combat/taunts.js';
+import { buildMap, applyMapLighting, registerMapGrade, currentQuality, MAP_IDS } from '../arena/index.js';
+import { FightCamera } from './camera.js';
+import { setXrayFocus, clearXrayFocus } from '../art/shaders/xray.js';
+import { Ritual } from './ritual.js';
+import { Finishers } from '../finishers/index.js';
+import { HUD } from '../ui/hud.js';
+import { makeCharacter, pickInfo, hex } from '../characters/index.js';
+import { yawBetween, flatDist } from './mathutil.js';
+
+// Where each fighter starts. Maps author their own spawns (a station platform
+// and a mountain clearing do not want the same opening positions); the ring
+// fallback below is what a map gets if it declares none.
+export function spawnPoint(i, n, map) {
+  if (map?.spawnPoint) return map.spawnPoint(i, n);
+  if (n <= 2) return new THREE.Vector3(i === 0 ? -2.4 : 2.4, 0, 0);
+  const a = (i / n) * Math.PI * 2;
+  const r = n === 3 ? 3.2 : 3.5;
+  return new THREE.Vector3(Math.sin(a) * r, 0, Math.cos(a) * r);
+}
+
+// action presses buffered through a hitstop freeze
+// `backP` rides along because the execution duel asks for all four face
+// buttons, and a duel press eaten by a hitstop freeze is a press the player
+// made and did not get.
+// `copyP` IS THE SPECIAL — it rides the same B button as `backP` now (see the
+// binding note in input/input.js). Both are buffered; they are never both live,
+// because the duel's fighters are in states that take no gameplay input.
+// `tauntP` is deliberately NOT buffered. A taunt is the one input in the game
+// that should never come out of a buffer: it is a deliberate, unsafe, socially
+// timed press, and one replayed a tenth of a second late — after the hitstop
+// that ate it — would be a taunt the player did not choose to be caught in.
+const EDGE_KEYS = ['jumpP', 'punchP', 'heavyP', 'ct1P', 'ct2P', 'ultP', 'copyP', 'backP'];
+
+// scratch for the per-eye x-ray focus, written every frame in `render`
+const _xrayAt = new THREE.Vector3();
+
+export class Match {
+  constructor(stage, input, sfx, picks, uiRoot, opts = {}) {
+    this.stage = stage;
+    this.input = input;
+    this.sfx = sfx;
+    this.opts = opts;
+
+    this.mode = picks.mode || 'local'; // 'local' 2P is the default
+
+    this.root = new THREE.Group();
+    this.root.name = 'matchRoot';
+    stage.scene.add(this.root);
+
+    // ---- the map ------------------------------------------------------
+    // Destruction needs fx/sfx/cam, which do not exist yet — the map is built
+    // with the quality profile now and the systems are patched into its
+    // destruction context a few lines below, once they do.
+    this.quality = currentQuality();
+    this.mapId = picks.map && picks.map !== 'random'
+      ? picks.map : MAP_IDS[(Math.random() * MAP_IDS.length) | 0];
+    this.arena = buildMap(this.mapId, { quality: this.quality });
+    this.root.add(this.arena.group);
+    stage.scene.fog = this.arena.fog;
+    stage.scene.background = new THREE.Color(this.arena.background);
+    applyMapLighting(stage, this.arena);
+    this.mapGrade = registerMapGrade(this.arena);
+    stage.setGrade(this.mapGrade);
+
+    // `picks.chars` is one character id per seat (2-4). The older
+    // {p1, p2} shape still works for VS CPU and 2P local.
+    const ids = picks.chars || [picks.p1, picks.p2];
+    this.playerCount = ids.length;
+    const origin = new THREE.Vector3();
+    this.fighters = ids.map((id, i) => {
+      const c = makeCharacter(id);
+      const spawn = spawnPoint(i, ids.length, this.arena);
+      const f = new Fighter({
+        config: c.config, model: c.model, clips: c.clips,
+        index: i, arenaRadius: this.arena.radius, bounds: this.arena.bounds,
+        spawn, facing: yawBetween(spawn, origin),
+        // the full pick, variant included — the taunt system is the only
+        // consumer, and a cosmetic variant can still have its own taunt
+        pick: id
+      });
+      this.root.add(f.model.group);
+      return f;
+    });
+    this.p1 = this.fighters[0];
+    this.p2 = this.fighters[1];
+
+    this.fx = new FXSystem(this.root, stage.camera);
+    // Speech bubbles. On the match root so a round teardown takes them with it.
+    this.bubbles = new BubbleSystem(this.root, stage.camera);
+    for (const f of this.fighters) this.fx.attachShadow(f);
+    this.domainfx = new DomainFX(stage.scene, this.arena, this.fx);
+    this.effects = new Effects(this);
+    this.domains = new DomainSystem(this);
+    this.minions = new Minions(this);          // Mahito's transfigured humans
+    this.judgemen = new Judgemen(this);        // Higuruma's evidence shikigami
+    this.shikigami = new ShikigamiSystem(this); // Megumi's Ten Shadows
+    // Hanami's terrain layer and Kurourushi's swarm. Both own state that
+    // outlives the technique that made it — a root field outlives the cast, a
+    // roach outlives the wave — so both are match-scoped like the shikigami.
+    this.flora = new FloraSystem(this);
+    this.swarms = new SwarmSystem(this);
+    // GETO'S STABLE and NAOYA'S FREEZE. The curse system is the THIRD summon
+    // system that can be live at once (Megumi's shikigami and Mahito's
+    // transfigured human are the other two) — see the cross-check in
+    // combat/curses.js for how the three share a field without any of them
+    // having to know about the others' internals.
+    this.curses = new CurseSystem(this);
+    this.freeze = new FreezeSystem(this);
+    // Hakari's reach scenarios and JACKPOT. Owned by the match rather than by
+    // the domain system because Jackpot outlives the barrier that starts it.
+    this.gamble = new GambleSystem(this);
+    // Local VS: one over-the-shoulder camera per human seat (2 up, or a 2x2
+    // grid for 3-4). VS CPU: one full-screen camera behind P1.
+    this.cams = [];
+    if (this.mode === 'local') {
+      stage.setViews(this.playerCount);
+      for (let i = 0; i < this.playerCount; i++) {
+        this.cams.push(new FightCamera(i === 0 ? stage.camera : stage.cameraFor(i), 'follow'));
+      }
+      // quarter-screen cells are much narrower than halves — pull in further
+      const ds = this.playerCount >= 3 ? 0.76 : 0.84;
+      for (const c of this.cams) { c.distScale = ds; c.pitch = 0.19; }
+    } else {
+      stage.setViews(1);
+      this.cams.push(new FightCamera(stage.camera, 'follow'));
+    }
+    this.cam = this.cams[0];
+    this.cam.links = this.cams.slice(1); // shakes/cut-ins fan out to every view
+    // interiors and tight corridors: every camera collides with the map so it
+    // cannot end up inside a wall or outside the building
+    for (const c of this.cams) c.bounds = this.arena.bounds;
+    // hand the destruction system the combat services it was built without
+    Object.assign(this.arena.destruct.ctx, { fx: this.fx, sfx: this.sfx, cam: this.cam, stage });
+    this.cam2 = this.cams[1] || null;
+    this.cpu = this.mode === 'local' ? null : new CPU(this.p2, this.p1, this);
+
+    // MEGUMI'S SUMMON RITUAL. Owns its own clock, camera and overlay; while it
+    // is running the logic tick does not run at all, so the opponent is frozen.
+    this.uiRoot = uiRoot;
+    this.ritual = new Ritual(this, uiRoot);
+
+    this.hud = new HUD(uiRoot);
+    // FINISHERS. Like the ritual above: its own clock, camera and overlay, and
+    // while it runs no logic tick happens at all. It is offered the match-
+    // ending KO in _koFlow and declines silently if the winner has no finisher
+    // or the feature is switched off, in which case nothing here changes.
+    this.finishers = new Finishers(this, uiRoot);
+    this.hud.shikigami = this.shikigami;
+    this.hud.curses = this.curses;
+    this.hud.domains = this.domains;
+    this.hud.gamble = this.gamble;
+    this.hud.flora = this.flora;
+    this.hud.swarms = this.swarms;
+    this.hud.setFighters(this.fighters);
+    this.hud.setSplit(this.mode === 'local' ? this.playerCount : 0);
+
+    this.phase = 'intro';
+    this.phaseT = 0;
+    this.timeScale = 1;
+    this.hitstopFrames = 0;
+    this.slowmoT = 0;        // sword-roll reveal beat: brief slow motion
+    this.slowmoScale = 1;
+    this.slowAcc = 0;
+    this.inputs = new Map();
+    this.edgeBuffer = [];    // presses made during hitstop, per seat
+    this.chargedAuras = new Map();
+    this.winner = null;
+    this.paused = false;
+    this.round = 1;
+    this.matchOver = false;
+    this.music = opts.music;
+    this.onResult = opts.onResult || (() => { });
+    this._resultFired = false;
+    const lives = opts.lives ?? 3;
+    for (const f of this.fighters) {
+      f.lives = f.maxLives = lives;
+      f.anim.play('idle');
+      f.setState('intro', {});
+    }
+    this.cam.cinematic(new THREE.Vector3(0, 0, 0), 1.7, 6.5, 2.2);
+    this.hud.message('READY', 0.9);
+    this.sfx.ready();
+    this.sfx.startWind();
+    this.music?.play('fight', { restart: true });
+  }
+
+  // The fighter everything targets: the NEAREST living opponent. With two
+  // fighters that is simply "the other one", so 1v1 is unchanged; with three
+  // or four it is what makes techniques, the soft lock and the cameras all
+  // agree on who you are currently fighting.
+  other(f) {
+    let best = null, bd = Infinity, fallback = null;
+    for (const o of this.fighters) {
+      if (o === f) continue;
+      if (!fallback || (fallback.eliminated && !o.eliminated)) fallback = o;
+      if (!o.alive || o.eliminated) continue;
+      const d = flatDist(f.pos, o.pos);
+      if (d < bd) { bd = d; best = o; }
+    }
+    return best || fallback;
+  }
+  livingCount() { return this.fighters.reduce((n, f) => n + (f.alive ? 1 : 0), 0); }
+  // everyone still in the match (knocked down this round is fine; out of
+  // stocks is not) — the combat loops run over these
+  get activeFighters() { return this.fighters.filter(f => !f.eliminated); }
+  inputFor(f) { return this.inputs.get(f); }
+  ctxFor(f) {
+    return {
+      opponent: this.other(f),
+      domains: this.domains,
+      effects: this.effects,
+      // With the opponent lock OFF the stick becomes camera-relative, so the
+      // fighter needs its own seat's VIEW heading. Locked, this is ignored.
+      // `moveYaw`, not `yaw` — see the getter: `yaw` points at the camera.
+      camYaw: this.camFor(f)?.moveYaw ?? 0,
+      fx: this.fx, sfx: this.sfx, match: this
+    };
+  }
+  // the camera that belongs to a seat (VS CPU has only one, behind P1)
+  camFor(f) { return this.cams[f.index] || this.cams[0]; }
+  hitstop(frames) { this.hitstopFrames = Math.max(this.hitstopFrames, frames); }
+  slowmo(dur, scale = 0.35) { this.slowmoT = Math.max(this.slowmoT, dur); this.slowmoScale = scale; }
+
+  // 'follow' = over-the-shoulder (every view, always). 'shared' still exists
+  // in FightCamera but nothing selects it — the domain clash used to, and now
+  // stays on the normal follow camera.
+  setCameraMode(mode) {
+    for (const c of this.cams) c.mode = mode;
+  }
+
+  update(dt) {
+    const seats = this.mode === 'local' ? this.playerCount : 2;
+    const { all } = this.input.pollAll(this.mode, seats);
+    if (all.some(f => f.pauseP)) { this.opts.onPause?.(); return; }
+    if (this.paused) return;
+    // THE RITUAL owns everything while it plays. No logic tick runs, so no
+    // fighter can act and no timer advances — the opponent is genuinely
+    // frozen, and it is driven from render() on real frame time.
+    if (this.ritual.active) { this.hud.update(dt, null); return; }
+    // ...and so does a FINISHER. No logic tick, no phase clock, no HUD tick —
+    // the HUD is hidden for the duration and there is nothing left to fight.
+    if (this.finishers.active) return;
+    if (all.some(f => f.selectP)) this.opts.onLegend?.();
+    this.phaseT += dt;
+
+    if (this.phase === 'intro') {
+      if (this.phaseT > 1.0 && this.phaseT - dt <= 1.0) { this.hud.message('FIGHT', 0.7); this.sfx.fight(); }
+      if (this.phaseT > 1.25) {
+        this.phase = 'fight';
+        for (const f of this.fighters) f.setState('idle', { clip: 'idle' });
+      }
+      this.hud.update(dt, null);
+      return;
+    }
+
+    if (this.phase === 'result') {
+      // The win pose and its bubble both live PAST this return — the result
+      // screen is exactly where the player sits and looks at them. Ticking the
+      // taunt flow and the bubbles here is what makes that true; the first
+      // version of this returned before both and the automatic victory taunt
+      // silently never fired at all (its timer froze at 1.22 s of a 1.9 s gate,
+      // which is precisely how long `ko` lasts before it hands over).
+      this._winTauntFlow();
+      this._tickFlourish(dt);
+      this.bubbles.update(dt);
+      this.hud.update(dt, null);
+      return;
+    }
+
+    // hitstop: freeze combat logic, keep presentation alive
+    if (this.hitstopFrames > 0) {
+      this.hitstopFrames--;
+      this.timeScale = 0.05;
+      // Nothing ticks while the frame is frozen, but the polling above still
+      // consumes press edges — so a button hit during the freeze would vanish.
+      // Hold those edges and hand them to the first live tick. Without this the
+      // tech is impossible: the knockdown's own hitstop eats the jump.
+      this._bufferEdges(all);
+      this.hud.update(dt, this.domains.state, this.domains.clashState, this.domains.duelState, this.domains.trialState);
+      return;
+    }
+    this._applyBufferedEdges(all);
+    if (this.slowmoT > 0) this.slowmoT -= dt;
+    this.timeScale = this.phase === 'ko'
+      ? (this.phaseT < 1.1 ? 0.3 : 1)
+      : (this.slowmoT > 0 ? this.slowmoScale : 1);
+
+    // fractional logic rate during slow motion
+    this.slowAcc += this.timeScale;
+    while (this.slowAcc >= 1) {
+      this.slowAcc -= 1;
+      this._logicTick(all);
+    }
+    this.hud.update(dt, this.domains.state, this.domains.clashState, this.domains.duelState, this.domains.trialState);
+  }
+
+  // press edges that survive a hitstop freeze (see update)
+  _bufferEdges(frames) {
+    frames.forEach((f, i) => {
+      const b = this.edgeBuffer[i] || (this.edgeBuffer[i] = {});
+      for (const k of EDGE_KEYS) if (f[k]) b[k] = true;
+    });
+  }
+  _applyBufferedEdges(frames) {
+    frames.forEach((f, i) => {
+      const b = this.edgeBuffer[i];
+      if (!b) return;
+      for (const k of EDGE_KEYS) if (b[k]) f[k] = true;
+      this.edgeBuffer[i] = null;
+    });
+  }
+
+  _logicTick(frames) {
+    const fight = this.phase === 'fight';
+
+    // seat 0..n-1 take their own frame; in VS CPU seat 1 is the bot
+    this.fighters.forEach((f, i) => {
+      const inp = !fight ? null
+        : (this.mode !== 'local' && i === 1) ? this.cpu.frame()
+          : (frames[i] || null);
+      this.inputs.set(f, inp);
+    });
+    for (const f of this.fighters) f.update(this.inputs.get(f), this.ctxFor(f));
+
+    // a fighter whose HP hit zero while the round carries on (3-4 players)
+    // drops here and stays down for the rest of the round
+    if (fight) this._reapDead();
+
+    // separate overlapping fighters — every pair, not just the 1v1. Bodies on
+    // the floor are scenery: nobody shoves them around and nobody hits them.
+    const live = this.activeFighters.filter(f => f.alive);
+    for (let i = 0; i < live.length; i++) {
+      for (let j = i + 1; j < live.length; j++) {
+        const a = live[i], b = live[j];
+        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
+        const d = Math.hypot(dx, dz);
+        // separation scales with the bodies involved: two humans keep the
+        // original 0.8 m, and nobody stands inside Mahoraga's chest
+        // ...and with growth: a stage-3 Kurourushi occupies more floor than a
+        // fresh one, so `hurtBox.push` is the scaled radius rather than the
+        // config's raw one.
+        const sep = Math.max(a.hurtBox.push, 0.4) + Math.max(b.hurtBox.push, 0.4);
+        if (d < sep && d > 1e-4) {
+          const push = (sep - d) / 2;
+          const nx = dx / d, nz = dz / d;
+          // MASS. kbResist doubles as a mass term: the heavier body gives less
+          // ground, and the two shares always add back up to the overlap.
+          // Equal weights reproduce the original even split exactly.
+          const ma = 1 / (a.cfg.kbResist ?? 1), mb = 1 / (b.cfg.kbResist ?? 1);
+          const sa = 2 * mb / (ma + mb), sb = 2 * ma / (ma + mb);
+          a.pos.x -= nx * push * sa; a.pos.z -= nz * push * sa;
+          b.pos.x += nx * push * sb; b.pos.z += nz * push * sb;
+        }
+      }
+    }
+
+    if (fight) {
+      // an active swing can connect with ANY other fighter — free-for-all
+      for (const a of live) {
+        for (const b of live) if (a !== b) resolveMelee(this, a, b);
+      }
+      this.effects.update(1 / 60);
+      this.minions.update(1 / 60);
+      this.judgemen.update(1 / 60);
+      this.shikigami.update(1 / 60);
+      this.flora.update(1 / 60);
+      this.swarms.update(1 / 60);
+      this.curses.update(1 / 60);
+      // ticked AFTER every damage source, so a freeze applied this frame gets
+      // a full second rather than a second minus the frame it landed on
+      this.freeze.update(1 / 60);
+      this.domains.update(1 / 60, this.inputs);
+      // ticked OUTSIDE the domain system on purpose: the 99-second Jackpot
+      // window has to keep running after domains.update has torn its own
+      // barrier down, and this is the only loop that survives that
+      this.gamble.update(1 / 60);
+    }
+
+    for (const f of this.fighters) this._drainEvents(f);
+    // OUTSIDE the `fight` gate: a bubble has to keep living, following its
+    // owner and fading on its own clock through the KO flow and the victory
+    // pose, which are exactly the moments the fight loop has stopped running.
+    this.bubbles.update(1 / 60);
+    this._tickFlourish(1 / 60);
+    this._chargedAuras();
+
+    // round ends when at most one fighter is still standing
+    if (fight && this.livingCount() <= 1) this._startKO();
+    if (this.phase === 'ko') this._koFlow();
+    this._winTauntFlow();
+    if (this.mode === 'local' && this.playerCount > 2) this._seatStatus();
+  }
+
+  // Free-for-all: someone runs out of HP but two or more fighters are still
+  // up, so the round continues without them. They play the defeat animation,
+  // lock into the 'ko' state (which takes no input and runs no state logic)
+  // and lie there until the round is over. In 1v1 nothing changes — the round
+  // is ending on this same tick, so _startKO owns the death.
+  _reapDead() {
+    if (this.livingCount() <= 1) return;
+    for (const f of this.activeFighters) {
+      if (f.alive || f.state === 'ko') continue;
+      f.res.hp = 0;
+      f.vel.set(0, 0, 0);
+      f.activeHit = null;
+      f.move = null;
+      f.iFrames = 0;
+      f.setState('ko', { clip: f.anim.has('defeat') ? 'defeat' : 'ko', fade: 0.12 });
+      // a domain does not outlive its caster
+      if (this.domains.isMyDomain?.(f)) this.domains.dismiss(f);
+      this.fx.koBurst(f.pos.clone());
+      this.sfx.ko();
+      this.cam.shake(0.45);
+      this.stage.flash(0.35);
+      this.hud.toast(f, 'DOWN');
+      this.hud.message(f.cfg.name + ' IS DOWN', 1.1);
+    }
+  }
+
+  // split-screen cell labels: who is dead, who is only watching
+  _seatStatus() {
+    for (let i = 0; i < this.playerCount; i++) {
+      const f = this.fighters[i];
+      if (!f) continue;
+      this.hud.setSeatStatus(i, f.eliminated ? 'SPECTATING' : !f.alive ? 'DOWN' : '');
+    }
+  }
+
+  // Whose shoulder a dead or eliminated seat rides: the living fighter nearest
+  // to where they fell, so the view stays on the fight instead of a corpse.
+  _spectateTarget(f) {
+    let best = null, bd = Infinity;
+    for (const o of this.fighters) {
+      if (o === f || !o.alive || o.eliminated) continue;
+      const d = flatDist(f.pos, o.pos);
+      if (d < bd) { bd = d; best = o; }
+    }
+    return best;
+  }
+
+  _drainEvents(f) {
+    for (const e of f.events) {
+      switch (e.type) {
+        case 'jump': this.sfx.jump(); this.fx.jumpPuff(f.pos.clone()); break;
+        case 'land': this.sfx.land(); break;
+        case 'dash':
+          this.sfx.dash();
+          this.fx.dashTrail(f);
+          // Jogo: the dash leaves burning ground in his wake
+          if (f.cfg.dashFire) this.effects.startBurnTrail(f);
+          break;
+        case 'overheatStart':
+          this.hud.cutin(f, 'DISASTER FLAMES', 'OVERHEAT  奰');
+          this.cam.shake(0.3);
+          break;
+        case 'overheatEnd': this.hud.toast(f, 'OVERHEAT ENDS'); break;
+        // ---- TAUNTS -------------------------------------------------------
+        // Deliberately quiet in the HUD. A taunt gets a sound and, if it has
+        // one, a bubble — no toast, no cut-in, no message bar. It is not an
+        // event the fight needs announced, and putting it through the same
+        // furniture as a domain cast would make a joke look like a mechanic.
+        case 'tauntStart':
+          this.sfx.taunt(e.def.cue);
+          this._tauntFlourish(f, e.def);
+          break;
+        case 'tauntSay':
+          this.bubbles.say(f, e.def.say, {
+            hold: e.def.hold ?? 1.3, accent: hex(pickInfo(f.pick)?.accent ?? 0xffffff),
+            // split-screen: billboard to the taunting seat's own eye
+            cam: this.cams[f.index]?.cam
+          });
+          break;
+        // Cut, cancelled or finished, the bubble goes. `tauntBreak` is the
+        // interruption (a hit landed) and kills it on the spot; a completed
+        // taunt lets the bubble ride out its own fade, which is why `tauntEnd`
+        // does nothing here.
+        case 'tauntBreak':
+          if (!e.completed) this.bubbles.cut(f);
+          break;
+        case 'tauntCancel': this.bubbles.cut(f); break;
+        case 'minionAlive': this.hud.toast(f, 'ONE IS ENOUGH'); this.sfx.noCE(); break;
+        // ---- SUKUNA -------------------------------------------------------
+        case 'fingerStart':
+          // the vulnerable second, announced so the opponent knows to punish it
+          this.hud.cutin(f, 'CONSUME A FINGER', '宿儺の指');
+          this.hud.message('HE IS OPEN', 0.9);
+          this.cam.shake(0.25);
+          break;
+        case 'noFingers': this.hud.toast(f, 'NO FINGERS LEFT'); this.sfx.noCE(); break;
+        case 'fireArrowCharge':
+          this.hud.cutin(f, 'FIRE ARROW', '開  —  CHARGING');
+          this.hud.message('開 FIRE ARROW — CHARGING', 1.3);
+          this.sfx.fireCharge();
+          this.cam.fovKick(5);
+          break;
+        case 'fireArrowRelease': this.cam.shake(0.5); break;
+        case 'fireArrowCancel':
+          // A cancel costs him only the frames — no cursed energy was ever
+          // committed to the charge. Reported, because "he was going to and
+          // then didn't" is the whole mind game and both players should see it.
+          this.hud.toast(f, e.reason === 'noCE' ? 'NOT ENOUGH CE'
+            : e.reason === 'fizzle' ? 'FIRE ARROW FIZZLED' : 'FIRE ARROW CANCELLED');
+          this.sfx.fireCancel();
+          break;
+        // ---- HIGURUMA -----------------------------------------------------
+        case 'judgemanAlive': this.hud.toast(f, 'JUDGEMAN IS ALREADY WATCHING'); this.sfx.noCE(); break;
+        case 'confiscated': {
+          // the seizure is announced on the VICTIM's plate, because it is
+          // their button that has gone and they are the one who needs to know
+          const label = { ct1: 'RB', ct2: 'RT', special: 'B' }[e.slot] || e.slot;
+          this.hud.toast(f, label + ' CONFISCATED');
+          this.hud.message('没収 — ' + label + ' SEIZED', 1.1);
+          break;
+        }
+        case 'confiscationEnds': this.hud.toast(f, 'RETURNED'); break;
+        case 'slotLocked': this.hud.toast(f, 'CONFISCATED — NOT YOURS'); this.sfx.noCE(); break;
+        case 'swordOnly':
+          // X and Y are dead while he holds the blade. Said once, so the
+          // two-button rule reads as a rule rather than as dropped inputs.
+          if (!f._swordOnlyToast) {
+            f._swordOnlyToast = true;
+            this.hud.toast(f, 'RB SLASH · RT EXECUTION');
+          }
+          this.sfx.noCE();
+          break;
+        case 'execSpent': this.hud.toast(f, 'ONE SENTENCE PER COURTROOM'); this.sfx.noCE(); break;
+        case 'judgmentSlash': this.sfx.whiff(); break;
+        case 'executionSwing':
+          // the wind-up is meant to be seen: it gets its own callout
+          this.hud.toast(f, '死刑執行 — EXECUTION');
+          this.cam.shake(0.15);
+          break;
+        case 'swing': this.sfx.whiff(); break;
+        // ---- HANAMI --------------------------------------------------------
+        case 'terrainChange': {
+          // Both players get told. The opponent needs this more than Hanami
+          // does — it is the difference between trading with him and running.
+          const nat = e.kind !== 'artificial';
+          this.hud.toast(f, nat
+            ? (e.kind === 'field' ? '花畑 — HIS GROUND' : '土 — NATURAL GROUND')
+            : '人工 — DEAD GROUND');
+          if (nat) this.fx._ring(f.pos.clone().setY(f.pos.y + 0.05), 0x7fc46a,
+            { size: 0.4, growRate: 4, life: 0.5 });
+          break;
+        }
+        case 'rootFieldStart':
+          this.hud.cutin(f, 'DISASTER PLANTS', 'ROOT FIELD  花畑');
+          break;
+        case 'fireWeak':
+          // said ONCE, the first time fire lands on him — the matchup is meant
+          // to be legible, not a mystery about why the bar moved that far
+          this.hud.toast(f, '火に弱い — WEAK TO FIRE');
+          this.hud.message('HANAMI BURNS', 0.9);
+          break;
+        // ---- KUROURUSHI ----------------------------------------------------
+        case 'growth': {
+          this.hud.cutin(f, '暴食 GLUTTONY', 'STAGE ' + e.stage + ' / ' + e.of);
+          this.hud.message('HE IS BIGGER', 1.0);
+          this.sfx.growl(e.stage);
+          this.cam.shake(0.5);
+          this.cam.fovKick(6);
+          this.stage.flash(0.22);
+          this.slowmo(0.25, 0.5);
+          this.camFor(f)?.applySubject?.(f);
+          break;
+        }
+        case 'devourStart':
+          this.sfx.lunge?.();
+          this.cam.fovKick(4);
+          break;
+        case 'devourWhiff':
+          this.hud.toast(f, 'NOTHING IN THE MAW');
+          break;
+        case 'selfDevourStart':
+          this.hud.toast(f, '自食 — EATING HIS OWN');
+          break;
+        case 'meltEnds':
+          this.hud.toast(f, 'GUARD RECOVERS');
+          break;
+        case 'heavyStart':
+          this.sfx.whiff();
+          this.sfx.cleave(false);
+          // A HEAVY SWING TEARS UP A ROOT FIELD. The counterplay the brief
+          // asks for, on the same event the shadow push already uses — the
+          // two open-ground techniques answer to the same button.
+          this.flora.damageFieldsAt(f.pos, (f.cfg.heavy?.reach ?? 2) + 0.8, 'heavy');
+          // COUNTERPLAY to Chimera Shadow Garden: a heavy swing shoves the
+          // sea of shadow back locally, carving a hole to stand in. Barrier
+          // Break has nothing to chip against an open domain, so this is the
+          // in-domain out.
+          this.domains.pushShadow(f.pos.clone(), f);
+          break;
+        // ---- CHOSO ---------------------------------------------------------
+        case 'redScaleStart':
+          // the vulnerable channel, announced. The opponent gets the same
+          // warning Sukuna's finger already gives them: he is open, go.
+          this.hud.cutin(f, 'BLOOD MANIPULATION', '赤鱗躍動  FLOWING RED SCALE');
+          this.hud.message('HE IS OPEN', 0.8);
+          this.cam.shake(0.22);
+          break;
+        case 'redScaleEnd':
+          // it simply runs out. No recoil, no rent, no health taken — the one
+          // thing this character must never do is cost himself HP.
+          this.hud.toast(f, '赤鱗躍動 ENDS');
+          break;
+        case 'redScaleUp': this.hud.toast(f, 'ALREADY BOILING'); this.sfx.noCE(); break;
+        case 'piercingLoad':
+          // the load on Piercing Blood. This is the reactable half of the move
+          // and it gets a real announcement, because a 28-frame telegraph
+          // nobody notices is not a telegraph.
+          this.hud.toast(f, '穿血 — PIERCING BLOOD');
+          this.sfx.bloodCharge();
+          this.cam.fovKick(3);
+          break;
+        case 'noBlood':
+          this.hud.toast(f, '血 ' + Math.round(e.have) + '/' + Math.round(e.need));
+          this.sfx.noCE();
+          break;
+        case 'bloodFull': this.hud.toast(f, '血 FULL'); break;
+        // ---- NOBARA --------------------------------------------------------
+        case 'essence':
+          // Only reported when a chunk worth noticing arrives — a jab's 2.4
+          // would toast on every hit of every string and drown the plate. The
+          // bar itself carries the small numbers.
+          if (e.amount >= 6) {
+            this.hud.toast(f, '依代 +' + Math.round(e.amount));
+            this.fx._ring(f.pos.clone().add(new THREE.Vector3(0, 1.3, 0)), 0xf0e2b8,
+              { size: 0.3, growRate: 5, life: 0.25, flat: false });
+          }
+          break;
+        case 'noEssence':
+          this.hud.toast(f, '依代 ' + Math.round(e.have) + '/' + Math.round(e.need));
+          this.sfx.noCE();
+          break;
+        case 'resonanceChannel': {
+          // THE TELL. Loud on purpose: this is the one warning an opponent
+          // gets that an unblockable, undodgeable hit is coming, and the sound
+          // and the callout both scale with how much is going into it.
+          const k = Math.min(1, e.essence / (f.cfg.essence?.max ?? 100));
+          this.sfx.resonanceCharge(k);
+          this.hud.techFlash('共鳴 RESONANCE — ' + Math.round(e.essence) + ' 依代', 0xf0e2b8);
+          this.hud.toast(f, 'CHANNELING');
+          if (k > 0.5) this.cam.fovKick(4);
+          break;
+        }
+        case 'bfStrikeStart': this.sfx.hammer(false); break;
+        case 'bfWindow': break;   // the shared `bfTell` event owns the flash
+        case 'bfStrikeWhiff': this.hud.toast(f, 'MISSED'); break;
+        case 'noStamina': this.sfx.noCE(); break;
+        case 'quickRise':
+          // landing on your feet: puff, a snap of speed, and the callout
+          this.sfx.dash();
+          this.sfx.techReveal(880);
+          this.fx.jumpPuff(f.pos.clone());
+          this.hud.toast(f, 'TECH');
+          this.cam.shake(0.12);
+          break;
+        case 'guardBreak': this.hud.toast(f, 'GUARD BREAK'); break;
+        case 'copied': this.sfx.copied(); this.hud.toast(f, 'COPIED: ' + e.name); break;
+        case 'noCE': this.sfx.noCE(); break;
+        case 'swordPickup':
+          // pickup snap: blade-draw sound, small camera kick, CE tracing the edge
+          this.sfx.swordGrab();
+          this.cam.shake(0.18);
+          this.cam.fovKick(3);
+          this.fx.dashTrail(f);
+          break;
+        case 'swordSwing': this.sfx.whiff(); break;
+        case 'bfTell': {
+          // the learnable tell: a flash on the impact spark when the window opens
+          const foe = this.other(f);
+          this.fx._ring(foe.pos.clone().add(new THREE.Vector3(0, 1.25, 0)), 0xffffff,
+            { size: 0.3, growRate: 4, life: 0.12, flat: false });
+          this.sfx.bfTell();
+          break;
+        }
+        case 'sukunaCast':
+          this.hud.cutin(f, 'MALEVOLENT VESSEL', f.cfg.ultimate.name + '  ' + (f.cfg.ultimate.jpName || ''));
+          this.cam.cinematic(f.pos, 1.3, 3, 1.6);
+          break;
+        case 'sukunaEnd':
+          this.hud.toast(f, 'SUKUNA RECEDES — RECOIL');
+          this.sfx.domainFail();
+          this.fx.hitSpark(f.pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 'heavy');
+          break;
+        case 'thud':
+          this.sfx.land();
+          this.cam.shake(0.2);
+          this.arena.splash?.(f.pos.x, f.pos.z, 1.1);
+          this.arena.destruct?.damageAt(f.pos, 1.6, 22, { kind: 'body' });
+          break;
+        case 'wallSlam':
+          // a launched body hitting geometry damages the geometry
+          this.sfx.slam();
+          this.cam.shake(0.35);
+          this.arena.destruct?.damageAt(f.pos.clone().setY(f.pos.y + 1), 2.0, e.power * 5, { kind: 'body' });
+          this.fx.hitSpark(f.pos.clone().add(new THREE.Vector3(0, 1.1, 0)), 'heavy');
+          break;
+        // ---- specials -----------------------------------------------------
+        case 'warp':
+          this.sfx.warp();
+          this.fx.warpBlink(e.from, e.to, f.model.palette.accent ?? 0x7fd0ff);
+          break;
+        case 'warpSealed':
+          this.hud.toast(f, 'BARRIER SEALS THE WARP');
+          this.sfx.noCE();
+          break;
+        case 'boogie':
+          this.sfx.clap();
+          this.fx.boogieSwap(e.a, e.b, f.model.palette.accent ?? 0xff5fc8);
+          this.cam.shake(0.22);
+          break;
+        case 'ratioStart': this.sfx.bfTell(); break;
+        case 'lockToggle': {
+          // the seat's own camera follows its fighter's preference
+          this.camFor(f)?.setLocked(e.on);
+          this.hud.toast(f, e.on ? 'LOCK ON' : 'LOCK OFF — FREE CAMERA');
+          this.sfx.uiOk();
+          break;
+        }
+        // ---- TOJI ---------------------------------------------------------
+        case 'arsenalOpen':
+          this.sfx.wheelOpen?.();
+          this.hud.setArsenal(f, f.arsenal);
+          break;
+        case 'arsenalMove':
+          this.sfx.uiMove();
+          this.hud.setArsenal(f, f.arsenal);
+          break;
+        case 'weaponSwap':
+          // the wheel closes the instant he commits — the DRAW is not part of
+          // the choice, it is the price of it, and leaving the radial up
+          // through the animation would hide the vulnerable frames
+          this.hud.setArsenal(null, null);
+          this.sfx.uiOk();
+          this.hud.toast(f, e.name);
+          this.fx._ring(f.pos.clone().setY(1.1), 0x6ea88a, { size: 0.4, growRate: 8, life: 0.3, flat: false });
+          break;
+        case 'weaponReady':
+          this.sfx.swordSwing?.();
+          break;
+        case 'ctSealed':
+          this.hud.toast(f, '強制解除 — TECHNIQUES SEALED');
+          this.sfx.noCE();
+          break;
+        case 'nullifyCooling':
+          this.hud.toast(f, 'SPEAR NOT READY — ' + e.t.toFixed(1) + 's');
+          this.sfx.noCE();
+          break;
+        case 'nullifyLand':
+          if (e.cancelled) this.cam.cinematic(f.pos, 0.9, 2.2, 1.5);
+          break;
+        case 'nullifyWhiff':
+          this.hud.toast(f, 'WHIFFED');
+          break;
+        case 'assassinStart':
+          this.hud.cutin(f, 'ASSASSINATION', f.cfg.ultimate.name + '  ' + f.cfg.ultimate.jpName);
+          this.sfx.lunge?.();
+          this.cam.fovKick(7);
+          break;
+        case 'assassinCooling':
+          this.hud.toast(f, '術師殺し — ' + e.t.toFixed(1) + 's');
+          this.sfx.noCE();
+          break;
+        case 'assassinWhiff':
+          this.hud.toast(f, 'MISSED');
+          break;
+        case 'soulCutEnds':
+          this.hud.toast(f, 'SOUL WOUND CLOSES');
+          break;
+        // ---- PANDA: THE THREE CORES ---------------------------------------
+        case 'coreSwapStart':
+          this.hud.setWheel(f, null, null);
+          this.sfx.uiOk();
+          this.sfx.coreSwap?.();
+          this.fx._ring(f.pos.clone().setY(0.06), CORE_TINT[e.key] ?? 0xf2f2ec,
+            { size: 0.5, growRate: 7, life: 0.4 });
+          break;
+        case 'coreSwap':
+          this.hud.toast(f, e.jp + ' ' + e.name);
+          this.fx._ring(f.pos.clone().add(new THREE.Vector3(0, 1.1, 0)),
+            CORE_TINT[e.key] ?? 0xf2f2ec, { size: 0.4, growRate: 9, life: 0.35, flat: false });
+          this.cam.shake(0.16);
+          break;
+        // A CORE IS GONE, PERMANENTLY. It gets the biggest read short of a KO,
+        // because it IS a partial KO — a third of the character has just been
+        // deleted for the rest of the round and both players need to register
+        // it on the frame it happens rather than by noticing the HUD later.
+        case 'coreLost':
+          this.hud.message(e.jp + ' — CORE DESTROYED', 1.5);
+          this.hud.toast(f, e.name + ' LOST · ' + e.left + ' LEFT');
+          this.sfx.coreBreak?.();
+          this.cam.shake(0.65);
+          this.cam.fovKick(7);
+          this.stage.flash(0.45);
+          this.hitstop(12);
+          this.slowmo(0.28, 0.4);
+          this.fx.koBurst(f.pos.clone().add(new THREE.Vector3(0, 1.1, 0)));
+          break;
+        case 'coreBlocked':
+        case 'noCoreLeft':
+          this.hud.toast(f, e.text || 'NO OTHER CORE');
+          this.sfx.noCE();
+          break;
+        case 'allCoresStart':
+          this.hud.message('三核共鳴 x' + e.mult.toFixed(2) + ' — ' + e.cores + ' CORES', 1.6);
+          break;
+        case 'allCoresEnd':
+          this.hud.toast(f, 'THE CORES SETTLE');
+          break;
+        // ---- KASHIMO -------------------------------------------------------
+        case 'chargeTier':
+          if (e.tier > 0) this.sfx.chargeTier?.(e.tier);
+          if (e.tier === 3) this.hud.toast(f, '雷神 — MAXIMUM CHARGE');
+          if (e.tier === 0) this.hud.toast(f, '接地 — EARTHED');
+          break;
+        case 'noCharge':
+          this.hud.toast(f, 'NOT ENOUGH CHARGE');
+          this.sfx.noCE();
+          break;
+        case 'arcSpent':
+          this.hud.toast(f, 'ARC DASH SPENT');
+          this.sfx.noCE();
+          break;
+        case 'arcDash':
+          this.cam.shake(0.2);
+          break;
+        case 'staggered':
+          this.hud.message('感電 STAGGERED', 0.7);
+          break;
+        case 'amberStart':
+          this.hud.message('灼爛趙誅', 1.3);
+          break;
+        case 'amberEnd':
+          this.hud.toast(f, 'THE LIMITER RETURNS');
+          break;
+        // ---- megumi -------------------------------------------------------
+        case 'wheelOpen':
+          this.sfx.wheelOpen?.();
+          this.hud.setWheel(f, this._wheelSnapshot(f), f.wheel || f.swapWheel);
+          break;
+        case 'wheelMove':
+          this.sfx.uiMove();
+          this.hud.setWheel(f, this._wheelSnapshot(f), f.wheel || f.swapWheel);
+          break;
+        case 'wheelConfirm':
+          this.sfx.uiOk();
+          this.hud.setWheel(f, null, null);
+          if (e.curse) {
+            this.hud.toast(f, 'RT · ' + f.cfg.curses.defs[e.key].short);
+            this.fx._ring(f.pos.clone().setY(0.06), 0x6b2fa0, { size: 0.5, growRate: 7, life: 0.35 });
+          } else {
+            this.hud.toast(f, (e.slot === 'ct1' ? 'RB · ' : 'RT · ')
+              + f.cfg.shikigami.defs[e.key].short);
+            this.fx._ring(f.pos.clone().setY(0.06), 0x8fb6d8, { size: 0.5, growRate: 7, life: 0.35 });
+          }
+          break;
+        case 'shikiBlocked':
+          this.hud.toast(f, e.text);
+          this.sfx.noCE();
+          break;
+        // ---- geto ---------------------------------------------------------
+        case 'curseBlocked':
+          this.hud.toast(f, e.text);
+          this.sfx.noCE();
+          break;
+        case 'reabsorbStart':
+          this.sfx.wheelOpen?.();
+          break;
+        case 'uzumaki':
+          this.hud.message(e.spent.total ? '極ノ番・うずまき' : '極ノ番・うずまき — 空', 1.4);
+          break;
+        // ---- naoya --------------------------------------------------------
+        case 'stanceStart':
+          this.sfx.uiMove();
+          break;
+        case 'stanceArmed':
+          this.sfx.stanceArm?.();
+          this.hud.toast(f, '投射呪法 — ARMED');
+          break;
+        case 'stanceEnd':
+          if (!e.spent) this.sfx.noCE();
+          break;
+        case 'projectionTrigger':
+          this.hud.toast(f, 'CAUGHT IN A FRAME');
+          this.cam.fovKick(5);
+          break;
+        case 'frozen':
+          this.hud.message('FROZEN', 0.8);
+          break;
+        case 'maxProjectionStart':
+          this.hud.message('投射呪法・極', 1.2);
+          break;
+        case 'maxProjectionEnd':
+          this.hud.toast(f, 'PROJECTION ENDS');
+          break;
+        case 'shadowDive':
+          this.sfx.shadowDive?.();
+          this.fx._ring(f.pos.clone().setY(0.06), 0x8fb6d8, { size: 0.6, growRate: -1.4, life: 0.3 });
+          break;
+        case 'shadowRise':
+          this.sfx.shadowRise?.();
+          this.fx._ring(f.pos.clone().setY(0.06), 0x8fb6d8, { size: 0.3, growRate: 6, life: 0.35 });
+          this.cam.shake(0.12);
+          break;
+        case 'ratioPrime':
+          this.hud.toast(f, e.level === 2 ? '7:3 — PERFECT' : '7:3 — CLOSE');
+          this.sfx.ratioSuccess(e.level);
+          this.fx.buffAura(f, f.cfg.special?.primedTime ?? 6, 0xf2b23c);
+          break;
+        case 'ratioMiss':
+          this.hud.toast(f, 'RATIO MISSED');
+          this.sfx.noCE();
+          break;
+        case 'ratioStrike': {
+          // the primed 7:3 strike lands: golden markers, crack, chime
+          const foe = this.other(f);
+          this.fx.ratioStrike(foe.pos.clone().add(new THREE.Vector3(0, 1.25, 0)), e.level);
+          this.sfx.ratioChime();
+          this.hitstop(e.level === 2 ? 14 : 8);
+          this.cam.shake(e.level === 2 ? 0.7 : 0.4);
+          this.cam.fovKick(e.level === 2 ? 8 : 4);
+          if (e.level === 2) { this.stage.flash(0.4); this.slowmo(0.2, 0.4); }
+          this.hud.toast(f, '7:3 STRIKE');
+          break;
+        }
+        case 'copyCast':
+          // fired back in Yuta's own green-white cursed energy
+          this.sfx.copied();
+          this.fx.dashTrail(f);
+          this.fx._ring(f.pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 0x9ff5c9,
+            { size: 0.5, growRate: 8, life: 0.3, flat: false });
+          break;
+        case 'ctStart':
+          // HAKARI: every technique fired inside his own barrier feeds the
+          // machine. Two of them roll a reach scenario. Reading it off the
+          // event means it counts the USE, not the connect — whiffing still
+          // pays into the counter, which is what makes spamming it a plan.
+          this.gamble.noteTechnique(f);
+          if (e.move.chargedCast) this.hud.toast(f, 'MAXIMUM: ' + e.move.name.toUpperCase());
+          // WORLD-CUTTING SLASH: the line writes itself across the floor
+          // during the wind-up. It is the whole reason the move is reactable.
+          if (e.move.effect === 'mahoraga_world_cut') {
+            this.hud.toast(f, '世界を断つ — WORLD-CUTTING SLASH');
+            this.fx.worldCutTell(f, f.forward(), e.move.range ?? 15);
+            this.sfx.eruptPrime();
+            this.cam.shake(0.18);
+          }
+          break;
+        case 'purpleStart':
+          this.hud.cutin(f, 'IMAGINARY TECHNIQUE', 'HOLLOW PURPLE  虚式「茈」');
+          this.cam.cinematic(f.pos, 1.2, 2.8, 1.5);
+          break;
+        case 'ultBurst':
+          this.hud.cutin(f, 'MAXIMUM OUTPUT', f.cfg.ultimate.name + '  ' + (f.cfg.ultimate.jpName || ''));
+          this.cam.cinematic(f.pos, 1.2, 3, 1.6);
+          break;
+
+        // ---- MEGUMI: the ritual window ------------------------------------
+        case 'ritualPrompt':
+          // shown once, while the cast is actually running, so the input is
+          // discoverable without being an accident waiting to happen
+          this.hud.ritualPrompt(2.0);
+          break;
+
+        // ---- MAHORAGA ------------------------------------------------------
+        case 'adapt': {
+          const r = e.result;
+          if (r.empty) {
+            // the interval passed and nothing had touched him. Say so — the
+            // opponent needs to learn that not hitting him has a cost too
+            this.hud.toast(f, '適応なし — NOTHING TO ADAPT TO');
+            break;
+          }
+          if (r.starved) {
+            this.hud.toast(f, 'ALREADY ADAPTED — ' + r.label);
+            break;
+          }
+          // the wheel turns, then locks
+          f.model.spinWheel?.(1);
+          this.sfx.adaptSpin();
+          this.fx.adaptFlare(f, f.cfg.size?.wheelY ?? 3.9);
+          this.cam.shake(0.3);
+          this.hud.adaptCallout(f, r);
+          this.slowmo(0.35, 0.45);
+          // the lock lands a beat later, on the sound cue
+          setTimeout(() => {
+            if (!f.alive) return;
+            f.model.lockWheel?.();
+            this.sfx.adaptLock();
+            this.cam.shake(0.45);
+            this.cam.fovKick(5);
+            this.stage.flash(0.22);
+            this.fx.adaptFlare(f, f.cfg.size?.wheelY ?? 3.9);
+          }, (f.adapt?.cfg.spinTime ?? 1.2) * 1000);
+          if (f.state !== 'ko' && !f.busy) f.anim.play('adapt', { fade: 0.1, restart: true });
+          break;
+        }
+        case 'noUltimate':
+          this.hud.toast(f, e.text || f.cfg.noUltimateReason || 'NO ULTIMATE');
+          this.sfx.noCE();
+          break;
+
+        // ---- HAKARI --------------------------------------------------------
+        case 'shutterBlock':
+          this.sfx.guard();
+          this.fx.guardSpark(f.pos.clone().add(new THREE.Vector3(0, 1.3, 0))
+            .addScaledVector(f.forward(), 1.35));
+          this.hitstop(3);
+          if (e.projectile) this.hud.toast(f, 'SHUTTER HOLDS');
+          break;
+        case 'shutterBreak':
+          this.sfx.shutterBreak();
+          this.fx.shutterDown(f, true);
+          this.hud.toast(f, 'SHUTTER BROKEN');
+          this.cam.shake(0.3);
+          this.hitstop(6);
+          break;
+        case 'shutterDown':
+          this.fx.shutterDown(f, false);
+          break;
+        case 'rctDamage':
+          // the hit reads normally; the payback is the gamble system's job.
+          // All this does is put the gold on the screen at the moment of
+          // impact so the two beats are visibly connected.
+          this.fx._ring(f.pos.clone().add(new THREE.Vector3(0, 1.25, 0)), 0xffc93c,
+            { size: 0.35, growRate: 8, life: 0.25, flat: false });
+          break;
+        case 'rctCounter': {
+          // he ate it. Heal, then hand it straight back on the next beat.
+          this.sfx.counterAbsorb();
+          this.fx.counterStance(f);
+          this.hud.toast(f, 'ABSORBED');
+          this.hitstop(12);
+          this.slowmo(0.22, 0.35);
+          this.effects.queueCounterPunish(f, e.target, e.def, 0.14);
+          break;
+        }
+        case 'charge':
+          this.sfx.dash();
+          this.sfx.mahoragaStep();
+          this.fx.dashTrail(f);
+          this.cam.shake(0.2);
+          break;
+        case 'chargeEnd':
+          this.sfx.slam();
+          this.cam.shake(0.3);
+          this.arena.destruct?.damageAt(f.pos.clone().setY(1.2), 2.4, 40, { kind: 'body' });
+          break;
+        case 'step':
+          // every footfall registers
+          this.sfx.mahoragaStep();
+          this.cam.shake(f.cfg.size?.stepShake ?? 0.12);
+          this.arena.splash?.(f.pos.x, f.pos.z, 0.8);
+          break;
+      }
+    }
+    f.events.length = 0;
+  }
+
+  _chargedAuras() {
+    for (const f of this.fighters) {
+      const has = this.chargedAuras.get(f);
+      if (f.charged && !has && f.alive) this.chargedAuras.set(f, this.fx.chargedAura(f));
+      else if (!f.charged && has) { this.fx.removeAura(has); this.chargedAuras.delete(f); }
+    }
+  }
+
+  // Last fighter standing takes the round; everyone knocked out loses a stock.
+  // With two fighters this is the original behaviour exactly.
+  _startKO() {
+    this.phase = 'ko';
+    this.phaseT = 0;
+    const survivors = this.fighters.filter(f => f.alive);
+    this.winner = survivors[0] || this.winner || this.fighters[0];
+    const downed = this.fighters.filter(f => !f.alive);
+    // whoever fell on THIS tick is the one the closing shot frames — not a
+    // body that has been lying there since the start of the round
+    const justFell = downed.filter(f => f.state !== 'ko');
+    for (const f of downed) {
+      f.lives = Math.max(0, f.lives - 1);
+      // anyone already face-down from earlier in the round keeps their pose
+      if (f.state !== 'ko') {
+        f.setState('ko', { clip: 'ko' });
+        this.fx.koBurst(f.pos.clone());
+      }
+    }
+    // the match is decided once at most one fighter still has stocks left
+    this.matchOver = this.fighters.filter(f => f.lives > 0).length <= 1;
+    this.hud.message('K.O.', 1.6);
+    this.sfx.ko();
+    this.sfx.stopDrone();
+    this.music?.duck(0.3, this.matchOver ? 3.0 : 2.2);
+    this.cam.shake(0.9);
+    this.cam.fovKick(8);
+    this.stage.flash(0.8);
+    this.stage.setGrade('ko');
+    this.cam.cinematic((justFell[0] || downed[0] || this.winner).pos, 2.0, 3.4, 1.4);
+    this.domains.abortContest();
+    if (this.domains.state) this.domains._collapse(false);
+    // the round is over: Jackpot, its theme and its grade go with it
+    this.gamble.resetRound();
+    // ...and so does any live freeze. Released here rather than left to expire
+    // so the KO shot never frames a grey, stuttering winner.
+    this.freeze.clear();
+    this.stage.setGrade('ko');
+  }
+
+  // ---- THE WIN POSE IS THE TAUNT -----------------------------------------
+  // Played on the winner once the victory clip has had its moment, and
+  // re-playable from the result screen (D-pad Left — game.js wires it).
+  //
+  // It deliberately does NOT go through `tryTaunt` or the `taunt` state. The
+  // winner is in the `victory` state, which runs no state logic at all, and
+  // that is exactly what this wants: nothing here can be interrupted, cancelled
+  // or rate-limited, because there is no longer a fight for any of that to mean
+  // anything in. It drives the clip and the bubble directly and nothing else.
+  playVictoryTaunt(f = this.winner) {
+    if (!f) return false;
+    const def = pickTaunt(f.pick, f.tauntN++);
+    if (!def || !f.anim.clips.has(def.clip)) return false;
+    f.anim.play(f.anim.clips.get(def.clip), { fade: 0.2, restart: true });
+    this.sfx.taunt(def.cue);
+    this._tauntFlourish(f, def);
+    this.bubbles.cut(f);
+    // The bubble is DEFERRED ON THE GAME CLOCK, not on setTimeout. A wall-clock
+    // timer here fires while the game is paused, keeps running after the match
+    // is destroyed, and (found in test) never fires at all under a harness that
+    // drives `update` synchronously. `_pendingSay` is drained by `_winTauntFlow`
+    // off the same tick everything else uses.
+    this._pendingSay = def.say ? { f, def, t: def.at ?? 0.6 } : null;
+    return true;
+  }
+
+  // The two taunts that reach outside the skeleton for something. Kept here
+  // rather than in the clips because both are model/FX calls, and both are
+  // optional-chained so a body that does not have them is simply a body that
+  // does not have them.
+  _tauntFlourish(f, def) {
+    // MAHORAGA: the wheel actually turns. `spinWheel` is the same call the
+    // adaptation uses, at a fraction of the power — a lazy idle revolution
+    // rather than a lock-on.
+    f.model.spinWheel?.(0.35);
+    // MEGUMI: something arrives in the shadow at his feet, uninvited. The clip
+    // has him glancing down at it and then putting it away; this is the half of
+    // the joke that is not his body. Queued on the GAME clock for the same
+    // reason the win-pose bubble is — a wall-clock timer would put a shadow at
+    // his feet through a pause, and 0.62 s late if the frame hitched.
+    if (f.cfg.shikigami) this._pendingPuff = { f, t: 0.62 };
+  }
+
+  // Drained from the update, beside the taunt bubble. One line each, but they
+  // are the two places this feature reaches out of the animation and into the
+  // world, so they share a clock with it.
+  _tickFlourish(dt) {
+    const p = this._pendingPuff;
+    if (!p) return;
+    p.t -= dt;
+    if (p.t <= 0) { this._pendingPuff = null; this.fx.shadowPuff?.(p.f.pos.clone()); }
+  }
+
+  // The automatic half of the win pose: the victory clip plays, and then the
+  // winner's taunt plays on top of it.
+  //
+  // THIS IS DELIBERATELY NOT INSIDE `_koFlow`. It was, and it never fired
+  // once: `_koFlow` only runs while `phase === 'ko'`, and phase flips to
+  // 'result' at phaseT 2.6 — so any gate later than that is unreachable, which
+  // is exactly the trap the first version fell into. Driven from the update
+  // instead, so it survives the phase change and can sit at a delay chosen to
+  // let the victory clip finish rather than one chosen to beat a deadline.
+  _winTauntFlow() {
+    // the win pose's bubble, waiting for its beat inside the clip
+    const p = this._pendingSay;
+    if (p) {
+      p.t -= 1 / 60;
+      if (p.t <= 0) {
+        this._pendingSay = null;
+        // longer hold than in a match: nobody is about to hit him, and this is
+        // the shot the player stops to look at
+        this.bubbles.say(p.f, p.def.say, {
+          hold: (p.def.hold ?? 1.3) + 1.2,
+          accent: hex(pickInfo(p.f.pick)?.accent ?? 0xffffff),
+          cam: this.cams[p.f.index]?.cam
+        });
+      }
+    }
+    if (!this.matchOver || this._winTaunted) return;
+    if (this.phase !== 'ko' && this.phase !== 'result') return;
+    if (!this.winner || this.winner.state !== 'victory') return;
+    this._winTauntT = (this._winTauntT ?? 0) + 1 / 60;
+    if (this._winTauntT < 1.9) return;    // every victory clip has had its beat
+    this._winTaunted = true;
+    this.playVictoryTaunt();
+  }
+
+  _koFlow() {
+    // ---- THE FINISHER --------------------------------------------------
+    // The match-ending KO, and only that: `matchOver` is false on a round
+    // KO, so a finisher can never fire between rounds. Offered after the KO's
+    // own hitstop and slow-motion beat have played, which is the "brief
+    // hitstop" the sequence opens on. It returns false — and this becomes a
+    // dead line — whenever the feature is off, the winner has no finisher, or
+    // there is no body to play it against, so the flow below is unchanged.
+    if (this.matchOver && this.phaseT > 0.5 && this.finishers.tryBegin(this.winner)) return;
+    // only take a victory pose when the whole match is decided
+    if (this.matchOver && this.phaseT > 1.4 && this.winner.state !== 'victory') {
+      this.winner.setState('victory', { clip: 'victory' });
+      this.winner.anim.play('victory', { fade: 0.2, restart: true });
+      this.sfx.victory();
+      this._winTaunted = false;
+      this._winTauntT = 0;
+    }
+    if (!this.matchOver && this.phaseT > 2.2) { this._nextRound(); return; }
+    if (this.matchOver && this.phaseT > 2.6 && !this._resultFired) {
+      this._resultFired = true;
+      this.phase = 'result';
+      this.music?.play('menu');
+      this.onResult(this.winner);
+    }
+  }
+
+  // A stock was lost but two or more fighters still have lives: wipe the round
+  // state and run the intro again. The music keeps playing straight through.
+  // "Megumi is gone until the round ends." The round has ended: put him back.
+  // The ritual itself stays spent — `ritualUsed` is not cleared here, so it
+  // remains once per MATCH, not once per round.
+  _revertSummons() {
+    for (let i = 0; i < this.fighters.length; i++) {
+      const f = this.fighters[i];
+      const src = f.summonedFrom;
+      if (!src) continue;
+      this.fighters[i] = src;
+      if (this.p1 === f) this.p1 = src;
+      if (this.p2 === f) this.p2 = src;
+      this.root.remove(f.model.group);
+      this.root.add(src.model.group);
+      src.model.group.visible = true;
+      src.transformedInto = null;
+      // the stock the summon spent (or kept) is the one Megumi comes back with
+      src.lives = f.lives;
+      src.maxLives = f.maxLives;
+      for (const s of this.fx.shadows) if (s.fighter === f) s.fighter = src;
+      const aura = this.chargedAuras.get(f);
+      if (aura) { this.fx.removeAura(aura); this.chargedAuras.delete(f); }
+      this.inputs.delete(f);
+      this.hud.setAdaptation(null);
+      this.camFor(src)?.applySubject(src);
+    }
+    this.hud.setFighters(this.fighters);
+    if (this.cpu) this.cpu.retarget?.(this);
+  }
+
+  // Which radial the wheel widget is showing. Both summoners hold one and the
+  // interaction is identical; only the sectors differ. Geto's shows his FOUR
+  // SPECIAL GRADES and not his chaff — the low grades have no choice attached
+  // to them (CT1 takes the first available), so putting them on the wheel
+  // would be four sectors that do nothing.
+  _wheelSnapshot(f) {
+    if (f.cfg.curses) return this.curses.snapshot(f).filter(s => s.def.specialGrade);
+    // PANDA: THE CORE RADIAL REUSES THE SHIKIGAMI WIDGET rather than getting a
+    // fourth one. All the widget needs is this shape, and the mapping is
+    // natural: a DESTROYED core is `lost` (greyed and struck through, exactly
+    // as a dead shikigami is), and the core he is standing in right now takes
+    // `selected`, which is the same highlight Geto's chosen curse uses.
+    // `desc` carries the remaining health so the choice is informed — which
+    // core to expose is the entire decision and it cannot be made blind.
+    if (f.cores) {
+      return f.cores.map(c => ({
+        def: {
+          short: c.short, jp: c.jp, name: c.name, cost: f.cfg.special.cost,
+          desc: c.alive ? Math.round(c.hp) + ' / ' + Math.round(c.max) : 'DESTROYED'
+        },
+        lost: !c.alive || c.hp <= 0,
+        cd: 0,
+        affordable: f.res.curCE >= f.cfg.special.cost,
+        selected: c.key === f.stance
+      }));
+    }
+    return this.shikigami.snapshot(f);
+  }
+
+  _nextRound() {
+    this.round++;
+    this.ritual.abort();
+    this._revertSummons();
+    this.effects.clear();
+    this.minions.clear();
+    this.judgemen.clear();
+    // shikigami losses are round-scoped, like every other resource here
+    this.shikigami.resetRound();
+    // ...and so are root fields, cursed buds, swarms and Gluttony
+    this.flora.resetRound();
+    this.swarms.resetRound();
+    this.gamble.resetRound();
+    // Geto's stable comes BACK each round — see the long note on
+    // CurseSystem.resetRound for why his permanence is round-scoped where
+    // Megumi's is match-scoped. Any live freeze is released cleanly here so a
+    // fighter frozen at the buzzer does not start the next round grey.
+    this.curses.resetRound();
+    this.freeze.clear();
+    this.hud.setWheel(null, null, null);
+    this.hud.setArsenal(null, null);
+    // the level goes back up between rounds: every destructible is restored
+    // and every collider it killed comes back
+    this.arena.destruct.reset();
+    this.domains.abortContest();
+    if (this.domains.state) this.domains._collapse(false);
+    // a carried Executioner's Sword is round-scoped like everything else
+    this.domains.clearSwordCarry();
+    this.domainfx.clearClash();
+    this.stage.setGrade(this.mapGrade);   // back to the MAP's grade, not a flat one
+    this.setCameraMode('follow');
+    for (const [, aura] of this.chargedAuras) this.fx.removeAura(aura);
+    this.chargedAuras.clear();
+    // out of stocks = out of the match: stay down, hidden, and skipped by the
+    // combat loops. Their HP stays at 0 so they never count as alive again.
+    for (const f of this.fighters) {
+      if (f.lives > 0) f.resetForRound();
+      else { f.eliminated = true; f.model.group.visible = false; }
+    }
+    this.winner = null;
+    this.phase = 'intro';
+    this.phaseT = 0;
+    this.hitstopFrames = 0;
+    this.timeScale = 1;
+    this.slowmoT = 0;
+    this.slowAcc = 0;
+    this.cam.cinematic(new THREE.Vector3(0, 0, 0), 1.4, 6.2, 2.1);
+    this.hud.message('ROUND ' + this.round, 1.0);
+    this.sfx.ready();
+  }
+
+  render(alpha, frameDt) {
+    if (this.paused) frameDt = 0; // hold the frame, keep the scene composited
+    // The cutscene runs here rather than in the fixed update so its camera and
+    // its hold-frames land on real frame time — a shot list judders badly if
+    // it is quantised to the logic step.
+    // A cutscene is a composed shot: nothing should be dissolving out of it
+    // because a fighter happens to be behind a pillar.
+    if (this.ritual.active) { clearXrayFocus(); this.ritual.update(frameDt); return; }
+    // A FINISHER owns the frame the same way, and for the same reason: a
+    // composed shot must not have a fighter dissolving out of it because a
+    // pillar happens to be in the way.
+    if (this.finishers.active) { clearXrayFocus(); this.finishers.update(frameDt); return; }
+    const ts = this.hitstopFrames > 0 ? 0.05 : this.timeScale;
+    for (const f of this.fighters) if (!f.eliminated) f.applyRender(alpha, frameDt, ts);
+    // each view rides its own seat's shoulder, framed on whoever that seat is
+    // currently closest to
+    this.cams.forEach((cam, i) => {
+      let me = this.fighters[i] || this.p1;
+      // downed for the round, or out of stocks entirely: ride a living
+      // fighter's shoulder instead of staring at your own body
+      if (!me.alive || me.eliminated) me = this._spectateTarget(me) || me;
+      const foe = this.other(me) || me;
+      cam.update(frameDt, me.pos, foe.pos, this.input.frameFor(i).cam);
+      // X-RAY: level geometry between this eye and the fighter it is following
+      // dissolves rather than blocking the shot. Aimed at the chest, not the
+      // feet, so the hole is centred on the body.
+      _xrayAt.copy(me.pos).setY(me.pos.y + 1.0 + (me.cfg?.size?.camHeight ?? 0) * 0.6);
+      setXrayFocus(cam.cam, _xrayAt);
+    });
+    this.arena.update(frameDt, this.stage.camera);
+    this.fx.update(frameDt);
+    this.domainfx.update(frameDt, this.domains.state);
+  }
+
+  destroy() {
+    clearXrayFocus();
+    this.ritual.abort();
+    this.finishers.abort();
+    this.minions.clear();
+    this.judgemen.clear();
+    this.shikigami.clear();
+    this.curses.clear();
+    this.freeze.clear();
+    this.flora.clear();
+    this.swarms.clear();
+    this.gamble.dispose();
+    this.arena.dispose?.();
+    this.domainfx.hide();
+    this.domainfx.clearClash();
+    this.sfx.stopDrone();
+    this.sfx.stopWind();
+    this.stage.setGrade('neutral');
+    this.stage.setViews(1);
+    this.stage.scene.remove(this.root);
+    this.hud.destroy();
+  }
+}

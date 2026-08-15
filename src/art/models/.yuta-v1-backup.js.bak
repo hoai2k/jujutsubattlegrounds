@@ -1,0 +1,179 @@
+// YUTA — shortest of the roster, slight build swallowed by an oversized,
+// layered dark uniform with a hood bundle; shaggy black hair, tired eyes,
+// katana at the left hip. Rika-green accents.
+import * as THREE from 'three';
+import { buildHumanoid, addFace, finalizeModel, makeFlapMesh } from '../builders/humanoid.js';
+import { latheY, tGeo, ribbonShell, sphereShell, roundBox, shapeExtrude } from '../builders/geo.js';
+import { MAT } from '../shaders/toon.js';
+import { makeOutline } from '../shaders/outline.js';
+import { v3, DEG } from '../../core/mathutil.js';
+
+const NAVY = 0x1b2030;
+const NAVY_DK = 0x141826;
+const TRIM = 0xc9d3e6;
+const HAIR = 0x171a24;
+const SKIN = 0xf2ddc9;
+const ACCENT = 0x9ff5c9;
+
+export function buildYuta() {
+  const spec = {
+    id: 'yuta', name: 'Yuta', H: 1.73, headScale: 1.06,
+    shoulder: 0.092, hip: 0.05, muscle: 0.88, bulk: 0.98, legBulk: 0.92,
+    skinTone: SKIN, clothColor: NAVY, pantColor: NAVY_DK, shoeColor: 0x101116,
+    torsoShape: { chest: 0.98, waist: 0.95, hip: 1.0 },
+    face: { jaw: 0.95, chin: 0.9, width: 1.0 },
+    shoe: { len: 0.112, hgt: 0.05 },
+    palette: { rim: 0xa9e8cd, hairRim: 0x8fd8b8, outline: 0x0b0f18, accent: ACCENT, energy: 0x8ff0c0 }
+  };
+  const ctx = buildHumanoid(spec);
+  const { bag } = ctx;
+  const { H, headR, headC, y, torsoChain, joints } = ctx.m;
+
+  // ---- layered uniform ----------------------------------------------------
+  // long jacket skirt (oversized, hangs past the hips)
+  bag.add('cloth', latheY([
+    [0.082 * H, 0.385 * H], [0.079 * H, 0.44 * H], [0.073 * H, 0.50 * H], [0.070 * H, 0.53 * H]
+  ], 20, 0.80), { bone: 'Hips', color: NAVY });
+  // tall collar + light trim
+  bag.add('cloth', latheY([
+    [0.037 * H, y.neck - 0.014 * H], [0.043 * H, y.neck + 0.014 * H], [0.047 * H, y.headBase + 0.018 * H]
+  ], 16, 0.88), { bone: 'Neck', color: NAVY });
+  bag.add('cloth', latheY([
+    [0.047 * H, y.headBase + 0.016 * H], [0.0485 * H, y.headBase + 0.026 * H]
+  ], 16, 0.88), { bone: 'Head', color: TRIM });
+  // hood bundle: folded crescent behind the neck/shoulders
+  bag.add('cloth', tGeo(new THREE.TorusGeometry(0.055 * H, 0.026 * H, 8, 14, Math.PI * 1.1),
+    { rot: [78, 0, 180], pos: [0, 0.825 * H, -0.055 * H] }), { bone: 'Chest', color: NAVY });
+  bag.add('cloth', tGeo(new THREE.TorusGeometry(0.04 * H, 0.02 * H, 8, 12, Math.PI),
+    { rot: [70, 0, 180], pos: [0, 0.845 * H, -0.048 * H] }), { bone: 'Chest', color: NAVY_DK });
+  // front button strip + trim line
+  bag.add('cloth', tGeo(roundBox(0.010 * H, 0.27 * H, 0.006 * H, 0.002),
+    { pos: [0.012 * H, 0.645 * H, 0.058 * H] }), { chain: torsoChain, color: NAVY_DK, blend: 0.05 });
+  // oversized cuffs (sleeves swallow the wrists)
+  for (const s of ['L', 'R']) {
+    const wr = joints.get('Hand' + s);
+    bag.add('cloth', tGeo(new THREE.CylinderGeometry(0.026 * H, 0.030 * H, 0.05 * H, 10),
+      { pos: [wr.x, wr.y + 0.018 * H, wr.z] }), { bone: 'LoArm' + s, color: NAVY });
+  }
+
+  // ---- face: big tired eyes ----------------------------------------------
+  addFace(ctx, {
+    eyeW: 0.55, eyeH: 0.34, eyeColor: 0x39445a, browTilt: 4, browUp: 1.3,
+    lashColor: 0x10121a, mouthW: 0.2
+  });
+  // under-eye shadow lines
+  const faceZ = headC.z + headR * 0.615;
+  for (const s of [1, -1]) {
+    bag.add('flat', tGeo(roundBox(headR * 0.30, headR * 0.045, 0.004, 0.002),
+      { rot: [0, 0, s * -6], pos: [s * headR * 0.40, headC.y - headR * 0.34, faceZ + headR * 0.01] }),
+      { bone: 'Head', color: 0xc9a894 });
+  }
+
+  // ---- shaggy black hair --------------------------------------------------
+  bag.add('hair', tGeo(sphereShell(headR * 1.09, { thetaLength: Math.PI * 0.50, scale: [1, 0.98, 1.03] }),
+    { pos: [headC.x, headC.y + headR * 0.06, headC.z - headR * 0.08] }), { bone: 'Head', color: HAIR });
+  const strand = (a0, a1, len, w, droop) => {
+    // ribbon from scalp point (yaw a0, pitch a1) hugging the skull then drooping
+    const dir = v3(Math.sin(a0) * Math.cos(a1), Math.sin(a1), Math.cos(a0) * Math.cos(a1));
+    const flat = v3(dir.x, 0, dir.z).normalize();
+    const p0 = headC.clone().addScaledVector(dir, headR * 0.98);
+    const p1 = headC.clone().addScaledVector(flat, headR * 1.06); p1.y = p0.y - droop * 0.45;
+    const p2 = headC.clone().addScaledVector(flat, headR * 1.02); p2.y = p0.y - droop;
+    return ribbonShell([p0, p1, p2], t => w * (1 - t * 0.75), 0.012, { seg: 6, normalHint: flat.clone() });
+  };
+  // jagged bangs across the forehead — end just above the eye line
+  for (let i = 0; i < 8; i++) {
+    const a = (i - 3.5) * 0.24;
+    bag.add('hair', strand(a, 0.52 - Math.abs(a) * 0.10, headR, headR * 0.42, headR * (0.42 + (i % 3) * 0.09)),
+      { bone: 'Head', color: HAIR });
+  }
+  // side curtains over the ears
+  for (const s of [1, -1]) {
+    bag.add('hair', strand(s * 1.15, 0.34, headR, headR * 0.44, headR * 0.85), { bone: 'Head', color: HAIR });
+    bag.add('hair', strand(s * 1.62, 0.3, headR, headR * 0.4, headR * 0.9), { bone: 'Head', color: HAIR });
+    bag.add('hair', strand(s * 2.1, 0.26, headR, headR * 0.38, headR * 0.9), { bone: 'Head', color: HAIR });
+  }
+  // back shag
+  for (let i = 0; i < 5; i++) {
+    const a = Math.PI + (i - 2) * 0.34;
+    bag.add('hair', strand(a, 0.26, headR, headR * 0.4, headR * 1.0), { bone: 'Head', color: HAIR });
+  }
+
+  // ---- scabbard slung at the left hip, tip trailing back-down -------------
+  const scab = tGeo(roundBox(0.020 * H, 0.40 * H, 0.026 * H, 0.006),
+    { rot: [0, -55, -78], pos: [0.068 * H, 0.47 * H, -0.035 * H] });
+  bag.add('cloth', scab, { bone: 'Hips', color: 0x10121c });
+  bag.add('cloth', tGeo(roundBox(0.024 * H, 0.032 * H, 0.03 * H, 0.005),
+    { rot: [0, -55, -78], pos: [0.082 * H, 0.505 * H, 0.006 * H] }), { bone: 'Hips', color: ACCENT });
+
+  // ---- katana prop (hand only; hidden when sheathed) ----------------------
+  const katana = buildKatana(H, spec.palette);
+
+  // ---- springs: hem flaps + nape strands ---------------------------------
+  const clothMat = MAT.cloth({ rimColor: spec.palette.rim });
+  const hairMat = MAT.hair({ rimColor: spec.palette.hairRim });
+  const oOpts = { color: spec.palette.outline, thickness: 0.008 };
+  const springs = [];
+  for (const s of [1, -1]) {
+    springs.push({
+      bone: 'Hips', localOffset: v3(s * 0.045 * H, -0.10 * H, -0.045 * H),
+      restDir: v3(s * 0.08, -1, -0.14).normalize(), stiffness: 60, damping: 0.8, gravity: 7,
+      segments: [
+        { len: 0.06 * H, mesh: makeFlapMesh(0.06 * H, 0.055 * H, 0.06 * H, 0.008, clothMat, NAVY, oOpts) },
+        { len: 0.055 * H, mesh: makeFlapMesh(0.055 * H, 0.042 * H, 0.055 * H, 0.007, clothMat, NAVY, oOpts) }
+      ]
+    });
+    // nape hair strands
+    springs.push({
+      bone: 'Head', localOffset: v3(s * headR * 0.4, headC.y - joints.get('Head').y - headR * 0.15, headC.z - joints.get('Head').z - headR * 0.95),
+      restDir: v3(s * 0.15, -1, -0.2).normalize(), stiffness: 90, damping: 0.78, gravity: 5,
+      segments: [
+        { len: headR * 0.5, mesh: makeFlapMesh(headR * 0.26, headR * 0.1, headR * 0.5, 0.007, hairMat, HAIR, oOpts) }
+      ]
+    });
+  }
+  // front hem flap
+  springs.push({
+    bone: 'Hips', localOffset: v3(0, -0.10 * H, 0.05 * H),
+    restDir: v3(0, -1, 0.12).normalize(), stiffness: 60, damping: 0.8, gravity: 7,
+    segments: [{ len: 0.055 * H, mesh: makeFlapMesh(0.07 * H, 0.06 * H, 0.055 * H, 0.008, clothMat, NAVY, oOpts) }]
+  });
+
+  return finalizeModel(ctx, {
+    springs, outlineThickness: 0.0115,
+    props: {
+      katana: {
+        node: katana, default: 'away',
+        attachments: {
+          hand: { bone: 'HandR', pos: [0, -0.09 * H * 0.5, 0.01 * H], rot: [-100, 0, 0] }
+        }
+      }
+    }
+  });
+}
+
+function buildKatana(H, palette) {
+  const g = new THREE.Group();
+  const bladeLen = 0.38 * H;
+  const blade = shapeExtrude([
+    [-0.006 * H, 0], [0.006 * H, 0], [0.0075 * H, bladeLen * 0.85], [0, bladeLen], [-0.006 * H, bladeLen * 0.85]
+  ], 0.004 * H);
+  const bladeMesh = new THREE.Mesh(blade, MAT.metal({ vertexColors: false, color: 0xdfe6f2, rimColor: 0xffffff }));
+  const guard = new THREE.Mesh(new THREE.CylinderGeometry(0.016 * H, 0.016 * H, 0.006 * H, 10),
+    MAT.metal({ vertexColors: false, color: 0x2a2d38 }));
+  guard.position.y = -0.004 * H;
+  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.008 * H, 0.0075 * H, 0.09 * H, 8),
+    MAT.cloth({ vertexColors: false, color: 0x1c2133, rimColor: palette.rim }));
+  hilt.position.y = -0.05 * H;
+  // wrap ridges
+  for (let i = 0; i < 4; i++) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0085 * H, 0.0016 * H, 6, 10),
+      MAT.cloth({ vertexColors: false, color: palette.accent, rimColor: palette.rim }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = -0.018 * H - i * 0.018 * H;
+    g.add(ring);
+  }
+  g.add(bladeMesh, guard, hilt);
+  g.add(makeOutline(bladeMesh, { color: 0x0b0f18, thickness: 0.006 }));
+  return g;
+}

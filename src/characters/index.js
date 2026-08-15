@@ -1,0 +1,202 @@
+// Roster registry: gameplay config + model builder + clips per character.
+import { GOJO } from './gojo.js';
+import { YUTA } from './yuta.js';
+import { NANAMI } from './nanami.js';
+import { YUJI } from './yuji.js';
+import { TODO } from './todo.js';
+import { JOGO } from './jogo.js';
+import { MAHITO } from './mahito.js';
+import { MEGUMI } from './megumi.js';
+import { MAHORAGA } from './mahoraga.js';
+import { HIGURUMA } from './higuruma.js';
+import { HAKARI } from './hakari.js';
+import { SUKUNA } from './sukuna.js';
+import { TOJI } from './toji.js';
+import { HANAMI } from './hanami.js';
+import { KUROURUSHI } from './kurourushi.js';
+import { CHOSO } from './choso.js';
+import { NOBARA } from './nobara.js';
+import { GETO } from './geto.js';
+import { NAOYA } from './naoya.js';
+import { KASHIMO } from './kashimo.js';
+import { PANDA } from './panda.js';
+import { buildGojo } from '../art/models/gojo.js';
+import { buildYuta } from '../art/models/yuta.js';
+import { buildNanami } from '../art/models/nanami.js';
+import { buildYuji } from '../art/models/yuji.js';
+import { buildTodo } from '../art/models/todo.js';
+import { buildJogo } from '../art/models/jogo.js';
+import { buildMahito } from '../art/models/mahito.js';
+import { buildMegumi } from '../art/models/megumi.js';
+import { buildMahoraga } from '../art/models/mahoraga.js';
+import { buildHiguruma } from '../art/models/higuruma.js';
+import { buildHakari } from '../art/models/hakari.js';
+import { buildSukuna } from '../art/models/sukuna.js';
+import { buildToji } from '../art/models/toji.js';
+import { buildHanami } from '../art/models/hanami.js';
+import { buildKurourushi } from '../art/models/kurourushi.js';
+import { buildChoso } from '../art/models/choso.js';
+import { buildNobara } from '../art/models/nobara.js';
+import { buildGeto } from '../art/models/geto.js';
+import { buildNaoya } from '../art/models/naoya.js';
+import { buildKashimo } from '../art/models/kashimo.js';
+import { buildPanda } from '../art/models/panda.js';
+import { makeClips } from '../art/anim/index.js';
+import {
+  variantsOf, hasVariants, variantEntry, resolveVariant, splitPick, joinPick,
+  lastVariant, rememberVariant
+} from './variants.js';
+import { GOJO_VARIANTS } from './variants/gojo.js';
+import { SUKUNA_VARIANTS } from './variants/sukuna.js';
+import { MAHITO_VARIANTS } from './variants/mahito.js';
+import { YUJI_VARIANTS } from './variants/yuji.js';
+
+export {
+  variantsOf, hasVariants, variantEntry, resolveVariant, splitPick, joinPick,
+  lastVariant, rememberVariant
+};
+
+// Presentation data lives here alongside `role`: `jp` is the name in kanji
+// (the select screen sets it huge, and as the watermark behind each tile) and
+// `accent` is the character's signature colour, which drives the focused
+// card, the hero panel and the HUD cut-in.
+// `spirit: true` marks the cursed spirits — the select screen badges them.
+// `variants` is the list documented in ./variants.js — first entry is always
+// the base. A character with no `variants` key gets an implicit single-entry
+// list, so every character has the same shape and the select flow never has to
+// special-case anybody.
+export const ROSTER = {
+  gojo: { config: GOJO, buildModel: buildGojo, jp: '五条悟', accent: 0x7fd0ff, role: 'ZONE CONTROL · BEST DOMAIN', variants: GOJO_VARIANTS },
+  yuta: { config: YUTA, buildModel: buildYuta, jp: '乙骨憂太', accent: 0x9ff5c9, role: 'COPY · HIGHEST OUTPUT' },
+  megumi: { config: MEGUMI, buildModel: buildMegumi, jp: '伏黒恵', accent: 0x8fb6d8, role: 'TEN SHADOWS · SUMMONER' },
+  nanami: { config: NANAMI, buildModel: buildNanami, jp: '七海建人', accent: 0xf2b23c, role: 'RATIO · NO DOMAIN, NO MERCY' },
+  yuji: { config: YUJI, buildModel: buildYuji, jp: '虎杖悠仁', accent: 0xff5f74, role: 'BLACK FLASH · PURE PHYSICAL', variants: YUJI_VARIANTS },
+  todo: { config: TODO, buildModel: buildTodo, jp: '東堂葵', accent: 0xff5fc8, role: 'BOOGIE WOOGIE · HEAVYWEIGHT' },
+  jogo: { config: JOGO, buildModel: buildJogo, jp: '漏瑚', accent: 0xff5a1f, role: 'DISASTER FLAMES · ZONER', spirit: true },
+  mahito: { config: MAHITO, buildModel: buildMahito, jp: '真人', accent: 0x9fb0c4, role: 'IDLE TRANSFIGURATION · SUMMONER', spirit: true, variants: MAHITO_VARIANTS },
+  higuruma: { config: HIGURUMA, buildModel: buildHiguruma, jp: '日車寛見', accent: 0xd8c78a, role: 'DEADLY SENTENCING · ONE GAMBLE' },
+  hakari: { config: HAKARI, buildModel: buildHakari, jp: '秤金次', accent: 0xffc93c, role: 'IDLE DEATH GAMBLE · JACKPOT' },
+  sukuna: { config: SUKUNA, buildModel: buildSukuna, jp: '両面宿儺', accent: 0xff2f45, role: 'DISMANTLE · THE KING OF CURSES', variants: SUKUNA_VARIANTS },
+  // THE ANOMALY. No cursed energy, no domain, no meter — see characters/toji.js.
+  toji: { config: TOJI, buildModel: buildToji, jp: '伏黒甚爾', accent: 0x6ea88a, role: 'HEAVENLY RESTRICTION · CURSED TOOLS' },
+  // THE TWO NON-DOMAIN SPIRITS. Both canon-correct: neither has a Domain
+  // Expansion, so both sit with Nanami, Todo and Toji on a burst ultimate.
+  hanami: { config: HANAMI, buildModel: buildHanami, jp: '花御', accent: 0x9ec46a, role: 'DISASTER PLANTS · AREA DENIAL', spirit: true },
+  kurourushi: { config: KUROURUSHI, buildModel: buildKurourushi, jp: '黒沐死', accent: 0xd8a02a, role: 'GLUTTONY · ATTRITION', spirit: true },
+  // THE TWO WITH A SECOND RESOURCE AND NO DOMAIN. Both canon-correct: neither
+  // Choso nor Nobara has a Domain Expansion, so both sit with Nanami, Yuji,
+  // Todo, Toji, Hanami and Kurourushi on a burst ultimate. What is new about
+  // them is the gauge next to the cursed-energy bar — BLOOD, which he fills by
+  // being in the fight, and ESSENCE, which she takes off you.
+  //
+  // Choso is NOT badged `spirit`. He is half cursed spirit and half human by
+  // birth, and the select screen's badge means "this is a cursed spirit you
+  // are picking" — Jogo, Mahito, Hanami, Kurourushi. A Death Painting Womb
+  // walking around in a body that non-sorcerers can see is not that, and
+  // badging him would put him in the wrong bucket on the only screen where the
+  // distinction is stated.
+  choso: { config: CHOSO, buildModel: buildChoso, jp: '脹相', accent: 0xc4142c, role: 'BLOOD MANIPULATION · MID-RANGE CONTROL' },
+  nobara: { config: NOBARA, buildModel: buildNobara, jp: '釘崎野薔薇', accent: 0xe07a34, role: 'STRAW DOLL · SETUP ZONER' },
+  // THE TWO NEW NON-DOMAIN ADULTS. Both canon-correct: neither Geto nor Naoya
+  // has a Domain Expansion, so both sit with Nanami, Yuji, Todo, Toji, Hanami,
+  // Kurourushi, Choso and Nobara on a burst ultimate.
+  //
+  // Geto is NOT badged `spirit` — he is a human curse USER, and the badge on
+  // the select screen means "this is a cursed spirit you are picking" (Jogo,
+  // Mahito, Hanami, Kurourushi). The man who keeps four of those in a jar is
+  // emphatically not one of them, and badging him would put him in the wrong
+  // bucket on the only screen where the distinction is stated. Same ruling
+  // Choso already gets, for the same reason.
+  geto: { config: GETO, buildModel: buildGeto, jp: '夏油傑', accent: 0x6b2fa0, role: 'CURSED SPIRIT MANIPULATION · THE GENERAL' },
+  naoya: { config: NAOYA, buildModel: buildNaoya, jp: '禪院直哉', accent: 0xe8c85a, role: 'PROJECTION SORCERY · 24 FRAMES' },
+  // THE MOVEMENT CHARACTER. Also canon-correct with no Domain Expansion, so he
+  // joins the burst-ultimate list that is now most of the roster. What is new
+  // about him is the CHARGE meter next to the cursed-energy bar — a resource
+  // that only his own feet can fill, and the only one in the game that FALLS
+  // when its owner does nothing.
+  kashimo: { config: KASHIMO, buildModel: buildKashimo, jp: '甚壱', accent: 0xa46bff, role: 'MYTHICAL BEAST AMBER · CHARGE RUSHDOWN' },
+  // THE STANCE CHARACTER, and the only fighter in the game with more than one
+  // health bar. Not badged `spirit`: the badge means "this is a cursed spirit
+  // you are picking" (Jogo, Mahito, Hanami, Kurourushi), and a cursed CORPSE
+  // built by a headmaster is a different thing — the same ruling Choso and
+  // Geto already get, for the same reason. He is a student.
+  panda: { config: PANDA, buildModel: buildPanda, jp: '呪骸', accent: 0xf2f0e8, role: 'THREE CORES · STANCE SWITCH' }
+};
+
+export const hex = n => '#' + n.toString(16).padStart(6, '0');
+
+// Select-screen order. Geto sits next to Megumi (the two summoners read as a
+// pair) and Naoya next to Toji (the two Zenin, and the two whose whole game is
+// about a single mechanic the opponent has to respect).
+// Kashimo sits next to Naoya — the two speed characters, so a player choosing
+// between them is comparing them side by side, which is the only way the
+// distinction between "fastest" and "never stops" reads on a select screen.
+// Panda sits next to Todo — the two heavyweights, and the two whose answer to
+// pressure is to stand in it.
+export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'naoya', 'kashimo', 'yuta', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'todo', 'jogo', 'mahito', 'hanami', 'kurourushi'];
+
+// `pick` is 'gojo' (the base) or 'gojo:shinjuku'. A bare character id still
+// works everywhere it used to, which is why nothing outside the select screen
+// had to learn about variants.
+export function makeCharacter(pick) {
+  const { charId, variantId } = splitPick(pick);
+  const entry = ROSTER[charId];
+  const r = resolveVariant(entry, charId, variantId);
+  return {
+    config: r.config,
+    model: r.buildModel(),
+    clips: makeClips(r.clipId),
+    variant: r.variant
+  };
+}
+
+// Presentation for a pick, for the select screen, the HUD cut-in and the
+// result screen. Falls back to the base entry for a bare id.
+export function pickInfo(pick) {
+  const { charId, variantId } = splitPick(pick);
+  const entry = ROSTER[charId] || SUMMONS[charId];
+  if (!entry) return null;
+  if (!ROSTER[charId]) return { ...entry, charId, variantId: 'base', name: entry.config.name };
+  const r = resolveVariant(entry, charId, variantId);
+  return {
+    charId, variantId: r.variant.id, config: r.config, jp: r.jp, accent: r.accent,
+    role: r.role, spirit: entry.spirit, name: r.config.name,
+    variantName: r.variant.name, type: r.variant.type, descriptor: r.variant.descriptor
+  };
+}
+
+// every selectable pick id in the game, base + variants — used by the CPU
+// picker and by the balance harness
+export function allPicks() {
+  const out = [];
+  for (const id of ROSTER_IDS) for (const v of variantsOf(ROSTER[id], id)) out.push(joinPick(id, v.id));
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// SUMMON-ONLY CHARACTERS
+// ---------------------------------------------------------------------------
+// Deliberately NOT in ROSTER or ROSTER_IDS: the select screen, the CPU picker
+// and the random-pick path all read those, so nothing here can ever be chosen.
+// The only door in is a system that calls makeSummon() — for Mahoraga that is
+// Megumi's summon ritual (core/ritual.js), and nothing else.
+export const SUMMONS = {
+  mahoraga: {
+    config: MAHORAGA, buildModel: buildMahoraga, jp: '魔虚羅',
+    accent: 0xc6ac72, role: 'ADAPTATION · SUMMON ONLY'
+  }
+};
+
+export function makeSummon(id) {
+  const entry = SUMMONS[id];
+  if (!entry) throw new Error('unknown summon: ' + id);
+  return {
+    config: entry.config,
+    model: entry.buildModel(),
+    clips: makeClips(id)
+  };
+}
+
+// presentation lookup that covers the roster AND the summons (HUD cut-ins,
+// the debug overlay, the viewer)
+export function entryFor(id) { return ROSTER[id] || SUMMONS[id] || null; }

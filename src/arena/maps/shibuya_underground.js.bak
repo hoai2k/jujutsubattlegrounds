@@ -1,0 +1,201 @@
+// SHIBUYA STATION — UNDERGROUND. The signature Jujutsu Kaisen location and
+// the best map in the set, so it gets the most layout work.
+//
+// REFERENCE NOTE (researched): the Shibuya Incident plays out through a
+// station stacked five basement levels deep, with the platform battles at the
+// bottom and the fighting moving up through concourses and escalators toward
+// street level. The read is small square wall tile, exposed concrete, square
+// section pillars in regular rows, hanging signage, ticket-gate lines, and
+// hard cold fluorescent strips — claustrophobic, and always with another level
+// visible above or below you.
+//
+// LAYOUT (68 x 52 m — roughly ELEVEN TIMES the old 21 m arena):
+//   y = -1.10  TRACK PITS      two trenches flanking the platform. Real space,
+//                              a step down, and the only true dead ends.
+//   y =  0.00  PLATFORM        the central engagement space, 46 m of it, two
+//                              rows of pillars, benches, vending, signage.
+//   y =  5.20  CONCOURSE       a mezzanine ring above with the ticket gates,
+//                              reachable by two escalators and one stair.
+//   y = 10.40  STREET STUB     the top of the exit stair: a lit landing that
+//                              reads as the way out and doubles as high ground.
+//   FLANKING ROUTES            the two tiled corridors behind the pillar rows
+//                              at platform level, plus the concourse ring.
+//   VERTICAL                   2 escalators + 1 stair + 1 exit stair.
+import { MapBuilder, TEX, emissive, glowMaterial } from '../kit.js';
+import * as THREE from 'three';
+import { rand, v3 } from '../../core/mathutil.js';
+
+export const DEF = {
+  id: 'shibuya_underground',
+  name: 'SHIBUYA STATION',
+  jp: '渋谷駅 地下',
+  desc: 'Platform level. Tile, concrete and fluorescent light, five floors down.',
+  extent: { minX: -34, maxX: 34, minZ: -26, maxZ: 26 },
+  background: 0x0d1118,
+  fog: { color: 0x121722, near: 26, far: 96 },
+  grade: { vignette: 0.60, tint: [0.92, 0.99, 1.10], lift: -0.01, sat: 0.86 },
+  lights: {
+    key: { color: 0xdfe9f4, intensity: 1.25, pos: [6, 16, 4] },
+    rim: { color: 0x6f90c0, intensity: 0.7, pos: [-8, 10, -8] },
+    hemi: { sky: 0x8fa4c4, ground: 0x2a2e38, intensity: 0.46 }
+  },
+  // stage-select beauty shot: hand-picked so the preview never ends up
+  // inside a wall, above a ceiling or buried in the treeline
+  previewCam: { pos: [-24, 8.0, 19], look: [3, 1.6, 0] },
+  shadowScale: 0.82,          // a station platform is not an open street
+  size: '68 × 52 m · 3 levels + track pits'
+};
+
+export function build(quality) {
+  const b = new MapBuilder(DEF);
+  const M = b.mats;
+  const Z = 'station';
+  b.zone(Z, { x0: -34, x1: 34, z0: -26, z1: 26, y0: -2, y1: 14 }, false);
+
+  // ---- PLATFORM LEVEL -----------------------------------------------------
+  // the platform slab itself, 46 x 16, tiled
+  b.floor(-23, -8, 23, 8, 0, { mat: M.tile });
+  // yellow tactile edge strips
+  for (const z of [-8, 8]) {
+    const g = new THREE.BoxGeometry(46, 0.04, 0.7);
+    g.translate(0, 0.02, z + (z < 0 ? 0.35 : -0.35));
+    b.static_(g, emissive(0xc8a83c), Z);
+  }
+
+  // TRACK PITS: a step down either side, with rails and a tunnel mouth. They
+  // are walkable — cornering someone in a trench is a real option — but they
+  // are the only dead ends on the map, which is the point.
+  for (const s of [-1, 1]) {
+    const z0 = s * 8, z1 = s * 15;
+    b.floor(-31, Math.min(z0, z1), 31, Math.max(z0, z1), -1.10, { mat: M.concrete });
+    b.wall(-31, s * 8, 31, s * 8, -1.10, 0, { mat: M.tileWall, thick: 0.4, collide: false });
+    // rails
+    for (const off of [-1.2, 1.2]) {
+      const g = new THREE.BoxGeometry(62, 0.14, 0.14);
+      g.translate(0, -1.02, s * 11.5 + off);
+      b.static_(g, M.metal, Z);
+    }
+    // tunnel mouths at both ends — the black the light does not reach
+    for (const x of [-31, 31]) {
+      const arch = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 0.6, 14, 1, false, 0, Math.PI),
+        new THREE.MeshBasicMaterial({ color: 0x04060a }));
+      arch.rotation.z = Math.PI / 2;
+      arch.rotation.y = Math.PI / 2;
+      arch.position.set(x, -1.1, s * 11.5);
+      b.add(arch);
+    }
+  }
+
+  // ---- CONCOURSE (y = 5.2) ------------------------------------------------
+  // A ring of mezzanine over the platform edges, open in the middle so the two
+  // levels can always see each other — that sightline is what stops a
+  // multi-level map from losing track of the opponent.
+  //
+  // The two long runs are built as SEVEN BAYS each, one per pillar below, so
+  // that dropping a pillar takes out exactly the bay it was carrying and
+  // leaves a hole rather than deleting a 46 m strip of floor.
+  const CY = 5.2;
+  const bayId = (i, north) => 'bay' + (north ? 'N' : 'S') + i;
+  for (let i = 0; i < 7; i++) {
+    const x0 = -24.5 + i * 7, x1 = x0 + 7;
+    b.floor(x0, -14, x1, -5.5, CY, { mat: M.concrete, id: bayId(i, true) });
+    b.floor(x0, 5.5, x1, 14, CY, { mat: M.concrete, id: bayId(i, false) });
+  }
+  b.floor(-23, -5.5, -14, 5.5, CY, { mat: M.concrete, id: 'concW' });   // west link
+  b.floor(14, -5.5, 23, 5.5, CY, { mat: M.concrete, id: 'concE' });     // east link
+
+  // PILLAR ROWS — square section, regular rhythm, and STRUCTURAL: bringing one
+  // down drops the bay of concourse it was carrying.
+  for (let i = 0; i < 7; i++) {
+    const x = -21 + i * 7;
+    for (const z of [-5.5, 5.5]) {
+      b.pillar(x, z, 0, 5.2, 0.6, {
+        square: true, mat: M.tileWall, hp: 260, zone: Z,
+        drops: [bayId(i, z < 0)]
+      });
+    }
+  }
+  for (const [x0, z0, x1, z1] of [[-23, -5.5, 23, -5.5], [-23, 5.5, 23, 5.5]]) {
+    b.railing(x0, z0, x1, z1, CY, { zone: Z });
+  }
+  // ceiling over the platform, with the light strips hung from it
+  b.ceiling(-24, -16, 24, 16, 10.4, { mat: M.concrete, zone: Z });
+
+  // TICKET GATES — a line of them across the west concourse link
+  const gateGeo = new THREE.BoxGeometry(0.5, 1.0, 1.7);
+  const gates = [];
+  for (let i = 0; i < 6; i++) gates.push({ x: -18.5, y: CY + 0.5, z: -4.5 + i * 1.8 });
+  b.repeat(gateGeo, M.paint, gates);
+  for (const g of gates) {
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.12, 1.74), emissive(0x4fd8a8));
+    top.position.set(g.x, g.y + 0.56, g.z);
+    b.add(top);
+    b.bounds.wall(g.x - 0.3, g.z - 0.9, g.x + 0.3, g.z + 0.9, CY, CY + 1.0, { id: 'gate' + g.z });
+  }
+
+  // ---- ESCALATORS + STAIRS ------------------------------------------------
+  // two escalators up from the platform to the concourse, on opposite sides
+  b.escalator(-4, -14, -4, -6, 0, CY, 'z', { zone: Z });
+  b.escalator(4, 6, 4, 14, 0, CY, 'z', { zone: Z });
+  // a plain stair at the west end
+  b.stairs(-22, -4, -16, 4, 0, CY, 'x', { zone: Z, mat: M.tile });
+  b.railing(-22, -4, -16, -4, CY - 0.2, { zone: Z, collide: false });
+
+  // EXIT STAIR up to the street stub — the highest ground on the map
+  const SY = 10.4;
+  b.stairs(18, -3, 23, 3, CY, SY, 'x', { zone: Z, mat: M.tile });
+  b.floor(23, -6, 31, 6, SY, { mat: M.tile, id: 'street' });
+  b.railing(23, -6, 31, -6, SY, { zone: Z });
+  b.railing(23, 6, 31, 6, SY, { zone: Z });
+  // daylight-ish spill from above: the way out, visible and unreachable
+  const spill = new THREE.Mesh(new THREE.PlaneGeometry(8, 12), glowMaterial(0xa8c0e0, 0.20));
+  spill.rotation.x = -Math.PI / 2;
+  spill.position.set(27, SY + 0.05, 0);
+  b.add(spill);
+
+  // ---- TILED WALLS + FLANKING CORRIDORS -----------------------------------
+  // the long back walls behind each pillar row, with destructible tile panels
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 6; i++) {
+      const x = -20 + i * 8;
+      b.wall(x - 3.6, s * 15.6, x + 3.6, s * 15.6, 0, 4.6, {
+        mat: M.tileWall, destructible: true, hp: 120, zone: Z, id: 'tile' + s + i
+      });
+    }
+  }
+  // end walls
+  b.wall(-33.6, -16, -33.6, 16, -1.2, 10.4, { mat: M.concreteWall, thick: 0.8 });
+  b.wall(33.6, -16, 33.6, 16, -1.2, 10.4, { mat: M.concreteWall, thick: 0.8 });
+
+  // ---- PROPS --------------------------------------------------------------
+  // hanging signage over the platform — the most Shibuya thing in the room
+  for (let i = 0; i < 5; i++) {
+    b.sign(-16 + i * 8, 3.4, i % 2 ? -7.2 : 7.2, 3.2, 0.8, 0x1d5a3c, i % 2 ? 0 : Math.PI);
+  }
+  // benches down the platform centre line
+  for (let i = 0; i < 4; i++) b.bench(-15 + i * 10, 0, i % 2 ? 2.6 : -2.6, i % 2 ? 0 : Math.PI);
+  // vending machines against the pillars
+  b.vending(-24.5, 0, -6.5, Math.PI / 2, 0xd8402c);
+  b.vending(-24.5, 0, 6.5, Math.PI / 2, 0x2c6ad8);
+  b.vending(24.5, 0, -6.5, -Math.PI / 2, 0xd8a02c);
+  b.vending(20, CY, -4.5, Math.PI, 0xd8402c);
+  // lockers on the concourse
+  b.lockerBank(-20, CY, 12, 0, 6);
+  b.lockerBank(20, CY, -12, Math.PI, 6);
+
+  // ---- LIGHTING: cold fluorescent, and some of it is failing ---------------
+  for (let i = 0; i < 12; i++) {
+    const x = -22 + i * 4;
+    b.stripLight(x, 4.9, -3.0, 3.0, 'x', 0xdfeaff, i === 3 || i === 8 ? 0.55 : 0);
+    b.stripLight(x, 4.9, 3.0, 3.0, 'x', 0xdfeaff, i === 6 ? 0.7 : 0);
+  }
+  for (let i = 0; i < 8; i++) b.stripLight(-20 + i * 6, 10.1, 0, 3.4, 'x', 0xcfe0f4, i === 5 ? 0.6 : 0);
+
+  // ---- AMBIENT LIFE -------------------------------------------------------
+  // dust in the light shafts, and the low roar of a station that never empties
+  b.particles(160, { x0: -30, x1: 30, y0: 0.2, y1: 9, z0: -14, z1: 14 },
+    { color: 0xa8bcd8, size: 0.07, opacity: 0.32, vy: [-0.12, 0.05] });
+
+  b.bounds.spawns = [v3(-7, 0, 0), v3(7, 0, 0), v3(0, 0, -4), v3(0, 0, 4)];
+  return b;
+}

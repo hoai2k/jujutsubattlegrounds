@@ -1,0 +1,1983 @@
+/* ============================================================================
+   CURSED ARENA — UI
+   ----------------------------------------------------------------------------
+   Design rules, and they are rules rather than suggestions, because the last
+   pass drifted into looking like a web page:
+
+   1. NO BORDER-RADIUS. Anywhere. Every panel is cut with clip-path into a
+      skewed slab or a notched plate. Rounded corners are the single strongest
+      "this is a website" signal there is.
+   2. INK AND BONE. Base is near-black (#07070a), type is warm bone (#f0ece4),
+      and each screen gets exactly ONE accent. No generic navy-blue chrome.
+   3. KANJI IS ART. Japanese is set huge and low-opacity as a watermark, or
+      vertically down an edge — never as a polite little subtitle.
+   4. TYPE IS THE LAYOUT. Heavy condensed italics at display size, and small
+      caps at brutal tracking. Panels are containers for type, not cards.
+   5. EVERYTHING IS SKEWED OFF ONE AXIS (-11deg). Consistency in the slant is
+      what stops it reading as chaos.
+   6. GRAIN, SCANLINE, VIGNETTE over the whole frame at all times.
+   ========================================================================== */
+
+:root {
+  --ink: #07070a;
+  --ink-2: #0d0d12;
+  --panel: rgba(7, 7, 11, 0.93);
+  --bone: #f0ece4;
+  --bone-dim: #9a958c;
+  --bone-far: #5d5a55;
+  --ce: #b98fff;          /* cursed energy violet — the house accent */
+  --blood: #ff2d3c;       /* black flash / KO */
+  --gold: #ffc75e;        /* health, victory */
+  --shadow-blue: #8fb6d8; /* Megumi / the Ten Shadows */
+  --ac: var(--ce);        /* per-screen accent, overridden below */
+  --skew: -11deg;
+  --font: "Bahnschrift", "Franklin Gothic Medium", "Arial Narrow", "Segoe UI", system-ui, sans-serif;
+  --jp: "Yu Gothic UI", "Yu Gothic", "Meiryo", "MS PGothic", sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; border-radius: 0 !important; }
+html, body, #app { width: 100%; height: 100%; overflow: hidden; background: var(--ink); }
+body {
+  font-family: var(--font); color: var(--bone); user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+#game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#ui-root { position: absolute; inset: 0; pointer-events: none; }
+#ui-root > * { pointer-events: auto; }
+
+/* ---------------------------------------------------------------- helpers -- */
+/* the shared slant. `.slab` skews the container, `.up` un-skews the text. */
+.slab { transform: skewX(var(--skew)); }
+.slab > .up { transform: skewX(calc(var(--skew) * -1)); }
+
+/* a hard diagonal accent rule — the single most-used decoration here */
+.rule {
+  height: 3px; background: var(--ac); transform: skewX(var(--skew));
+  box-shadow: 0 0 16px var(--ac);
+}
+
+/* ---- the film layer: grain + scanline + vignette over everything ----------
+   OPT-IN. This is the "old TV" look and it is a strong one, so it is gated
+   behind the VIDEO FILTERS setting and off by default. Rule 6 above still
+   holds — it is just the player's call whether it is on. */
+html.filters-on #ui-root::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 999;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.16) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at 50% 45%, transparent 42%, rgba(0,0,0,0.55) 100%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='0.055'/></svg>");
+  mix-blend-mode: overlay;
+}
+
+/* =========================================================== MODEL VIEWER == */
+.viewer-panel {
+  position: absolute; left: 0; top: 0; width: 340px; max-height: 100%;
+  overflow-y: auto; background: var(--panel); padding: 16px 26px 18px 20px;
+  border-right: 2px solid var(--ac);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%);
+  scrollbar-width: thin; scrollbar-color: var(--ac) transparent;
+}
+.viewer-panel::-webkit-scrollbar { width: 6px; }
+.viewer-panel::-webkit-scrollbar-thumb { background: var(--ac); }
+.viewer-panel h1 {
+  font-size: 22px; font-weight: 700; font-style: italic; letter-spacing: 3px;
+  color: var(--bone); margin-bottom: 12px;
+}
+.viewer-panel h1::after {
+  content: '模型'; font-family: var(--jp); font-style: normal; font-size: 12px;
+  letter-spacing: 4px; color: var(--ac); display: block; margin-top: -2px;
+}
+/* SECTIONS. The bench used to be one long ragged wrap of buttons with no
+   grouping, so finding a model meant reading the whole list. Fighters,
+   versions and summons are now separate labelled blocks, and each block is a
+   GRID so the buttons line up in columns instead of packing raggedly. */
+.v-sec { margin-bottom: 12px; }
+.v-sec-head {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 9px; font-weight: 700; letter-spacing: 3px; color: var(--bone-far);
+  text-transform: uppercase; margin-bottom: 6px;
+}
+.v-sec-head::after {
+  content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, #2e2e3a, transparent);
+}
+.v-sec-head i {
+  order: 3; font-style: normal; font-size: 8px; letter-spacing: 1px;
+  color: var(--ac); background: rgba(255,255,255,0.06); padding: 1px 5px;
+}
+.v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+.v-clips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+.v-btn {
+  background: rgba(255,255,255,0.05); color: var(--bone-dim); border: 0;
+  border-left: 2px solid #2a2a33; padding: 5px 7px; font-family: var(--font);
+  font-size: 10px; font-weight: 600; letter-spacing: 1px; cursor: pointer;
+  text-transform: uppercase; transition: all 90ms; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.v-btn:hover { background: rgba(255,255,255,0.10); color: var(--bone); }
+.v-btn.active { background: var(--ac); color: #0a0a0e; border-left-color: var(--bone); font-weight: 700; }
+/* a version reads as a child of its base character, not as a peer */
+.v-btn-var { border-left-color: var(--ce); color: var(--bone-far); font-size: 9px; }
+.v-btn-var.active { color: #0a0a0e; }
+.v-btn-sm, .v-clips .v-btn { padding: 4px 5px; font-size: 9px; letter-spacing: 0.5px; }
+.v-range { width: 100%; margin-top: 6px; accent-color: var(--ac); grid-column: 1 / -1; }
+.v-toggles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 8px; }
+.v-toggle {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--bone-far); padding: 3px 0; cursor: pointer;
+}
+.v-toggle:hover { color: var(--bone-dim); }
+.v-toggle input { accent-color: var(--ac); margin: 0; }
+.v-hint {
+  font-size: 9px; letter-spacing: 1.5px; color: var(--bone-far); margin-top: 14px;
+  padding-top: 10px; border-top: 1px solid #23232c; line-height: 1.8;
+}
+.v-hint a { color: var(--ac); }
+
+/* ==================================================================== HUD == */
+.hud { position: absolute; inset: 0; pointer-events: none; }
+.hud-top {
+  position: absolute; top: 22px; left: 0; right: 0;
+  display: flex; justify-content: space-between; padding: 0 30px; gap: 20px;
+}
+.plate { width: 38%; max-width: 500px; position: relative; }
+.plate.p2 { direction: rtl; }
+/* the sub-rows opt out of RTL so their contents read left-to-right, but on a
+   mirrored plate they still have to hug the OUTER edge or they drift into the
+   middle of the screen */
+.plate.p2 .sp-row, .plate.p2 .badge-row, .plate.p2 .shiki-row, .plate.p2 .ratio-bar { text-align: right; }
+.plate.p2 .badge-row, .plate.p2 .shiki-row { justify-content: flex-end; }
+.plate.out { opacity: 0.3; filter: grayscale(1); }
+
+/* NAME BLOCK — the biggest thing in the corner, as it should be */
+.plate .name {
+  display: flex; gap: 12px; align-items: baseline; margin-bottom: 3px;
+  font-size: 30px; font-weight: 700; font-style: italic; letter-spacing: 1px;
+  line-height: 1; text-shadow: 0 3px 0 rgba(0,0,0,0.8);
+}
+.plate .name .title {
+  font-size: 10px; font-weight: 600; font-style: normal; letter-spacing: 3px;
+  color: var(--bone-far); text-transform: uppercase; text-shadow: none;
+}
+.plate .name .lives { display: inline-flex; gap: 4px; align-items: center; margin-left: auto; direction: ltr; }
+.plate .name .pip {
+  width: 14px; height: 5px; display: inline-block; background: var(--gold);
+  box-shadow: 0 0 10px rgba(255, 199, 94, 0.7); transform: skewX(var(--skew));
+}
+.plate .name .pip.spent { background: #33302b; box-shadow: none; }
+
+/* BARS — angled ends, hard fills, no chrome */
+.bar {
+  position: relative; height: 14px; background: rgba(0, 0, 0, 0.82);
+  overflow: hidden; margin-bottom: 4px;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 9px) 100%, 0 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6);
+}
+.plate.p2 .bar { clip-path: polygon(9px 0, 100% 0, 100% 100%, 0 100%); }
+.fill, .lag, .maxfill { position: absolute; top: 0; bottom: 0; left: 0; transition: width 80ms linear; }
+.plate.p2 .fill, .plate.p2 .lag, .plate.p2 .maxfill { left: auto; right: 0; }
+.lag { transition: width 500ms ease 250ms; }
+.bar-hp .fill { background: linear-gradient(180deg, #ffe6ae, var(--gold) 55%, #c07f14); }
+.bar-hp .lag { background: var(--blood); }
+.bar-ce { height: 10px; }
+.bar-ce .maxfill { background: rgba(120, 90, 200, 0.28); border-right: 2px solid var(--ce); }
+.plate.p2 .bar-ce .maxfill { border-right: 0; border-left: 2px solid var(--ce); }
+.bar-ce .fill { background: linear-gradient(180deg, #e4d4ff, #8f5fe8 60%, #4f2fa8); }
+.bar-ce.charged .fill {
+  background: linear-gradient(180deg, #fff, #c8a8ff 45%, var(--ce));
+  box-shadow: 0 0 16px var(--ce);
+  animation: chargepulse 0.9s ease-in-out infinite;
+}
+@keyframes chargepulse { 50% { filter: brightness(1.35); } }
+.bar-st { height: 5px; }
+.bar-st .fill { background: #5fd06a; }
+.bar-st.low .fill { background: var(--blood); }
+
+/* BADGES — hard tags, all caps, skewed */
+.badge-row { display: flex; gap: 4px; height: 19px; margin-top: 3px; direction: ltr; }
+.badge {
+  font-size: 9px; font-weight: 700; letter-spacing: 2px; padding: 2px 8px;
+  background: rgba(255,255,255,0.08); color: var(--bone-dim); display: none;
+  transform: skewX(var(--skew)); text-transform: uppercase;
+  border-left: 2px solid var(--bone-far);
+}
+.badge.on { display: inline-block; }
+.badge.hot { background: rgba(255, 199, 94, 0.16); color: var(--gold); border-left-color: var(--gold); }
+
+/* SPECIAL slot */
+.sp-row { margin-top: 3px; direction: ltr; }
+.sp-slot {
+  position: relative; display: inline-flex; align-items: center; gap: 7px;
+  min-width: 148px; padding: 3px 10px; overflow: hidden;
+  background: rgba(0,0,0,0.7); border-left: 3px solid #33333d;
+  font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--bone-far);
+  transform: skewX(var(--skew)); text-transform: uppercase;
+}
+.sp-slot > * { transform: skewX(calc(var(--skew) * -1)); }
+.sp-slot .sp-key { font-weight: 700; font-size: 9px; padding: 0 4px; background: #24242c; color: var(--bone-dim); }
+.sp-slot .sp-cd {
+  position: absolute; top: 0; bottom: 0; right: 0; width: 0; transform: none;
+  background: rgba(0,0,0,0.82); border-left: 1px solid #4a4a56; transition: width 90ms linear;
+}
+.sp-slot.ready { color: var(--bone); border-left-color: var(--ce); box-shadow: inset 0 0 22px rgba(185, 143, 255, 0.16); }
+.sp-slot.ready .sp-key { background: var(--ce); color: #14101e; }
+.sp-slot.empty { color: #4a4750; border-left-color: #26262e; box-shadow: none; }
+.sp-slot.primed { border-left-color: var(--gold); color: #ffe9b8; box-shadow: inset 0 0 26px rgba(255, 199, 94, 0.28); }
+.sp-slot.window {
+  border-left-color: var(--blood); color: #ffd0d4;
+  box-shadow: inset 0 0 30px rgba(255, 45, 60, 0.35), 0 0 18px rgba(255, 45, 60, 0.55);
+  animation: bfflare 0.12s steps(2) infinite;
+}
+@keyframes bfflare { 50% { filter: brightness(1.6); } }
+
+/* NANAMI 7:3 */
+.ratio-bar {
+  position: relative; height: 13px; margin-top: 4px; display: none; direction: ltr;
+  background:
+    repeating-linear-gradient(90deg, transparent 0, transparent calc(10% - 2px), #4a4a56 calc(10% - 2px), #4a4a56 10%),
+    rgba(0,0,0,0.82);
+  transform: skewX(var(--skew)); border-bottom: 2px solid var(--gold);
+}
+.ratio-bar.on { display: block; }
+.ratio-bar .rb-red { position: absolute; top: -3px; bottom: -3px; left: 70%; width: 3px; background: var(--blood); box-shadow: 0 0 10px var(--blood); transform: translateX(-50%); }
+.ratio-bar .rb-marker { position: absolute; top: 50%; width: 4px; height: 17px; background: #fff; box-shadow: 0 0 12px #fff; transform: translate(-50%, -50%); }
+
+/* MEGUMI — shikigami slots */
+.shiki-row { display: flex; gap: 4px; align-items: center; margin-top: 3px; direction: ltr; flex-wrap: wrap; }
+.shiki-slot {
+  position: relative; overflow: hidden; display: flex; align-items: center; gap: 6px;
+  font-size: 9px; font-weight: 600; letter-spacing: 2px; padding: 3px 9px; min-width: 84px;
+  background: rgba(0,0,0,0.72); border-left: 3px solid #2a3038; color: #7f8a99;
+  transform: skewX(var(--skew)); text-transform: uppercase;
+}
+.shiki-slot > * { transform: skewX(calc(var(--skew) * -1)); }
+.shiki-slot .ss-key { font-size: 9px; font-weight: 700; padding: 0 4px; background: #1c242e; color: #5f7488; }
+.shiki-slot .ss-cd { position: absolute; left: 0; top: 0; bottom: 0; width: 0; transform: none; background: rgba(143, 182, 216, 0.14); }
+.shiki-slot.ready { color: #e2ecf6; border-left-color: var(--shadow-blue); box-shadow: inset 0 0 22px rgba(143, 182, 216, 0.14); }
+.shiki-slot.ready .ss-key { background: var(--shadow-blue); color: #0d141c; }
+.shiki-slot.broke { color: #61656e; border-left-color: #33303a; }
+.shiki-slot.lost { color: #7a3a44; border-left-color: var(--blood); text-decoration: line-through; opacity: 0.7; }
+.shiki-lost { display: none; gap: 4px; align-items: center; font-size: 9px; font-weight: 700; letter-spacing: 2px; }
+.shiki-lost.on { display: flex; }
+.shiki-lost em { font-style: normal; color: var(--blood); }
+.shiki-lost span {
+  color: #96545e; text-decoration: line-through; padding: 1px 5px;
+  background: rgba(255, 45, 60, 0.12); transform: skewX(var(--skew));
+}
+
+/* 3-4 player: everything sheds a size */
+.hud-top.crowded { gap: 8px; padding: 0 12px; }
+.hud-top.crowded .plate { width: 25%; max-width: none; direction: ltr; }
+.hud-top.crowded .plate .fill, .hud-top.crowded .plate .lag, .hud-top.crowded .plate .maxfill { left: 0; right: auto; }
+.hud-top.crowded .plate .bar { clip-path: polygon(0 0, 100% 0, calc(100% - 7px) 100%, 0 100%); }
+.hud-top.crowded .plate .bar-ce .maxfill { border-right: 2px solid var(--ce); border-left: 0; }
+.hud-top.crowded .plate .name { font-size: 18px; gap: 7px; }
+.hud-top.crowded .plate .name .title { font-size: 8px; letter-spacing: 2px; }
+.hud-top.crowded .plate .name .pip { width: 9px; height: 4px; }
+.hud-top.crowded .bar { height: 12px; }
+.hud-top.crowded .bar-ce { height: 7px; }
+.hud-top.crowded .bar-st { height: 4px; }
+.hud-top.crowded .badge-row { height: 15px; }
+.hud-top.crowded .badge { font-size: 8px; padding: 1px 5px; letter-spacing: 1px; }
+.hud-top.crowded .sp-slot, .hud-top.crowded .shiki-slot { min-width: 0; font-size: 8px; padding: 1px 6px; gap: 4px; }
+
+/* ---- centre status panels: domain / clash / gauges ----------------------- */
+/* One shared language: a kanji title, a hairline rule, hard bars. */
+.domain-status, .clash-status, .tf-status, .shadow-status, .shrine-status {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  text-align: center; display: none;
+}
+.domain-status.on, .clash-status.on, .tf-status.on, .shadow-status.on, .shrine-status.on { display: block; }
+
+.domain-status { top: 16px; width: 300px; --ac: var(--ce); }
+.domain-status .dname {
+  font-size: 15px; font-weight: 700; font-style: italic; letter-spacing: 4px;
+  color: var(--ac); text-shadow: 0 0 22px var(--ac); margin-bottom: 5px;
+  text-transform: uppercase;
+}
+.domain-status .bar { height: 6px; clip-path: none; }
+.domain-status .bar-time .fill { background: linear-gradient(90deg, #e2d0ff, var(--ce)); }
+.domain-status .bar-integrity .fill { background: linear-gradient(90deg, var(--gold), #d8631e); }
+.dlabel {
+  font-size: 8px; font-weight: 600; letter-spacing: 4px; color: var(--bone-far);
+  text-transform: uppercase; margin-bottom: 4px;
+}
+.domain-status.no-barrier .bar-integrity,
+.domain-status.no-barrier .dlabel:last-child { display: none; }
+
+.clash-status { top: 14px; width: 360px; --ac: var(--gold); }
+.clash-status .cname {
+  font-size: 26px; font-weight: 700; font-style: italic; letter-spacing: 6px;
+  color: var(--ac); text-shadow: 0 0 30px var(--ac), 0 3px 0 #000; margin-bottom: 5px;
+}
+.clash-status .bar-clash { height: 8px; clip-path: none; }
+.clash-status .bar-clash .fill { background: linear-gradient(90deg, #ffe9b8, #e8641e); }
+.clash-tally { display: flex; justify-content: center; align-items: baseline; gap: 16px; margin-top: 6px; }
+.clash-tally b { display: block; font-size: 9px; font-weight: 600; letter-spacing: 3px; color: var(--bone-far); text-transform: uppercase; }
+.clash-tally i { font-style: italic; font-size: 32px; font-weight: 700; color: var(--bone); line-height: 1; }
+.clash-tally .lead i { color: #6fe89a; text-shadow: 0 0 20px rgba(90, 220, 130, 0.65); }
+.clash-tally .cvs { font-size: 10px; letter-spacing: 3px; color: #45424a; }
+
+.tf-status, .shadow-status, .shrine-status { top: 62px; width: 380px; }
+.tf-status { --ac: #b9c6d4; }
+.shadow-status { --ac: var(--shadow-blue); }
+.tf-title {
+  font-family: var(--jp); font-size: 17px; font-weight: 700; letter-spacing: 6px;
+  color: var(--ac); text-shadow: 0 0 22px var(--ac); margin-bottom: 5px;
+}
+.tf-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.tf-row b {
+  font-size: 10px; font-weight: 700; letter-spacing: 2px; color: var(--bone-dim);
+  width: 70px; text-align: right; flex: none; font-style: italic;
+}
+.tf-row .bar-tf, .tf-row .bar-sh, .tf-row .bar-sr {
+  height: 14px; flex: 1; margin-bottom: 0;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 7px) 100%, 0 100%);
+}
+.tf-row .bar-tf .fill { background: linear-gradient(180deg, #e8eef4, #8b9bab 60%, #4c5765); transition: width 0.08s linear; }
+.tf-row.danger .bar-tf .fill { background: linear-gradient(180deg, #ffd6d6, var(--blood) 60%, #8e1a25); box-shadow: 0 0 14px var(--blood); }
+.shadow-status .bar-sh .fill { background: linear-gradient(180deg, #cfe0f0, #6f8fa8 60%, #1e2c3c); transition: width 0.1s linear; }
+.shadow-status .tf-row.danger .bar-sh .fill { background: linear-gradient(180deg, #dfeaff, #4f7fd0 60%, #1c2560); box-shadow: 0 0 14px rgba(90, 140, 220, 0.8); }
+.shadow-status .tf-row.safe b { color: #6fe89a; }
+
+/* MALEVOLENT SHRINE. Same panel language as the other two open-domain reads,
+   in his red. The extra column on the right is the metres still to run: it is
+   the only actionable number on screen for whoever is being cut, so it gets
+   its own slot rather than being implied by a bar length. */
+.shrine-status { --ac: #ff2f45; }
+.shrine-status .bar-sr .fill { background: linear-gradient(180deg, #ffb8c0, #c01828 60%, #3a060c); transition: width 0.1s linear; }
+.shrine-status .tf-row.danger .bar-sr .fill { background: linear-gradient(180deg, #fff0f2, #ff2f45 60%, #6e0c18); box-shadow: 0 0 16px rgba(255, 47, 69, 0.85); }
+.shrine-status .tf-row u {
+  font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: 1px;
+  color: #ff8f9c; width: 46px; text-align: left; flex: none;
+}
+.shrine-status .tf-row.safe b, .shrine-status .tf-row.safe u { color: #6fe89a; }
+
+/* SUKUNA: the Finger row. Four pips, filled as he eats them, plus what the
+   count has unlocked. Sits directly under the evidence row's slot so no plate
+   ever shows both (nobody has evidence AND fingers). */
+.fg-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.fg-row .fg-key {
+  font-family: var(--jp), inherit; font-size: 11px; font-weight: 800;
+  letter-spacing: 2px; color: #c0505e; flex: none;
+}
+.fg-row .fg-pips { display: inline-flex; gap: 3px; flex: none; }
+.fg-row .fg-pip {
+  width: 11px; height: 11px; display: inline-block;
+  background: rgba(0,0,0,0.5); border: 1px solid rgba(255,47,69,0.42);
+  clip-path: polygon(50% 0, 100% 32%, 82% 100%, 18% 100%, 0 32%);
+}
+.fg-row .fg-pip.eaten {
+  background: linear-gradient(180deg, #ff6070, #8c0c1c);
+  border-color: #ff2f45; box-shadow: 0 0 8px rgba(255,47,69,0.7);
+}
+.fg-row .fg-unlock {
+  font-size: 8px; font-weight: 800; letter-spacing: 2px; color: #6b5058;
+  white-space: nowrap; margin-left: auto;
+}
+.fg-row.armed .fg-unlock { color: #ff9a4a; text-shadow: 0 0 10px rgba(255,90,31,0.8); }
+.fg-row.spent .fg-key { color: #ff2f45; text-shadow: 0 0 12px rgba(255,47,69,0.8); }
+.plate.p2 .fg-row { flex-direction: row-reverse; }
+.plate.p2 .fg-row .fg-unlock { margin-left: 0; margin-right: auto; }
+
+/* ---- SHIKIGAMI WHEEL ----------------------------------------------------- */
+.shiki-wheel {
+  position: absolute; left: 50%; bottom: 66px; transform: translateX(-50%);
+  width: 330px; height: 330px; display: none; pointer-events: none; --ac: var(--shadow-blue);
+}
+.shiki-wheel.on { display: block; animation: swpop 0.13s cubic-bezier(.2,.9,.3,1); }
+@keyframes swpop { from { transform: translateX(-50%) scale(0.8) rotate(-6deg); } }
+/* A plain radial wash plus two hairline rings. This started as a segmented
+   conic-gradient, which is both an expensive repaint for something drawn every
+   frame while the stick is held and unnecessary — the six options already read
+   as segments because they sit on the ring. */
+.shiki-wheel .sw-ring {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(3,4,8,0.95) 38%, rgba(3,4,8,0.55) 62%, rgba(3,4,8,0) 74%);
+}
+.shiki-wheel .sw-ring::before,
+.shiki-wheel .sw-ring::after {
+  content: ''; position: absolute; border: 1px solid rgba(143, 182, 216, 0.20);
+  border-radius: 50% !important;
+}
+.shiki-wheel .sw-ring::before { inset: 12%; }
+.shiki-wheel .sw-ring::after { inset: 30%; border-color: rgba(143, 182, 216, 0.10); }
+.sw-opt {
+  position: absolute; transform: translate(-50%, -50%) skewX(var(--skew));
+  text-align: center; width: 92px; padding: 5px 2px;
+  background: rgba(4, 6, 10, 0.9); border-left: 3px solid #2a323c;
+  color: #78838f; transition: all 0.09s cubic-bezier(.2,.9,.3,1);
+}
+.sw-opt > * { transform: skewX(calc(var(--skew) * -1)); }
+.sw-opt b { display: block; font-size: 11px; font-weight: 700; font-style: italic; letter-spacing: 1px; }
+.sw-opt i { display: block; font-family: var(--jp); font-style: normal; font-size: 12px; letter-spacing: 2px; color: #4d5966; margin-top: 1px; }
+.sw-opt u { display: block; text-decoration: none; font-size: 9px; font-weight: 700; letter-spacing: 1px; color: #4f7fa8; }
+.sw-opt.focus {
+  color: #fff; border-left-color: var(--ac); background: rgba(16, 28, 42, 0.97);
+  box-shadow: 0 0 30px rgba(143, 182, 216, 0.45), inset 0 0 24px rgba(143,182,216,0.14);
+  transform: translate(-50%, -50%) skewX(var(--skew)) scale(1.2); z-index: 2;
+}
+.sw-opt.focus i { color: var(--ac); }
+.sw-opt.cool { opacity: 0.5; }
+.sw-opt.broke u { color: var(--blood); }
+.sw-opt.lost {
+  color: #6a3038; border-left-color: var(--blood); text-decoration: line-through;
+  background: rgba(28, 6, 10, 0.9); opacity: 0.62;
+}
+.sw-opt.b1::after, .sw-opt.b2::after {
+  content: 'RB'; position: absolute; top: -7px; right: -8px; font-size: 8px; font-weight: 700;
+  padding: 1px 4px; background: var(--shadow-blue); color: #0d141c; transform: skewX(calc(var(--skew) * -1));
+}
+.sw-opt.b2::after { content: 'RT'; background: var(--ce); color: #14101e; }
+.sw-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 170px; text-align: center; }
+.sw-center b {
+  display: block; font-size: 12px; font-weight: 700; font-style: italic;
+  letter-spacing: 3px; color: var(--shadow-blue);
+}
+.shiki-wheel.slot2 .sw-center b { color: var(--ce); }
+.sw-center small { display: block; font-size: 8px; font-weight: 600; letter-spacing: 2px; color: #5d5a55; margin-top: 3px; text-transform: uppercase; }
+
+/* ---- TOJI: THE ARSENAL --------------------------------------------------- */
+/* His plate has NO cursed-energy bar at all (it is removed in setFighters,
+   not hidden), so this row occupies the space the bar would have taken and the
+   plate keeps the same height as everyone else's. */
+:root { --toji: #6ea88a; }
+.ars-row {
+  display: flex; align-items: center; gap: 6px; margin-top: 3px; direction: ltr;
+}
+.plate.p2 .ars-row { flex-direction: row-reverse; }
+.ars-slots { display: inline-flex; gap: 3px; flex: none; }
+.ars-slot {
+  display: inline-flex; flex-direction: column; align-items: center;
+  padding: 2px 5px 1px; border: 1px solid rgba(110, 168, 138, 0.22);
+  background: rgba(20, 30, 26, 0.5); opacity: 0.45; transition: opacity 0.12s;
+}
+.ars-slot b { font-size: 8px; font-weight: 700; letter-spacing: 1px; color: #7d8d86; font-style: italic; }
+.ars-slot i { font-family: var(--jp); font-style: normal; font-size: 8px; color: #4a5a52; letter-spacing: 1px; }
+/* THE ONE IN HIS HAND. The whole row exists so both players can find this at a
+   glance, so it is the only thing here allowed to be bright. */
+.ars-slot.held {
+  opacity: 1; border-color: var(--toji);
+  background: rgba(110, 168, 138, 0.16);
+  box-shadow: 0 0 10px rgba(110, 168, 138, 0.35);
+}
+.ars-slot.held b { color: var(--toji); text-shadow: 0 0 8px rgba(110, 168, 138, 0.8); }
+.ars-slot.held i { color: #9fd8bc; }
+.ars-row.sealed .ars-slot { filter: grayscale(1); opacity: 0.28; }
+.ars-row.sealed .ars-slot.held { border-color: var(--blood); box-shadow: none; }
+
+/* ASSASSINATION — a cooldown, not a meter. The sweep fills toward READY. */
+.ars-ass {
+  position: relative; margin-left: auto; padding: 2px 7px; overflow: hidden;
+  border: 1px solid rgba(110, 168, 138, 0.25); background: rgba(14, 20, 17, 0.7);
+  display: inline-flex; align-items: baseline; gap: 5px;
+}
+.plate.p2 .ars-ass { margin-left: 0; margin-right: auto; }
+.ars-ass::before {
+  content: ''; position: absolute; inset: 0; width: var(--cd, 0%);
+  background: rgba(110, 168, 138, 0.20); transition: width 0.1s linear;
+}
+.ars-ass em, .ars-ass i { position: relative; font-style: normal; }
+.ars-ass em { font-family: var(--jp); font-size: 9px; letter-spacing: 2px; color: #5d7a6c; }
+.ars-ass i { font-size: 8px; font-weight: 700; letter-spacing: 1px; color: #6d7d76; }
+.ars-ass.ready { border-color: var(--toji); box-shadow: 0 0 12px rgba(110, 168, 138, 0.4); }
+.ars-ass.ready em { color: var(--toji); text-shadow: 0 0 10px rgba(110, 168, 138, 0.9); }
+.ars-ass.ready i { color: #b8f0d4; }
+
+/* the radial. Deliberately the shikigami wheel's shape and rhythm — it is the
+   same interaction and should feel like it — in his colour rather than Megumi's */
+.arsenal-wheel {
+  position: absolute; left: 50%; top: 48%; width: 380px; height: 380px;
+  transform: translate(-50%, -50%); display: none; pointer-events: none;
+}
+.arsenal-wheel.on { display: block; animation: swpop 0.13s cubic-bezier(.2,.9,.3,1); }
+.arsenal-wheel .aw-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 1px solid rgba(110, 168, 138, 0.18);
+  background: radial-gradient(circle, rgba(10,16,13,0.55) 30%, rgba(10,16,13,0.0) 72%);
+}
+.arsenal-wheel .aw-ring::before {
+  content: ''; position: absolute; inset: 18%; border-radius: 50%;
+  border: 1px solid rgba(110, 168, 138, 0.10);
+}
+.aw-opt {
+  position: absolute; transform: translate(-50%, -50%) skewX(-8deg);
+  text-align: center; color: #6d7d76; transition: color 0.1s;
+}
+.aw-opt > * { transform: skewX(8deg); }
+.aw-opt b { display: block; font-size: 11px; font-weight: 700; font-style: italic; letter-spacing: 1px; }
+.aw-opt i { display: block; font-family: var(--jp); font-style: normal; font-size: 12px; letter-spacing: 2px; color: #47564f; margin-top: 1px; }
+.aw-opt.focus { color: var(--toji); text-shadow: 0 0 14px rgba(110, 168, 138, 0.9); transform: translate(-50%, -50%) skewX(-8deg) scale(1.22); }
+.aw-opt.focus i { color: var(--toji); }
+/* the tool already in his hand: picking it is the free no-op, and saying so
+   stops a player burning a draw animation on a mis-tap */
+.aw-opt.held::after {
+  content: 'IN HAND'; display: block; font-size: 7px; letter-spacing: 1px;
+  color: #4f7a63; margin-top: 2px;
+}
+.aw-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 210px; text-align: center; }
+.aw-center b { display: block; font-family: var(--jp); font-size: 13px; letter-spacing: 4px; color: var(--toji); }
+.aw-center small { display: block; font-size: 8px; font-weight: 600; letter-spacing: 2px; color: #5d6a63; margin-top: 4px; text-transform: uppercase; }
+
+/* ---- combo / messages / cut-in ------------------------------------------- */
+/* clear of the plate: with the special + shikigami rows the plate runs to
+   ~160px, and at 132px the counter sat straight on top of them */
+.combo {
+  position: absolute; top: 186px; font-size: 44px; font-weight: 700; font-style: italic;
+  letter-spacing: -1px; color: var(--gold); display: none; line-height: 0.9;
+  text-shadow: 0 4px 0 #000, 0 0 34px rgba(255, 199, 94, 0.75);
+  transform: skewX(var(--skew));
+}
+.combo.on { display: block; animation: combohit 0.12s ease-out; }
+@keyframes combohit { from { transform: skewX(var(--skew)) scale(1.4); } }
+.combo.cl { left: 44px; } .combo.cr { right: 44px; }
+.combo small { display: block; font-size: 12px; font-weight: 600; letter-spacing: 5px; color: var(--bone-dim); font-style: normal; }
+
+.msg-center {
+  position: absolute; top: 32%; left: 0; right: 0; text-align: center;
+  font-size: 86px; font-weight: 700; font-style: italic; letter-spacing: 4px;
+  text-shadow: 0 6px 0 #000, 0 0 60px rgba(185, 143, 255, 0.5);
+  opacity: 0; pointer-events: none; transform: skewX(var(--skew));
+  transition: opacity 100ms;
+}
+.msg-center.on { opacity: 1; animation: msgslam 0.16s cubic-bezier(.2,.9,.3,1); }
+@keyframes msgslam { from { transform: skewX(var(--skew)) scale(1.35); } }
+.msg-center.tech {
+  color: var(--tech, #fff); font-size: 62px;
+  text-shadow: 0 5px 0 #000, 0 0 60px var(--tech, #fff);
+}
+
+/* the cut-in: a black wedge that slams in from the left with the technique on it */
+.cutin {
+  position: absolute; top: 36%; left: -120%; width: 128%; padding: 30px 9%;
+  background: linear-gradient(100deg, rgba(3,3,6,0.97) 58%, rgba(3,3,6,0.0));
+  border-top: 3px solid var(--cut, var(--ce));
+  border-bottom: 3px solid var(--cut, var(--ce));
+  transform: skewY(-3deg); pointer-events: none;
+  transition: left 240ms cubic-bezier(.15, .95, .25, 1);
+  box-shadow: 0 0 60px rgba(0,0,0,0.8);
+}
+.cutin.on { left: -12%; }
+.cutin .c-who {
+  font-size: 13px; font-weight: 700; letter-spacing: 8px; color: var(--cut, var(--ce));
+  text-transform: uppercase;
+}
+.cutin .c-name {
+  font-size: 54px; font-weight: 700; font-style: italic; letter-spacing: 2px;
+  line-height: 1.02; text-shadow: 0 0 34px var(--cut, var(--ce)), 0 4px 0 #000;
+}
+
+/* ---- split tags / flash --------------------------------------------------- */
+.split-tag {
+  position: absolute; top: 100px; font-size: 10px; font-weight: 700; letter-spacing: 5px;
+  color: var(--bone-dim); text-shadow: 0 2px 6px #000; opacity: 0.8; display: none;
+  text-transform: uppercase;
+}
+.split-tag.on { display: block; }
+.split-tag.s1 { left: 25%; transform: translateX(-50%); }
+.split-tag.s2 { left: 75%; transform: translateX(-50%); }
+.hud.grid-view .split-tag { top: 50%; margin-top: -14px; }
+.hud.grid-view .split-tag.s1, .hud.grid-view .split-tag.s2 { top: 134px; margin-top: 0; }
+.hud.grid-view .split-tag.s3 { left: 25%; transform: translateX(-50%); }
+.hud.grid-view .split-tag.s4 { left: 75%; transform: translateX(-50%); }
+.hud.tri-view .split-tag.s3 { left: 50%; transform: translateX(-50%); }
+.split-tag.dead { color: var(--blood); opacity: 1; }
+
+.flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 50%, rgba(255, 45, 60, 0.5)); }
+.flash.on { opacity: 1; transition: none; }
+.flash:not(.on) { transition: opacity 380ms; }
+
+.hint-bar {
+  position: absolute; bottom: 12px; left: 170px; right: 170px; text-align: center;
+  font-size: 9px; font-weight: 600; letter-spacing: 5px; color: #3d3a42;
+  text-transform: uppercase;
+}
+
+/* ====================================================== CHARACTER SELECT == */
+/* Layout: the 3D roster is the hero. The UI frames it — a brand slab top-left,
+   mode tabs top-right, a huge focused-fighter panel on the left edge, and the
+   roster as a skewed strip along the bottom. Nothing is centred and boxed. */
+.select-screen { position: absolute; inset: 0; pointer-events: none; }
+
+.select-title {
+  position: absolute; top: 0; left: 0; padding: 20px 46px 18px 30px;
+  background: linear-gradient(105deg, rgba(4,4,8,0.95) 62%, transparent);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 40px) 100%, 0 100%);
+}
+.select-title h1 {
+  font-size: 44px; font-weight: 700; font-style: italic; letter-spacing: 2px;
+  line-height: 0.94; color: var(--bone); text-shadow: 0 4px 0 #000;
+}
+.select-title h1::first-letter { color: var(--ce); text-shadow: 0 0 30px var(--ce); }
+.select-title p {
+  font-size: 9px; font-weight: 600; letter-spacing: 5px; color: var(--bone-far);
+  margin-top: 5px; text-transform: uppercase;
+}
+/* the vertical kanji column down the left edge (a real element, not a
+   pseudo — pseudo content does not survive being rasterised for capture) */
+.brand-kanji {
+  position: absolute; left: 34px; top: 178px;
+  font-family: var(--jp); font-size: 46px; font-weight: 700; letter-spacing: 10px;
+  writing-mode: vertical-rl; color: var(--ce); opacity: 0.28;
+  text-shadow: 0 0 40px var(--ce); transition: opacity 160ms;
+}
+.brand-kanji.hide { opacity: 0; }   /* the hero panel takes this space */
+
+/* the instruction line, sitting clear of the brand slab */
+.select-sub {
+  position: absolute; top: 132px; left: 34px; font-size: 14px; font-weight: 700;
+  font-style: italic; letter-spacing: 5px; color: var(--bone); min-height: 20px;
+  text-transform: uppercase; text-shadow: 0 2px 0 #000;
+  padding-left: 14px; border-left: 4px solid var(--ce);
+}
+
+/* DEVICE READOUT — top right. Replaced the mode tabs: the screen reports what
+   hardware it found instead of asking how many people are playing. Not a menu,
+   so nothing here takes focus — the one exception is the keyboard-versus hint,
+   and even that is a single button rather than a list. */
+.device-row {
+  position: absolute; top: 20px; right: 26px; text-align: right;
+  padding: 11px 18px 10px 26px; background: rgba(4,4,8,0.88);
+  clip-path: polygon(18px 0, 100% 0, 100% 100%, 0 100%);
+  border-bottom: 3px solid var(--ce);
+}
+.dev-head { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; }
+.dev-mode {
+  font-size: 17px; font-weight: 700; font-style: italic; letter-spacing: 2px;
+  color: var(--bone); text-shadow: 0 2px 0 #000;
+}
+.dev-count {
+  font-size: 9px; font-weight: 700; letter-spacing: 3px; color: #0a0a0e;
+  background: var(--ce); padding: 2px 8px; transform: skewX(var(--skew));
+}
+.dev-chips { display: flex; gap: 5px; justify-content: flex-end; margin-top: 8px; }
+.dev-chip {
+  display: flex; align-items: center; gap: 6px; padding: 3px 9px;
+  font-size: 9px; font-weight: 700; letter-spacing: 2px; color: var(--seat, var(--bone-dim));
+  box-shadow: inset 0 0 0 1.5px currentColor; transform: skewX(var(--skew));
+}
+/* The seat colour comes from --seat, NOT from currentColor. `currentColor`
+   inside this rule resolves to the element's OWN colour, which is the near
+   black set on the line above — so `background: currentColor` painted black
+   on black and the P1/P2 badge vanished. */
+.dev-chip > b {
+  font-size: 10px; font-style: italic; letter-spacing: 1px;
+  color: #0a0a0e; background: var(--seat, var(--ce)); padding: 0 5px;
+}
+.dev-chip.s0 { --seat: #4f9fe8; } .dev-chip.s1 { --seat: #ff5f4f; }
+.dev-chip.s2 { --seat: #6fe89a; } .dev-chip.s3 { --seat: #ffd84f; }
+.dev-chip.cpu { --seat: #6b6b78; }
+.dev-hint {
+  margin-top: 8px; font-size: 8px; font-weight: 700; letter-spacing: 3px;
+  color: var(--bone-far); text-transform: uppercase;
+}
+.dev-hint i { font-style: normal; color: var(--ce); }
+/* nothing to decide: the line stops looking like an instruction */
+.dev-hint.auto { opacity: 0.85; }
+
+/* HERO PANELS — one per side, seat 0 left and seat 1 right, so two players
+   picking at the same time each get their own read. Seats 3 and 4 work off the
+   coloured chips on the roster strip. */
+.sel-hero {
+  position: absolute; top: 46%; transform: translateY(-50%);
+  padding: 20px 54px 20px 30px; max-width: 36%;
+  background: linear-gradient(100deg, rgba(3,3,6,0.94) 55%, transparent);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 44px) 100%, 0 100%);
+  opacity: 0; transition: opacity 140ms;
+}
+.sel-hero.h0 { left: 0; }
+/* the right panel is the same slab mirrored, with its text right-aligned */
+.sel-hero.h1 {
+  right: 0; left: auto; text-align: right;
+  padding: 20px 30px 20px 54px;
+  background: linear-gradient(260deg, rgba(3,3,6,0.94) 55%, transparent);
+  clip-path: polygon(44px 0, 100% 0, 100% 100%, 0 100%);
+}
+.sel-hero.on { opacity: 1; }
+.sel-hero .sh-seat {
+  display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 4px;
+  padding: 2px 10px; margin-bottom: 6px; color: #0a0a0e;
+  background: var(--seat, var(--ce)); transform: skewX(var(--skew));
+}
+.sel-hero .sh-jp {
+  font-family: var(--jp); font-size: 23px; font-weight: 700; letter-spacing: 7px;
+  color: var(--ac, var(--ce)); text-shadow: 0 0 26px var(--ac, var(--ce));
+}
+.sel-hero .sh-name {
+  font-size: 64px; font-weight: 700; font-style: italic; letter-spacing: -1px;
+  line-height: 0.9; color: var(--bone); text-shadow: 0 5px 0 #000, 0 0 50px rgba(0,0,0,0.9);
+  margin: 2px 0 6px;
+}
+.sel-hero .sh-rule { width: 180px; height: 4px; background: var(--ac, var(--ce)); transform: skewX(var(--skew)); box-shadow: 0 0 20px var(--ac, var(--ce)); }
+.sel-hero.h1 .sh-rule { margin-left: auto; }
+.sel-hero .sh-role {
+  font-size: 11px; font-weight: 700; letter-spacing: 3px; color: var(--bone-dim);
+  margin-top: 10px; text-transform: uppercase;
+}
+.sel-hero .sh-tag {
+  display: inline-block; margin-top: 11px; padding: 3px 12px; font-family: var(--jp);
+  font-size: 11px; font-weight: 700; letter-spacing: 4px;
+  background: rgba(185, 143, 255, 0.14); color: var(--ac, var(--ce));
+  transform: skewX(var(--skew));
+}
+.sel-hero.spirit .sh-tag { background: rgba(255, 45, 60, 0.14); }
+/* the taunt-preview hint. Quiet — an affordance, not an instruction. */
+.sel-hero .sh-taunt {
+  margin-top: 14px; font-size: 10px; font-weight: 700; letter-spacing: 3px;
+  color: var(--bone-dim); opacity: 0.5; text-transform: uppercase;
+}
+.sel-hero.locked .sh-taunt { opacity: 0.22; }
+/* locked in: the panel commits to the seat colour and stops shouting */
+.sel-hero.locked .sh-name { text-shadow: 0 5px 0 #000, 0 0 40px var(--seat); }
+.sel-hero.locked { opacity: 0.92; }
+
+/* ROSTER GRID — skewed tiles along the bottom, in ROWS.
+   A sixteen-wide single row forced 118px tiles and a camera so far back the
+   models stopped being the hero of the screen. `--cols` is written by
+   select.js from the same gridShape() the 3D pedestals use, so the tiles and
+   the bodies behind them are always the same shape. */
+.select-cards {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 22px;
+  display: grid; grid-template-columns: repeat(var(--cols, 8), 152px);
+  gap: 7px; justify-content: center; transition: opacity 150ms;
+  padding-bottom: 14px;   /* room for the focused tile to lift into */
+}
+.select-cards.dim { opacity: 0.24; }
+.sel-card {
+  position: relative; width: 152px; height: 74px; padding: 12px 9px 10px; text-align: center;
+  background: rgba(6,6,11,0.92); border-bottom: 3px solid #33333d;
+  transform: skewX(var(--skew)); transition: all 120ms cubic-bezier(.2,.9,.3,1);
+  overflow: hidden;
+}
+.sel-card > * { transform: skewX(calc(var(--skew) * -1)); position: relative; z-index: 1; }
+/* the kanji watermark behind each tile */
+/* sized to FIT: at 46px a four-kanji name is wider than the tile and spills
+   past the clip on some renderers, which read as loose glyphs on the strip */
+.sel-card .cwm {
+  position: absolute; inset: 0; transform: none; z-index: 0; overflow: hidden;
+  font-family: var(--jp); font-size: 30px; font-weight: 700; line-height: 74px;
+  text-align: center; color: #fff; opacity: 0.09; letter-spacing: 0; white-space: nowrap;
+}
+.sel-card .cname { font-size: 19px; font-weight: 700; font-style: italic; letter-spacing: 0.5px; color: #b8b3ab; line-height: 1.1; }
+.sel-card .crole { font-size: 7px; font-weight: 600; letter-spacing: 1.5px; color: #5f5c66; margin-top: 4px; min-height: 12px; text-transform: uppercase; }
+.sel-card .spirit-tag {
+  position: absolute; top: 0; left: 0; right: 0; transform: none; z-index: 2;
+  font-family: var(--jp); font-size: 9px; font-weight: 700; letter-spacing: 4px;
+  padding: 2px 0; color: #ff98a4; background: rgba(255, 45, 60, 0.22);
+}
+.sel-card.spirit { background: rgba(14, 5, 9, 0.92); }
+/* The tile is highlighted in the SEAT's colour, not the character's, so with
+   four cursors on screen you can always tell which one is yours. */
+.sel-card.focus {
+  border-bottom-color: var(--seat, var(--pc, var(--ce)));
+  background: rgba(18, 14, 26, 0.97);
+  transform: skewX(var(--skew)) translateY(-16px) scale(1.08);
+  box-shadow: 0 0 46px rgba(0,0,0,0.95), 0 7px 0 -3px var(--seat, var(--pc, var(--ce)));
+}
+.sel-card.focus .cname { color: #fff; text-shadow: 0 0 22px var(--seat, var(--pc, var(--ce))); }
+.sel-card.focus .crole { color: var(--pc, var(--ce)); }
+.sel-card.focus .cwm { opacity: 0.20; color: var(--pc, var(--ce)); }
+.sel-card.taken { border-bottom-color: var(--seat, var(--ce)); }
+.sel-card.taken .cname { color: var(--bone); }
+
+/* seat chips: outlined while hovering, filled once that seat has locked in */
+.sel-tag {
+  display: flex; gap: 3px; justify-content: center; flex-wrap: wrap;
+  font-size: 9px; font-weight: 700; letter-spacing: 2px; margin-top: 5px; min-height: 14px;
+}
+.sel-tag span { padding: 1px 6px; line-height: 1.4; }
+.sel-tag .hov { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+.sel-tag .lok { color: #0a0a0e !important; }
+.sel-tag .s0 { color: #4f9fe8; } .sel-tag .s0.lok { background: #4f9fe8; }
+.sel-tag .s1 { color: #ff5f4f; } .sel-tag .s1.lok { background: #ff5f4f; }
+.sel-tag .s2 { color: #6fe89a; } .sel-tag .s2.lok { background: #6fe89a; }
+.sel-tag .s3 { color: #ffd84f; } .sel-tag .s3.lok { background: #ffd84f; }
+
+@media (max-width: 1420px) {
+  .select-cards { gap: 5px; grid-template-columns: repeat(var(--cols, 8), 124px); }
+  .sel-card { width: 124px; height: 68px; padding: 10px 5px 9px; }
+  .sel-card .cname { font-size: 16px; }
+  .sel-card .cwm { font-size: 25px; line-height: 68px; }
+  .sel-hero .sh-name { font-size: 48px; }
+  .sel-hero { max-width: 32%; }
+  .brand-kanji { font-size: 36px; top: 168px; }
+  .device-row { padding: 9px 14px 8px 22px; }
+  .dev-mode { font-size: 15px; }
+}
+
+/* ========================================================== STAGE SELECT == */
+/* Full-bleed live preview. A massive name slab bottom-left, the stage list as
+   skewed tabs down the right edge. The preview is the point; the UI stays out
+   of the middle of it. */
+.map-screen { position: absolute; inset: 0; pointer-events: none; --ac: var(--shadow-blue); }
+
+.map-head {
+  position: absolute; top: 0; left: 0; padding: 20px 46px 16px 30px;
+  background: linear-gradient(105deg, rgba(4,4,8,0.94) 60%, transparent);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 38px) 100%, 0 100%);
+}
+.map-head h1 {
+  font-size: 34px; font-weight: 700; font-style: italic; letter-spacing: 2px;
+  color: var(--bone); text-shadow: 0 4px 0 #000; line-height: 1;
+}
+.map-sub { font-size: 9px; font-weight: 600; letter-spacing: 4px; color: var(--bone-far); margin-top: 5px; text-transform: uppercase; }
+.map-kanji { top: 146px; color: var(--shadow-blue); text-shadow: 0 0 40px var(--shadow-blue); }
+
+/* the stage name slab — bottom left, and it is enormous on purpose */
+.map-info {
+  position: absolute; left: 0; bottom: 66px; padding: 24px 70px 24px 30px; max-width: 62%;
+  background: linear-gradient(100deg, rgba(3,3,6,0.94) 58%, transparent);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 52px) 100%, 0 100%);
+}
+.mi-jp {
+  font-family: var(--jp); font-size: 24px; font-weight: 700; letter-spacing: 8px;
+  color: var(--ac); text-shadow: 0 0 26px var(--ac);
+}
+.mi-name {
+  font-size: 64px; font-weight: 700; font-style: italic; letter-spacing: -1px;
+  line-height: 0.92; color: var(--bone); text-shadow: 0 5px 0 #000; margin: 2px 0 8px;
+}
+.mi-name::after {
+  content: ''; display: block; width: 180px; height: 4px; margin-top: 10px;
+  background: var(--ac); transform: skewX(var(--skew)); box-shadow: 0 0 20px var(--ac);
+}
+.mi-desc { font-size: 13px; font-weight: 600; letter-spacing: 1px; color: var(--bone-dim); margin-top: 12px; max-width: 560px; }
+.mi-size { font-size: 9px; font-weight: 700; letter-spacing: 4px; color: var(--bone-far); margin-top: 6px; text-transform: uppercase; }
+
+/* stage list — vertical skewed tabs, right edge */
+.map-cards {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-end;
+}
+.map-card {
+  position: relative; width: 232px; padding: 9px 26px 9px 18px; text-align: right;
+  background: rgba(4,4,8,0.86); border-right: 3px solid #2a2a33;
+  transform: skewX(var(--skew)); transition: all 110ms cubic-bezier(.2,.9,.3,1);
+  overflow: hidden;
+}
+.map-card > * { transform: skewX(calc(var(--skew) * -1)); }
+.map-card .mc-jp { font-family: var(--jp); font-size: 11px; font-weight: 700; letter-spacing: 3px; color: #4d5966; min-height: 15px; }
+.map-card .mc-name { font-size: 13px; font-weight: 700; font-style: italic; letter-spacing: 0.5px; color: var(--bone-dim); line-height: 1.2; margin-top: 1px; }
+.map-card.focus {
+  border-right-color: var(--ac); background: rgba(14, 22, 32, 0.96);
+  transform: skewX(var(--skew)) translateX(-22px) scale(1.03);
+  box-shadow: -6px 0 0 -3px var(--ac), 0 0 36px rgba(0,0,0,0.85);
+}
+.map-card.focus .mc-name { color: #fff; text-shadow: 0 0 18px var(--ac); }
+.map-card.focus .mc-jp { color: var(--ac); }
+.map-card.rnd { background: rgba(14, 4, 10, 0.88); border-right-color: #4a1c28; }
+.map-card.rnd.focus { border-right-color: var(--blood); box-shadow: -6px 0 0 -3px var(--blood), 0 0 36px rgba(0,0,0,0.85); }
+.map-card.rnd.focus .mc-name { text-shadow: 0 0 18px var(--blood); }
+
+.map-hint {
+  position: absolute; bottom: 16px; left: 170px; right: 170px; text-align: center;
+  font-size: 9px; font-weight: 600; letter-spacing: 5px; color: #3d3a42; text-transform: uppercase;
+}
+
+@media (max-width: 1320px) {
+  .map-card { width: 190px; padding: 7px 20px 7px 14px; }
+  .mi-name { font-size: 48px; }
+  .map-info { max-width: 70%; }
+}
+
+/* ========================================================= RESULT SCREEN == */
+/* Explicitly positioned rather than flex + transforms: at 150px with a skew
+   and negative tracking the KO ran off the left edge and the win line landed
+   on top of it. Each element now owns a fixed slot. */
+.result-screen {
+  position: absolute; inset: 0; display: none;
+  background: linear-gradient(100deg, rgba(3,3,6,0.92) 42%, rgba(3,3,6,0.28) 76%, transparent);
+}
+.result-screen.on { display: block; }
+.result-screen .r-ko {
+  position: absolute; left: 7%; top: 19%;
+  font-size: 118px; font-weight: 700; font-style: italic; letter-spacing: 2px;
+  color: var(--blood); line-height: 1;
+  text-shadow: 0 7px 0 #14000a, 0 0 90px rgba(255, 45, 60, 0.75);
+  transform: skewX(var(--skew)); transform-origin: left center;
+  animation: koslam 0.3s cubic-bezier(.15,.95,.25,1);
+}
+@keyframes koslam { from { transform: skewX(var(--skew)) scale(2.2); } }
+.result-screen .r-ko::after {
+  content: '決着'; display: block; font-family: var(--jp); font-size: 20px; font-weight: 700;
+  letter-spacing: 12px; color: var(--blood); opacity: 0.6; margin-top: 2px; font-style: normal;
+}
+.result-screen .r-win {
+  position: absolute; left: 7%; top: 56%;
+  font-size: 32px; font-weight: 700; font-style: italic; letter-spacing: 3px;
+  color: var(--gold); text-shadow: 0 4px 0 #000, 0 0 40px rgba(255,199,94,0.45);
+  padding-left: 12px; border-left: 5px solid var(--gold);
+}
+.result-screen .r-menu {
+  position: absolute; left: 7%; top: 67%;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+}
+
+/* The taunt-replay hint. Sits under the menu, deliberately quiet: it is an
+   invitation to look at the win pose again, not a third menu entry. */
+.result-screen .r-taunt {
+  position: absolute; left: 7%; top: 84%;
+  font-size: 12px; font-weight: 700; letter-spacing: 4px;
+  color: var(--bone-dim); opacity: 0.62; text-transform: uppercase;
+  transform: skewX(var(--skew)); transform-origin: left center;
+}
+
+/* shared button: a skewed blade, filled in the accent when focused */
+.r-btn {
+  background: rgba(6,6,10,0.9); border: 0; border-left: 4px solid #33333d;
+  color: var(--bone-dim); font-family: var(--font); font-size: 15px; font-weight: 700;
+  font-style: italic; letter-spacing: 4px; padding: 13px 44px 13px 22px; cursor: pointer;
+  transform: skewX(var(--skew)); transition: all 110ms cubic-bezier(.2,.9,.3,1);
+  text-align: left; min-width: 320px; text-transform: uppercase;
+}
+.r-btn > * { transform: skewX(calc(var(--skew) * -1)); }
+.r-btn.focus, .r-btn:hover {
+  border-left-color: #fff; background: var(--ce); color: #0a0a0e;
+  transform: skewX(var(--skew)) translateX(14px);
+  box-shadow: 0 0 34px rgba(185, 143, 255, 0.55);
+}
+
+/* ============================================================ PAUSE MENU == */
+.pause-screen {
+  position: absolute; inset: 0; display: none; align-items: center; justify-content: flex-start;
+  background: rgba(3, 3, 6, 0.80); backdrop-filter: blur(4px); z-index: 20; padding-left: 9%;
+}
+.pause-screen.on { display: flex; }
+.pause-card { position: relative; padding: 0; background: none; }
+.pause-card h2 {
+  font-size: 74px; font-weight: 700; font-style: italic; letter-spacing: -1px;
+  color: var(--bone); text-shadow: 0 5px 0 #000; margin-bottom: 6px; line-height: 0.9;
+  transform: skewX(var(--skew));
+}
+.pause-card h2::after {
+  content: '停止'; display: block; font-family: var(--jp); font-size: 20px; font-weight: 700;
+  letter-spacing: 10px; color: var(--ce); opacity: 0.5; font-style: normal; margin-top: 2px;
+}
+.pause-card::before {
+  content: ''; position: absolute; left: -22px; top: 0; bottom: 0; width: 5px;
+  background: var(--ce); box-shadow: 0 0 26px var(--ce); transform: skewX(var(--skew));
+}
+.pause-menu { display: flex; flex-direction: column; gap: 8px; margin-top: 28px; align-items: flex-start; }
+.pause-hint { margin-top: 24px; font-size: 9px; font-weight: 600; letter-spacing: 5px; color: #45424a; text-transform: uppercase; }
+
+/* =============================================== LEGEND / DEBUG / SYSBAR == */
+.legend {
+  position: absolute; right: 0; bottom: 0; max-width: 620px; max-height: 84%; overflow-y: auto;
+  background: rgba(3,3,6,0.95); border-left: 3px solid var(--ce);
+  padding: 22px 30px 22px 34px; font-size: 12px; color: var(--bone-dim);
+  display: none; line-height: 1.85; z-index: 5;
+  clip-path: polygon(30px 0, 100% 0, 100% 100%, 0 100%);
+}
+.legend.on { display: block; }
+.legend b { color: var(--bone); display: inline-block; min-width: 108px; font-weight: 700; font-style: italic; }
+.legend h3 {
+  font-size: 15px; font-weight: 700; font-style: italic; letter-spacing: 3px;
+  color: var(--ce); margin-bottom: 10px; text-transform: uppercase;
+}
+
+.debug-panel {
+  position: absolute; left: 0; top: 140px; background: rgba(3,4,8,0.92);
+  border-left: 3px solid #3fd08a; padding: 12px 16px;
+  font-family: Consolas, "Cascadia Mono", monospace; font-size: 11px; color: #7fe8b0;
+  white-space: pre; display: none; z-index: 6;
+}
+.debug-panel.on { display: block; }
+
+/* Bottom-left, permanently: the top-right corner belongs to the mode tabs on
+   select and to the P2 plate in a match. */
+.sysbar { position: absolute; bottom: 12px; left: 14px; display: flex; gap: 3px; z-index: 15; }
+.sys-btn {
+  width: 38px; height: 32px; cursor: pointer; background: rgba(4,4,8,0.86);
+  border: 0; border-bottom: 2px solid #33333d; color: var(--bone-dim);
+  font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  transform: skewX(var(--skew)); transition: all 100ms;
+}
+.sys-btn:hover { border-bottom-color: var(--ce); color: #fff; background: rgba(24, 16, 36, 0.94); }
+.sys-btn.off { color: #45424a; }
+
+/* ---------------------------------------------------------------- SETTINGS */
+.settings-screen {
+  position: absolute; inset: 0; display: none; align-items: center;
+  justify-content: flex-start; padding-left: 9%; z-index: 22;
+  background: rgba(3, 3, 6, 0.86); backdrop-filter: blur(4px);
+}
+.settings-screen.on { display: flex; }
+.set-card { position: relative; min-width: 560px; }
+.set-card::before {
+  content: ''; position: absolute; left: -22px; top: 0; bottom: 0; width: 5px;
+  background: var(--ce); box-shadow: 0 0 26px var(--ce); transform: skewX(var(--skew));
+}
+.set-card h2 {
+  font-size: 62px; font-weight: 700; font-style: italic; letter-spacing: -1px;
+  color: var(--bone); text-shadow: 0 5px 0 #000; line-height: 0.9;
+  transform: skewX(var(--skew));
+}
+.set-card h2::after {
+  content: '設定'; display: block; font-family: var(--jp); font-size: 18px; font-weight: 700;
+  letter-spacing: 10px; color: var(--ce); opacity: 0.5; font-style: normal; margin-top: 2px;
+}
+.set-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 26px; }
+.set-row {
+  display: flex; align-items: baseline; gap: 14px; cursor: pointer;
+  padding: 11px 26px 11px 20px; background: rgba(6,6,10,0.9);
+  border-left: 4px solid #33333d; transform: skewX(var(--skew));
+  transition: all 110ms cubic-bezier(.2,.9,.3,1);
+}
+.set-row > * { transform: skewX(calc(var(--skew) * -1)); }
+.sr-label { font-size: 15px; font-weight: 700; font-style: italic; letter-spacing: 3px; color: var(--bone-dim); }
+.sr-jp { font-family: var(--jp); font-size: 11px; letter-spacing: 3px; color: #4d4a52; }
+.sr-value {
+  margin-left: auto; font-size: 15px; font-weight: 700; font-style: italic;
+  letter-spacing: 3px; color: var(--ce);
+}
+.set-row.off .sr-value { color: #55525c; }
+.set-row.focus {
+  border-left-color: #fff; background: rgba(24, 16, 38, 0.96);
+  transform: skewX(var(--skew)) translateX(14px);
+  box-shadow: 0 0 30px rgba(185, 143, 255, 0.35);
+}
+.set-row.focus .sr-label { color: #fff; }
+.set-hint {
+  margin-top: 16px; font-size: 11px; font-weight: 600; letter-spacing: 1px;
+  color: var(--bone-far); max-width: 520px; min-height: 16px;
+}
+
+/* ============================================================================
+   MAHORAGA — ADAPTATION + THE SUMMON RITUAL
+   ----------------------------------------------------------------------------
+   One accent for the whole feature: the gold of the Dharma wheel. Same rules
+   as everything above — no radius, everything cut with clip-path, kanji set as
+   art rather than as a caption.
+   ========================================================================== */
+:root { --wheel: #c6ac72; --wheel-hot: #ffe6a8; }
+
+/* ---- the persistent adaptation list (visible to BOTH players) ------------ */
+.adapt-status {
+  position: absolute; right: 18px; top: 132px; width: 296px;
+  padding: 12px 14px 11px; background: var(--panel);
+  border-left: 3px solid var(--wheel);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+  opacity: 0; transform: translateX(26px); pointer-events: none;
+  transition: opacity 260ms ease, transform 260ms cubic-bezier(.2,.9,.3,1);
+}
+.adapt-status.on { opacity: 1; transform: none; }
+.adapt-status .tf-title { color: var(--wheel); }
+.adapt-status .dlabel { margin-top: 8px; color: var(--bone-far); }
+.ad-next { height: 3px; background: rgba(255,255,255,0.09); margin: 7px 0 9px; overflow: hidden; }
+.ad-next .fill {
+  height: 100%; background: linear-gradient(90deg, rgba(198,172,114,0.25), var(--wheel));
+  transition: width 90ms linear;
+}
+.ad-none { font-size: 10px; letter-spacing: 2px; color: var(--bone-far); padding: 3px 0; }
+.ad-row {
+  display: grid; grid-template-columns: 1fr 74px 34px 20px; gap: 7px;
+  align-items: center; margin-bottom: 5px;
+}
+.ad-row b {
+  font-size: 10px; font-weight: 700; font-style: italic; letter-spacing: 1.6px;
+  color: var(--bone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bar-ad { height: 7px; background: rgba(255,255,255,0.08); }
+.bar-ad .fill { height: 100%; background: var(--wheel); transition: width 200ms ease; }
+.ad-row u {
+  text-decoration: none; font-size: 12px; font-weight: 800; font-style: italic;
+  letter-spacing: 1px; color: var(--wheel-hot); text-align: right;
+}
+.ad-row em { font-size: 9px; font-style: normal; letter-spacing: 1px; color: var(--bone-far); }
+.ad-row.capped b { color: var(--wheel-hot); }
+.ad-row.capped .bar-ad .fill { background: var(--wheel-hot); box-shadow: 0 0 12px rgba(255,230,168,0.7); }
+
+/* ---- the callout: exactly what, and exactly how much --------------------- */
+.adapt-callout {
+  position: absolute; left: 50%; top: 27%; width: 640px; margin-left: -320px;
+  text-align: center; opacity: 0; pointer-events: none;
+}
+.adapt-callout.on { animation: acIn 2.6s cubic-bezier(.15,.9,.25,1) forwards; }
+@keyframes acIn {
+  0%   { opacity: 0; transform: skewX(var(--skew)) scale(1.5); filter: blur(14px); }
+  9%   { opacity: 1; transform: skewX(var(--skew)) scale(1); filter: blur(0); }
+  78%  { opacity: 1; transform: skewX(var(--skew)) scale(1); }
+  100% { opacity: 0; transform: skewX(var(--skew)) translateY(-16px); }
+}
+.ac-lead {
+  font-family: var(--jp); font-size: 13px; letter-spacing: 9px;
+  color: var(--wheel); margin-bottom: 2px;
+}
+.ac-name {
+  font-size: 44px; font-weight: 800; font-style: italic; letter-spacing: 4px;
+  color: var(--bone); text-shadow: 0 0 34px rgba(198,172,114,0.65);
+  line-height: 1.02;
+}
+.ac-pct { display: flex; align-items: baseline; justify-content: center; gap: 16px; margin-top: 2px; }
+.ac-pct b {
+  font-size: 62px; font-weight: 800; font-style: italic; letter-spacing: 2px;
+  color: var(--wheel-hot); text-shadow: 0 0 40px rgba(255,230,168,0.8);
+}
+.ac-pct i {
+  font-size: 14px; font-style: italic; font-weight: 700; letter-spacing: 3px;
+  color: var(--bone-dim);
+}
+.adapt-callout.capped .ac-pct b { color: #fff; text-shadow: 0 0 48px rgba(255,255,255,0.9); }
+
+/* ---- the one-time ritual hint on the domain cast -------------------------- */
+.ritual-prompt {
+  position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%) skewX(var(--skew));
+  display: flex; align-items: center; gap: 12px; padding: 8px 18px;
+  background: rgba(7,7,11,0.92); border-left: 3px solid var(--shadow-blue);
+  opacity: 0; pointer-events: none; transition: opacity 160ms ease;
+}
+.ritual-prompt.on { opacity: 1; animation: rpPulse 0.6s ease-in-out infinite alternate; }
+.ritual-prompt b {
+  font-size: 15px; font-weight: 800; font-style: italic; letter-spacing: 3px; color: #fff;
+}
+.ritual-prompt span {
+  font-size: 11px; font-weight: 700; letter-spacing: 3px; color: var(--shadow-blue);
+}
+@keyframes rpPulse { from { filter: brightness(1); } to { filter: brightness(1.55); } }
+
+/* ============================================================================
+   HAKARI — IDLE DEATH GAMBLE
+   ----------------------------------------------------------------------------
+   The one place in this UI allowed to be gaudy. It is a pachinko cabinet, and
+   pachinko cabinets are the opposite of everything in the rules at the top of
+   this file — so it keeps the no-radius / skew / heavy-italic language and
+   breaks the "one accent" rule on purpose. It sits in the BOTTOM RIGHT so it
+   never covers the fight, the plates, the combo counters or the wheel.
+   ========================================================================== */
+.pachi {
+  position: absolute; right: 26px; bottom: 96px; width: 262px;
+  background: linear-gradient(160deg, rgba(46,10,54,0.96), rgba(9,6,16,0.96));
+  border-left: 4px solid var(--pk-gold, #ffc93c);
+  padding: 8px 10px 9px; transform: skewX(var(--skew));
+  opacity: 0; pointer-events: none; display: none;
+  box-shadow: 0 0 40px rgba(255, 201, 60, 0.22), inset 0 0 32px rgba(255,47,106,0.14);
+  --pk-gold: #ffc93c;
+}
+.pachi.on { display: block; animation: pkIn 0.18s cubic-bezier(.2,.9,.3,1) forwards; }
+@keyframes pkIn { from { opacity: 0; transform: skewX(var(--skew)) translateX(30px); } to { opacity: 1; transform: skewX(var(--skew)); } }
+.pachi > * { transform: skewX(calc(var(--skew) * -1)); }
+
+.pachi-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+.pachi-head b { font-family: var(--jp); font-size: 15px; letter-spacing: 4px; color: var(--pk-gold); text-shadow: 0 0 18px var(--pk-gold); }
+.pachi-head span { font-size: 8px; font-weight: 700; letter-spacing: 3px; color: #b98fc4; }
+
+.pachi-screen {
+  background: rgba(4,3,10,0.9); padding: 7px 8px 8px;
+  border-top: 1px solid rgba(255,201,60,0.3); border-bottom: 1px solid rgba(255,201,60,0.3);
+}
+.pachi-tier {
+  font-size: 9px; font-weight: 800; letter-spacing: 3px; text-transform: uppercase;
+  color: #7d6f8c; margin-bottom: 5px; min-height: 11px;
+}
+.pachi.t-weak .pachi-tier { color: #5fd0ff; text-shadow: 0 0 14px #5fd0ff; }
+.pachi.t-strong .pachi-tier { color: #ff5fc8; text-shadow: 0 0 18px #ff5fc8; }
+.pachi.t-super .pachi-tier { color: var(--pk-gold); text-shadow: 0 0 26px var(--pk-gold); animation: pkFlash 0.22s steps(2) infinite; }
+@keyframes pkFlash { from { filter: brightness(1); } to { filter: brightness(1.9); } }
+
+.pachi-reels { display: flex; gap: 6px; }
+.pachi-reels i {
+  flex: 1; text-align: center; font-style: normal; font-size: 30px; font-weight: 800;
+  line-height: 1.05; color: #59496a; background: rgba(0,0,0,0.55);
+  border-bottom: 2px solid #34264a; padding: 1px 0;
+}
+/* the third reel keeps moving while the first two are locked — that gap IS
+   the reach, so the spinning cell is deliberately blurred and desaturated */
+.pachi-reels i:not(.locked) { filter: blur(1.1px); opacity: 0.8; }
+.pachi-reels i.locked { color: #fff2c4; border-bottom-color: var(--pk-gold); text-shadow: 0 0 16px var(--pk-gold); }
+.pachi-reels i.hit { color: #fff; text-shadow: 0 0 30px var(--pk-gold), 0 0 60px #fff; animation: pkFlash 0.14s steps(2) 6; }
+.pachi-result {
+  text-align: right; font-size: 11px; font-weight: 800; font-style: italic;
+  letter-spacing: 2px; color: #6d6078; min-height: 14px; margin-top: 2px;
+}
+.pachi-result.hit { font-family: var(--jp); font-style: normal; color: var(--pk-gold); text-shadow: 0 0 22px var(--pk-gold); }
+.pachi-result.miss { color: #7a3d4c; }
+
+.pachi-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.pachi-meta em {
+  display: block; font-style: normal; font-size: 7px; font-weight: 700;
+  letter-spacing: 3px; color: #6b5f78;
+}
+.pachi-ct span { font-size: 15px; font-weight: 800; font-style: italic; letter-spacing: 1px; color: #e8dcf4; }
+.pf-pips { display: flex; gap: 4px; margin-top: 2px; }
+.pf-pips u {
+  display: block; width: 22px; height: 7px; text-decoration: none;
+  background: #2c2038; box-shadow: inset 0 0 0 1px #46345c;
+}
+.pf-pips u.lit { background: linear-gradient(90deg, #ff9a3c, #ff2f2f); box-shadow: 0 0 12px #ff5a2f; }
+
+/* THE GUARANTEE IS ARMED. Unmistakable: the whole cabinet goes red-gold and
+   starts breathing, which is the cue for the opponent to break the barrier or
+   start running. */
+.pachi.armed {
+  --pk-gold: #ff4d3c;
+  border-left-color: #ff4d3c;
+  background: linear-gradient(160deg, rgba(74,8,18,0.96), rgba(16,4,8,0.96));
+  animation: pkArmed 0.5s ease-in-out infinite alternate;
+}
+@keyframes pkArmed {
+  from { box-shadow: 0 0 30px rgba(255,77,60,0.25), inset 0 0 26px rgba(255,77,60,0.12); }
+  to { box-shadow: 0 0 70px rgba(255,77,60,0.6), inset 0 0 44px rgba(255,77,60,0.3); }
+}
+
+/* the super/strong reach bleeding out of the corner window and tinting the
+   whole arena — the scenario is not supposed to stay in its box */
+.reach-bleed {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  transition: opacity 220ms ease; mix-blend-mode: screen;
+}
+.reach-bleed.on { opacity: 1; }
+.reach-bleed.strong {
+  background: radial-gradient(ellipse at 82% 78%, rgba(255,95,200,0.22) 0%, rgba(255,95,200,0.06) 38%, transparent 68%);
+}
+.reach-bleed.super {
+  background:
+    radial-gradient(ellipse at 82% 78%, rgba(255,201,60,0.30) 0%, rgba(255,120,40,0.12) 42%, transparent 72%),
+    repeating-conic-gradient(from 0deg at 82% 78%, rgba(255,201,60,0.10) 0deg 6deg, transparent 6deg 14deg);
+  animation: pkBleed 1.1s linear infinite;
+}
+@keyframes pkBleed { to { filter: hue-rotate(22deg) brightness(1.18); } }
+
+/* ---- the 99-second Jackpot clock ---------------------------------------- */
+/* Top centre, above the domain panel's slot, because it outlives the domain
+   and both players have to be able to see it at all times. */
+.jackpot-bar {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+  width: 300px; text-align: center; display: none; --ac: #ffc93c;
+}
+.jackpot-bar.on { display: block; }
+.jb-lead {
+  font-family: var(--jp); font-size: 15px; font-weight: 700; letter-spacing: 6px;
+  color: var(--ac); text-shadow: 0 0 26px var(--ac), 0 2px 0 #000;
+}
+.jb-clock {
+  font-size: 46px; font-weight: 800; font-style: italic; letter-spacing: 1px;
+  line-height: 0.94; color: #fff6dc;
+  text-shadow: 0 0 40px var(--ac), 0 4px 0 #000;
+  transform: skewX(var(--skew));
+}
+.jackpot-bar .bar-jp {
+  height: 7px; clip-path: none; margin-top: 4px;
+  background: rgba(0,0,0,0.6); box-shadow: inset 0 0 0 1px rgba(255,201,60,0.35);
+}
+.jackpot-bar .bar-jp .fill {
+  height: 100%; background: linear-gradient(90deg, #fff3c4, var(--ac));
+  box-shadow: 0 0 16px var(--ac);
+}
+/* health being paid back right now */
+.jackpot-bar.healing .jb-clock { color: #fff; text-shadow: 0 0 60px var(--ac), 0 4px 0 #000; }
+/* the last ten seconds: it starts counting at you */
+.jackpot-bar.ending { --ac: #ff6a3c; }
+.jackpot-bar.ending .jb-clock { animation: pkFlash 0.4s steps(2) infinite; }
+
+/* ============================================================================
+   THE RITUAL CUTSCENE OVERLAY
+   ========================================================================== */
+.ritual { position: absolute; inset: 0; pointer-events: none; z-index: 60; --bar: 0vh; }
+
+/* letterbox */
+.rit-bar { position: absolute; left: 0; right: 0; height: var(--bar); background: #000; }
+.rit-bar.top { top: 0; }
+.rit-bar.bot { bottom: 0; }
+
+/* DEPTH OF FIELD — a real optical blur of the frame underneath, masked so the
+   centre of the shot stays sharp. Only on the close work. */
+.rit-dof {
+  position: absolute; inset: 0; opacity: 0;
+  backdrop-filter: blur(7px) saturate(0.85);
+  -webkit-backdrop-filter: blur(7px) saturate(0.85);
+  -webkit-mask-image: radial-gradient(ellipse 42% 34% at 50% 46%, transparent 0%, transparent 42%, #000 78%);
+  mask-image: radial-gradient(ellipse 42% 34% at 50% 46%, transparent 0%, transparent 42%, #000 78%);
+  transition: opacity 180ms ease;
+}
+/* MOTION BLUR on the hard cuts — a full-frame smear that decays in ~110 ms */
+.rit-smear {
+  position: absolute; inset: 0; opacity: 0;
+  backdrop-filter: blur(13px) brightness(1.12);
+  -webkit-backdrop-filter: blur(13px) brightness(1.12);
+}
+/* SPEED LINES — radial, animated */
+.rit-speed {
+  position: absolute; inset: -20%; opacity: 0; mix-blend-mode: screen;
+  background: repeating-conic-gradient(from 0deg at 50% 48%,
+    rgba(255,255,255,0.00) 0deg 1.1deg,
+    rgba(255,255,255,0.55) 1.1deg 1.5deg,
+    rgba(255,255,255,0.00) 1.5deg 3.4deg);
+  -webkit-mask-image: radial-gradient(circle at 50% 48%, transparent 12%, #000 46%);
+  mask-image: radial-gradient(circle at 50% 48%, transparent 12%, #000 46%);
+  animation: ritSpeed 0.5s linear infinite;
+  transition: opacity 120ms ease;
+}
+@keyframes ritSpeed { from { transform: rotate(0deg) scale(1); } to { transform: rotate(3deg) scale(1.06); } }
+
+/* IMPACT FRAME — the inversion on the biggest beats */
+.rit-impact { position: absolute; inset: 0; opacity: 0; background: #fff; --imp: 0.18s; }
+.rit-impact.on { animation: ritImp var(--imp) steps(3, end) forwards; }
+@keyframes ritImp {
+  0%   { opacity: 1; background: #fff; }
+  34%  { opacity: 1; background: #07070a; }
+  67%  { opacity: 0.85; background: var(--wheel-hot); }
+  100% { opacity: 0; }
+}
+
+/* THE HAND SIGN CARD */
+.rit-signs {
+  position: absolute; left: 6vw; top: 50%; transform: translateY(-50%) skewX(var(--skew));
+  opacity: 0; text-align: left;
+}
+.rit-signs.on { animation: ritSign 0.62s cubic-bezier(.1,.9,.2,1) forwards; }
+@keyframes ritSign {
+  0%   { opacity: 0; transform: translateY(-50%) skewX(var(--skew)) translateX(-40px) scale(1.35); }
+  12%  { opacity: 1; transform: translateY(-50%) skewX(var(--skew)) translateX(0) scale(1); }
+  74%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.rit-signs b {
+  display: block; font-family: var(--jp); font-size: 82px; line-height: 0.92;
+  color: #fff; text-shadow: 0 0 40px rgba(198,172,114,0.85), 0 0 90px rgba(0,0,0,0.9);
+}
+.rit-signs i {
+  display: block; font-size: 15px; font-weight: 800; font-style: italic;
+  letter-spacing: 7px; color: var(--wheel); margin-top: 4px;
+}
+.rit-signs u {
+  display: block; text-decoration: none; font-size: 11px; font-weight: 700;
+  letter-spacing: 5px; color: var(--bone-far); margin-top: 6px;
+}
+
+/* THE INCANTATION SUBTITLES */
+.rit-sub {
+  position: absolute; left: 0; right: 0; bottom: calc(var(--bar) + 5vh);
+  text-align: center; opacity: 0;
+}
+.rit-sub.on { animation: ritSub 2.4s cubic-bezier(.15,.9,.25,1) forwards; }
+@keyframes ritSub {
+  0%   { opacity: 0; transform: translateY(14px); filter: blur(8px); letter-spacing: 14px; }
+  10%  { opacity: 1; transform: none; filter: blur(0); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.rit-sub i {
+  display: block; font-family: var(--jp); font-size: 30px; letter-spacing: 12px;
+  color: var(--wheel); text-shadow: 0 0 26px rgba(0,0,0,0.95);
+}
+.rit-sub b {
+  display: block; margin-top: 5px; font-size: 19px; font-weight: 800; font-style: italic;
+  letter-spacing: 6px; color: var(--bone); text-shadow: 0 2px 18px rgba(0,0,0,0.95);
+}
+.rit-sub.big i { font-size: 44px; letter-spacing: 16px; color: var(--wheel-hot); }
+.rit-sub.big b { font-size: 15px; letter-spacing: 5px; color: var(--bone-dim); }
+
+/* THE NAME CARD on the hero shot */
+.rit-name {
+  position: absolute; right: 5vw; bottom: calc(var(--bar) + 9vh);
+  text-align: right; opacity: 0; transform: skewX(var(--skew));
+}
+.rit-name.on { animation: ritName 1.9s cubic-bezier(.1,.9,.2,1) forwards; }
+@keyframes ritName {
+  0%   { opacity: 0; transform: skewX(var(--skew)) translateX(70px); filter: blur(16px); }
+  14%  { opacity: 1; transform: skewX(var(--skew)) translateX(0); filter: blur(0); }
+  100% { opacity: 1; }
+}
+.rit-name i {
+  display: block; font-family: var(--jp); font-size: 58px; line-height: 1;
+  color: var(--wheel-hot); text-shadow: 0 0 46px rgba(198,172,114,0.8), 0 4px 30px rgba(0,0,0,0.95);
+}
+.rit-name b {
+  display: block; margin-top: 2px; font-size: 20px; font-weight: 800; font-style: italic;
+  letter-spacing: 14px; color: var(--bone);
+}
+
+/* SKIP — a hold, and only after you have seen it through once */
+.rit-skip {
+  position: absolute; right: 3vw; bottom: calc(var(--bar) + 2.4vh);
+  font-size: 10px; font-weight: 700; letter-spacing: 4px; color: var(--bone-far);
+  opacity: 0; transition: opacity 200ms ease;
+}
+.rit-skip.on { opacity: 1; }
+.rit-skip i { display: block; height: 2px; width: 0; background: var(--wheel); margin-top: 4px; }
+
+/* ==========================================================================
+   HIGURUMA — evidence, confiscation, and the execution duel
+   ========================================================================== */
+
+/* SEIZED: the confiscated button, on the VICTIM's plate with a live clock. */
+.badge.b-locked {
+  display: none; background: rgba(216,199,138,0.14);
+  border-color: rgba(216,199,138,0.65); color: #f0e3b4;
+  font-family: var(--jp), inherit; letter-spacing: 1px;
+}
+.badge.b-locked.on { display: inline-block; animation: seized 1.1s ease-in-out infinite; }
+@keyframes seized { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* EVIDENCE: one thin row under the badges. Deliberately quiet until it is
+   full, at which point it is the loudest thing on his plate. */
+.ev-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.ev-row .ev-key {
+  font-size: 8px; font-weight: 800; letter-spacing: 2px; color: #a1957a; white-space: nowrap;
+}
+.ev-row .bar-ev {
+  position: relative; flex: 1; height: 5px; background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(216,199,138,0.28); overflow: visible;
+}
+.ev-row .bar-ev .fill {
+  height: 100%; background: linear-gradient(180deg, #fff3c8, #d8c78a 55%, #8a7a45);
+  transition: width 0.12s linear;
+}
+/* where the domain gate now sits — it slides LEFT as the case builds */
+.ev-row .ev-gate {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: #fff3c8; box-shadow: 0 0 6px rgba(255,243,200,0.9);
+  transition: left 0.2s ease;
+}
+.ev-row .ev-num { font-size: 8px; font-weight: 800; color: #d8c78a; min-width: 24px; text-align: right; }
+.ev-row.full .bar-ev { border-color: #fff3c8; box-shadow: 0 0 12px rgba(216,199,138,0.7); }
+.ev-row.full .ev-num { color: #fff3c8; }
+
+/* ---- THE DUEL ------------------------------------------------------------
+   Full screen, both sides at once, one shared clock. It has to be readable at
+   a glance under four seconds of pressure by two people looking at the same
+   television, so: enormous type, one accent colour, no decoration that is not
+   carrying information. */
+/* ---- HIGURUMA: the plea trial ------------------------------------------ */
+.trial {
+  position: absolute; left: 50%; top: 16%; transform: translateX(-50%);
+  width: min(560px, 84vw); padding: 14px 18px 12px; display: none; z-index: 12;
+  background: rgba(10, 9, 6, 0.9); border: 1px solid #6c6244; border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+}
+.trial.on { display: block; }
+.trial-title {
+  text-align: center; font-size: 15px; letter-spacing: 5px; font-weight: 800;
+  font-style: italic; color: #e6d9a8; text-shadow: 0 0 14px rgba(216, 199, 138, 0.5);
+}
+.trial-reads { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 7px 0 10px; }
+.trial-reads .rd {
+  width: 12px; height: 12px; border-radius: 50%; border: 2px solid #6c6244; display: inline-block;
+}
+.trial-reads .rd.got { background: #d8c78a; border-color: #f2e6b8; box-shadow: 0 0 10px rgba(216, 199, 138, 0.8); }
+.trial-reads span { font-size: 10px; letter-spacing: 2px; color: #9a8f6c; margin-left: 6px; }
+.trial-grid { display: flex; gap: 10px; justify-content: center; }
+.trial-grid .tp {
+  flex: 1; text-align: center; padding: 10px 4px 8px; border-radius: 9px;
+  border: 2px solid #4a442f; background: rgba(24, 21, 14, 0.9); transition: all 140ms;
+}
+.trial-grid .tp b { display: block; font-size: 20px; font-weight: 900; color: var(--pc); }
+.trial-grid .tp span { display: block; font-size: 11px; letter-spacing: 2px; color: #e6dcc0; margin-top: 2px; }
+.trial-grid .tp i { display: block; font-size: 10px; font-style: normal; color: #8d8465; }
+.trial-grid .tp.dim { opacity: 0.32; }
+.trial-grid .tp.plea { border-color: var(--pc); box-shadow: 0 0 20px -2px var(--pc); transform: translateY(-3px); }
+.trial-grid .tp.guess { outline: 2px dashed #f2e6b8; outline-offset: 3px; }
+.trial-clock { height: 5px; margin-top: 10px; background: rgba(0, 0, 0, 0.5); border-radius: 3px; overflow: hidden; }
+.trial-clock .fill { height: 100%; background: linear-gradient(90deg, #d8c78a, #8c7a3c); }
+.trial-foot { text-align: center; font-size: 10px; letter-spacing: 2px; color: #9a8f6c; margin-top: 7px; }
+
+.duel {
+  position: absolute; inset: 0; display: none; pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 52%, rgba(0,0,0,0) 24%, rgba(4,3,2,0.86) 78%),
+    linear-gradient(180deg, rgba(6,5,3,0.72), rgba(6,5,3,0.30) 40%, rgba(6,5,3,0.82));
+  z-index: 40;
+}
+.duel.on { display: block; animation: duelIn 0.22s ease-out; }
+@keyframes duelIn { from { opacity: 0; } to { opacity: 1; } }
+
+.duel-title {
+  position: absolute; top: 5vh; left: 0; right: 0; text-align: center;
+  font-family: var(--jp), inherit; font-size: 22px; font-weight: 800;
+  letter-spacing: 12px; color: #d8c78a;
+  text-shadow: 0 0 30px rgba(216,199,138,0.75), 0 3px 18px rgba(0,0,0,0.95);
+}
+.duel-grid {
+  position: absolute; top: 22vh; left: 0; right: 0;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 3vw; padding: 0 4vw;
+}
+.duel-side { text-align: center; }
+.duel-side .ds-who {
+  font-size: 11px; font-weight: 800; letter-spacing: 5px; color: #cbbf9a; margin-bottom: 10px;
+}
+.duel-side .ds-note {
+  margin-top: 12px; font-size: 9px; font-weight: 700; letter-spacing: 4px; color: #7d745c;
+}
+.duel-them .ds-who { color: #e8b4a8; }
+.duel-them .ds-note { color: #85655c; }
+
+/* his side: the sequence, left to right, spent / current / pending */
+.duel-seq { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.duel-seq .dp {
+  display: grid; place-items: center; width: 62px; height: 62px;
+  border: 3px solid rgba(255,255,255,0.16); border-radius: 10px;
+  font-size: 30px; font-weight: 900; color: rgba(255,255,255,0.30);
+  background: rgba(0,0,0,0.55); transition: all 90ms ease;
+}
+.duel-seq .dp.done {
+  border-color: var(--pc); color: var(--pc); background: rgba(0,0,0,0.25);
+  opacity: 0.42; transform: scale(0.86);
+}
+.duel-seq .dp.now {
+  border-color: var(--pc); color: #fff; background: color-mix(in srgb, var(--pc) 28%, #000);
+  transform: scale(1.22); box-shadow: 0 0 34px var(--pc), inset 0 0 20px rgba(255,255,255,0.22);
+  animation: dpNow 0.6s ease-in-out infinite;
+}
+@keyframes dpNow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.45); } }
+.duel.wrong .duel-seq .dp.now { animation: dpWrong 0.2s linear 2; }
+@keyframes dpWrong {
+  0%,100% { transform: scale(1.22) translateX(0); border-color: #ff5f4f; }
+  50%     { transform: scale(1.22) translateX(-9px); border-color: #ff5f4f; }
+}
+
+/* their side: one enormous button and a press counter */
+.duel-mash { display: grid; place-items: center; }
+.duel-mash b {
+  display: grid; place-items: center; width: 96px; height: 96px;
+  border: 4px solid #ff8f7a; border-radius: 14px;
+  font-size: 46px; font-weight: 900; color: #fff;
+  background: rgba(60,16,10,0.62); box-shadow: 0 0 40px rgba(255,95,79,0.55);
+  animation: mashPulse 0.34s ease-in-out infinite;
+}
+@keyframes mashPulse {
+  0%,100% { transform: scale(1); box-shadow: 0 0 32px rgba(255,95,79,0.45); }
+  50%     { transform: scale(1.10); box-shadow: 0 0 56px rgba(255,95,79,0.85); }
+}
+.duel-mash span {
+  margin-top: 8px; font-size: 12px; font-weight: 900; letter-spacing: 7px; color: #ff8f7a;
+}
+
+/* the shared clock — the one thing both players are actually watching */
+.duel-clock {
+  position: absolute; left: 12vw; right: 12vw; bottom: 22vh; height: 22px;
+  background: rgba(0,0,0,0.72); border: 2px solid rgba(216,199,138,0.5);
+}
+.duel-clock .fill {
+  height: 100%; background: linear-gradient(180deg, #fff3c8, #d8c78a 55%, #8a7a45);
+  transition: width 60ms linear;
+}
+.duel-clock.critical { border-color: #ff5f4f; animation: clockCrit 0.24s linear infinite; }
+.duel-clock.critical .fill { background: linear-gradient(180deg, #ffd0c8, #ff5f4f 60%, #8e1a25); }
+@keyframes clockCrit { 0%,100% { opacity: 1; } 50% { opacity: 0.72; } }
+.duel-clock .duel-time {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  font-size: 13px; font-weight: 900; color: #0b0a08; letter-spacing: 1px;
+}
+.duel-foot {
+  position: absolute; left: 0; right: 0; bottom: 17vh; text-align: center;
+  font-size: 10px; font-weight: 800; letter-spacing: 5px; color: #8d8468;
+}
+.duel.opening .duel-grid, .duel.opening .duel-clock, .duel.opening .duel-foot { opacity: 0; }
+
+/* THE HARD CUT. */
+.blackout {
+  position: absolute; inset: 0; background: #000; opacity: 0;
+  pointer-events: none; z-index: 60; transition: opacity 40ms linear;
+}
+.blackout.on { opacity: 1; }
+
+/* ---- VARIANT SUB-STEP ----------------------------------------------------
+   Sits inside the hero panel and only appears while that seat is actually
+   choosing a version. The 3D model on the pedestal has already swapped, so
+   this carries the words and nothing else. */
+.sh-variant { display: none; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.14); padding-top: 8px; }
+.sh-variant.on { display: block; animation: vslide 0.16s cubic-bezier(.2,.9,.3,1); }
+@keyframes vslide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.sh-variant .sv-head {
+  font-size: 8px; font-weight: 800; letter-spacing: 4px; color: var(--bone-far); margin-bottom: 3px;
+}
+.sh-variant .sv-name {
+  font-size: 15px; font-weight: 800; font-style: italic; letter-spacing: 2px;
+  color: var(--ac); text-shadow: 0 0 18px var(--ac);
+}
+.sh-variant .sv-desc {
+  font-size: 9px; font-weight: 500; letter-spacing: 0.6px; color: var(--bone-dim);
+  line-height: 1.45; margin: 4px 0 6px;
+}
+.sh-variant .sv-badge {
+  display: inline-block; font-size: 8px; font-weight: 800; letter-spacing: 2px;
+  padding: 3px 7px; border-left: 2px solid var(--bone-far); color: var(--bone-far);
+  background: rgba(255,255,255,0.05); text-transform: uppercase;
+}
+.sh-variant .sv-badge.gameplay {
+  border-left-color: #ffc75e; color: #ffdf9a; background: rgba(255,199,94,0.16);
+}
+.sh-variant .sv-dots { display: flex; gap: 5px; margin: 8px 0 5px; }
+.sh-variant .sv-dots i {
+  width: 16px; height: 3px; background: rgba(255,255,255,0.2); display: block;
+}
+.sh-variant .sv-dots i.on { background: var(--ac); box-shadow: 0 0 8px var(--ac); }
+.sh-variant .sv-hint { font-size: 7px; font-weight: 700; letter-spacing: 2px; color: #55525c; }
+
+/* ==========================================================================
+   HANAMI — NATURE'S EMBRACE
+   ==========================================================================
+   The terrain readout. Three states, and the colour IS the information: green
+   for ground that is feeding him, brighter green for ground he MADE, grey for
+   ground that is doing nothing. Visible on his plate to both players, because
+   the opponent needs it more than he does — moving him off soil, or off his
+   own field, is the entire counterplay to the character. */
+.terr-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.terr-row .terr-jp {
+  font-size: 11px; font-weight: 800; line-height: 1; flex: none;
+  color: #8a8f9c; transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+.terr-row .terr-name {
+  font-size: 8px; font-weight: 800; letter-spacing: 1.6px; white-space: nowrap;
+  color: #8a8f9c; transition: color 0.2s ease;
+}
+.terr-row .terr-rate {
+  font-size: 8px; font-weight: 800; margin-left: auto; color: #8a8f9c;
+  min-width: 46px; text-align: right;
+}
+.terr-row.t-natural .terr-jp,
+.terr-row.t-natural .terr-name,
+.terr-row.t-natural .terr-rate { color: #9ec46a; }
+.terr-row.t-natural .terr-jp { text-shadow: 0 0 10px rgba(158,196,106,0.7); }
+.terr-row.t-field .terr-jp,
+.terr-row.t-field .terr-name,
+.terr-row.t-field .terr-rate { color: #d4f08a; }
+.terr-row.t-field .terr-jp { text-shadow: 0 0 14px rgba(212,240,138,0.9); }
+.plate.p2 .terr-row { flex-direction: row-reverse; }
+.plate.p2 .terr-row .terr-rate { margin-left: 0; margin-right: auto; text-align: left; }
+
+/* the CURSED BUD, on the VICTIM's plate: their clock and their counter */
+.bud-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.bud-row .bud-key {
+  font-size: 9px; font-weight: 800; color: #e8bcc6; flex: none;
+  text-shadow: 0 0 10px rgba(232,188,198,0.7);
+}
+.bud-row .bar-bud {
+  position: relative; flex: 1; height: 5px; background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(158,196,106,0.32);
+}
+.bud-row .bar-bud .fill {
+  height: 100%; background: linear-gradient(180deg, #e8bcc6, #9ec46a 60%, #4a6b3a);
+  transition: width 0.12s linear;
+}
+.bud-row .bud-cleanse {
+  font-size: 7px; font-weight: 800; letter-spacing: 1px; color: #9ec46a;
+  white-space: nowrap;
+}
+.plate.p2 .bud-row { flex-direction: row-reverse; }
+
+/* ==========================================================================
+   KUROURUSHI — GLUTTONY
+   ==========================================================================
+   The second resource, and the opponent's clock. The threshold ticks are the
+   important part: a player has to be able to see how close the next growth
+   stage is without doing arithmetic, because that is when they have to
+   commit. */
+.glut-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.glut-row .gl-key {
+  font-size: 10px; font-weight: 800; color: #d8a02a; flex: none;
+  text-shadow: 0 0 10px rgba(216,160,42,0.6);
+}
+.glut-row .bar-gl {
+  position: relative; flex: 1; height: 6px; background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(216,160,42,0.32); overflow: visible;
+}
+.glut-row .bar-gl .fill {
+  height: 100%; background: linear-gradient(180deg, #f0c94a, #d8a02a 55%, #6b4f14);
+  transition: width 0.14s linear;
+}
+.glut-row .gl-ticks { position: absolute; inset: 0; pointer-events: none; }
+.glut-row .gl-ticks i {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: rgba(255,243,200,0.55);
+}
+.glut-row .gl-ticks i.passed { background: #fff3c8; box-shadow: 0 0 7px rgba(255,243,200,0.95); }
+.glut-row .gl-stage {
+  font-size: 8px; font-weight: 800; letter-spacing: 1px; color: #d8a02a;
+  min-width: 52px; text-align: right; white-space: nowrap;
+}
+.glut-row.maxed .gl-key,
+.glut-row.maxed .gl-stage { color: #ff9a3a; text-shadow: 0 0 12px rgba(255,154,58,0.9); }
+.glut-row.maxed .bar-gl { border-color: #ff9a3a; box-shadow: 0 0 12px rgba(255,154,58,0.55); }
+.glut-row.infesting .bar-gl { animation: glutPulse 0.7s ease-in-out infinite; }
+@keyframes glutPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(216,160,42,0.5); }
+  50% { box-shadow: 0 0 20px rgba(255,154,58,0.95); }
+}
+.plate.p2 .glut-row { flex-direction: row-reverse; }
+.plate.p2 .glut-row .gl-stage { text-align: left; }
+
+/* ---- BLOOD (Choso) --------------------------------------------------------
+   The second resource, and deliberately the most VISCERAL bar on the plate:
+   deep arterial red with a darker floor, so it reads as fluid rather than as
+   energy. It is not the opponent's clock the way Gluttony is — it is his —
+   but it is on screen for both players because knowing whether he can afford
+   a Piercing Blood is the whole reason to respect the mid-range or not. */
+.blood-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.blood-row .bl-key {
+  font-family: var(--jp), inherit; font-size: 12px; font-weight: 800;
+  color: #c4142c; flex: none; text-shadow: 0 0 10px rgba(142,16,32,0.85);
+}
+.blood-row .bar-bl {
+  position: relative; flex: 1; height: 6px; background: rgba(14,2,6,0.72);
+  border: 1px solid rgba(196,20,44,0.34); overflow: hidden;
+}
+.blood-row .bar-bl .fill {
+  height: 100%;
+  background: linear-gradient(180deg, #ff4a5a, #c4142c 45%, #5a0a14);
+  transition: width 0.12s linear;
+}
+.blood-row .bl-num {
+  font-size: 9px; font-weight: 800; color: #c4142c; min-width: 20px; text-align: right;
+}
+.blood-row.low .bar-bl { border-color: rgba(120,110,120,0.35); }
+.blood-row.low .bl-key, .blood-row.low .bl-num { color: #7a5560; text-shadow: none; }
+.blood-row.full .bar-bl { border-color: #ff4a5a; box-shadow: 0 0 12px rgba(255,74,90,0.6); }
+.blood-row.full .bl-num { color: #ff8a92; }
+.plate.p2 .blood-row { flex-direction: row-reverse; }
+.plate.p2 .blood-row .bl-num { text-align: left; }
+
+/* ---- ESSENCE (Nobara) -----------------------------------------------------
+   Pale straw and black iron — the same two values as her VFX, and a palette
+   nothing else in the HUD uses. The MIN tick is the important part: it marks
+   where Resonance becomes castable at all, so an opponent can see the exact
+   moment they stopped being safe at any range. Once past it the bar goes
+   `armed` and gains a slow breath, which is the visual equivalent of a threat
+   sitting in the room. */
+.ess-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.ess-row .es-key {
+  font-family: var(--jp), inherit; font-size: 10px; font-weight: 800;
+  letter-spacing: 1px; color: #c9a24a; flex: none;
+}
+.ess-row .bar-es {
+  position: relative; flex: 1; height: 6px; background: rgba(10,9,6,0.7);
+  border: 1px solid rgba(240,226,184,0.26); overflow: visible;
+}
+.ess-row .bar-es .fill {
+  height: 100%;
+  background: linear-gradient(180deg, #fff6d8, #f0e2b8 50%, #8d7a44);
+  transition: width 0.12s linear;
+}
+.ess-row .es-min {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: #2a2c34; box-shadow: 0 0 0 1px rgba(240,226,184,0.5);
+}
+.ess-row .es-num {
+  font-size: 9px; font-weight: 800; color: #c9a24a; min-width: 20px; text-align: right;
+}
+.ess-row.armed .es-key, .ess-row.armed .es-num {
+  color: #f0e2b8; text-shadow: 0 0 10px rgba(240,226,184,0.85);
+}
+.ess-row.armed .bar-es {
+  border-color: rgba(240,226,184,0.75);
+  animation: essBreath 1.9s ease-in-out infinite;
+}
+.ess-row.full .bar-es { border-color: #fff6d8; box-shadow: 0 0 14px rgba(240,226,184,0.8); }
+@keyframes essBreath {
+  0%, 100% { box-shadow: 0 0 5px rgba(240,226,184,0.35); }
+  50% { box-shadow: 0 0 16px rgba(240,226,184,0.85); }
+}
+.plate.p2 .ess-row { flex-direction: row-reverse; }
+.plate.p2 .ess-row .es-num { text-align: left; }
+
+/* THE CRAWL — the swarm obscuring vision. A vignette of moving dark specks
+   over the edges of the screen, never the middle: it has to be unpleasant to
+   stand in a swarm without ever taking away the information a player needs to
+   get out of one. The opacity is driven from combat/swarm.js and capped there. */
+.crawl {
+  position: absolute; inset: 0; pointer-events: none; z-index: 9; opacity: 0;
+  transition: opacity 0.25s linear;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 34%, rgba(12,14,18,0.92) 100%),
+    repeating-conic-gradient(from 0deg at 12% 22%, rgba(20,21,25,0.9) 0deg 3deg, rgba(0,0,0,0) 3deg 9deg),
+    repeating-conic-gradient(from 40deg at 86% 74%, rgba(20,21,25,0.85) 0deg 2deg, rgba(0,0,0,0) 2deg 8deg);
+  background-blend-mode: normal;
+  animation: crawlDrift 5.5s linear infinite;
+}
+.crawl.on { display: block; }
+@keyframes crawlDrift {
+  0% { background-position: 0 0, 0 0, 0 0; }
+  100% { background-position: 0 0, 40px 26px, -34px 18px; }
+}
+
+/* ---- GETO: THE CURSE STABLE AND THE UZUMAKI PROJECTION --------------------
+   Two rows, and between them they are the whole character.
+
+   THE STABLE STRIP is eight chips in a fixed order (four chaff, then four
+   special grades — the special ones are wider and carry a violet edge, so the
+   two tiers are tellable apart without reading a word). Four states:
+     default  held, ready, affordable
+     .out     this body is standing on the field right now — lit
+     .cool    recovering
+     .broke   he cannot currently pay for it
+     .lost    DESTROYED. Greyed out and struck through, exactly as asked, and
+              deliberately the loudest state change on the row: a chip going
+              dark is the opponent's reward for killing something.
+
+   THE UZUMAKI BAR is the projected damage, live. It is scaled against a FULL
+   stable, so its LENGTH answers "how much of his ultimate is left" with no
+   arithmetic — and it is on screen for both players, because the opponent is
+   the one whose decisions move it. -------------------------------------- */
+.stable-row { display: flex; align-items: center; gap: 5px; margin-top: 3px; direction: ltr; }
+.stable-row .st-key {
+  font-size: 10px; font-weight: 800; color: #a878e0; flex: none;
+  text-shadow: 0 0 10px rgba(168,120,224,0.6);
+}
+.stable-row .st-icons { display: flex; gap: 3px; flex-wrap: wrap; }
+.stable-row .st-i {
+  position: relative; display: inline-block; padding: 1px 5px;
+  font-size: 8px; font-weight: 800; letter-spacing: 1px; font-style: normal;
+  color: #cbb6e6; background: rgba(20, 11, 30, 0.72);
+  border-left: 2px solid #6b2fa0; transform: skewX(var(--skew));
+  transition: opacity 0.12s linear, color 0.12s linear;
+}
+.stable-row .st-i > b { display: block; transform: skewX(calc(var(--skew) * -1)); font-weight: 800; }
+.stable-row .st-i.sg {
+  border-left-color: #d8a8ff; color: #efe2ff;
+  box-shadow: inset 0 0 16px rgba(168,120,224,0.22);
+}
+.stable-row .st-i.out {
+  color: #14061c; background: #a878e0; border-left-color: #efe2ff;
+  box-shadow: 0 0 12px rgba(168,120,224,0.75);
+}
+.stable-row .st-i.cool { color: #6b5f7a; border-left-color: #3a2f48; }
+.stable-row .st-i.broke { color: #5f5566; border-left-color: #33303a; }
+.stable-row .st-i.lost {
+  color: #7a3a44; border-left-color: var(--blood);
+  text-decoration: line-through; opacity: 0.45;
+}
+
+.uzu-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.uzu-row .uz-key {
+  font-size: 10px; font-weight: 800; color: #d8a8ff; flex: none;
+  text-shadow: 0 0 10px rgba(216,168,255,0.6);
+}
+.uzu-row .bar-uz {
+  position: relative; flex: 1; height: 6px; background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(168,120,224,0.34); overflow: hidden;
+}
+.uzu-row .bar-uz .fill {
+  height: 100%; background: linear-gradient(180deg, #e8c4ff, #a878e0 55%, #3d1a5c);
+  transition: width 0.18s linear;
+}
+.uzu-row .uz-num {
+  font-size: 8px; font-weight: 800; letter-spacing: 1px; color: #d8a8ff;
+  min-width: 78px; text-align: right; white-space: nowrap;
+}
+/* LOADED — a full stable is the biggest single number in the game and the bar
+   says so. EMPTY is the other end: he has nothing left and the row goes cold
+   rather than disappearing, because "he already spent it" is information the
+   opponent should be able to act on. */
+.uzu-row.loaded .uz-key,
+.uzu-row.loaded .uz-num { color: #f0d8ff; text-shadow: 0 0 14px rgba(216,168,255,0.95); }
+.uzu-row.loaded .bar-uz { border-color: #d8a8ff; box-shadow: 0 0 14px rgba(168,120,224,0.6); }
+.uzu-row.empty .uz-key, .uzu-row.empty .uz-num { color: #5f5566; text-shadow: none; }
+.uzu-row.empty .bar-uz { border-color: #33303a; box-shadow: none; }
+.plate.p2 .stable-row, .plate.p2 .uzu-row { flex-direction: row-reverse; }
+.plate.p2 .uzu-row .uz-num { text-align: left; }
+
+/* ---- NAOYA: THE THREE PROJECTION BADGES ----------------------------------
+   FROZEN is on the victim's plate; the other two are on his. All three are
+   facts rather than quantities, which is why none of them is a bar.
+
+   The FROZEN badge is the one place in the HUD that steps: its animation is a
+   4-step keyframe rather than a smooth pulse, so even the readout for being
+   trapped in a frame is drawn on the grid. -------------------------------- */
+.badge.b-frozen {
+  background: rgba(232, 200, 90, 0.2); color: #ffe9a8; border-left-color: #e8c85a;
+  animation: frozenStep 0.5s steps(4, end) infinite;
+}
+@keyframes frozenStep {
+  0%   { opacity: 1;    box-shadow: 0 0 14px rgba(232,200,90,0.9); }
+  25%  { opacity: 0.62; box-shadow: 0 0 4px  rgba(232,200,90,0.4); }
+  50%  { opacity: 1;    box-shadow: 0 0 14px rgba(232,200,90,0.9); }
+  75%  { opacity: 0.62; box-shadow: 0 0 4px  rgba(232,200,90,0.4); }
+  100% { opacity: 1;    box-shadow: 0 0 14px rgba(232,200,90,0.9); }
+}
+.badge.b-stance { background: rgba(232, 200, 90, 0.16); color: #e8c85a; border-left-color: #e8c85a; }
+.badge.b-maxproj {
+  background: #e8c85a; color: #1a1408; border-left-color: #fff0c0;
+  box-shadow: 0 0 16px rgba(232,200,90,0.8);
+}
+
+/* ==========================================================================
+   KASHIMO — CHARGE 帯電
+   ==========================================================================
+   The tier ticks are the load-bearing part, exactly as with Kurourushi's
+   growth thresholds: a player must be able to see how close the next tier is
+   without doing arithmetic, because crossing one is when his damage, his
+   frame data and his range all step up at once. The bar's own colour steps
+   with the tier too, so the row is readable in peripheral vision. */
+.chg-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.chg-row .chg-key {
+  font-size: 10px; font-weight: 800; color: #a46bff; flex: none;
+  text-shadow: 0 0 10px rgba(164,107,255,0.6);
+}
+.chg-row .bar-chg {
+  position: relative; flex: 1; height: 6px; background: rgba(0,0,0,0.62);
+  border: 1px solid rgba(164,107,255,0.34); overflow: visible;
+}
+.chg-row .bar-chg .fill {
+  height: 100%; transition: width 0.10s linear;
+  background: linear-gradient(180deg, #6d6f86, #4b4d60 60%, #24252f);
+}
+.chg-row[data-tier="1"] .bar-chg .fill { background: linear-gradient(180deg, #c2a8ff, #8f5fe0 58%, #3c2a66); }
+.chg-row[data-tier="2"] .bar-chg .fill { background: linear-gradient(180deg, #ddc8ff, #a46bff 58%, #4a2f80); }
+.chg-row[data-tier="3"] .bar-chg .fill { background: linear-gradient(180deg, #ffffff, #d7bcff 45%, #a46bff); }
+.chg-row .chg-ticks { position: absolute; inset: 0; pointer-events: none; }
+.chg-row .chg-ticks i {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: rgba(228,214,255,0.55);
+}
+.chg-row .chg-ticks i.passed { background: #f4ecff; box-shadow: 0 0 7px rgba(244,236,255,0.95); }
+.chg-row .chg-tier {
+  font-size: 8px; font-weight: 800; letter-spacing: 1px; color: #8f8fa6;
+  min-width: 58px; text-align: right; white-space: nowrap;
+}
+.chg-row[data-tier="1"] .chg-tier { color: #b79aff; }
+.chg-row[data-tier="2"] .chg-tier { color: #d0b6ff; text-shadow: 0 0 8px rgba(164,107,255,0.7); }
+.chg-row[data-tier="3"] .chg-tier,
+.chg-row[data-tier="3"] .chg-key { color: #ffffff; text-shadow: 0 0 12px rgba(164,107,255,1); }
+.chg-row[data-tier="3"] .bar-chg { border-color: #d7bcff; box-shadow: 0 0 12px rgba(164,107,255,0.6); }
+/* EARTHED is the state the player is being punished for, so it is the one the
+   row states loudest — a dim bar reads as "nothing is happening" and this is
+   emphatically something happening. */
+.chg-row[data-tier="0"] .chg-key,
+.chg-row[data-tier="0"] .chg-tier { color: #ff8f6a; text-shadow: 0 0 8px rgba(255,143,106,0.7); }
+.chg-row[data-tier="0"] .bar-chg { border-color: rgba(255,143,106,0.45); }
+.chg-row.amber .bar-chg { animation: chgAmber 0.55s ease-in-out infinite; }
+@keyframes chgAmber {
+  0%, 100% { box-shadow: 0 0 8px rgba(164,107,255,0.6); }
+  50% { box-shadow: 0 0 22px rgba(255,255,255,0.95); }
+}
+.plate.p2 .chg-row { flex-direction: row-reverse; }
+.plate.p2 .chg-row .chg-tier { text-align: left; }
+
+/* ==========================================================================
+   PANDA — THE THREE CORES 呪骸核
+   ==========================================================================
+   Three segments in place of one health bar, sized in proportion to each
+   core's maximum rather than into equal thirds. Two states matter and both are
+   loud: the ACTIVE core (the one currently taking damage) is outlined, and a
+   DESTROYED core is greyed and struck through and stays on the strip for the
+   rest of the match. That permanence is the same call the shikigami row makes
+   — the opponent needs to see which of his three fighters they have killed. */
+.core-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.core-row .core-key {
+  font-size: 10px; font-weight: 800; color: #d8d8d2; flex: none;
+  text-shadow: 0 0 8px rgba(0,0,0,0.8);
+}
+.core-row .core-segs { display: flex; flex: 1; gap: 3px; height: 9px; }
+.core-row .core-seg {
+  position: relative; background: rgba(0,0,0,0.66);
+  border: 1px solid rgba(216,216,210,0.30); overflow: hidden;
+}
+.core-row .core-seg .cs-fill {
+  position: absolute; inset: 0 auto 0 0; transition: width 0.12s linear;
+  background: linear-gradient(180deg, #f2f2ec, #b9b9b0 58%, #55554f);
+}
+.core-row .core-seg[data-k="gorilla"] .cs-fill { background: linear-gradient(180deg, #f0d9a8, #c79a4a 58%, #5c4318); }
+.core-row .core-seg[data-k="trike"] .cs-fill { background: linear-gradient(180deg, #ffd2e0, #d97a9c 58%, #5e2a3c); }
+.core-row .core-seg b {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 7px; font-weight: 900; letter-spacing: 1px;
+  color: rgba(10,10,14,0.85);
+}
+.core-row .core-seg.active {
+  border-color: #ffffff; box-shadow: 0 0 10px rgba(255,255,255,0.7);
+}
+.core-row .core-seg.dead { border-color: rgba(120,120,120,0.35); }
+.core-row .core-seg.dead .cs-fill { background: #24242a; }
+.core-row .core-seg.dead b { color: rgba(190,190,190,0.65); text-decoration: line-through; }
+.plate.p2 .core-row { flex-direction: row-reverse; }
