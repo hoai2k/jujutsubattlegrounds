@@ -37,6 +37,14 @@ without the browser auto-open.)
 
 Model viewer (turntable + clip switching): **http://localhost:5173/#viewer**
 
+Workbench (look at one system without playing to it):
+**http://localhost:5173/workbench/?edit=finishers** — pick a winner, a loser, a
+location and, if you want a specific one, the finisher itself; press **SHOW
+FINISHER** and the cutscene plays full screen and hands the page back when it
+is done. **Esc** returns early. It runs the shipped director against a real
+match on a real map, so what you see there is what the game plays. `?edit=`
+selects the bench; `finishers` is the default and currently the only one.
+
 Production build / preview:
 
 ```bash
@@ -981,9 +989,16 @@ domain can absolutely win: Yuta beats Gojo outright if Gojo eats the exchange.
 
 ```
 index.html
-vite.config.js            dev server + /__shot screenshot sink (dev only)
+workbench/index.html      second page: the developer workbench (/workbench/)
+vite.config.js            dev server + /__shot screenshot sink (dev only),
+                          and the two-page build input list
 src/
   main.js                 entry: #viewer -> model viewer, else game
+  workbench/
+    main.js               bench router: ?edit=<bench>, defaults to finishers
+    finishers.js          the finisher bench: winner / loser / map / entry
+    run.js                builds a real match, wins it on frame zero, plays the
+                          finisher full screen, tears it all down again
   core/
     loop.js               fixed 60Hz logic, interpolated render
     stage.js              renderer, bloom/vignette/grade post stack, lights
