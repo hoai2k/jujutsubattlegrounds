@@ -402,7 +402,7 @@ export const FINISHERS_BY_PICK = {
   // =========================================================================
   toji: {
     id: 'toji_spear',
-    moment: 'The Inverted Spear through the throat — Hidden Inventory, and he does not look back.',
+    moment: 'Playful Cloud, a weapon swap out of the Inventory Curse, then the Inverted Spear through the throat — and he does not look back.',
     color: '#6ea88a', grade: 'ko', chord: 'cold', root: 110,
     actions: [
       // he slips it without taking his hand out of his pocket
@@ -718,7 +718,7 @@ export const FINISHERS_BY_PICK = {
   // =========================================================================
   jogo: {
     id: 'jogo_meteor',
-    moment: 'Maximum: Meteor — the last stand against Sukuna.',
+    moment: 'He sets them alight, cooks the ground, and pulls a mountain out of the sky — the last stand against Sukuna.',
     color: '#ff5a1f', grade: 'volcano', chord: 'brutal', root: 138.59,
     // HE IS A VOLCANO FOR THE WHOLE SCENE, not only on the beats he attacks
     // on — and what he sets alight stays alight. The gate is the time of his
