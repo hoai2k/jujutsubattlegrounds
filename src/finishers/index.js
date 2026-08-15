@@ -85,14 +85,18 @@ export class Finishers {
   // THE GATE. Every refusal path leaves the match exactly as it would have been
   // without this feature.
   // -------------------------------------------------------------------------
-  tryBegin(winner) {
+  // `forced` is a finisher definition to play INSTEAD of rolling for one. The
+  // game never passes it — the only caller is the workbench (/workbench/), which
+  // exists to look at a chosen finisher rather than at whichever one the roll
+  // happened to land on. Every gate below still applies to it.
+  tryBegin(winner, forced = null) {
     if (this.spent || this.active) return false;
     if (!finishersEnabled()) { this.spent = true; return false; }
     const m = this.match;
     if (!m.matchOver || !winner || !winner.model) { this.spent = true; return false; }
     const loser = this._loser(winner);
     if (!loser) { this.spent = true; return false; }
-    const def = pickFinisher(winner.pick, winner.cfg, m, winner, loser);
+    const def = forced || pickFinisher(winner.pick, winner.cfg, m, winner, loser);
     if (!def || !def.actions?.length) { this.spent = true; return false; }
     this.spent = true;
     this._begin(def, winner, loser);
