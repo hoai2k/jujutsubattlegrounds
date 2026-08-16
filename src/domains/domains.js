@@ -930,7 +930,11 @@ export class DomainSystem {
     // AML: the formation volley — katanas rain down, Yuta starts unarmed with
     // weakened punches; every roll comes from one seeded stream
     if (a.def.sureHit.effect === 'sword_rain') {
-      const seed = this.nextSwordSeed ?? ((Math.random() * 0x7fffffff) | 0);
+      // The caster's own seeded stream picks the seed when there is no forced
+      // one, so the volley rolls identically on every client in an online
+      // match. F6's `nextSwordSeed` override still wins.
+      const seed = this.nextSwordSeed
+        ?? (((a.caster.rng ? a.caster.rng() : Math.random()) * 0x7fffffff) | 0);
       this.nextSwordSeed = null;
       this.swordRoll = { seed, rng: mulberry32(seed), last: null };
       this.swords = new SwordRain(m, a.caster, a.def.swords, this.swordRoll.rng);

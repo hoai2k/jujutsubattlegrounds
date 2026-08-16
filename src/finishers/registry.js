@@ -1694,9 +1694,13 @@ export function finishersFor(pick, cfg = null) {
   return list;
 }
 
-export function pickFinisher(pick, cfg, match, winner, loser) {
+// `roll` is a 0..1 number. Online the HOST generates it and ships it on the
+// KO event, so every client plays the same cinematic — one screen running a
+// finisher while another does not would desync the whole match clock.
+export function pickFinisher(pick, cfg, match, winner, loser, roll = null) {
   const list = finishersFor(pick, cfg)
     .filter(f => f && (!f.when || f.when(match, winner, loser)));
   if (!list.length) return null;
-  return list[(Math.random() * list.length) | 0];
+  const r = typeof roll === 'number' ? Math.min(0.999999, Math.max(0, roll)) : Math.random();
+  return list[(r * list.length) | 0];
 }

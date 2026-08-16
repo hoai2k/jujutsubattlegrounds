@@ -1,0 +1,62 @@
+// Two independent browsers, bridged by this file. Each gets a visible page (so
+// requestAnimationFrame actually runs) and its own storage; the relay below is
+// the mock server they share.
+import { chromium } from 'playwright';
+import { readFileSync } from 'fs';
+
+const MOCK = readFileSync(new URL('./mock.js', import.meta.url), 'utf8');
+const URL_ = process.env.CA_URL || 'http://127.0.0.1:5178/';
+
+const docs = {};
+const clients = [];   // {tag, page}
+
+function relay(fromTag, raw) {
+  const m = JSON.parse(raw);
+  if (m.t === 'tx') {
+    for (const c of m.chunks) {
+      docs[c.ns] = docs[c.ns] || {};
+      if (c.op === 'delete') delete docs[c.ns][c.id];
+      else docs[c.ns][c.id] = { ...(docs[c.ns][c.id] || {}), ...c.obj, id: c.id };
+    }
+    return broadcast({ t: 'docs', docs });
+  }
+  if (m.t === 'sync') return broadcast({ t: 'docs', docs });
+  // presence / bye / topic go to everyone, sender included (Instant echoes
+  // broadcasts back to the publisher, and the app has to cope with that).
+  broadcast(m);
+}
+
+function broadcast(m) {
+  for (const c of clients) {
+    if (c.dead) continue;
+    c.page.evaluate(x => window.__mockRecv?.(x), m).catch(() => { });
+  }
+}
+
+export async function makeClient(tag, { log = false } = {}) {
+  const browser = await chromium.launch({
+    executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+    args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--mute-audio']
+  });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  await ctx.addInitScript(MOCK);
+  const page = await ctx.newPage();
+  await page.exposeBinding('__mockSend', (_src, raw) => relay(tag, raw));
+  const entry = { tag, page, browser, dead: false };
+  page.on('pageerror', e => console.log(`[${tag} ERR]`, e.message));
+  page.on('console', m => {
+    const t = m.text();
+    if (m.type() === 'error' || log || /\[net\]/.test(t)) {
+      if (!/WebGL|GL Driver|Failed to load resource/.test(t)) console.log(`[${tag}]`, t.slice(0, 260));
+    }
+  });
+  clients.push(entry);
+  await page.goto(URL_ + '?player=' + tag);
+  await page.waitForFunction(() => !!window.__game, null, { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  return entry;
+}
+
+export async function killClient(c) { c.dead = true; await c.browser.close(); }
+export async function shutdown() { for (const c of clients) if (!c.dead) await c.browser.close().catch(() => { }); }
+export const wait = ms => new Promise(r => setTimeout(r, ms));
