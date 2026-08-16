@@ -30,6 +30,13 @@ import { Finishers } from '../finishers/index.js';
 import { HUD } from '../ui/hud.js';
 import { makeCharacter, pickInfo, hex } from '../characters/index.js';
 import { yawBetween, flatDist } from './mathutil.js';
+import { emptyFrame } from '../input/input.js';
+
+// A single neutral frame, reused. Online it is what a paused seat and the
+// non-fighting phases put on the wire, so the tick stream never has a hole in
+// it. Nothing writes to it — it is read-only by convention, and cheaper than
+// allocating a frame per tick per seat.
+const EMPTY_FRAME = emptyFrame();
 
 // Where each fighter starts. Maps author their own spawns (a station platform
 // and a mountain clearing do not want the same opening positions); the ring
@@ -66,6 +73,25 @@ export class Match {
     this.opts = opts;
 
     this.mode = picks.mode || 'local'; // 'local' 2P is the default
+
+    // ---- ONLINE ---------------------------------------------------------
+    // `net` is a NetMatch (src/net/sync.js) or null. NULL IS THE PATH THAT
+    // MUST NEVER REGRESS: every net call below is optional-chained, and with
+    // no net object this class behaves exactly as it did before online play
+    // existed. See docs/online-multiplayer.md §7.
+    this.net = opts.net || null;
+    // Seats driven by a device on THIS machine, in view order. Local and VS
+    // CPU own every seat they render; online owns only its own. This is the
+    // one place in the whole match that knows about locality — the combat
+    // layer sees four fighters and cannot tell which are remote.
+    this.viewSeats = null;   // filled in below, once playerCount is known
+    this.seatView = new Map();
+    this.cpuSeats = new Map();   // seat -> CPU, for players who dropped
+    this._livenessT = 0;
+    // A modal panel (settings) is open over the match. Offline that stops the
+    // update entirely; online the match keeps running and the seat is fed
+    // neutral input, exactly like the pause menu.
+    this.uiModal = false;
 
     this.root = new THREE.Group();
     this.root.name = 'matchRoot';
@@ -108,6 +134,20 @@ export class Match {
     this.p1 = this.fighters[0];
     this.p2 = this.fighters[1];
 
+    // Which seats this machine renders a camera for, and the reverse lookup.
+    this.viewSeats = this.net
+      ? this.net.localSeats.slice()
+      : this.mode === 'local' ? this.fighters.map((_, i) => i) : [0];
+    // A client with no seat of its own (it joined as the match was starting and
+    // missed the plan) watches seat 0 rather than rendering nothing. It is a
+    // degenerate case the lobby's ready-gate normally prevents, and spectating
+    // is a much better failure than a black screen.
+    if (!this.viewSeats.length) this.viewSeats = [0];
+    this.viewSeats.forEach((seat, v) => this.seatView.set(seat, v));
+    // Shared seeds: online every client seeds each fighter's private stream
+    // identically, so crits, jackpot tiers and sword rolls agree everywhere.
+    if (picks.seed != null) this._seedFighters(picks.seed);
+
     this.fx = new FXSystem(this.root, stage.camera);
     // Speech bubbles. On the match root so a round teardown takes them with it.
     this.bubbles = new BubbleSystem(this.root, stage.camera);
@@ -135,18 +175,20 @@ export class Match {
     this.gamble = new GambleSystem(this);
     // Local VS: one over-the-shoulder camera per human seat (2 up, or a 2x2
     // grid for 3-4). VS CPU: one full-screen camera behind P1.
+    // ONE VIEW PER LOCALLY-DRIVEN SEAT. Local VS splits for everyone at the
+    // couch; online splits only for the people at THIS couch, which is what
+    // makes two-on-two across two machines render as two halves each rather
+    // than four quarters.
     this.cams = [];
-    if (this.mode === 'local') {
-      stage.setViews(this.playerCount);
-      for (let i = 0; i < this.playerCount; i++) {
-        this.cams.push(new FightCamera(i === 0 ? stage.camera : stage.cameraFor(i), 'follow'));
-      }
+    const views = this.viewSeats.length;
+    stage.setViews(views);
+    for (let i = 0; i < views; i++) {
+      this.cams.push(new FightCamera(i === 0 ? stage.camera : stage.cameraFor(i), 'follow'));
+    }
+    if (views >= 2) {
       // quarter-screen cells are much narrower than halves — pull in further
-      const ds = this.playerCount >= 3 ? 0.76 : 0.84;
+      const ds = views >= 3 ? 0.76 : 0.84;
       for (const c of this.cams) { c.distScale = ds; c.pitch = 0.19; }
-    } else {
-      stage.setViews(1);
-      this.cams.push(new FightCamera(stage.camera, 'follow'));
     }
     this.cam = this.cams[0];
     this.cam.links = this.cams.slice(1); // shakes/cut-ins fan out to every view
@@ -156,7 +198,7 @@ export class Match {
     // hand the destruction system the combat services it was built without
     Object.assign(this.arena.destruct.ctx, { fx: this.fx, sfx: this.sfx, cam: this.cam, stage });
     this.cam2 = this.cams[1] || null;
-    this.cpu = this.mode === 'local' ? null : new CPU(this.p2, this.p1, this);
+    this.cpu = this.mode === 'cpu' ? new CPU(this.p2, this.p1, this) : null;
 
     // MEGUMI'S SUMMON RITUAL. Owns its own clock, camera and overlay; while it
     // is running the logic tick does not run at all, so the opponent is frozen.
@@ -176,7 +218,7 @@ export class Match {
     this.hud.flora = this.flora;
     this.hud.swarms = this.swarms;
     this.hud.setFighters(this.fighters);
-    this.hud.setSplit(this.mode === 'local' ? this.playerCount : 0);
+    this.hud.setSplit(this.viewSeats.length >= 2 ? this.viewSeats.length : 0);
 
     this.phase = 'intro';
     this.phaseT = 0;
@@ -240,8 +282,19 @@ export class Match {
       fx: this.fx, sfx: this.sfx, match: this
     };
   }
-  // the camera that belongs to a seat (VS CPU has only one, behind P1)
-  camFor(f) { return this.cams[f.index] || this.cams[0]; }
+  // The camera that belongs to a seat. Seats are GLOBAL (0..3) and views are
+  // LOCAL (0..n-1); online those two numberings differ, so every camera lookup
+  // goes through `seatView` and none of them index `cams` by seat.
+  camFor(f) { return this.cams[this.seatView.get(f.index) ?? 0] || this.cams[0]; }
+
+  // Seeds every fighter's private random stream off one match seed. Called
+  // once at construction and again each round, so a rematch or a round two is
+  // not a replay of round one.
+  _seedFighters(seed, round = 1) {
+    const base = (seed | 0) ^ (round * 0x2545f491);
+    this.fighters.forEach((f, i) => f.reseed?.(base ^ Math.imul(i + 1, 0x9e3779b1)));
+    this.matchSeed = seed | 0;
+  }
   hitstop(frames) { this.hitstopFrames = Math.max(this.hitstopFrames, frames); }
   slowmo(dur, scale = 0.35) { this.slowmoT = Math.max(this.slowmoT, dur); this.slowmoScale = scale; }
 
@@ -252,11 +305,30 @@ export class Match {
     for (const c of this.cams) c.mode = mode;
   }
 
+  // How the local input manager should be driven. Online with a single local
+  // seat wants VS CPU's keyboard layout (arrows steer the camera); two or more
+  // local seats want the split keyboard, exactly as a couch match does.
+  get inputMode() {
+    if (!this.net) return this.mode;
+    return this.viewSeats.length >= 2 ? 'local' : 'cpu';
+  }
+
   update(dt) {
-    const seats = this.mode === 'local' ? this.playerCount : 2;
-    const { all } = this.input.pollAll(this.mode, seats);
-    if (all.some(f => f.pauseP)) { this.opts.onPause?.(); return; }
-    if (this.paused) return;
+    const seats = Math.max(2, this.viewSeats.length);
+    const { all } = this.input.pollAll(this.inputMode, seats);
+    if (all.some(f => f.pauseP)) { this.opts.onPause?.(); if (!this.net) return; }
+    // ONLINE NEVER STOPS. One player's pause menu must not freeze three other
+    // people's match, so the tick keeps running behind it and the pausing
+    // seat is fed neutral input in _logicTick. Offline, pause is a real stop.
+    if (this.paused && !this.net) return;
+    if (this.net) {
+      // ABOVE every early return below. The ritual, a finisher and a long
+      // hitstop all stop the logic tick — and with it the input stream — for
+      // seconds at a time, and silence is indistinguishable from a dropped
+      // connection unless something keeps talking.
+      this.net.keepAlive();
+      this._netFlow();
+    }
     // THE RITUAL owns everything while it plays. No logic tick runs, so no
     // fighter can act and no timer advances — the opponent is genuinely
     // frozen, and it is driven from render() on real frame time.
@@ -264,7 +336,7 @@ export class Match {
     // ...and so does a FINISHER. No logic tick, no phase clock, no HUD tick —
     // the HUD is hidden for the duration and there is nothing left to fight.
     if (this.finishers.active) return;
-    if (all.some(f => f.selectP)) this.opts.onLegend?.();
+    if (all.some(f => f.selectP) && !this.paused) this.opts.onLegend?.();
     this.phaseT += dt;
 
     if (this.phase === 'intro') {
@@ -337,11 +409,41 @@ export class Match {
   _logicTick(frames) {
     const fight = this.phase === 'fight';
 
-    // seat 0..n-1 take their own frame; in VS CPU seat 1 is the bot
+    // ONLINE: the tick opens by applying whatever arrived since the last one —
+    // snapshots first, then each remote seat's jitter buffer steps forward by
+    // one. Nothing here blocks or allocates; see net/sync.js.
+    if (this.net) {
+      this.net.beginTick(this);
+      this._netLiveness();
+    }
+
+    // Seat 0..n-1 take their own frame. VS CPU: seat 1 is the bot. Online: a
+    // locally-owned seat takes its device's frame (ZERO added latency — this
+    // is the whole point), a dropped seat takes the CPU that inherited it, and
+    // everyone else replays their owner's transmitted input.
     this.fighters.forEach((f, i) => {
-      const inp = !fight ? null
-        : (this.mode !== 'local' && i === 1) ? this.cpu.frame()
-          : (frames[i] || null);
+      let inp = null;
+      if (fight) {
+        if (this.net) {
+          if (this.net.isLocalSeat(i)) {
+            // A local seat whose player is staring at the pause menu is fed
+            // neutral input rather than the menu's own presses.
+            const away = this.paused || this.uiModal;
+            inp = away ? null : (frames[this.net.deviceFor(i)] || null);
+            this.net.recordLocal(i, away ? EMPTY_FRAME : (frames[this.net.deviceFor(i)] || frames[0]));
+          } else if (this.cpuSeats.has(i)) {
+            inp = this.cpuSeats.get(i).frame();
+          } else {
+            inp = this.net.inputFor(i);
+          }
+        } else {
+          inp = (this.mode === 'cpu' && i === 1) ? this.cpu.frame() : (frames[i] || null);
+        }
+      } else if (this.net && this.net.isLocalSeat(i)) {
+        // Keep the outgoing stream continuous through the intro and the KO, so
+        // the tick numbering on both ends never develops a hole.
+        this.net.recordLocal(i, EMPTY_FRAME);
+      }
       this.inputs.set(f, inp);
     });
     for (const f of this.fighters) f.update(this.inputs.get(f), this.ctxFor(f));
@@ -408,11 +510,85 @@ export class Match {
     this._tickFlourish(1 / 60);
     this._chargedAuras();
 
-    // round ends when at most one fighter is still standing
-    if (fight && this.livingCount() <= 1) this._startKO();
+    // Round ends when at most one fighter is still standing. ONLINE: only the
+    // host may declare it — a guest racing the host on its own local HP would
+    // decrement lives twice. The guest applies the host's `ko` instead.
+    if (fight && this.livingCount() <= 1 && (!this.net || this.net.mayStartKO())) {
+      this._startKO();
+      this._emitKO();
+    }
     if (this.phase === 'ko') this._koFlow();
     this._winTauntFlow();
-    if (this.mode === 'local' && this.playerCount > 2) this._seatStatus();
+    if (this.viewSeats.length > 2) this._seatStatus();
+    if (this.net) this.net.endTick(this);
+  }
+
+  // ---- ONLINE: flow authority ---------------------------------------------
+  // Host side. Everything downstream of the KO instant is a pure clock, so
+  // sharing that one instant (plus the resulting lives and the finisher roll)
+  // is enough to keep every screen on the same beat.
+  _emitKO() {
+    if (!this.net || !this.net.isHost) return;
+    this.net.emitKO({
+      down: this.fighters.map((f, i) => (f.res.hp <= 0 ? i : -1)).filter(i => i >= 0),
+      lives: this.fighters.map(f => f.lives),
+      winner: this.fighters.indexOf(this.winner)
+    });
+  }
+
+  _netFlow() {
+    const msgs = this.net.takeFlow();
+    if (!msgs) return;
+    for (const m of msgs) if (m.k === 'ko') this._applyNetKO(m);
+  }
+
+  _applyNetKO(m) {
+    if (this.phase === 'ko' || this.phase === 'result' || this.matchOver) return;
+    // Force the fallers down first, so _startKO's own bookkeeping (poses, FX,
+    // the closing shot) runs through the game's normal path rather than being
+    // reproduced here.
+    for (const i of m.down || []) { const f = this.fighters[i]; if (f) f.res.hp = 0; }
+    this._startKO();
+    if (Array.isArray(m.lives)) m.lives.forEach((lv, i) => { if (this.fighters[i]) this.fighters[i].lives = lv; });
+    this.matchOver = this.fighters.filter(f => f.lives > 0).length <= 1;
+    if (m.winner >= 0 && this.fighters[m.winner]) this.winner = this.fighters[m.winner];
+    if (typeof m.fin === 'number') this.net.finRoll = m.fin;
+  }
+
+  // ---- ONLINE: liveness ----------------------------------------------------
+  // Checked eight times a second, not every tick: this walks a handful of
+  // peers and pushes DOM-facing strings, and neither belongs in the hot path.
+  _netLiveness() {
+    if (++this._livenessT < 8) return;
+    this._livenessT = 0;
+    this.net.tickLiveness();
+    for (const st of this.net.liveness()) {
+      if (st.lost && !this.cpuSeats.has(st.seat)) this._cpuTakeover(st.seat, 'DISCONNECTED');
+    }
+    const notices = this.net.takeNotices();
+    if (notices) for (const n of notices) {
+      const f = this.fighters[n.seat];
+      if (!f) continue;
+      if (n.kind === 'back' && this.cpuSeats.has(n.seat)) {
+        // Handing the seat straight back to its owner is the whole point of
+        // keeping the match running through a drop.
+        // They came back. Hand the seat straight back to its owner.
+        this.cpuSeats.delete(n.seat);
+        this.hud.toast(f, 'RECONNECTED');
+        this.hud.message(f.cfg.name + ' IS BACK', 1.2);
+      }
+    }
+  }
+
+  // A player who is gone hands their fighter to the CPU rather than leaving a
+  // statue in the arena. The match carries on, which is the only outcome that
+  // is fair to everyone still playing.
+  _cpuTakeover(seat, why) {
+    const f = this.fighters[seat];
+    if (!f || this.cpuSeats.has(seat) || this.net?.isLocalSeat(seat)) return;
+    this.cpuSeats.set(seat, new CPU(f, this.other(f) || this.p1, this));
+    this.hud.toast(f, 'CPU');
+    this.hud.message(f.cfg.name + ' ' + why + ' — CPU TOOK OVER', 2.0);
   }
 
   // Free-for-all: someone runs out of HP but two or more fighters are still
@@ -441,13 +617,14 @@ export class Match {
     }
   }
 
-  // split-screen cell labels: who is dead, who is only watching
+  // Split-screen cell labels: who is dead, who is only watching. Indexed by
+  // VIEW, not by seat — online this machine may be rendering seats 2 and 3.
   _seatStatus() {
-    for (let i = 0; i < this.playerCount; i++) {
-      const f = this.fighters[i];
-      if (!f) continue;
-      this.hud.setSeatStatus(i, f.eliminated ? 'SPECTATING' : !f.alive ? 'DOWN' : '');
-    }
+    this.viewSeats.forEach((seat, v) => {
+      const f = this.fighters[seat];
+      if (!f) return;
+      this.hud.setSeatStatus(v, f.eliminated ? 'SPECTATING' : !f.alive ? 'DOWN' : '');
+    });
   }
 
   // Whose shoulder a dead or eliminated seat rides: the living fighter nearest
@@ -1225,7 +1402,11 @@ export class Match {
     // hitstop" the sequence opens on. It returns false — and this becomes a
     // dead line — whenever the feature is off, the winner has no finisher, or
     // there is no body to play it against, so the flow below is unchanged.
-    if (this.matchOver && this.phaseT > 0.5 && this.finishers.tryBegin(this.winner)) return;
+    // The roll travels on the host's KO event, so every client plays the same
+    // cinematic — one screen running a finisher while another does not would
+    // put the whole match clock out of step.
+    if (this.matchOver && this.phaseT > 0.5
+      && this.finishers.tryBegin(this.winner, null, this.net?.finRoll ?? null)) return;
     // only take a victory pose when the whole match is decided
     if (this.matchOver && this.phaseT > 1.4 && this.winner.state !== 'victory') {
       this.winner.setState('victory', { clip: 'victory' });
@@ -1305,6 +1486,8 @@ export class Match {
 
   _nextRound() {
     this.round++;
+    // Fresh streams for the new round, still identical on every client.
+    if (this.matchSeed != null) this._seedFighters(this.matchSeed, this.round);
     this.ritual.abort();
     this._revertSummons();
     this.effects.clear();
@@ -1355,7 +1538,10 @@ export class Match {
   }
 
   render(alpha, frameDt) {
-    if (this.paused) frameDt = 0; // hold the frame, keep the scene composited
+    // Offline, pause holds the frame and keeps the scene composited. Online
+    // the match is still running behind the menu, so the frame must keep
+    // moving or the pausing player would come back to a teleport.
+    if (this.paused && !this.net) frameDt = 0;
     // The cutscene runs here rather than in the fixed update so its camera and
     // its hold-frames land on real frame time — a shot list judders badly if
     // it is quantised to the logic step.
@@ -1371,7 +1557,7 @@ export class Match {
     // each view rides its own seat's shoulder, framed on whoever that seat is
     // currently closest to
     this.cams.forEach((cam, i) => {
-      let me = this.fighters[i] || this.p1;
+      let me = this.fighters[this.viewSeats[i]] || this.p1;
       // downed for the round, or out of stocks entirely: ride a living
       // fighter's shoulder instead of staring at your own body
       if (!me.alive || me.eliminated) me = this._spectateTarget(me) || me;

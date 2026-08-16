@@ -1,7 +1,7 @@
 // Fighter: state machine, movement physics, resources (the MAX_CE/CURRENT_CE
 // system), combo/juggle bookkeeping, animation driving.
 import * as THREE from 'three';
-import { clamp, damp, angleDamp, yawBetween, v3, rand } from '../core/mathutil.js';
+import { clamp, damp, angleDamp, yawBetween, v3, rand, mulberry32 } from '../core/mathutil.js';
 import { AnimPlayer } from '../art/anim/player.js';
 import { BURN, tickBurn } from './burn.js';
 import { Adaptation } from './adaptation.js';
@@ -67,6 +67,19 @@ export class Fighter {
 
     const s = config.stats;
     this.res = { hp: s.hp, maxCE: s.startMaxCE, curCE: s.startMaxCE, stamina: s.stamina };
+
+    // ---- THE FIGHTER'S OWN RANDOM STREAM ------------------------------------
+    // A private, seeded PRNG per fighter. Online, every client simulates every
+    // fighter off the same replicated inputs, so a stream that is only ever
+    // advanced by ONE fighter's own logic stays in step across machines without
+    // anyone having to order the calls globally — which is what makes a crit or
+    // a jackpot tier come out the same on all four screens.
+    //
+    // Offline the seed is random and nothing about it is observable. Only the
+    // gameplay-DECIDING rolls use it; particles and debris stay on Math.random,
+    // because two clients seeing different sparks is not a different game.
+    this.seed = ((Math.random() * 0x7fffffff) | 0) ^ (index * 0x9e3779b1);
+    this.rng = mulberry32(this.seed);
 
     // ---- PANDA: THE THREE CORES 呪骸核 --------------------------------------
     // `res.hp` becomes an ACCESSOR onto the active core's pool, and that one
@@ -444,6 +457,11 @@ export class Fighter {
   // Wipe everything round-scoped back to opening state, keeping the life
   // count. Called between stocks so nothing (buffs, juggle, copies, backlash)
   // leaks across rounds.
+  // Online: the match hands every client the same seed table, so each
+  // fighter's private stream is the same stream on every machine. Offline
+  // nothing calls this and the constructor's random seed stands.
+  reseed(seed) { this.seed = seed >>> 0; this.rng = mulberry32(this.seed); }
+
   resetForRound(startPos, facing) {
     const s = this.cfg.stats;
     this.res.hp = s.hp;
