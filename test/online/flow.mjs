@@ -1,4 +1,4 @@
-import { makeClient, killClient, shutdown, wait } from './harness.mjs';
+import { makeClient, killClient, shutdown, startMatch, wait } from './harness.mjs';
 const W = (p, fn, ms=180000) => p.waitForFunction(fn, null, { timeout: ms, polling: 400 });
 const txt=(p,s)=>p.evaluate(x=>document.querySelector(x)?.innerText.replace(/\s*\n+\s*/g,' | ')||null,s);
 const st = p => p.evaluate(() => { const m=window.__game.match; return {
@@ -12,7 +12,7 @@ const lockIn=(c,i)=>c.page.evaluate(n=>{const s=window.__select;s.cursors[0]=n;s
 await A.page.click('.online-panel [data-a="host"]'); await wait(1800);
 await B.page.click('.online-panel [data-a="join"]'); await wait(2200);
 await lockIn(A,0); await lockIn(B,2); await wait(1800);
-await A.page.waitForSelector('.lb-start:not([disabled])'); await A.page.click('.lb-start');
+await startMatch(A);
 await W(A.page,"window.__game.match?.phase==='fight'"); await W(B.page,"window.__game.match?.phase==='fight'");
 console.log('\n== fight ==\nA',await st(A.page),'\nB',await st(B.page));
 await A.page.evaluate(()=>{const m=window.__game.match;m.fighters[0].lives=1;m.net.flushSnaps(m);});

@@ -14,9 +14,13 @@ const nameOf = pick => (pick && pickInfo(pick)?.name) || '';
 // ---------------------------------------------------------------------------
 // THE PANEL — lives on the character-select screen
 // ---------------------------------------------------------------------------
-// Three states, and the third one matters as much as the first two: when
-// online is unavailable the panel says why and gets out of the way, rather
-// than offering a button that cannot work.
+// THE PANEL ONLY EVER OFFERS WHAT IS ACTUALLY THERE. With nobody hosting it is
+// a HOST button and nothing else — no "NO GAMES OPEN" line, because an absence
+// does not need announcing and a dead JOIN button is worse than no button. The
+// moment a game appears the dot lights and JOIN animates in above it.
+//
+// The one thing worth stating in words is the failure: when online is
+// unavailable the panel says why and gets out of the way.
 export class OnlinePanel {
   constructor(root, { onHost, onJoin }) {
     this.onHost = onHost;
@@ -27,7 +31,7 @@ export class OnlinePanel {
       <div class="op-head"><span class="op-dot"></span><b>ONLINE</b></div>
       <div class="op-body"></div>
       <div class="op-actions">
-        <button class="op-btn primary" data-a="join">JOIN ONLINE GAME</button>
+        <button class="op-btn primary op-join" data-a="join">JOIN ONLINE GAME</button>
         <button class="op-btn" data-a="host">HOST ONLINE GAME</button>
       </div>
       <div class="op-hint">O &nbsp;·&nbsp; ONLINE</div>`;
@@ -67,16 +71,27 @@ export class OnlinePanel {
       const g = this.openGames[0];
       this.body.innerHTML = `
         <div class="op-live">
-          <span class="op-pulse"></span>
           <b>${n === 1 ? '1 GAME OPEN' : n + ' GAMES OPEN'}</b>
           <i>${(g.hostName || 'HOST')} · ${(g.seats | 0)}/${g.maxSeats || 4} · ${g.code || ''}</i>
         </div>`;
     } else {
-      this.body.innerHTML = `<div class="op-msg">NO GAMES OPEN<i>host one and share the code</i></div>`;
+      // Nothing to say. The header dot is unlit, HOST is the only action, and
+      // the panel takes up as little room as it can.
+      this.body.innerHTML = '';
     }
-    this.joinBtn.disabled = !this.canJoin;
+    // JOIN is present only when there is something to join. `.in` drives the
+    // slide-and-fade, and it is set on the frame the button appears rather
+    // than always-on, so it animates rather than blinking into place.
+    const showJoin = this.canJoin;
+    this.joinBtn.classList.toggle('on', showJoin);
+    if (showJoin && !this._joinWasOn) {
+      this.joinBtn.classList.remove('in');
+      void this.joinBtn.offsetWidth;     // restart the animation
+      this.joinBtn.classList.add('in');
+    }
+    this._joinWasOn = showJoin;
+    this.joinBtn.disabled = !showJoin;
     this.hostBtn.disabled = !this.canHost;
-    this.joinBtn.classList.toggle('primary', n > 0);
     this.hostBtn.classList.toggle('primary', n === 0);
     this.el.querySelector('.op-hint').textContent =
       availability === 'error' ? 'LOCAL PLAY IS UNAFFECTED'
@@ -223,8 +238,13 @@ export class NetBanner {
   destroy() { this.el.remove(); }
 }
 
-// A transient message for things that happened once — a failed join, a game
-// that filled up. Auto-clears; never needs dismissing.
+// THE ONE MESSAGE CHANNEL for anything online that happened once: a game
+// appearing, a failed join, a player dropping, the session ending. Everything
+// goes through here so the player learns to look in a single place, whether
+// they are on the title screen, the roster or mid-fight.
+//
+// `kind` only colours it: 'good' for something that opened up, 'bad' for
+// something that broke, 'info' for the rest.
 export class OnlineToast {
   constructor(root) {
     this.el = document.createElement('div');
@@ -232,9 +252,15 @@ export class OnlineToast {
     root.appendChild(this.el);
     this._t = 0;
   }
-  say(text, secs = 3.2) {
+  say(text, kind = 'info', secs = 3.4) {
+    if (!text) return;
     this.el.textContent = text;
-    this.el.classList.add('on');
+    this.el.className = 'online-toast on ' + kind;
+    // Re-fire the entrance even when the same message repeats, so a second
+    // notice never looks like the first one simply lingering.
+    this.el.style.animation = 'none';
+    void this.el.offsetWidth;
+    this.el.style.animation = '';
     clearTimeout(this._t);
     this._t = setTimeout(() => this.el.classList.remove('on'), secs * 1000);
   }

@@ -570,12 +570,11 @@ export class Match {
       const f = this.fighters[n.seat];
       if (!f) continue;
       if (n.kind === 'back' && this.cpuSeats.has(n.seat)) {
-        // Handing the seat straight back to its owner is the whole point of
-        // keeping the match running through a drop.
-        // They came back. Hand the seat straight back to its owner.
+        // They came back. Handing the seat straight back to its owner is the
+        // whole point of keeping the match running through a drop.
         this.cpuSeats.delete(n.seat);
         this.hud.toast(f, 'RECONNECTED');
-        this.hud.message(f.cfg.name + ' IS BACK', 1.2);
+        this.opts.onNetNotice?.(f.cfg.name + ' RECONNECTED', 'good');
       }
     }
   }
@@ -587,8 +586,11 @@ export class Match {
     const f = this.fighters[seat];
     if (!f || this.cpuSeats.has(seat) || this.net?.isLocalSeat(seat)) return;
     this.cpuSeats.set(seat, new CPU(f, this.other(f) || this.p1, this));
+    // The chip rides the fighter's own plate; the sentence goes to the single
+    // online message channel, so every online event reads the same way
+    // wherever the player happens to be looking.
     this.hud.toast(f, 'CPU');
-    this.hud.message(f.cfg.name + ' ' + why + ' — CPU TOOK OVER', 2.0);
+    this.opts.onNetNotice?.(f.cfg.name + ' ' + why + ' — CPU TOOK OVER', 'bad');
   }
 
   // Free-for-all: someone runs out of HP but two or more fighters are still

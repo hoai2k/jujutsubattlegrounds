@@ -145,6 +145,16 @@ export class SystemBar {
   destroy() { this.el.remove(); }
 }
 
+// Enter (never leave). Called from the title screen's PRESS START, which is
+// the one moment the game has a genuine user gesture to spend — the browser
+// rejects the request without one, and a gamepad poll is not one. Failure is
+// silent on purpose: not being fullscreen is not an error.
+export function enterFullscreen() {
+  if (document.fullscreenElement) return;
+  const el = document.getElementById('app') || document.documentElement;
+  try { el.requestFullscreen?.()?.catch?.(() => { }); } catch { }
+}
+
 export function toggleFullscreen() {
   const el = document.getElementById('app') || document.documentElement;
   if (!document.fullscreenElement) el.requestFullscreen?.().catch(() => { });

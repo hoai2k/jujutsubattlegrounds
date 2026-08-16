@@ -8,11 +8,12 @@ import { Music } from '../audio/music.js';
 import { SelectScreen } from '../ui/select.js';
 import { MapSelect } from '../ui/mapselect.js';
 import { cycleQuality, currentQuality, setQualityIndex, QUALITY_LEVELS } from '../arena/index.js';
-import { ResultScreen, Legend, PauseMenu, SystemBar, toggleFullscreen } from '../ui/screens.js';
+import { ResultScreen, Legend, PauseMenu, SystemBar, toggleFullscreen, enterFullscreen } from '../ui/screens.js';
 import { SettingsPanel, settings, loadSettings, saveSettings, applySettings } from '../ui/settings.js';
 import { DebugOverlay } from '../ui/debug.js';
 import { Match } from './match.js';
 import { OnlineController } from './onlineflow.js';
+import { TitleScreen } from '../ui/title.js';
 
 export function startGame() {
   const stage = createStage();
@@ -180,7 +181,30 @@ export function startGame() {
     return null;
   }
 
+  // ---- TITLE ---------------------------------------------------------------
+  // Shown once, at boot. It is also where the browser's audio gesture comes
+  // from — nothing may make a sound before the player has touched the page,
+  // and PRESS START is that touch — which is why the music and the fullscreen
+  // request both hang off this one press rather than off startGame().
+  async function title() {
+    const screen = new TitleScreen(stage, input, sfx, ui, online);
+    online.attachTitle();
+    current = { update: dt => { screen.update(dt); online.update(); }, render: () => { } };
+    music.play('menu');
+    const choice = await screen.done;
+    // Only a keyboard or mouse press counts as the gesture a browser will
+    // accept; a gamepad poll does not. It is offered from here regardless and
+    // simply does nothing on a pad, which is the correct failure.
+    enterFullscreen();
+    music.play('menu');
+    // Let the chosen option read for a beat before the screen goes.
+    await new Promise(r => setTimeout(r, 260));
+    screen.destroy();
+    if (choice === 'join') online.joinFirst();
+  }
+
   async function flow() {
+    await title();
     let picks = null;
     while (true) {
       // ---- character select ----
@@ -223,6 +247,7 @@ export function startGame() {
         net,
         onLegend: () => legend.toggle(),
         onPause: togglePause,
+        onNetNotice: (text, kind) => online.say(text, kind),
         onResult: winner => {
           result.show(winner.cfg.name);
           // Only the host decides what happens next online. A guest whose

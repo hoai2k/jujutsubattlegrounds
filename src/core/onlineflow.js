@@ -59,10 +59,27 @@ export class OnlineController {
     this.panel.set({ availability, error: netError() });
     if (!db) return;
     this._unwatch = watchGames((games, err) => {
+      const before = this.games.length;
       this.games = games.filter(g => !this.session || g.id !== this.session.gameId);
       this.panel.set({ availability: err ? 'error' : 'ok', games: this.games, error: err });
+      // A game appearing while you are already looking at something else is
+      // news, and the player has no reason to be watching the corner of the
+      // screen. It goes through the same toast as every other online event.
+      // ...but not on the FIRST result. A game that was already open when the
+      // page loaded is not news — the panel and the title screen are showing
+      // it before the player has looked at anything.
+      if (this._sawGames && !before && this.games.length && !this.active) {
+        this.say('ONLINE GAME NOW AVAILABLE', 'good');
+        this.sfx?.uiOk?.();
+      }
+      this._sawGames = true;
     });
   }
+
+  // THE ONE PLACE anything online says anything to the player: a game opening
+  // up, a join that failed, a player dropping, the session ending. Callers do
+  // not need to know which screen is on — the toast sits above all of them.
+  say(text, kind = 'info') { this.toast.say(text, kind); }
 
   get active() { return !!this.session && this.session.phase !== 'closed'; }
   get inLobby() { return this.active && (this.session.phase === 'lobby' || this.session.phase === 'connecting'); }
@@ -84,7 +101,7 @@ export class OnlineController {
 
   async host() {
     if (this.busy || this.active) return;
-    if (availability !== 'ok') { this.toast.say('ONLINE IS UNAVAILABLE'); return; }
+    if (availability !== 'ok') { this.say('ONLINE IS UNAVAILABLE', 'bad'); return; }
     this.busy = true;
     this.sfx?.uiOk?.();
     this._openSession(new NetSession());
@@ -95,7 +112,7 @@ export class OnlineController {
 
   async joinFirst() {
     const g = this.games[0];
-    if (!g) { this.toast.say('NO GAMES OPEN'); return; }
+    if (!g) { this.say('NO GAME TO JOIN', 'bad'); return; }
     return this.join(g.id);
   }
 
@@ -132,7 +149,7 @@ export class OnlineController {
 
   _closed() {
     const why = this.session?.closedReason || 'ONLINE SESSION ENDED';
-    this.toast.say(why);
+    this.say(why, 'bad');
     this.lobby.hide();
     // Only bring the panel back if a select screen is actually on screen.
     // A player who quits an online match from the pause menu must not get an
@@ -192,7 +209,7 @@ export class OnlineController {
     const choice = STAGES[this.stageIndex];
     const map = choice === 'random' ? MAP_IDS[(Math.random() * MAP_IDS.length) | 0] : choice;
     const ok = this.session.start({ map, seed });
-    if (!ok) this.toast.say('COULD NOT START — CHECK EVERYONE IS READY');
+    if (!ok) this.say('COULD NOT START — CHECK EVERYONE IS READY', 'bad');
     else this.sfx?.uiOk?.();
   }
 
@@ -202,7 +219,7 @@ export class OnlineController {
   // clients can never disagree about who is in which seat.
   _buildMatch(payload) {
     const plan = payload.plan || [];
-    if (plan.length < 2) { this.toast.say('NOT ENOUGH PLAYERS'); this.leave(); return; }
+    if (plan.length < 2) { this.say('NOT ENOUGH PLAYERS', 'bad'); this.leave(); return; }
     this.net = new NetMatch(this.session, plan);
     this.session.goLive();
     this.lobby.hide();
@@ -282,6 +299,10 @@ export class OnlineController {
     if (this.active) this.lobby.show();
   }
   detachSelect() { this.select = null; this.panel.hide(true); }
+
+  // The title screen advertises open games itself, so the panel stays hidden
+  // there — but the toast and the lobby still belong to this controller.
+  attachTitle() { this.select = null; this.panel.hide(true); this.lobby.hide(); }
 
   destroy() {
     removeEventListener('pagehide', this._onHide);

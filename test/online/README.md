@@ -26,6 +26,12 @@ therefore gets its own browser instance, and `?player=<tag>` (also DEV-only)
 gives each one its own player identity — the same trick works for manual
 testing in two normal windows.
 
+## The title screen
+
+`makeClient` presses PRESS START for you, because every run except `title.mjs`
+is about what happens after it. `makeTitleClient` leaves a client sitting on
+the title instead.
+
 ## Running
 
 ```sh
@@ -35,6 +41,7 @@ node test/online/replication.mjs   # host, join, pick, start, replicate, drop
 node test/online/flow.mjs          # KO -> result -> rematch -> host migration
 node test/online/local-cpu.mjs     # regression: VS CPU is untouched
 node test/online/local-2p.mjs      # regression: local split-screen is untouched
+node test/online/title.mjs          # title screen, panel states, availability toast
 node test/online/shots.mjs         # screenshots of every online UI state
 ```
 

@@ -257,15 +257,57 @@ idle ──host──▶ creating ─▶ lobby ─▶ picking ─▶ ready ─�
 Every one of these has a rendered UI state. There is no state in which the
 player is looking at a spinner with no explanation and no way out.
 
-### 6.2 Character select
+### 6.2 The title screen
 
-The online panel lives on the character-select screen, bottom-right.
+The game opens on a title screen (`src/ui/title.js`), and it is load-bearing
+rather than decorative:
 
-- **No game open** → `HOST ONLINE GAME`.
-- **A game is open** → a pulsing indicator, `1 GAME OPEN · JOIN`, plus
-  `HOST` as a secondary action.
+- **PRESS START is the browser's user gesture.** Audio cannot begin and
+  `requestFullscreen` cannot be granted until the player has interacted with
+  the page, so the menu music and the fullscreen request both hang off that one
+  press. A gamepad poll is not a gesture, so on a pad the fullscreen request
+  simply does nothing — the correct failure.
+- **An open game is a first-class choice here.** With a game open, a second
+  option slides in under PRESS START with a pulsing dot: `JOIN ONLINE GAME`,
+  and the host's name and seat count. Choosing it goes to the roster with the
+  join already in flight. With no game open there is only PRESS START — the
+  option is absent, not greyed out.
+- The list is re-derived every frame, so a game appearing while somebody is
+  looking at the title adds the option there and then.
+
+### 6.3 Character select
+
+The online panel lives on the character-select screen, top-right under the
+device readout.
+
+- **No game open** → `HOST ONLINE GAME`, and nothing else. There is no
+  "NO GAMES OPEN" line and no disabled JOIN button: an absence does not need
+  announcing, and a dead button is worse than no button.
+- **A game is open** → the header dot lights, the panel names the host and
+  seat count, and `JOIN ONLINE GAME` animates in above HOST.
 - **Online unavailable** (import failed / offline / no app id) → the panel
   greys out with a one-line reason and is not focusable.
+
+### 6.4 One message channel
+
+Everything online that happens *once* goes through a single toast
+(`OnlineToast`, driven by `OnlineController.say`), on every screen — the title,
+the roster and mid-fight alike:
+
+| Event | Message |
+| --- | --- |
+| A game opens while you are elsewhere | `ONLINE GAME NOW AVAILABLE` (gold) |
+| A player drops | `TOJI DISCONNECTED — CPU TOOK OVER` |
+| ...and comes back | `TOJI RECONNECTED` (gold) |
+| Host ends the session, join fails, version mismatch | the reason, in red |
+
+The player learns one place to look. The fighter-attached HUD chip (`CPU`,
+`RECONNECTED`) still rides its own plate, because that one is about *which*
+fighter and belongs next to them.
+
+The availability toast deliberately does **not** fire on the first query
+result: a game that was already open when the page loaded is not news, and the
+panel is already showing it.
 
 Activating either opens the **lobby overlay** on top of the still-live select
 screen. This is deliberate: you keep picking your fighter on the same roster
@@ -276,7 +318,7 @@ select to keep in sync.
 Local seat detection is unchanged: two pads on your machine means you bring two
 seats to the online game.
 
-### 6.3 Waiting screens
+### 6.5 Waiting screens
 
 | Situation | Shown |
 | --- | --- |
@@ -289,7 +331,7 @@ seats to the online game.
 | Peer connection lost mid-match | banner `P2 RECONNECTING…` with countdown |
 | Own connection lost | banner `RECONNECTING…` |
 
-### 6.4 Failure handling
+### 6.6 Failure handling
 
 | Failure | Behaviour |
 | --- | --- |
@@ -436,6 +478,8 @@ compiled out of a production build:
 
 | Input | Where | What |
 | --- | --- | --- |
+| Confirm (A / Space / Enter) | title | PRESS START — also the gesture that starts the music and enters fullscreen |
+| Up / Down | title, when a game is open | Choose between PRESS START and JOIN ONLINE GAME |
 | `O` | character select | Join the open game, or host one if there is none |
 | Mouse | the ONLINE panel | Same two actions, plus LEAVE and the stage picker in the lobby |
 | Confirm (A / Enter / Punch) | character select, all local seats locked | Host only: START MATCH. The roster cursors are idle at that moment, which is what makes the binding free |

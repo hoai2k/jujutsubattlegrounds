@@ -2021,7 +2021,9 @@ html.filters-on #ui-root::after {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 199, 94, 0.55); }
   70% { box-shadow: 0 0 0 8px rgba(255, 199, 94, 0); }
 }
-.op-body { margin: 7px 0 9px; min-height: 34px; }
+/* Collapses to nothing when there is nothing to say — with nobody hosting the
+   panel is a header and a HOST button, and that is all. */
+.op-body:not(:empty) { margin: 7px 0 9px; min-height: 34px; }
 .op-msg, .op-live { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .op-msg, .op-live b {
   font-size: 15px; font-weight: 700; font-style: italic; letter-spacing: 2px;
@@ -2033,6 +2035,16 @@ html.filters-on #ui-root::after {
 }
 .online-panel.live .op-live b { color: var(--gold); }
 .op-actions { display: flex; flex-direction: column; gap: 5px; align-items: stretch; }
+/* JOIN only exists when there is a game to join. It is removed from the layout
+   rather than disabled — a dead button is worse than no button — and it slides
+   in so a game appearing while you are looking elsewhere still catches the eye. */
+.op-join { display: none; }
+.op-join.on { display: block; }
+.op-join.in { animation: op-slide 340ms cubic-bezier(.2,.9,.3,1); }
+@keyframes op-slide {
+  from { opacity: 0; transform: skewX(var(--skew)) translateX(26px); }
+  to   { opacity: 1; transform: skewX(var(--skew)) translateX(0); }
+}
 .op-btn {
   font-family: var(--font); font-size: 11px; font-weight: 700; letter-spacing: 3px;
   padding: 7px 12px; color: var(--bone); background: rgba(20, 20, 28, 0.9);
@@ -2133,14 +2145,23 @@ html.filters-on #ui-root::after {
 }
 .net-banner.on { opacity: 1; visibility: visible; }
 .net-banner.warn { border-bottom-color: var(--gold); color: var(--gold); }
+/* THE single online message channel — a game opening up, a failed join, a
+   player dropping, the session ending. One place, one look, on every screen. */
 .online-toast {
   position: absolute; top: 46px; left: 50%; transform: translateX(-50%);
   padding: 7px 22px; font-size: 12px; font-weight: 700; letter-spacing: 3px;
   background: rgba(4, 4, 8, 0.95); color: var(--bone);
-  border-bottom: 2px solid var(--blood);
+  border-bottom: 2px solid var(--ce);
   opacity: 0; transition: opacity 200ms; visibility: hidden; white-space: nowrap;
+  z-index: 40;
 }
-.online-toast.on { opacity: 1; visibility: visible; }
+.online-toast.on { opacity: 1; visibility: visible; animation: toast-in 260ms cubic-bezier(.2,.9,.3,1); }
+.online-toast.good { border-bottom-color: var(--gold); color: var(--gold); }
+.online-toast.bad { border-bottom-color: var(--blood); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
 
 /* The result screen while the host decides. The buttons stay visible and go
    dead rather than vanishing, so nobody wonders where the menu went. */
@@ -2150,3 +2171,84 @@ html.filters-on #ui-root::after {
   color: var(--ce); opacity: 0; transition: opacity 160ms;
 }
 .r-wait.on { opacity: 1; }
+
+/* ============================================================== TITLE == */
+/* The front door, and the page's first user gesture: PRESS START is what
+   unlocks audio and what buys the fullscreen request. */
+.title-screen { position: absolute; inset: 0; pointer-events: none; }
+.title-screen > * { pointer-events: auto; }
+.title-screen.go { animation: ts-out 260ms ease-in forwards; }
+@keyframes ts-out { to { opacity: 0; } }
+
+.ts-kanji {
+  position: absolute; right: 2.5vw; top: 6vh;
+  font-family: var(--jp); font-size: min(9vh, 66px); font-weight: 700;
+  letter-spacing: 10px; writing-mode: vertical-rl;
+  color: var(--ac, var(--ce)); opacity: 0.2;
+  text-shadow: 0 0 50px var(--ac, var(--ce)); pointer-events: none;
+}
+
+.ts-brand {
+  position: absolute; left: 6vw; top: 17vh; max-width: 52vw;
+  animation: ts-rise 700ms cubic-bezier(.2,.9,.3,1) both;
+}
+.ts-brand h1 {
+  font-size: min(9vw, 112px); font-weight: 700; font-style: italic;
+  letter-spacing: -1px; line-height: 0.86; color: var(--bone);
+  text-shadow: 0 7px 0 #000, 0 0 90px rgba(0,0,0,0.9);
+}
+.ts-brand h1::first-letter { color: var(--ce); text-shadow: 0 0 46px var(--ce); }
+.ts-brand h1 em { font-style: italic; color: var(--ac, var(--ce)); text-shadow: 0 7px 0 #000, 0 0 60px var(--ac, var(--ce)); }
+.ts-brand p {
+  margin-top: 12px; padding-left: 6px; font-size: 10px; font-weight: 600;
+  letter-spacing: 9px; color: var(--bone-far); text-transform: uppercase;
+}
+@keyframes ts-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ts-menu {
+  position: absolute; left: 6vw; top: 56vh;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  animation: ts-rise 700ms 220ms cubic-bezier(.2,.9,.3,1) both;
+}
+.ts-opt {
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--font); font-size: 17px; font-weight: 700; font-style: italic;
+  letter-spacing: 6px; color: var(--bone-dim); background: transparent;
+  border: 0; border-left: 4px solid transparent; padding: 7px 20px 7px 16px;
+  cursor: pointer; transition: color 140ms, border-color 140ms, background 140ms;
+  text-align: left;
+}
+.ts-opt.focus {
+  color: var(--bone); border-left-color: var(--ce);
+  background: linear-gradient(90deg, rgba(185,143,255,0.16), transparent 78%);
+  text-shadow: 0 2px 0 #000;
+}
+/* PRESS START breathes so it reads as an invitation rather than a label. */
+.ts-start.focus span { animation: ts-pulse 1.7s ease-in-out infinite; }
+@keyframes ts-pulse { 0%, 100% { opacity: 1; } 55% { opacity: 0.38; } }
+
+/* The online option only exists when a game does, so it slides in mid-screen
+   rather than sitting there greyed out. */
+.ts-join { animation: ts-slide 420ms cubic-bezier(.2,.9,.3,1) both; }
+.ts-join.focus { border-left-color: var(--gold); background: linear-gradient(90deg, rgba(255,199,94,0.16), transparent 78%); }
+.ts-join em {
+  font-style: italic; font-size: 9px; letter-spacing: 2px; color: var(--bone-far);
+}
+.ts-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--gold);
+  animation: op-beat 1.5s infinite; flex: none;
+}
+@keyframes ts-slide {
+  from { opacity: 0; transform: translateX(-26px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Bottom RIGHT — the system bar owns the bottom-left corner. */
+.ts-foot {
+  position: absolute; right: 3vw; bottom: 4vh;
+  font-size: 9px; font-weight: 700; letter-spacing: 4px; color: var(--bone-far);
+  animation: ts-rise 700ms 380ms cubic-bezier(.2,.9,.3,1) both;
+}

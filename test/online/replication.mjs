@@ -1,4 +1,4 @@
-import { makeClient, killClient, shutdown, wait } from './harness.mjs';
+import { makeClient, killClient, shutdown, startMatch, wait } from './harness.mjs';
 
 const step = async (label, fn) => { console.log('\n=== ' + label + ' ==='); await fn(); };
 const txt = (p, sel) => p.evaluate(s => document.querySelector(s)?.innerText.replace(/\s*\n+\s*/g, ' | ') || null, sel);
@@ -50,7 +50,7 @@ await step('both pick', async () => {
 });
 
 await step('host starts', async () => {
-  await A.page.click('.lb-start');
+  await startMatch(A);
   await wait(3500);
   console.log('A', await snap(A.page));
   console.log('B', await snap(B.page));
