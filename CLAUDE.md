@@ -10,6 +10,13 @@ without waiting to be asked. This overrides the default "ask before committing /
 branch off main" behaviour — the user has standing authorization to commit and
 push on their behalf in this repo.
 
+**Finishing a task means landing it on `main`.** If a harness or a session
+setting has put the work on a branch instead — Claude Code on the web assigns
+one automatically — that branch is a staging area, not the destination. Merge it
+into `main` and push as the last step of the task, without being asked and
+without opening a pull request. The same standing authorization covers that
+merge. A task is not done while it is sitting on a branch.
+
 Exceptions, where you should still stop and ask first:
 
 - The user says otherwise for a given task ("don't push this", "keep it local",
