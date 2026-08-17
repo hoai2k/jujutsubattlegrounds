@@ -45,6 +45,18 @@ node test/online/title.mjs          # title screen, panel states, availability t
 node test/online/shots.mjs         # screenshots of every online UI state
 ```
 
+Three of these are not about the netcode at all — they live here because this
+is where the browser harness already is:
+
+```sh
+node test/online/overhaul-smoke.mjs      # fires every rebuilt technique in a
+                                         # live match, asserts no page errors
+node test/online/panda-cores.mjs         # Panda's three stances share ONE
+                                         # health pool — see combat/cores.js
+node test/online/model-shot.mjs kashimo  # front + head renders of one model,
+                                         # for reviewing character art
+```
+
 Set `CA_URL` if the dev server is somewhere else. Screenshots land in
 `test/online/shots/`.
 
