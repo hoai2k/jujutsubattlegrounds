@@ -18,7 +18,11 @@ const KEYS = [
   'todo_clapcombo', 'yuji_divergent', 'yuji_manji', 'naoya_framekick',
   'nanami_cleave', 'higuruma_gavel', 'mahito_bodyweapon', 'mahito_soultouch',
   'hakari_smash', 'yuta_rika_swing', 'panda_palm',
-  'toji_cloud_sweep', 'toji_spear_thrust'
+  'toji_cloud_sweep', 'toji_spear_thrust',
+  // round 2: hanami + gojo + sukuna + the rest of toji's arsenal
+  'hanami_roots', 'gojo_red', 'gojo_blue', 'sukuna_dismantle',
+  'toji_cloud_slam', 'toji_nullify', 'toji_soul_slash', 'toji_soul_cut',
+  'toji_chain_whip', 'toji_chain_snare'
 ];
 for (const key of KEYS) {
   const r = await A.page.evaluate((k) => {

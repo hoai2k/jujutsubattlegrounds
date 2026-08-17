@@ -93,22 +93,25 @@ export const HANAMI = withDefaults({
     staminaCost: 18, armorFrames: 20, ceGain: 1.7, clip: 'heavy'
   },
 
-  // ---- RB · CT1 — ROOT ERUPTION -------------------------------------------
-  // Wooden spikes burst out of the ground at a targeted position: aim with the
-  // left stick, neutral leads the opponent's feet. The growing marker IS the
-  // move — it is a trap and a wake-up punish, not a poke. Deliberately built
-  // on the same shape as Jogo's Volcanic Eruption because the two are the
-  // roster's two ground traps and they should be read the same way; where they
-  // differ is that this one LAUNCHES, and that it is faster and hits harder on
-  // natural ground.
+  // ---- RB · CT1 — ROOT SWARM ----------------------------------------------
+  // A COLUMN of eruptions marching away from him down a line: the roots
+  // travel under the floor and surface as they go, one burst at a time, each
+  // with its own growing-marker telegraph and each LAUNCHING exactly as the
+  // old single trap did. Steer the march with the left stick; neutral sends
+  // it at the opponent, led by their velocity. Every burst checks the ground
+  // it comes out of, so a swarm crossing natural terrain gets bigger and
+  // harder step by step — a Root Field is now a gun emplacement.
+  // `dmg` reads as the one-clean-hit number; each burst carries just under
+  // half of it, and the launch means the swarm rarely lands more than two.
   ct1: {
-    name: 'Root Eruption', jpName: '根の噴出', cost: 16,
+    name: 'Root Swarm', jpName: '根の群れ', cost: 16,
     startup: 22, active: 4, recovery: 31,          // 57f = the clip's 0.95 s
     effect: 'hanami_roots', clip: 'ct1',
-    dmg: 16, delay: 0.75, radius: 2.6, aimRange: 9, kb: 4, kbY: 9.5,
-    // NATURAL GROUND: it comes up faster, wider and harder, because there is
-    // something down there to come up out of.
-    natural: { dmg: 22, delay: 0.52, radius: 3.05 }
+    dmg: 16, delay: 0.5, gap: 0.14, count: 5, spacing: 1.7, radius: 1.9,
+    aimRange: 9, kb: 4, kbY: 9.5,
+    // NATURAL GROUND, per burst: bigger and harder where there is something
+    // down there to come up out of.
+    natural: { dmg: 22, delay: 0.4, radius: 2.3 }
   },
 
   // ---- RT · CT2 — CURSED BUD ----------------------------------------------

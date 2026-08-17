@@ -16,8 +16,12 @@ export const GOJO = withDefaults({
     reach: 1.9, kb: 7.0, hitstun: 28, step: 2.2, staminaCost: 16, clip: 'heavy'
   },
   ct1: {
+    // RED now TRAVELS: a visible core of stored repulsion flown down the
+    // lane at `speed`, detonating on the first body it reaches or at the end
+    // of its range. Same damage and knockdown as the old instant cone — the
+    // flight time is the new counterplay.
     name: 'Reversal: Red', cost: 20, startup: 22, active: 5, recovery: 24,
-    effect: 'gojo_red', dmg: 11, range: 7.5, kb: 7.5, kbY: 3.2, clip: 'ct1',
+    effect: 'gojo_red', dmg: 11, range: 7.5, speed: 20, kb: 7.5, kbY: 3.2, clip: 'ct1',
     charged: { dmg: 17, range: 11, kb: 10, radius: 2.4 }
   },
   ct2: {

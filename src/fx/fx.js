@@ -1544,6 +1544,80 @@ export class FXSystem {
     });
   }
 
+  // TOJI — PLAYFUL CLOUD overhead: the staff bar coming down plus a crack
+  // line of thrown deck driven forward from the point of impact.
+  staffSlamCrack(caster, dir, reach) {
+    const at = caster.pos.clone().addScaledVector(dir, reach * 0.6);
+    const bar = this._spawn(at.clone().setY(1.6), { color: 0xd8d2c4, size: 2.4, aspect: 0.09, life: 0.2, vel: v3(0, -6, 0) });
+    bar.mesh.quaternion.copy(this.camera.quaternion);
+    bar.mesh.rotateZ(1.35);
+    bar.mesh.userData.keepQuat = true;
+    this._ring(at.clone().setY(0.07), 0xd8d2c4, { size: 0.5, growRate: 12, life: 0.35 });
+    // the crack: hard flat bars stepped down the line with the debris they threw
+    for (let i = 0; i < 4; i++) {
+      const p = caster.pos.clone().addScaledVector(dir, 1.0 + i * 0.9).setY(0.1);
+      const c = this._spawn(p, { color: i % 2 ? 0x8a8fa0 : 0xf2ead8, size: 0.9, aspect: 0.14, life: 0.24 + i * 0.05, vel: v3() });
+      c.mesh.rotation.x = -Math.PI / 2;
+      c.mesh.rotation.z = Math.atan2(dir.x, dir.z) + rand(-0.15, 0.15);
+      c.mesh.userData.keepQuat = true;
+      this.debris(p, 3, 0x6b6f78);
+    }
+  }
+
+  // TOJI — SPLIT SOUL KATANA: the cut that ignores the body. Desaturated
+  // soul-blue phantom slashes, and on the Soul Cut the target's soul flashed
+  // out of register for a beat.
+  soulSlashArc(caster, big = false) {
+    const p = caster.pos.clone().add(v3(0, 1.3, 0)).addScaledVector(caster.forward(), 1.3);
+    for (let k = 0; k < (big ? 3 : 2); k++) {
+      const arc = this._spawn(p, {
+        color: k === 0 ? 0xbfd4e8 : 0x8b9bab, size: big ? 2.5 : 2.0, aspect: 0.09,
+        life: 0.2 + k * 0.04, vel: v3()
+      });
+      arc.mesh.quaternion.copy(this.camera.quaternion);
+      arc.mesh.rotateZ(-0.5 + k * 0.55 + rand(-0.1, 0.1));
+      arc.mesh.userData.keepQuat = true;
+    }
+    for (let i = 0; i < 7; i++) {
+      this._spawn(p, {
+        color: i % 2 ? 0xbfd4e8 : 0xffffff, size: rand(0.08, 0.18), life: 0.28,
+        vel: v3(rand(-3, 3), rand(-1, 3), rand(-3, 3))
+      });
+    }
+  }
+
+  // TOJI — CHAIN OF A THOUSAND MILES: the actual chain, drawn as a run of
+  // link motes from hand to target point with a crack at the tip.
+  chainLinks(from, to) {
+    const n = Math.max(6, Math.round(from.distanceTo(to) * 2.2));
+    for (let i = 0; i <= n; i++) {
+      const k = i / n;
+      const p = from.clone().lerp(to, k);
+      p.y += Math.sin(k * Math.PI) * -0.25;      // slight sag
+      this._spawn(p, {
+        color: i % 3 === 0 ? 0xf2ead8 : 0x9aa0ae, size: i % 3 === 0 ? 0.16 : 0.11,
+        life: 0.2 + k * 0.08, vel: v3(rand(-0.3, 0.3), rand(-0.3, 0.3), rand(-0.3, 0.3))
+      });
+    }
+    this._ring(to, 0x9aa0ae, { size: 0.3, growRate: 7, life: 0.22, flat: false });
+  }
+
+  // TOJI — the Inverted Spear's nullify landing: the technique being TURNED
+  // OFF, drawn as a collapsing green seal around the victim.
+  nullifySeal(pos) {
+    this._ring(pos.clone().add(v3(0, 1.15, 0)), 0x6ea88a, { size: 1.5, growRate: -3.2, life: 0.4, flat: false });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const bar = this._spawn(pos.clone().add(v3(Math.cos(a) * 0.9, 0.5 + (i % 3) * 0.45, Math.sin(a) * 0.9)), {
+        color: i % 2 ? 0x6ea88a : 0xd9ffe8, size: 0.5, aspect: 0.12, life: 0.4,
+        vel: v3(-Math.cos(a) * 1.6, 0, -Math.sin(a) * 1.6)
+      });
+      bar.mesh.quaternion.copy(this.camera.quaternion);
+      bar.mesh.rotateZ(a);
+      bar.mesh.userData.keepQuat = true;
+    }
+  }
+
   // TOJI — the spear thrust as a vacuum lance: a thin hard line of white
   // driven down the whole length in one frame.
   spearLance(origin, dir, range) {
@@ -1559,6 +1633,48 @@ export class FXSystem {
         vel: v3(rand(-2, 2), rand(-1, 2), rand(-2, 2))
       });
     }
+  }
+
+  // GOJO — RED in flight: a core of repulsion with matter shoved off it,
+  // and the burst when the stored push lets go all at once.
+  redOrbTick(pos, dir) {
+    this._spawn(pos, { color: 0xff5a4a, size: 0.55, life: 0.1, vel: v3() });
+    this._spawn(pos, { color: 0xffc0a8, size: 0.28, life: 0.08, vel: v3() });
+    for (let i = 0; i < 2; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.3, 0.3), rand(-0.3, 0.3), rand(-0.3, 0.3))), {
+        color: i ? 0xff6a4a : 0xffffff, size: rand(0.1, 0.22), life: 0.22,
+        vel: dir.clone().multiplyScalar(-rand(3, 7)).add(v3(rand(-1.5, 1.5), rand(-1, 1.5), rand(-1.5, 1.5)))
+      });
+    }
+    if (Math.random() < 0.25) this._ring(pos, 0xff8a6a, { size: 0.3, growRate: 4, life: 0.14, flat: false });
+  }
+  redOrbBurst(pos) {
+    const core = this._spawn(pos, { color: 0xff5a4a, size: 1.0, life: 0.35, vel: v3(), grow: 11 });
+    core.mesh.quaternion.copy(this.camera.quaternion);
+    this._ring(pos, 0xff8a6a, { size: 0.5, growRate: 18, life: 0.4, flat: false });
+    this._ring(pos.clone().setY(0.07), 0xff5a4a, { size: 0.5, growRate: 14, life: 0.35 });
+    for (let i = 0; i < 20; i++) {
+      const a = rand(0, Math.PI * 2), b = rand(-0.5, 1);
+      this._spawn(pos, {
+        color: i % 3 ? 0xff6a4a : 0xffc0a8, size: rand(0.15, 0.4), life: rand(0.25, 0.5),
+        vel: v3(Math.cos(a) * rand(6, 14), b * 6, Math.sin(a) * rand(6, 14))
+      });
+    }
+  }
+
+  // SUKUNA — one tick of the Dismantle wavefront: a hard red X and the thin
+  // line of the cut racing ahead of it.
+  dismantleTick(pos, dir, width) {
+    for (const rz of [0.7, -0.7]) {
+      const bar = this._spawn(pos, { color: Math.random() < 0.3 ? 0xffffff : 0xff2f45, size: width * 1.3, aspect: 0.06, life: 0.13, vel: dir.clone().multiplyScalar(2) });
+      bar.mesh.quaternion.copy(this.camera.quaternion);
+      bar.mesh.rotateZ(rz + rand(-0.12, 0.12));
+      bar.mesh.userData.keepQuat = true;
+    }
+    this._spawn(pos.clone().add(v3(rand(-0.4, 0.4), rand(-0.3, 0.5), rand(-0.4, 0.4))), {
+      color: 0xff2f45, size: rand(0.08, 0.2), life: 0.2,
+      vel: v3(rand(-2, 2), rand(-1, 2), rand(-2, 2))
+    });
   }
 
   // YUTA — Rika's arm, manifested: an oversized spectral hand built from
