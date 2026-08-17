@@ -73,11 +73,56 @@
 // character is deciding which of his three fighters is allowed to bleed, and
 // the counter-skill is refusing to let him choose.
 
+// ---------------------------------------------------------------------------
+// SHARED POOL — THE BALANCE PASS
+// ---------------------------------------------------------------------------
+// Everything above describes what the cores were: three SEPARATE pools, 182
+// base against a roster norm of 100, which in play was simply three lives. You
+// had to kill him three times and the last two were with a character who had
+// already shown you his whole kit. `cores.shared` replaces that with ONE
+// ordinary health bar behind all three stances.
+//
+// What that keeps: the stance rotation, which is the actual character. All
+// three cores stay available for the whole round, the swap still costs cursed
+// energy and still has its 26-frame commitment, and Gorilla/Triceratops/Panda
+// still rewrite his movement, damage and both technique buttons.
+//
+// What it removes: cores dying one at a time. With one pool every core reads
+// the same health, so the moment it empties they all empty at once and he is
+// dead — `Fighter.alive` ("any core with hp > 0") reaches the right answer on
+// its own, and `_coreCheck` finds nothing to swap to and does nothing. No
+// extra lives, no permanently deleted stances, no core-break animation.
+//
+// It is implemented as ACCESSORS onto one pool object rather than by teaching
+// the fourteen `res.hp` sites about a new shape, for exactly the reason the
+// header above gives for the original design: the sites that already work keep
+// working, and this file stays the only place that knows.
+function sharedCores(cfg) {
+  const c = cfg.cores;
+  const pool = { hp: cfg.stats.hp, max: cfg.stats.hp };
+  return c.order.map(key => {
+    const d = c.defs[key];
+    const core = { key, name: d.name, jp: d.jp, short: d.short, pool };
+    Object.defineProperty(core, 'hp', {
+      get: () => pool.hp, set: v => { pool.hp = v; }, enumerable: true
+    });
+    Object.defineProperty(core, 'max', {
+      get: () => pool.max, set: v => { pool.max = v; }, enumerable: true
+    });
+    // a core is alive exactly as long as the body is
+    Object.defineProperty(core, 'alive', {
+      get: () => pool.hp > 0, set: v => { if (!v) pool.hp = 0; }, enumerable: true
+    });
+    return core;
+  });
+}
+
 // Build the runtime array from a config. Returns null for everyone else, which
 // is what every `if (this.cores)` in the codebase is testing.
 export function buildCores(cfg) {
   const c = cfg.cores;
   if (!c) return null;
+  if (c.shared) return sharedCores(cfg);
   return c.order.map(key => {
     const d = c.defs[key];
     return {
@@ -87,16 +132,23 @@ export function buildCores(cfg) {
   });
 }
 
-// Reset all three pools to full. Called from resetForRound, which cannot use
-// the plain `res.hp = stats.hp` line every other fighter uses because that
-// would refill exactly one of them.
+// Reset the pools to full. Called from resetForRound, which cannot use the
+// plain `res.hp = stats.hp` line every other fighter uses because that would
+// refill exactly one of them (and, on a shared pool, would set the max from
+// the wrong place if the global HP dial ever moves mid-session).
 export function resetCores(f) {
   if (!f.cores) return;
-  const defs = f.cfg.cores.defs;
-  for (const c of f.cores) {
-    c.max = defs[c.key].hp;
-    c.hp = c.max;
-    c.alive = true;
+  if (f.cfg.cores.shared) {
+    const pool = f.cores[0].pool;
+    pool.max = f.cfg.stats.hp;
+    pool.hp = pool.max;
+  } else {
+    const defs = f.cfg.cores.defs;
+    for (const c of f.cores) {
+      c.max = defs[c.key].hp;
+      c.hp = c.max;
+      c.alive = true;
+    }
   }
   f.coreIndex = 0;
   f.stance = f.cores[0].key;

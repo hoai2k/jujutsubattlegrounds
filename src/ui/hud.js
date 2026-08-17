@@ -321,16 +321,23 @@ export class HUD {
           .map(t => `<i style="left:${(t * 100).toFixed(1)}%"></i>`).join('');
       }
       // ---- PANDA: THE THREE CORES ------------------------------------------
-      // Three segments in place of one health bar. Built once, and the segment
-      // WIDTHS are proportional to each core's maximum so a glance reads the
-      // real distribution rather than three equal thirds — his Panda core is
-      // genuinely the biggest and the HUD should say so.
+      // A STANCE STRIP, not three health bars. The cores share one pool now
+      // (see combat/cores.js), so the ordinary `bar-hp` above already tells
+      // the whole health story and three segments draining in lockstep would
+      // say the same thing three times. What the strip is for is the thing the
+      // bar cannot show: WHICH of his three fighters is on the field, which is
+      // what both players actually need to read off him.
+      //
+      // Equal thirds, because the pools are no longer different sizes. The
+      // pre-shared build weighted the widths by each core's maximum; that is
+      // kept below for any config that still declares separate pools.
       const coreRow = plate.querySelector('.core-row');
       coreRow.style.display = f.cores ? '' : 'none';
       if (f.cores) {
+        const shared = !!f.cfg.cores?.shared;
         const total = f.cores.reduce((a, c) => a + c.max, 0);
         coreRow.querySelector('.core-segs').innerHTML = f.cores.map(c =>
-          `<div class="core-seg" data-k="${c.key}" style="flex:${(c.max / total).toFixed(4)}">
+          `<div class="core-seg" data-k="${c.key}" style="flex:${shared ? '1' : (c.max / total).toFixed(4)}">
              <div class="cs-fill"></div><b>${c.short}</b>
            </div>`).join('');
       }
@@ -619,13 +626,17 @@ export class HUD {
       // already carries, and for the same reason: the opponent needs to see
       // which of his three characters they have already killed.
       if (f.cores) {
+        const shared = !!f.cfg.cores?.shared;
         const segs = plate.querySelectorAll('.core-row .core-seg');
         for (let k = 0; k < f.cores.length; k++) {
           const c = f.cores[k], el = segs[k];
           if (!el) continue;
-          el.querySelector('.cs-fill').style.width =
-            Math.max(0, Math.min(100, c.hp / c.max * 100)) + '%';
-          el.classList.toggle('dead', !c.alive);
+          // shared pool: the segment fills to show WHICH core is standing, and
+          // no core is ever struck through because none of them can die alone
+          el.querySelector('.cs-fill').style.width = shared
+            ? (k === f.coreIndex ? 100 : 0) + '%'
+            : Math.max(0, Math.min(100, c.hp / c.max * 100)) + '%';
+          el.classList.toggle('dead', !shared && !c.alive);
           el.classList.toggle('active', k === f.coreIndex && c.alive);
         }
       }
