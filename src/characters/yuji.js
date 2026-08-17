@@ -37,24 +37,26 @@ export const YUJI = withDefaults({
     ceRefund: 25, maxSpike: 8, reach: 2.4
   },
   ct1: {
-    // straight hit now, the cursed energy a beat later as a VISIBLE crimson
-    // ghost of the same punch — the delayed launch catches anyone acting
-    // right after the block/hit, and both impacts are BF eligible. A whiff
-    // discharges the late energy forward as a short ghost-fist projectile
-    // (70% of dmg2, no Black Flash): the miss still says what the move is.
-    name: 'Divergent Fist', cost: 10, startup: 14, active: 4, recovery: 18,
+    // DIVERGENT BLOOM — no fist anywhere in it. He puts his cursed energy
+    // into the deck and it comes back up under them as a crimson CE crystal,
+    // which then DIVERGES: a second, bigger detonation out of the same bloom
+    // a beat later, and that one launches. The delayed second impact was
+    // always the identity of the technique; now it is the whole move.
+    // Stick-aimed, neutral drops it on their feet. Both hits open Black Flash.
+    name: 'Divergent Bloom', jpName: '硬着発散', cost: 10,
+    startup: 14, active: 4, recovery: 18,
     effect: 'yuji_divergent', dmg: 7, dmg2: 10, delay: 0.45,
-    ghostSpeed: 16, ghostRange: 6.5,
-    reach: 1.9, arc: 1.6, kb: 2, hitstun: 18, clip: 'ct1'
+    reach: 3.2, radius: 2.1, clip: 'ct1'
   },
   ct2: {
-    // the kick still carries him in — and now it throws the 卍: a spinning
-    // crescent of cursed energy off the heel, steered by the stick, so the
-    // lunge and the wave bracket from two directions. Old damage split
-    // across the pair (6 + 7).
-    name: 'Manji Kick', cost: 8, staminaCost: 22, startup: 15, active: 9, recovery: 24,
-    effect: 'yuji_manji', dmg: 6, waveDmg: 7, waveSpeed: 15, waveRange: 7,
-    lungeSpeed: 13.5, kb: 7, kbY: 2, hitstun: 24, clip: 'ct2'
+    // MANJI SLASH — the 卍 thrown rather than kicked: a spinning four-armed
+    // wheel of cursed energy (real geometry) that flies out and comes back,
+    // cutting on both passes. The return leg is 60% damage and catches
+    // anyone who stepped in to punish the throw.
+    name: 'Manji Slash', jpName: '卍斬', cost: 8, staminaCost: 22,
+    startup: 15, active: 9, recovery: 24,
+    effect: 'yuji_manji', dmg: 11, speed: 17, range: 8.5, size: 1.15,
+    kb: 4.5, kbY: 1.5, hitstun: 24, clip: 'ct2'
   },
   // SPECIAL — BLACK FLASH: B pressed inside the window a landed
   // technique opens (see blackFlash above). No CE cost — landing one REFUNDS
@@ -80,5 +82,5 @@ export const YUJI = withDefaults({
   domain: null, // canon-correct: no innate technique, no domain
   simpleDomainDrain: 16,
   barrierBreak: { ceDrain: 28, chip: 30 },
-  copyEffect: { effect: 'yuji_divergent', dmg: 8, name: 'Copied: Divergent Fist' }
+  copyEffect: { effect: 'yuji_divergent', dmg: 8, name: 'Copied: Divergent Bloom' }
 });

@@ -68,7 +68,12 @@ export const EFFECT_SRC = {
   // response to DAMAGE and the freeze does none. See the full audit note in
   // the delivery report — the short version is that his answer to Naoya is the
   // same as everyone else's, which is to stop touching him.
-  naoya_rush: 'punch', naoya_framekick: 'ct2', naoya_maxprojection: null,
+  // ...and since neither of his techniques is his fists any more — the Rush
+  // damages with the projection frame passing through you and Frame 24 is a
+  // reel of shattering film — the Rush moves off `punch` onto its own slot.
+  // Adapting to Yuji's hands no longer pre-answers Naoya's sorcery, which is
+  // the correct reading now that no part of it is a hand.
+  naoya_rush: 'ct1', naoya_framekick: 'ct2', naoya_maxprojection: null,
   // KASHIMO — every damaging thing he owns is the same substance arriving in a
   // different shape, so all of it is `electric`, INCLUDING the staff string
   // (tagged `src: 'electric'` on the punch defs themselves rather than here,
@@ -154,7 +159,7 @@ export const EFFECT_SRC = {
   // ROOT FIELD deals no damage at all: there is nothing to adapt to, the same
   // ruling Overtime, Overheat and the Shutter already get. The Wooden Ball is
   // his ultimate-tier button.
-  hanami_roots: 'ct1', hanami_bud: 'ct2', hanami_rootfield: null,
+  hanami_roots: 'ct1', hanami_rootswarm: 'ct2', hanami_rootfield: null,
   hanami_woodenball: 'ultimate',
   // ---- KUROURUSHI ---------------------------------------------------------
   // THE SWARM IS `summon`. This is the interesting call and it is deliberate:
@@ -289,6 +294,24 @@ export class Effects {
 
   // techniques hit whoever the caster is currently closest to
   other(f) { return this.match.other(f); }
+
+  // A blade of cursed steel swept through an arc in front of the caster —
+  // real geometry, driven from the caster's own position so it tracks him for
+  // the length of the swing. Used by the Split Soul Katana's two cuts.
+  _sweepBlade(caster, len, big = false) {
+    const m = this.match;
+    const node = m.fx.soulBladeNode(len, big);
+    const life = big ? 0.26 : 0.18;
+    m.fx.prop(node, life, (n, k) => {
+      const ang = caster.facing + (0.9 - 1.8 * k);      // right to left through the arc
+      const p = caster.pos.clone().add(v3(0, 1.3 - k * 0.25, 0))
+        .add(v3(Math.sin(ang) * len * 0.42, 0, Math.cos(ang) * len * 0.42));
+      n.position.copy(p);
+      n.rotation.set(0, ang + Math.PI / 2, -0.5 + k * 1.0);
+      n.traverse(o => { if (o.material) o.material.opacity = Math.max(0, (o.material.opacity ?? 1) * (1 - k * 0.12)); });
+    });
+    return node;
+  }
 
   // ---- MOVEMENT-STEERED CASTS ---------------------------------------------
   // The overhauled techniques ride the left stick: hold a direction while the
@@ -480,6 +503,12 @@ export class Effects {
       // at each, and the six strikes are queued as an entity that fires one per
       // 1/24 s rather than as a single multi-hit window — so the damage arrives
       // on the same grid the visuals do.
+      // PROJECTION CASCADE. NOT A FLURRY OF PUNCHES — he never touches them.
+      // He steps through six positions on a 24 fps grid and leaves a gold
+      // afterimage PLATE standing in each one; what damages is the projection
+      // itself, the frame of him passing through the space the body is in.
+      // Same movement tech and the same grid timing as before; the fists are
+      // gone and the sorcery is doing the work.
       case 'naoya_rush': {
         const steps = opts.steps ?? 6;
         m.sfx.projectionRush?.();
@@ -509,13 +538,11 @@ export class Effects {
         break;
       }
 
-      // FRAME KICK → FRAME 24. The kick is no longer one strike: it is the
-      // SAME kick delivered as a stack of frozen frames laid down a line, one
-      // frame popping per 1/24 s — the projection sorcery drawn on screen.
-      // Each frame is a hitbox for exactly one tick; the first one that
-      // connects delivers the whole kick's enormous knockback and burns the
-      // rest of the reel. The line is steered by the stick at cast, and the
-      // 26-frame tell is still the whole negotiation.
+      // FRAME 24. NOT A KICK — the projection sorcery cast as a REEL: six
+      // real gold film frames (fx/props.js buildFilmFrame) materialise down a
+      // stick-steered line, one per 1/24 s, and each one SHATTERS. Whoever a
+      // frame resolves on takes the whole reel's force at once and the rest
+      // of it burns. The 26-frame chambered tell is still the negotiation.
       case 'naoya_framekick': {
         m.sfx.frameKick?.();
         caster.model.projectionAttach?.(m.root);
@@ -849,23 +876,25 @@ export class Effects {
         break;
       }
 
-      // GORILLA · SLAM. The overhead. Slow, enormous, and it ends with them on
-      // the floor and him standing over it.
+      // GORILLA · UPHEAVAL. The slam goes into the DECK and the deck answers:
+      // a ring of stone slabs (real geometry) driven up out of the floor
+      // around him. Same commitment and the same knockdown as the old
+      // overhead — what changed is that the thing hitting you is the ground.
       case 'panda_slam': {
         const reach = opts.reach ?? 2.35;
-        const at = caster.pos.clone().setY(0.5).addScaledVector(caster.forward(), reach * 0.6);
+        const at = caster.pos.clone().setY(0).addScaledVector(caster.forward(), reach * 0.6);
         m.sfx.slam();
         m.cam.shake(0.75);
         m.cam.fovKick(8);
         m.fx._ring(at.clone().setY(0.06), 0xd9a94e, { size: 0.5, growRate: 14, life: 0.4 });
-        for (let i = 0; i < 22; i++) {
-          const a = Math.random() * Math.PI * 2;
-          m.fx._spawn(at.clone().add(v3(Math.cos(a) * rand(0.2, 2.2), rand(0, 0.5), Math.sin(a) * rand(0.2, 2.2))), {
-            color: i % 4 === 0 ? 0xfff0cc : 0x8a7a5c, size: rand(0.14, 0.36),
-            life: rand(0.2, 0.5), vel: v3(Math.cos(a) * 5, rand(2, 6), Math.sin(a) * 5)
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * Math.PI * 2 + rand(-0.25, 0.25);
+          const rr2 = rand(0.8, reach);
+          m.fx.stoneSlabAt(at.clone().add(v3(Math.cos(a) * rr2, 0, Math.sin(a) * rr2)), {
+            w: rand(0.8, 1.4), h: rand(1.2, 2.2), color: 0x8a7a5c, life: rand(0.7, 1.0)
           });
         }
-        m.arena?.destruct?.damageAt(at, 2.6, opts.destruct ?? 52);
+        m.arena?.destruct?.damageAt(at.clone().setY(0.5), 2.6, opts.destruct ?? 52);
         if (sure || inArc(caster, t, reach, opts.arc ?? 1.2)) {
           const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 26) * mult);
           const r = t.applyHit({
@@ -1044,11 +1073,21 @@ export class Effects {
         });
         break;
       }
+      // RIKA'S TEETH. NOT A LUNGING HIT — Rika does it, not Yuta: a spectral
+      // maw of hers materialises ahead of him and closes. He is still pulled
+      // in behind it (the approach the slot exists for), but the hitbox is
+      // hers and it is out in front of him rather than on his shoulder.
       case 'yuta_lunge': {
-        const fw = caster.forward();
-        caster.vel.x = fw.x * (opts.lungeSpeed ?? 14);
-        caster.vel.z = fw.z * (opts.lungeSpeed ?? 14);
-        this.entities.push({ type: 'lungeHit', caster, frames: 12, dmg: (opts.dmg ?? 8) * mult, kb: opts.kb ?? 1.2, hitstun: opts.hitstun ?? 18, src });
+        const dir = this._castDir(caster);
+        caster.vel.x = dir.x * (opts.lungeSpeed ?? 14) * 0.75;
+        caster.vel.z = dir.z * (opts.lungeSpeed ?? 14) * 0.75;
+        this.entities.push({
+          type: 'rikaBite', caster, sure, dir,
+          pos: caster.pos.clone().add(v3(0, 1.2, 0)).addScaledVector(dir, 1.4),
+          spd: opts.speed ?? 15, travelled: 0, range: opts.range ?? 4.5,
+          dmg: (opts.dmg ?? 8) * mult, kb: opts.kb ?? 1.2, hitstun: opts.hitstun ?? 18,
+          node: m.fx.soulBladeNode(1.5, false), hitOpts, fxT: 0
+        });
         m.sfx.lunge();
         m.fx.dashTrail(caster);
         break;
@@ -1105,58 +1144,66 @@ export class Effects {
         m.hud.toast(caster, 'OVERTIME');
         break;
       }
+      // =====================================================================
+      // YUJI — DIVERGENT BLOOM 硬着発散
+      // =====================================================================
+      // NOT A PUNCH. He drives his cursed energy into the deck and it comes
+      // back up somewhere else: a crimson CE crystal forced out of the ground
+      // under the opponent, which then DIVERGES — a second detonation a beat
+      // after the first, out of the same bloom. That delayed second impact is
+      // the whole identity of the technique, and it is now the entire move
+      // rather than a rider on a jab.
+      //
+      // Both detonations still open the Black Flash window, so his core loop
+      // (land technique -> B in the window) is untouched.
       case 'yuji_divergent': {
-        // DIVERGENT FIST. The fist lands now; the cursed energy arrives a
-        // beat later as a VISIBLE crimson ghost of the same punch, erupting
-        // out of the body it is already inside. Both impacts open the Black
-        // Flash window. NEW: a whiffed fist is no longer a dead move — the
-        // late energy has to go SOMEWHERE, so it discharges forward as a
-        // short-range ghost-fist projectile. Weaker, no Black Flash, and the
-        // chain still dies — but the whiff now says what the technique IS.
-        m.fx.divergentJab(caster);
-        m.sfx.hit(true);
-        if (sure || inArc(caster, t, opts.reach ?? 1.9, opts.arc ?? 1.6)) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 7) * mult);
-          const r = t.applyHit({ ...hitOpts, dmg, kb: opts.kb ?? 2, kbY: 0, hitstun: opts.hitstun ?? 18, type: 'heavy' }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true });
-          if (r === 'hit' || r === 'otg') openBlackFlash(caster, dmg);
-          this.entities.push({ type: 'yujiShock', t: opts.delay ?? 0.45, caster, dmg: (opts.dmg2 ?? 10) * mult, sure });
+        const dir = this._castDir(caster);
+        const at = v3();
+        const inp = m.inputFor(caster);
+        const mv = inp?.move ?? { x: 0, z: 0 };
+        if (Math.hypot(mv.x, mv.z) > 0.25) {
+          at.copy(caster.pos).addScaledVector(dir, opts.reach ?? 3.2);
         } else {
-          caster.bfChain = 0; // whiffed the technique: the chain is done
-          const dir = caster.forward();
-          this.entities.push({
-            type: 'ghostFist', caster, dir, delay: opts.delay ?? 0.45,
-            pos: caster.pos.clone().add(v3(0, 1.3, 0)).addScaledVector(dir, 1.2),
-            spd: opts.ghostSpeed ?? 16, travelled: 0, range: opts.ghostRange ?? 6.5,
-            dmg: (opts.dmg2 ?? 10) * 0.7 * mult, hitOpts, fxT: 0
-          });
+          // neutral: under their feet, led a little
+          at.copy(t.pos).addScaledVector(v3(t.vel.x, 0, t.vel.z), 0.18);
         }
+        at.y = caster.bounds ? caster.bounds.floorAt(at.x, at.z, caster.pos.y + 1.2) : 0;
+        const lim = caster.arenaRadius - 0.3;
+        const rr = Math.hypot(at.x, at.z);
+        if (rr > lim) { at.x *= lim / rr; at.z *= lim / rr; }
+        const radius = opts.radius ?? 2.1;
+        m.fx.ceBloomAt(at.clone().add(v3(0, 0.5, 0)), radius * 0.75, (opts.delay ?? 0.45) + 0.35);
+        m.fx._ring(at.clone().setY(0.06), 0xff3b30, { size: 0.4, growRate: 9, life: 0.3 });
+        m.sfx.hit(true);
+        this.entities.push({
+          type: 'ceBloom', caster, sure, pos: at, radius,
+          t: 0, hitAt: 0.12, divergeAt: (opts.delay ?? 0.45) + 0.12,
+          dmg: (opts.dmg ?? 7) * mult, dmg2: (opts.dmg2 ?? 10) * mult,
+          hitOpts, struck: false, diverged: false
+        });
         break;
       }
+
+      // =====================================================================
+      // YUJI — MANJI SLASH 卍斬
+      // =====================================================================
+      // NOT A KICK. The 卍 is THROWN: a spinning cursed-energy wheel of four
+      // hooked arms (real geometry) that flies out, and on the way back it
+      // cuts again — a boomerang, so the second pass is the half that catches
+      // anyone who walked forward to punish the first.
       case 'yuji_manji': {
-        // MANJI KICK. The kick still carries him in — and now it THROWS the
-        // 卍: a spinning crescent of cursed energy released off the heel,
-        // steered by the stick, so the lunge and the wave bracket the
-        // opponent from two directions at once. The old single hit's damage
-        // is split across the pair; eating both costs slightly more.
-        const fw = caster.forward();
-        caster.vel.x = fw.x * (opts.lungeSpeed ?? 13.5);
-        caster.vel.z = fw.z * (opts.lungeSpeed ?? 13.5);
         if (opts.staminaCost) caster.res.stamina = Math.max(0, caster.res.stamina - opts.staminaCost);
-        this.entities.push({
-          type: 'lungeHit', caster, frames: 14, dmg: (opts.dmg ?? 6) * mult,
-          kb: opts.kb ?? 7, hitstun: opts.hitstun ?? 24, heavy: true, src
-        });
         const dir = this._castDir(caster);
         this.entities.push({
-          type: 'crescent', caster, sure, dir,
-          pos: caster.pos.clone().add(v3(0, 1.2, 0)).addScaledVector(dir, 0.9),
-          spd: opts.waveSpeed ?? 15, travelled: 0, range: opts.waveRange ?? 7,
-          dmg: (opts.waveDmg ?? 7) * mult, kb: 4, kbY: 1.5, hitstun: 22,
-          color: 0xffa04a, hitOpts, fxT: 0
+          type: 'manji', caster, sure, dir,
+          pos: caster.pos.clone().add(v3(0, 1.25, 0)).addScaledVector(dir, 0.8),
+          spd: opts.speed ?? 17, travelled: 0, range: opts.range ?? 8.5,
+          back: false, spin: 0,
+          dmg: (opts.dmg ?? 11) * mult, kb: opts.kb ?? 4.5, kbY: opts.kbY ?? 1.5,
+          hitstun: opts.hitstun ?? 24, hitOpts,
+          node: m.fx.manjiNode(opts.size ?? 1.15), hit: new Set(), fxT: 0
         });
         m.sfx.lunge();
-        m.fx.dashTrail(caster);
         break;
       }
       case 'yuji_sukuna': {
@@ -1655,18 +1702,25 @@ export class Effects {
         m.cam.shake(0.35);
         break;
       }
+      // BALL DROP 大玉. NOT A PUNCH. He pulls the lever and the machine
+      // delivers: a person-sized pachinko ball (real geometry) dropped onto
+      // the deck that then ROLLS down a stick-steered lane, bouncing, mowing
+      // through whatever it reaches. It is still his approach tool — he walks
+      // in behind it — but the thing doing the hitting is the machine.
       case 'hakari_rush': {
-        // RUSH BLOW: the approach. Rides the shared lunge window so the travel
-        // itself connects, then cancels into the punch string (fighter.js).
-        const fw = caster.forward();
-        caster.vel.x = fw.x * (opts.lungeSpeed ?? 13.5);
-        caster.vel.z = fw.z * (opts.lungeSpeed ?? 13.5);
+        const dir = this._castDir(caster);
+        const radius = opts.ballRadius ?? 0.85;
         this.entities.push({
-          type: 'lungeHit', caster, frames: opts.active ?? 8, dmg: (opts.dmg ?? 9) * mult,
-          kb: opts.kb ?? 2.2, hitstun: opts.hitstun ?? 20, radius: 1.6, src
+          type: 'ballRoll', caster, sure, dir,
+          // dropped AHEAD of him, not on him — he wants to be behind it
+          pos: caster.pos.clone().addScaledVector(dir, 2.3).setY(radius + 2.4),
+          radius, spd: opts.speed ?? 11, travelled: 0, range: opts.range ?? 12,
+          vy: 0, roll: 0, dropped: false,
+          dmg: (opts.dmg ?? 9) * mult, kb: opts.kb ?? 4.5, kbY: opts.kbY ?? 1.2,
+          hitstun: opts.hitstun ?? 24, hitOpts, hit: new Set(),
+          node: m.fx.ballNode(radius, false), fxT: 0
         });
         m.sfx.rushBlow();
-        m.fx.dashTrail(caster);
         break;
       }
       case 'hakari_shutter': {
@@ -1902,7 +1956,10 @@ export class Effects {
           t: 0, dur: opts.duration ?? 0.55, radius: opts.radius ?? 2.9,
           tick: 0, interval: (opts.duration ?? 0.55) / (opts.hits ?? 4),
           dmg: (opts.dmg ?? 6) * mult, kb: opts.kb ?? 2.6, kbY: opts.kbY ?? 0.4,
-          hitstun: opts.hitstun ?? 15, ang: caster.facing, hitOpts, fxT: 0
+          hitstun: opts.hitstun ?? 15, ang: caster.facing, hitOpts, fxT: 0,
+          // the staff itself, whirling: real three-section geometry rather
+          // than a bar of light where a staff would be
+          node: m.fx.staffNode((opts.radius ?? 2.9) * 0.95)
         });
         break;
       }
@@ -1912,15 +1969,24 @@ export class Effects {
       // is the correct shape for a blunt weapon and leaves blocking as a real
       // (if losing) option rather than a dead one.
       case 'toji_cloud_slam': {
-        // the staff bar coming down, and a crack line of thrown deck driven
-        // forward from the impact — the guard break drawn as weight
-        m.fx.staffSlamCrack(caster, caster.forward(), opts.reach ?? 2.5);
+        // THE FISSURE. The staff comes down on the DECK, not on a person, and
+        // the deck splits: a run of stone slabs driven up along a line ahead
+        // of him (real geometry), travelling out to seven metres. The guard
+        // break is unchanged — but he is now breaking the floor to do it, and
+        // it reaches far past the old 2.5 m arc.
+        const dir = this._castDir(caster);
+        m.fx.staffSlamCrack(caster, dir, opts.reach ?? 2.5);
         m.sfx.cleave(true);
         m.cam.shake(0.55); m.cam.fovKick(5);
-        for (let i = 1; i <= 3; i++) {
-          m.arena?.destruct?.damageAt(
-            caster.pos.clone().setY(0.4).addScaledVector(caster.forward(), i * 0.9), 2.2, 52);
-        }
+        this.entities.push({
+          type: 'fissure', caster, sure, dir,
+          pos: caster.pos.clone().setY(0).addScaledVector(dir, 1.0),
+          spd: opts.fissureSpeed ?? 16, travelled: 0, range: opts.fissureRange ?? 7,
+          step: 1.0, nextAt: 0, radius: opts.fissureRadius ?? 1.4,
+          dmg: (opts.dmg ?? 21) * mult, kb: opts.kb ?? 6.2, hitstun: opts.hitstun ?? 34,
+          guardBreak: !!opts.guardBreak, dealt: false, hitOpts
+        });
+        // he still connects point-blank on the swing itself
         if (sure || inArc(caster, t, opts.reach ?? 2.5, opts.arc ?? 1.5)) {
           const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 21) * mult);
           // the guard break is applied BEFORE the hit resolves, so the hit that
@@ -1952,7 +2018,18 @@ export class Effects {
         // sidestep; the trade is the point of the weapon.
         const dir = caster.forward();
         const range = (opts.reach ?? 4.2) * caster.reachScale;
-        m.fx.spearLance(caster.pos.clone().add(v3(0, 1.25, 0)).addScaledVector(dir, 0.4), dir, range);
+        // the spear ITSELF, as an object: real geometry driven down the line
+        // and pulled back, rather than a flash where a spear would have been
+        const spear = m.fx.spearNode(range * 0.75);
+        const origin = caster.pos.clone().add(v3(0, 1.25, 0));
+        spear.position.copy(origin);
+        spear.quaternion.setFromUnitVectors(v3(0, 0, 1), dir);
+        m.fx.prop(spear, 0.28, (n, k) => {
+          // out fast, back slower — the thrust and the recovery
+          const ext = k < 0.4 ? k / 0.4 : 1 - (k - 0.4) / 0.6;
+          n.position.copy(origin).addScaledVector(dir, range * 0.35 * ext);
+        });
+        m.fx.spearLance(origin.clone(), dir, range);
         m.sfx.lunge();
         const rel = t.pos.clone().sub(caster.pos);
         const along = rel.x * dir.x + rel.z * dir.z;
@@ -2007,8 +2084,9 @@ export class Effects {
         hitFeedback(m, caster, t, r, { crit, heavy: true });
         // it has to CONNECT — a blocked or i-framed spear cancels nothing
         if (r === 'hit' || r === 'armor') {
-          // the technique being TURNED OFF: a collapsing green seal
-          m.fx.nullifySeal(t.pos.clone());
+          // the technique being TURNED OFF: a real collapsing seal construct
+          // clamped around them — rings and cardinal bars closing to nothing
+          m.fx.nullifySealAt(t.pos.clone(), 1.5);
           const res = m.domains.nullify(t, caster);
           caster.nullifyCD = res.cancelled ? (def.cooldownOnCancel ?? 9) : (def.cooldownOnHit ?? 4);
           t.ctSealT = Math.max(t.ctSealT, def.lockDuration ?? 5);
@@ -2028,6 +2106,8 @@ export class Effects {
         // phantom of the same cut arrives on the soul a beat behind it. Same
         // total damage as the old single tick, split 4 + 3.
         m.fx.soulSlashArc(caster);
+        // the cut as an object: a soul-blue blade plane swept through the arc
+        this._sweepBlade(caster, (opts.reach ?? 2.6) * 1.1, false);
         m.sfx.swordSwing();
         if (sure || inArc(caster, t, opts.reach ?? 2.6, opts.arc ?? 1.9)) {
           const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 7) * 0.57 * mult);
@@ -2052,6 +2132,7 @@ export class Effects {
       // the reward and paying twice would be too much.
       case 'toji_soul_cut': {
         m.fx.soulSlashArc(caster, true);
+        this._sweepBlade(caster, (opts.reach ?? 2.7) * 1.15, true);
         m.sfx.cleave();
         m.cam.shake(0.3);
         if (sure || inArc(caster, t, opts.reach ?? 2.7, opts.arc ?? 1.6)) {
@@ -2084,6 +2165,14 @@ export class Effects {
           ? t.pos.clone().add(v3(0, 1.2, 0))
           : hand.clone().addScaledVector(caster.forward(), opts.reach ?? 7.0);
         m.fx.chainLinks(hand, tip);
+        // the chain as an OBJECT: real links whipped out to the tip and
+        // hauled back in, laid between his hand and wherever it reached
+        const chain = m.fx.chainNode(16);
+        m.fx.prop(chain, 0.3, (n, k) => {
+          const ext = k < 0.35 ? k / 0.35 : 1 - (k - 0.35) / 0.65;
+          m.fx.layChain(n, caster.pos.clone().add(v3(0, 1.3, 0)),
+            hand.clone().lerp(tip, Math.max(0.05, ext)));
+        });
         m.sfx.swordSwing();
         if (connect) {
           const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 11) * mult);
@@ -2112,8 +2201,13 @@ export class Effects {
         }, m.ctxFor(caster));
         hitFeedback(m, caster, t, r, { crit });
         if (r !== 'hit' && r !== 'armor') break;
-        // the chain drawn taut between the two of them before anyone moves
+        // the chain drawn taut between the two of them before anyone moves,
+        // and held there as real links for the whole haul
         m.fx.chainLinks(caster.pos.clone().add(v3(0, 1.3, 0)), t.pos.clone().add(v3(0, 1.2, 0)));
+        const snare = m.fx.chainNode(20);
+        m.fx.prop(snare, 0.35, (n) => {
+          m.fx.layChain(n, caster.pos.clone().add(v3(0, 1.3, 0)), t.pos.clone().add(v3(0, 1.2, 0)));
+        });
         const gap = opts.endGap ?? 1.5;
         const dir = t.pos.clone().sub(caster.pos).setY(0).normalize();
         if (d > (opts.pullFrom ?? 5.5)) {
@@ -2166,65 +2260,81 @@ export class Effects {
       // traps and a player who has learned one should read the other. Where
       // it differs: it LAUNCHES, and the ground it comes out of matters.
       case 'hanami_roots': {
-        // ROOT SWARM. No longer one patch: a COLUMN of eruptions marching
-        // away from him down a line — the roots travelling under the floor
-        // and surfacing as they go. The stick steers the march; neutral sends
-        // it at the opponent, led by their velocity. Each burst telegraphs,
-        // erupts and launches exactly as the old trap did (same entity), and
-        // each checks THE GROUND IT COMES OUT OF: the swarm gets bigger and
-        // harder for every step it takes across natural terrain, which turns
-        // a Root Field into a gun emplacement.
-        const dir = v3();
+        // ROOT ERUPTION — unchanged, and deliberately so: it is the good one.
+        // Aim with the left stick, neutral leads the opponent's feet, and the
+        // growing marker IS the move. The only thing that changed is that the
+        // spikes are now real wooden geometry coming out of the deck rather
+        // than billboards standing in for it (see the rootSpikes entity).
         const inp = m.inputFor(caster);
         const mv = inp?.move ?? { x: 0, z: 0 };
+        const at = v3();
         if (Math.hypot(mv.x, mv.z) > 0.25) {
-          dir.copy(caster._moveVec(mv)).setY(0).normalize();
+          const aim = caster._moveVec(mv);
+          const mag = Math.min(1, Math.hypot(mv.x, mv.z));
+          at.copy(caster.pos).addScaledVector(aim.normalize(), (opts.aimRange ?? 9) * mag);
         } else {
-          dir.copy(t.pos).addScaledVector(v3(t.vel.x, 0, t.vel.z), 0.4)
-            .sub(caster.pos).setY(0);
-          if (dir.lengthSq() < 0.01) dir.copy(caster.forward());
-          dir.normalize();
+          at.copy(t.pos).addScaledVector(v3(t.vel.x, 0, t.vel.z), (opts.delay ?? 0.75) * 0.6);
         }
-        const count = opts.count ?? 5;
-        const spacing = opts.spacing ?? 1.7;
-        const gap = opts.gap ?? 0.14;
+        at.y = caster.bounds ? caster.bounds.floorAt(at.x, at.z, caster.pos.y + 1.2) : 0;
         const lim = caster.arenaRadius - 0.3;
-        for (let k = 0; k < count; k++) {
-          const at = caster.pos.clone().addScaledVector(dir, 1.4 + k * spacing);
-          const rr = Math.hypot(at.x, at.z);
-          if (rr > lim) break;                     // the swarm stops at the wall
-          at.y = caster.bounds ? caster.bounds.floorAt(at.x, at.z, caster.pos.y + 1.2) : 0;
-          const kind = m.flora ? m.flora.terrainForPos(at) : ARTIFICIAL;
-          const boost = kind !== ARTIFICIAL ? (opts.natural || {}) : {};
-          // per-burst damage: the config's dmg reads as the "one clean hit"
-          // number, so a burst carries just under half of it — a launch means
-          // the swarm rarely lands more than two
-          this.entities.push({
-            type: 'rootSpikes', caster, pos: at, sure: sure && k === 0,
-            t: (boost.delay ?? opts.delay ?? 0.5) + k * gap,
-            radius: boost.radius ?? opts.radius ?? 1.9,
-            dmg: (boost.dmg ?? opts.dmg ?? 16) * 0.45 * mult,
-            kb: opts.kb ?? 4, kbY: opts.kbY ?? 9.5, natural: kind !== ARTIFICIAL, fxT: 0
-          });
-        }
+        const rr = Math.hypot(at.x, at.z);
+        if (rr > lim) { at.x *= lim / rr; at.z *= lim / rr; }
+        // NATURAL GROUND AT THE TARGET, not under him: the spikes come out of
+        // the ground they are coming out of. That is the correct reading and
+        // it is also the more interesting one, because it means aiming into a
+        // Root Field is a real decision.
+        const kind = m.flora ? m.flora.terrainForPos(at) : ARTIFICIAL;
+        const boost = kind !== ARTIFICIAL ? (opts.natural || {}) : {};
+        this.entities.push({
+          type: 'rootSpikes', caster, pos: at, sure,
+          t: boost.delay ?? opts.delay ?? 0.75,
+          radius: boost.radius ?? opts.radius ?? 2.6,
+          dmg: (boost.dmg ?? opts.dmg ?? 16) * mult,
+          kb: opts.kb ?? 4, kbY: opts.kbY ?? 9.5, natural: kind !== ARTIFICIAL, fxT: 0
+        });
         m.sfx.rootPrime?.();
+        break;
+      }
+
+      // =====================================================================
+      // ROOT SWARM 根の群れ — RT
+      // =====================================================================
+      // He drives an arm into the deck and the roots go hunting UNDER it: a
+      // line of them races away from him in the direction he is moving,
+      // surfacing as they travel, and whatever the line reaches is thrown
+      // into the air. UNBLOCKABLE — you do not guard a floor that has stopped
+      // being a floor; you leave it.
+      //
+      // The roots are real geometry (fx/props.js buildRootClump) surged up at
+      // the wavefront's own position, one clump every `step` metres, so the
+      // thing on screen is the thing the hitbox is.
+      //
+      // Connecting also plants the CURSED BUD on them — the parasite is now
+      // something the roots do to a body they have hold of, rather than a
+      // seed thrown separately, which is both the better visual and the
+      // reason his CE-drain identity survives the redesign.
+      case 'hanami_rootswarm': {
+        const dir = this._castDir(caster);
+        const from = caster.pos.clone();
+        from.y = caster.bounds ? caster.bounds.floorAt(from.x, from.z, caster.pos.y + 1.2) : 0;
+        this.entities.push({
+          type: 'rootRun', caster, sure, dir,
+          pos: from.addScaledVector(dir, 0.9),
+          travelled: 0, spd: opts.speed ?? 15, range: opts.range ?? 11,
+          step: opts.step ?? 1.1, nextAt: 0, radius: opts.radius ?? 1.5,
+          dmg: (opts.dmg ?? 14) * mult, kbY: opts.kbY ?? 11, hitstun: opts.hitstun ?? 34,
+          bud: opts.bud ?? null, dealt: false, hitOpts
+        });
+        // the arm going in
+        m.fx.rootSurge(caster.pos.clone().addScaledVector(dir, 0.7), { len: 1.1, natural: false, life: 0.5 });
+        m.fx._ring(caster.pos.clone().setY(0.06), 0x6f9a52, { size: 0.5, growRate: 8, life: 0.35 });
+        m.sfx.rootPrime?.();
+        m.cam.shake(0.3);
         break;
       }
 
       // CURSED BUD. A thrown seed. Almost no direct damage — the six seconds
       // afterwards are the move, and they live in combat/flora.js.
-      case 'hanami_bud': {
-        m.sfx.budThrow?.();
-        this.entities.push({
-          type: 'budSeed', caster, sure,
-          pos: caster.pos.clone().add(v3(0, 1.4, 0)).addScaledVector(caster.forward(), 0.6),
-          vel: caster.forward().multiplyScalar(opts.speed ?? 13),
-          life: (opts.range ?? 7) / (opts.speed ?? 13),
-          dmg: (opts.dmg ?? 4) * mult, def: opts, fxT: 0
-        });
-        break;
-      }
-
       // ROOT FIELD. No hitbox, no damage — it is terrain, and it is how he
       // functions on a map that hates him.
       case 'hanami_rootfield': {
@@ -2992,7 +3102,8 @@ export class Effects {
         const c = e.caster;
         if (!c.alive) { this.entities.splice(i, 1); continue; }
         const at = e.origin.clone().addScaledVector(e.dir, e.spacing * (e.i + 1));
-        m.fx.frameFlash(at.clone().setY(1.25), e.i);
+        // the frame itself, as geometry, popping into the world and shattering
+        m.fx.filmFrameAt(at.clone().setY(1.25), Math.atan2(e.dir.x, e.dir.z), e.i);
         m.sfx.projectionStep?.();
         m.arena?.destruct?.damageAt(at.clone().setY(1.0), 1.3, e.destruct / e.frames);
         const t = this.other(c);
@@ -3232,6 +3343,278 @@ export class Effects {
         if (e.travelled >= e.range) this.entities.splice(i, 1);
         continue;
       }
+      // HAKARI — the BALL DROP: it falls, it lands, it rolls, it keeps going
+      // through whoever is in the lane.
+      if (e.type === 'ballRoll') {
+        if (!e.dropped) {
+          e.vy -= 34 * dt;
+          e.pos.y += e.vy * dt;
+          if (e.pos.y <= e.radius) {
+            e.pos.y = e.radius;
+            e.dropped = true;
+            m.fx._ring(e.pos.clone().setY(0.07), 0x69f0ae, { size: 0.6, growRate: 12, life: 0.35 });
+            m.sfx.slam();
+            m.cam.shake(0.4);
+            m.arena?.destruct?.damageAt(e.pos.clone().setY(0.5), 2.0, 45);
+          }
+        } else {
+          const step = e.spd * dt;
+          e.pos.addScaledVector(e.dir, step);
+          e.travelled += step;
+          e.roll += step / e.radius;
+          e.fxT -= dt;
+          if (e.fxT <= 0) {
+            e.fxT = 0.05;
+            m.fx.pachinkoTrail(e.pos.clone().setY(e.radius * 0.4), false);
+            m.arena?.destruct?.damageAt(e.pos.clone().setY(0.6), 1.6, 26);
+          }
+        }
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          // roll about the axis perpendicular to travel
+          e.node.rotation.set(0, 0, 0);
+          e.node.rotateOnWorldAxis(v3(e.dir.z, 0, -e.dir.x).normalize(), e.roll);
+        }
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive || e.hit.has(f)) continue;
+          if (!e.sure && flatDist(e.pos, f.pos) > e.radius + 0.4 + (f.hurtBox?.radius ?? 0.62)) continue;
+          e.hit.add(f);
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'heavy', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true });
+          m.cam.shake(0.35);
+        }
+        if (e.travelled >= e.range || Math.hypot(e.pos.x, e.pos.z) > e.caster.arenaRadius - 0.4) {
+          m.fx.popProp(e.node, 0x69f0ae);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+      // TOJI — the FISSURE running out from the staff slam: slabs of deck
+      // driven up along the line, one every metre.
+      if (e.type === 'fissure') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        if (e.travelled >= e.nextAt) {
+          e.nextAt += e.step;
+          const at = e.pos.clone();
+          at.y = e.caster.bounds ? e.caster.bounds.floorAt(at.x, at.z, e.caster.pos.y + 1.2) : 0;
+          m.fx.stoneSlabAt(at, { w: rand(0.8, 1.3), h: rand(1.1, 2.0), life: rand(0.6, 0.9) });
+          m.arena?.destruct?.damageAt(at.clone().setY(0.6), 1.8, 48);
+        }
+        const t = this.other(e.caster);
+        if (t?.alive && !e.dealt
+          && (e.sure || flatDist(e.pos, t.pos) < e.radius + (t.hurtBox?.radius ?? 0.62))) {
+          e.dealt = true;
+          const guarding = t.state === 'block' || t.state === 'blockstun';
+          if (guarding && e.guardBreak) {
+            t.res.stamina = 0;
+            t.setState('guardBreak', { clip: 'guardBreak' });
+            t.emit('guardBreak');
+            m.hud.toast(e.caster, 'GUARD BROKEN');
+          }
+          const { dmg, crit } = computeDamage(e.caster, e.dmg * 0.75);
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: 2.0, hitstun: e.hitstun,
+            type: 'knockdown', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, t, r, { crit, heavy: true, knockdown: true });
+          m.cam.shake(0.5);
+        }
+        if (e.travelled >= e.range) this.entities.splice(i, 1);
+        continue;
+      }
+      // YUTA — RIKA'S TEETH: her maw driven out ahead of him and closing.
+      if (e.type === 'rikaBite') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          e.node.rotation.set(0, Math.atan2(e.dir.x, e.dir.z), Math.sin(e.travelled * 6) * 0.5);
+          e.node.scale.setScalar(1 + Math.sin(e.travelled * 5) * 0.16);
+        }
+        e.fxT -= dt;
+        if (e.fxT <= 0) {
+          e.fxT = 0.03;
+          m.fx._spawn(e.pos.clone().add(v3(rand(-0.3, 0.3), rand(-0.3, 0.3), rand(-0.3, 0.3))), {
+            color: Math.random() < 0.3 ? 0x1a3a30 : 0x9ff5c9, size: rand(0.12, 0.26), life: 0.2,
+            vel: e.dir.clone().multiplyScalar(-rand(2, 5))
+          });
+        }
+        const t = this.other(e.caster);
+        if (t?.alive
+          && (e.sure || e.pos.distanceTo(t.pos.clone().add(v3(0, 1.1, 0))) < 1.1 + (t.hurtBox?.pad ?? 0))) {
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: 0, hitstun: e.hitstun,
+            type: 'light', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, t, r, { crit });
+          m.fx._ring(e.pos.clone(), 0x9ff5c9, { size: 0.4, growRate: 9, life: 0.25, flat: false });
+          m.fx.popProp(e.node, 0x9ff5c9);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled >= e.range) {
+          m.fx.popProp(e.node, 0x9ff5c9);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+      // YUJI — the DIVERGENT BLOOM: erupts, then diverges. Two detonations
+      // out of one crystal, both of them Black-Flash eligible.
+      if (e.type === 'ceBloom') {
+        e.t += dt;
+        if (!e.struck && e.t >= e.hitAt) {
+          e.struck = true;
+          m.cam.shake(0.4);
+          m.arena?.destruct?.damageAt(e.pos.clone().setY(0.8), e.radius, 42);
+          for (const f of m.activeFighters) {
+            if (f === e.caster || !f.alive) continue;
+            if (!e.sure && flatDist(f.pos, e.pos) > e.radius + (f.hurtBox?.radius ?? 0.62)) continue;
+            const { dmg, crit } = computeDamage(e.caster, e.dmg);
+            const r = f.applyHit({
+              ...e.hitOpts, dmg, kb: 2.2, kbY: 1.0, hitstun: 20, type: 'heavy',
+              sureHit: e.sure, dir: v3(f.pos.x - e.pos.x, 0, f.pos.z - e.pos.z).normalize()
+            }, m.ctxFor(e.caster));
+            hitFeedback(m, e.caster, f, r, { crit, heavy: true });
+            if (r === 'hit' || r === 'otg') openBlackFlash(e.caster, dmg);
+          }
+        }
+        if (e.t >= e.divergeAt) {
+          // THE DIVERGENCE. The same energy, arriving again out of the same
+          // point, and this one launches.
+          m.fx.ceBloomAt(e.pos.clone().add(v3(0, 0.9, 0)), e.radius * 1.15, 0.45);
+          m.fx._ring(e.pos.clone().add(v3(0, 0.9, 0)), 0xff3b30, { size: 0.5, growRate: 13, life: 0.35, flat: false });
+          m.sfx.hit(true);
+          m.cam.shake(0.55); m.cam.fovKick(6);
+          m.arena?.destruct?.damageAt(e.pos.clone().setY(1.0), e.radius + 0.5, 60);
+          let landed = false;
+          for (const f of m.activeFighters) {
+            if (f === e.caster || !f.alive) continue;
+            if (!e.sure && flatDist(f.pos, e.pos) > e.radius + 0.5 + (f.hurtBox?.radius ?? 0.62)) continue;
+            const { dmg, crit } = computeDamage(e.caster, e.dmg2);
+            const r = f.applyHit({
+              ...e.hitOpts, dmg, kb: 3, kbY: 8, hitstun: 30, type: 'launcher',
+              sureHit: e.sure, otgOk: e.sure,
+              dir: v3(f.pos.x - e.pos.x, 0, f.pos.z - e.pos.z).normalize()
+            }, m.ctxFor(e.caster));
+            hitFeedback(m, e.caster, f, r, { crit, heavy: true });
+            if (r === 'hit' || r === 'otg') { openBlackFlash(e.caster, dmg); landed = true; }
+          }
+          // whiffed the whole technique: the Black Flash chain is done
+          if (!landed && !e.struck && e.caster.cfg.blackFlash) e.caster.bfChain = 0;
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+      // YUJI — the thrown 卍: out, then back, cutting on both passes.
+      if (e.type === 'manji') {
+        const step = e.spd * dt;
+        e.travelled += e.back ? -step : step;
+        e.spin += dt * 22;
+        if (e.back) {
+          // the return leg tracks him, so it comes home rather than to a spot
+          const home = e.caster.pos.clone().add(v3(0, 1.25, 0));
+          e.pos.lerp(home, Math.min(1, 3.4 * dt));
+          if (e.pos.distanceTo(home) < 1.0 || !e.caster.alive) {
+            m.fx.popProp(e.node, 0xffa04a);
+            this.entities.splice(i, 1);
+            continue;
+          }
+        } else {
+          e.pos.addScaledVector(e.dir, step);
+          if (e.travelled >= e.range) { e.back = true; e.hit.clear(); }
+        }
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          e.node.quaternion.setFromUnitVectors(v3(0, 0, 1), e.dir);
+          e.node.rotateZ(e.spin);
+        }
+        e.fxT -= dt;
+        if (e.fxT <= 0) {
+          e.fxT = 0.03;
+          m.fx._spawn(e.pos.clone().add(v3(rand(-0.3, 0.3), rand(-0.3, 0.3), rand(-0.3, 0.3))), {
+            color: Math.random() < 0.3 ? 0xffe0c0 : 0xffa04a, size: rand(0.1, 0.22), life: 0.2,
+            vel: v3(rand(-1, 1), rand(-0.5, 1.5), rand(-1, 1))
+          });
+        }
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive || e.hit.has(f)) continue;
+          if (!e.sure && e.pos.distanceTo(f.pos.clone().add(v3(0, 1.1, 0))) > 1.1 + (f.hurtBox?.pad ?? 0)) continue;
+          e.hit.add(f);
+          const { dmg, crit } = computeDamage(e.caster, e.dmg * (e.back ? 0.6 : 1));
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'heavy', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true });
+          if (r === 'hit' || r === 'otg') openBlackFlash(e.caster, dmg);
+          m.fx._ring(e.pos.clone(), 0xffa04a, { size: 0.4, growRate: 10, life: 0.26, flat: false });
+        }
+        continue;
+      }
+      // HANAMI — the ROOT SWARM running under the deck. Roots surface at the
+      // wavefront as it goes; whatever the line reaches is thrown up, and the
+      // bud is planted on the body the roots got hold of.
+      if (e.type === 'rootRun') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        // the swarm stops at the arena wall rather than running off the edge
+        if (Math.hypot(e.pos.x, e.pos.z) > e.caster.arenaRadius - 0.3) {
+          this.entities.splice(i, 1);
+          continue;
+        }
+        // surface a clump every `step` metres of travel
+        if (e.travelled >= e.nextAt) {
+          e.nextAt += e.step;
+          const at = e.pos.clone();
+          at.y = e.caster.bounds ? e.caster.bounds.floorAt(at.x, at.z, e.caster.pos.y + 1.2) : 0;
+          const kind = m.flora ? m.flora.terrainForPos(at) : ARTIFICIAL;
+          m.fx.rootSurge(at, {
+            len: rand(1.7, 2.6), natural: kind !== ARTIFICIAL, lean: e.dir, life: rand(0.9, 1.3)
+          });
+          m.sfx.rootErupt?.();
+          m.arena?.destruct?.damageAt(at.clone().setY(0.6), 1.4, 26);
+        }
+        const t = this.other(e.caster);
+        if (t?.alive && !e.dealt
+          && (e.sure || flatDist(e.pos, t.pos) < e.radius + (t.hurtBox?.radius ?? 0.62))) {
+          e.dealt = true;
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: 2.0, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'launcher', dir: e.dir.clone(), sureHit: e.sure,
+            // JJS-CORRECT AND DELIBERATE: you do not block a floor that has
+            // stopped being a floor. The counterplay is not to be standing
+            // on the line — the roots are slow enough to walk out of.
+            unblockable: true
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, t, r, { crit, heavy: true });
+          // a big cage of roots closing around whoever it caught
+          for (let k = 0; k < 5; k++) {
+            const a = (k / 5) * Math.PI * 2;
+            const at = t.pos.clone().add(v3(Math.cos(a) * 0.8, 0, Math.sin(a) * 0.8));
+            at.y = t.pos.y;
+            m.fx.rootSurge(at, { len: rand(2.2, 3.1), natural: true, life: rand(0.8, 1.2) });
+          }
+          m.cam.shake(0.6); m.cam.fovKick(6); m.hitstop(8);
+          if ((r === 'hit' || r === 'otg') && e.bud && m.flora) {
+            // the parasite, planted by the roots that have hold of them
+            m.flora.plantBud(e.caster, t, e.bud);
+          }
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled >= e.range) this.entities.splice(i, 1);
+        continue;
+      }
       // TOJI — the Split Soul Katana's phantom echo: the same cut arriving
       // on the soul a beat behind the blade.
       if (e.type === 'soulEcho') {
@@ -3326,6 +3709,10 @@ export class Effects {
         const c = e.caster;
         if (!c.alive) { this.entities.splice(i, 1); continue; }
         e.ang += dt * (Math.PI * 2 * 3) / e.dur;
+        if (e.node) {
+          e.node.position.copy(c.pos).add(v3(0, 1.2, 0));
+          e.node.rotation.set(0, e.ang, 0.35);
+        }
         e.fxT -= dt;
         if (e.fxT <= 0) {
           e.fxT = 0.03;
@@ -3346,7 +3733,10 @@ export class Effects {
             hitFeedback(m, c, t, r, { crit });
           }
         }
-        if (e.t >= e.dur) this.entities.splice(i, 1);
+        if (e.t >= e.dur) {
+          if (e.node) m.fx.popProp(e.node, 0xd8d2c4);
+          this.entities.splice(i, 1);
+        }
         continue;
       }
       // ---- NAOYA: PROJECTION RUSH -------------------------------------
@@ -3369,6 +3759,9 @@ export class Effects {
         if (!c.alive || c.frozenT > 0 || !e.target?.alive) { this.entities.splice(i, 1); continue; }
         const p = e.path[e.i];
         c.model.projectionStep?.(c.pos, c.facing);   // leave the previous one behind
+        // the afterimage he leaves standing: real gold plate geometry in the
+        // position he has already left
+        m.fx.projectionPlateAt(c.pos.clone(), c.facing);
         c.pos.copy(p);
         c.prevPos.copy(c.pos);                       // no render-side interpolation either
         c.vel.set(0, 0, 0);
@@ -3379,6 +3772,11 @@ export class Effects {
           ...e.hitOpts, dmg, kb: e.kb, kbY: 0, hitstun: e.hitstun, type: 'light', dir: c.forward()
         }, m.ctxFor(c));
         hitFeedback(m, c, e.target, r, {});
+        // the frame of him passing through the space they are standing in —
+        // this, not a fist, is what is doing the damage
+        if (r === 'hit' || r === 'otg' || r === 'block') {
+          m.fx.filmFrameAt(e.target.pos.clone().add(v3(0, 1.15, 0)), c.facing, e.i);
+        }
         e.i++;
         if (e.i >= e.path.length) {
           c.model.projectionStep?.(c.pos, c.facing);
@@ -4097,6 +4495,16 @@ export class Effects {
         }
         if (e.t <= 0) {
           m.fx.rootBurst?.(e.pos, e.radius, e.natural);
+          // REAL WOOD, not billboards standing in for it: a ring of root
+          // clumps driven up out of the deck around the marked point
+          const clumps = e.natural ? 5 : 3;
+          for (let k = 0; k < clumps; k++) {
+            const a = (k / clumps) * Math.PI * 2 + rand(-0.3, 0.3);
+            const rr2 = e.radius * rand(0.25, 0.75);
+            m.fx.rootSurge(e.pos.clone().add(v3(Math.cos(a) * rr2, 0, Math.sin(a) * rr2)), {
+              len: rand(2.0, 3.2) * (e.natural ? 1.15 : 0.9), natural: e.natural, life: rand(0.85, 1.25)
+            });
+          }
           m.sfx.rootErupt?.();
           m.cam.shake(0.5);
           m.arena?.destruct?.damageAt(e.pos, e.radius + 1.0, 48, { kind: 'body' });
@@ -4119,35 +4527,6 @@ export class Effects {
           m.curses?.hurtAt(e.pos, e.radius + 0.4, e.dmg, e.caster);
           this.entities.splice(i, 1);
         }
-      } else if (e.type === 'budSeed') {
-        // the thrown seed. It travels, and on contact the parasite is planted
-        // — everything that matters afterwards lives in combat/flora.js.
-        e.life -= dt;
-        e.pos.addScaledVector(e.vel, dt);
-        e.fxT -= dt;
-        if (e.fxT <= 0) {
-          e.fxT = 0.04;
-          m.fx._spawn(e.pos.clone(), {
-            color: Math.random() < 0.5 ? 0x7fc46a : 0xe8bcc6, size: rand(0.06, 0.13),
-            life: 0.25, vel: v3(rand(-0.4, 0.4), rand(-0.2, 0.6), rand(-0.4, 0.4))
-          });
-        }
-        const tg = this.other(e.caster);
-        if (tg?.alive && !e.dealt && e.pos.distanceTo(tg.pos.clone().add(v3(0, 1.2, 0))) < 0.9) {
-          e.dealt = true;
-          const { dmg } = computeDamage(e.caster, e.dmg, { canCrit: false });
-          const r = tg.applyHit({
-            dmg, kb: 0.4, kbY: 0, hitstun: 12, type: 'light', attacker: e.caster,
-            isCT: true, sureHit: e.sure, dir: e.caster.forward(), src: 'ct2'
-          }, m.ctxFor(e.caster));
-          hitFeedback(m, e.caster, tg, r, {});
-          if (r !== 'iframe' && r !== 'blocked' && r !== 'whiff') {
-            m.flora.plantBud(e.caster, tg, e.def);
-          }
-          this.entities.splice(i, 1);
-          continue;
-        }
-        if (e.life <= 0) { m.sfx.whiff(); this.entities.splice(i, 1); }
       } else if (e.type === 'woodenBall') {
         // ---- HANAMI: WOODEN BALL ----------------------------------------
         // The kill attempt and the terrain play, in that order. The impact

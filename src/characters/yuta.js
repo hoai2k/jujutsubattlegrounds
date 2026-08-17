@@ -25,8 +25,13 @@ export const YUTA = withDefaults({
     hitstun: 26, armorFrames: 26, clip: 'ct1'
   },
   ct2: {
-    name: 'Rika: Lunge', cost: 12, startup: 12, active: 9, recovery: 16,
-    effect: 'yuta_lunge', dmg: 8, lungeSpeed: 14, reach: 1.6, kb: 1.2, hitstun: 18, clip: 'ct2'
+    // RIKA'S TEETH — she does it, not him: a spectral maw driven out ahead
+    // of him that closes on whatever it reaches. He is still dragged in
+    // behind it (this slot is his approach), but the hitbox is hers and it
+    // is out in front rather than on his shoulder.
+    name: 'Rika: Teeth', cost: 12, startup: 12, active: 9, recovery: 16,
+    effect: 'yuta_lunge', dmg: 8, speed: 15, range: 4.5,
+    lungeSpeed: 14, kb: 1.2, hitstun: 18, clip: 'ct2'
   },
   // Passive: after being hit by an opponent CT, B mimics a weaker copy once.
   // Passive COPY. Two ways to load the slot: land a punch on someone

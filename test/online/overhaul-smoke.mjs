@@ -22,7 +22,10 @@ const KEYS = [
   // round 2: hanami + gojo + sukuna + the rest of toji's arsenal
   'hanami_roots', 'gojo_red', 'gojo_blue', 'sukuna_dismantle',
   'toji_cloud_slam', 'toji_nullify', 'toji_soul_slash', 'toji_soul_cut',
-  'toji_chain_whip', 'toji_chain_snare'
+  'toji_chain_whip', 'toji_chain_snare',
+  // round 3: the de-punching pass — every one of these used to be a fist,
+  // a kick, or a body slamming into somebody
+  'hanami_rootswarm', 'naoya_rush', 'yuta_lunge', 'panda_slam'
 ];
 for (const key of KEYS) {
   const r = await A.page.evaluate((k) => {

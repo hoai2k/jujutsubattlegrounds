@@ -4,6 +4,11 @@ import * as THREE from 'three';
 import { makeGlowMat } from '../arena/arena.js';
 import { buildRika } from '../art/models/rika.js';
 import { rand, v3 } from '../core/mathutil.js';
+import {
+  buildRootClump, buildCEBloom, buildManji, buildFilmFrame, buildProjectionPlate,
+  buildPachinkoBall, buildSpear, buildChainRope, buildSoulBlade, buildPlayfulCloud,
+  buildNullifySeal, buildStoneSlab
+} from './props.js';
 
 function shadowTexture() {
   // white radial with alpha falloff; tinted black by the material so the
@@ -29,9 +34,30 @@ export class FXSystem {
     this.shadows = [];       // {mesh, fighter}
     this.auras = [];         // {mesh, fighter, t, color}
     this.beams = [];
+    this.props = [];         // procedural technique geometry — see fx/props.js
     this.rika = null;        // lazy spectral Rika
     this.rikaTimer = 0;
     this._shadowTex = shadowTexture();
+  }
+
+  // ---- PROCEDURAL PROPS ---------------------------------------------------
+  // A technique's actual geometry — roots, a thrown 卍, a pachinko ball, a
+  // spear — handed over with a lifetime and a per-frame driver. `onUpdate`
+  // receives (node, k, dt) with k running 0 -> 1 across `life`, so the move
+  // that owns the hitbox also owns the animation and the two cannot drift.
+  prop(node, life, onUpdate) {
+    this.scene.add(node);
+    this.props.push({ node, t: 0, life, onUpdate });
+    return node;
+  }
+  dropProp(node) {
+    const i = this.props.findIndex(p => p.node === node);
+    if (i >= 0) this.props.splice(i, 1);
+    this._disposeNode(node);
+  }
+  _disposeNode(node) {
+    this.scene.remove(node);
+    node.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
 
   attachShadow(fighter) {
@@ -1699,6 +1725,148 @@ export class FXSystem {
     return g;
   }
 
+  // ===========================================================================
+  // PROCEDURAL TECHNIQUE GEOMETRY. The builders live in fx/props.js; these
+  // wrappers give each prop its motion. Self-animating ones (roots, blooms,
+  // frames, slabs, seals) are fire-and-forget; the entity-driven ones return a
+  // bare node the owning mechanic moves itself, the way woodenBall already did.
+  // ===========================================================================
+
+  // HANAMI — a clump of roots surging out of the deck and sinking back. Overshoots
+  // its height on the way up and leans as it goes, so a run of them along a line
+  // reads as one thing travelling underground rather than five separate props.
+  rootSurge(pos, { len = 2.2, natural = false, lean = null, life = 1.1 } = {}) {
+    const node = buildRootClump(len, natural);
+    node.position.copy(pos);
+    node.rotation.y = rand(0, Math.PI * 2);
+    if (lean) {
+      // tip the whole clump along the direction of travel — gently, so the
+      // run of them rakes forward without lying down
+      node.rotation.x = lean.z * 0.16;
+      node.rotation.z = -lean.x * 0.16;
+    }
+    node.scale.set(1, 0.02, 1);
+    this.prop(node, life, (n, k) => {
+      // 0 -> 0.25 burst up with overshoot, hold, then withdraw
+      const up = k < 0.25 ? k / 0.25 : 1;
+      const grow = up < 1 ? 1.18 * Math.sin(up * Math.PI * 0.5) : 1;
+      const sink = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
+      n.scale.set(1, Math.max(0.02, grow * sink), 1);
+      n.rotation.y += 0.012;
+    });
+    this.debris(pos, 5, natural ? 0x4e7a3a : 0x6a4f34);
+    return node;
+  }
+
+  // YUJI — the cursed-energy bloom: forced up out of the ground, holds, and
+  // is gone. The effect detonates it on its own clock; this is just the object.
+  ceBloomAt(pos, radius = 1.3, life = 0.6) {
+    const node = buildCEBloom(radius);
+    node.position.copy(pos);
+    node.scale.setScalar(0.05);
+    this.prop(node, life, (n, k) => {
+      const s = k < 0.3 ? (k / 0.3) : 1 + Math.sin((k - 0.3) * 8) * 0.06;
+      n.scale.setScalar(Math.max(0.05, s * (k > 0.8 ? 1 - (k - 0.8) / 0.2 : 1)));
+      n.rotation.y += 0.05;
+      n.rotation.x += 0.02;
+    });
+    return node;
+  }
+
+  // NAOYA — one film frame popping into existence and shattering. The pane
+  // flashes out first, then the frame falls apart.
+  filmFrameAt(pos, facing = 0, idx = 0) {
+    const node = buildFilmFrame();
+    node.position.copy(pos);
+    node.rotation.y = facing + rand(-0.2, 0.2);
+    node.scale.setScalar(0.2);
+    this.prop(node, 0.4, (n, k) => {
+      n.scale.setScalar(k < 0.18 ? 0.2 + (k / 0.18) * 0.8 : 1 + k * 0.25);
+      const pane = n.userData.pane;
+      if (pane) pane.material.opacity = Math.max(0, 0.16 * (1 - k * 3));
+      n.traverse(o => { if (o.material && o !== pane) o.material.opacity = 1 - k * k; });
+      n.position.y += 0.6 * (k > 0.5 ? 0.02 : 0);
+    });
+    for (let i = 0; i < 6; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.6, 0.6), rand(-0.8, 0.8), rand(-0.3, 0.3))), {
+        color: idx % 2 ? 0xe8c85a : 0xfff0c0, size: rand(0.1, 0.22), aspect: 0.35,
+        life: rand(0.15, 0.3), vel: v3(rand(-2, 2), rand(-1, 3), rand(-2, 2))
+      });
+    }
+    return node;
+  }
+
+  // NAOYA — the afterimage he leaves standing in a position he has already left.
+  projectionPlateAt(pos, facing) {
+    const node = buildProjectionPlate();
+    node.position.copy(pos);
+    node.rotation.y = facing;
+    this.prop(node, 0.35, (n, k) => {
+      n.traverse(o => { if (o.material) o.material.opacity = (o.material.opacity ?? 1) * (1 - k * 0.14); });
+      n.scale.x = 1 + k * 0.3;
+    });
+    return node;
+  }
+
+  // SHARED — a slab of the deck driven up out of the floor, then crumbling.
+  stoneSlabAt(pos, { w = 1.1, h = 1.8, color = 0x6b6f78, life = 0.9 } = {}) {
+    const node = buildStoneSlab(w, h, color);
+    node.position.copy(pos);
+    node.scale.set(1, 0.05, 1);
+    this.prop(node, life, (n, k) => {
+      const up = Math.min(1, k / 0.18);
+      const fall = k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1;
+      n.scale.set(1, Math.max(0.05, up * fall), 1);
+    });
+    this.debris(pos, 6, color);
+    return node;
+  }
+
+  // TOJI — the seal the Inverted Spear stamps when it turns a technique off.
+  nullifySealAt(pos, radius = 1.4) {
+    const node = buildNullifySeal(radius);
+    node.position.copy(pos).add(v3(0, 1.1, 0));
+    node.quaternion.copy(this.camera.quaternion);
+    this.prop(node, 0.5, (n, k) => {
+      n.scale.setScalar(1 - k * 0.55);
+      n.rotation.z += 0.09;
+      n.traverse(o => { if (o.material) o.material.opacity = 1 - k; });
+    });
+    return node;
+  }
+
+  // ---- entity-driven nodes: the mechanic owns the motion ------------------
+  manjiNode(size = 1.1) { const n = buildManji(size); this.scene.add(n); return n; }
+  ballNode(r = 0.9, gold = false) { const n = buildPachinkoBall(r, gold); this.scene.add(n); return n; }
+  spearNode(len = 3.2) { const n = buildSpear(len); this.scene.add(n); return n; }
+  soulBladeNode(len = 3.0, big = false) { const n = buildSoulBlade(len, big); this.scene.add(n); return n; }
+  staffNode(len = 2.6) { const n = buildPlayfulCloud(len); this.scene.add(n); return n; }
+  chainNode(links = 14) { const n = buildChainRope(links); this.scene.add(n); return n; }
+
+  // lay a chain node between two world points: one position, one quaternion,
+  // one stretch along its own +Z
+  layChain(node, from, to) {
+    if (!node) return;
+    const d = to.clone().sub(from);
+    const len = Math.max(0.001, d.length());
+    node.position.copy(from);
+    node.quaternion.setFromUnitVectors(v3(0, 0, 1), d.clone().normalize());
+    node.scale.z = len / (node.userData.length || 1);
+  }
+
+  // drop an entity-driven node with a small burst so it never just vanishes
+  popProp(node, color = 0xffffff) {
+    if (!node) return;
+    for (let i = 0; i < 8; i++) {
+      const a = rand(0, Math.PI * 2);
+      this._spawn(node.position.clone(), {
+        color, size: rand(0.1, 0.26), life: rand(0.15, 0.3),
+        vel: v3(Math.cos(a) * rand(2, 6), rand(-1, 3), Math.sin(a) * rand(2, 6))
+      });
+    }
+    this._disposeNode(node);
+  }
+
   update(dt) {
     for (let i = this.parts.length - 1; i >= 0; i--) {
       const p = this.parts[i];
@@ -1723,6 +1891,13 @@ export class FXSystem {
       b.life -= dt;
       if (b.life <= 0) { this.scene.remove(b.mesh); this.beams.splice(i, 1); continue; }
       b.mesh.material.opacity = b.life / b.maxLife;
+    }
+    for (let i = this.props.length - 1; i >= 0; i--) {
+      const p = this.props[i];
+      p.t += dt;
+      const k = p.life > 0 ? Math.min(1, p.t / p.life) : 1;
+      if (p.onUpdate) p.onUpdate(p.node, k, dt);
+      if (p.t >= p.life) { this._disposeNode(p.node); this.props.splice(i, 1); }
     }
     // the shutter rides its owner's facing and rolls up over its first beat
     if (this.shutters) {

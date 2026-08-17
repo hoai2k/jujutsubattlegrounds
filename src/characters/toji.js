@@ -131,8 +131,13 @@ export const TOJI = withDefaults({
           kb: 2.6, kbY: 0.4, hitstun: 15, clip: 'ct1Cloud'
         },
         ct2: {
-          name: 'Overhead Slam', cost: 0, startup: 19, active: 6, recovery: 30,
+          // THE FISSURE — the staff comes down on the DECK, not on a person,
+          // and the floor splits: a run of stone slabs driven up along a
+          // stick-steered line out to seven metres. Guard break unchanged;
+          // the reach is no longer a 2.5 m arc.
+          name: 'Fissure Slam', cost: 0, startup: 19, active: 6, recovery: 30,
           effect: 'toji_cloud_slam', dmg: 21, reach: 2.5, arc: 1.5,
+          fissureRange: 7, fissureSpeed: 16, fissureRadius: 1.4,
           kb: 6.2, kbY: 0, hitstun: 34, guardBreak: true, step: 2.2, clip: 'ct2Cloud'
         }
       },

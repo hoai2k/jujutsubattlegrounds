@@ -55,12 +55,17 @@ export const HAKARI = withDefaults({
     kb: 5.0, kbY: 1.4, hitstun: 32, armorFrames: 10, clip: 'ct1'
   },
   ct2: {
-    // RUSH BLOW — a fast advancing straight. Cheap, closes distance, and
-    // `chainPunch` lets it cancel straight into the punch string on recovery,
-    // which is the whole approach: rush in, string, launcher.
-    name: 'Rush Blow', cost: 12, startup: 11, active: 8, recovery: 18,
-    effect: 'hakari_rush', dmg: 9, lungeSpeed: 13.5, reach: 1.7,
-    kb: 2.2, kbY: 0, hitstun: 20, chainPunch: true, clip: 'ct2'
+    // BALL DROP 大玉 — he pulls the lever and the machine delivers: a
+    // person-sized pachinko ball (real geometry) dropped on the deck that
+    // then ROLLS twelve metres down a stick-steered lane, ploughing through
+    // whoever is in it. Still his approach — he walks in behind it — but the
+    // thing doing the hitting is the machine, not his knuckles. `chainPunch`
+    // is kept: catching up to his own ball and cancelling into the string is
+    // the loop the slot exists for.
+    name: 'Ball Drop', jpName: '大玉', cost: 12,
+    startup: 11, active: 8, recovery: 18,
+    effect: 'hakari_rush', dmg: 9, ballRadius: 0.85, speed: 11, range: 12,
+    kb: 4.5, kbY: 1.2, hitstun: 24, chainPunch: true, clip: 'ct2'
   },
   // SPECIAL — SHUTTER (B): a rolling shutter door hauled up in front
   // of him. Projectiles do not get through it at all; the first melee hit
@@ -173,5 +178,5 @@ export const HAKARI = withDefaults({
   barrierBreak: { ceDrain: 30, chip: 24 },
   // Yuta stores the technique, never the gamble: Rush Blow is the only thing
   // about Hakari that is a technique in the ordinary sense.
-  copyEffect: { effect: 'hakari_rush', dmg: 7, name: 'Copied: Rush Blow' }
+  copyEffect: { effect: 'hakari_rush', dmg: 7, name: 'Copied: Ball Drop' }
 });

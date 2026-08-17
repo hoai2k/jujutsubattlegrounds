@@ -493,12 +493,16 @@ export class CPU {
           this._edges(f);
           return f;
         }
-        // 2. the seed — and it is thrown at a target who does not already
-        //    have one, because re-planting only refreshes it
+        // 2. THE ROOT SWARM. Sent at a target who does not already carry the
+        //    bud (a second one only refreshes it) and only from inside its
+        //    own range — it is a line that travels, so it wants them roughly
+        //    in front rather than merely nearby. The CPU aims it by walking
+        //    into them, which is exactly how the stick-steering reads.
         this._budT = (this._budT ?? 0) - dt;
-        if (this._budT <= 0 && dist < (me.cfg.ct2.range ?? 7) && !fl?.budOn(foe)
+        if (this._budT <= 0 && dist < (me.cfg.ct2.range ?? 11) - 1.5 && !fl?.budOn(foe)
           && me.res.curCE >= me.cfg.ct2.cost + 8) {
           f.ct2 = true;
+          f.move.z = 1;                 // lean into the swarm's direction
           this._budT = rand(1.4, 2.4);
           this._edges(f);
           return f;

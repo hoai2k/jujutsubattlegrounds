@@ -86,7 +86,10 @@ export const NAOYA = withDefaults({
   // afterimage at each — so what the opponent sees is six stationary Naoyas in
   // a line and the real one standing behind them.
   ct1: {
-    name: 'Projection Rush', jpName: '投射呪法', cost: 18,
+    // PROJECTION CASCADE — he never touches them. Six positions on a 24 fps
+    // grid, a gold afterimage plate left standing in each, and the damage is
+    // the projection frame passing through the space their body is in.
+    name: 'Projection Cascade', jpName: '投射呪法', cost: 18,
     startup: 8, active: 15, recovery: 5,          // 28f total — very fast
     effect: 'naoya_rush', clip: 'rush',
     steps: 6, dmgPerHit: 3.4, hitstun: 10, kb: 0.5, stepDist: 1.55,
@@ -248,5 +251,5 @@ export const NAOYA = withDefaults({
   // the worst idea in this file. The Rush is the recognisable thing, it is an
   // attack (which is what Copy holds), and it is safely mediocre in somebody
   // else's hands.
-  copyEffect: { effect: 'naoya_rush', dmg: 3.0, name: 'Copied: Projection Rush' }
+  copyEffect: { effect: 'naoya_rush', dmg: 3.0, name: 'Copied: Projection Cascade' }
 });
