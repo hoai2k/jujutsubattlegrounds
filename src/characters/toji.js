@@ -122,8 +122,12 @@ export const TOJI = withDefaults({
         name: 'PLAYFUL CLOUD', short: 'CLOUD', jp: '游雲', clipSuffix: 'Cloud',
         desc: 'BLUNT · SPACE CONTROL · GUARD BREAK',
         ct1: {
-          name: 'Spinning Sweep', cost: 0, startup: 11, active: 22, recovery: 22,
-          effect: 'toji_cloud_sweep', dmg: 6, hits: 4, radius: 2.9,
+          // CLOUD CYCLONE — the three-section staff opened out and spun as a
+          // half-second whirl AROUND him: four ticks on everything in the
+          // circle. Same total damage as the old sweep, drawn as the flurry
+          // it always claimed to be.
+          name: 'Cloud Cyclone', cost: 0, startup: 11, active: 22, recovery: 22,
+          effect: 'toji_cloud_sweep', dmg: 6, hits: 4, duration: 0.55, radius: 2.9,
           kb: 2.6, kbY: 0.4, hitstun: 15, clip: 'ct1Cloud'
         },
         ct2: {
@@ -140,8 +144,12 @@ export const TOJI = withDefaults({
         name: 'INVERTED SPEAR', short: 'SPEAR', jp: '天逆鉾', clipSuffix: 'Spear',
         desc: 'PIERCE · NULLIFIES CURSED TECHNIQUES',
         ct1: {
+          // VACUUM LANCE — the thrust drawn as what it is: a thin hard line
+          // of white down the spear's whole 4.2 m, resolved as a LINE test
+          // so the picture and the hitbox are the same object. Longer than
+          // the old arc, easier to sidestep; that trade is the weapon.
           name: 'Piercing Thrust', cost: 0, startup: 8, active: 4, recovery: 18,
-          effect: 'toji_spear_thrust', dmg: 12, reach: 3.4, arc: 0.7,
+          effect: 'toji_spear_thrust', dmg: 12, reach: 4.2, width: 0.75,
           kb: 3.0, kbY: 0, hitstun: 20, step: 2.4, clip: 'ct1Spear'
         },
         // ---- NULLIFY 強制解除 ------------------------------------------

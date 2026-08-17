@@ -107,10 +107,16 @@ export const NAOYA = withDefaults({
   // the game still needs one move a good opponent can beat on reaction, or the
   // matchup has no texture in it.
   ct2: {
-    name: 'Frame Kick', jpName: '投射呪法・蹴撃', cost: 22,
+    // FRAME 24 — the same kick delivered as a REEL: six frozen gold frames
+    // laid down a line (stick-steered), one popping per 1/24 s. The first
+    // frame that connects delivers the whole kick's enormous knockback and
+    // burns the rest of the reel. The 26-frame chambered tell is unchanged
+    // and is still the whole negotiation.
+    name: 'Frame 24', jpName: '投射呪法・蹴撃', cost: 22,
     startup: 26, active: 5, recovery: 12,         // 43f = the clip's 0.72 s
     effect: 'naoya_framekick', clip: 'framekick',
-    dmg: 17, reach: 2.85, kb: 13.0, kbY: 1.6, hitstun: 34, type: 'knockdown',
+    dmg: 17, frames: 6, spacing: 1.15, radius: 1.15,
+    kb: 13.0, kbY: 1.6, hitstun: 34, type: 'knockdown',
     step: 3.2,
     // it throws them through walls
     destruct: 46

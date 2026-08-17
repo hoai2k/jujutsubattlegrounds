@@ -16,9 +16,13 @@ export const YUTA = withDefaults({
     reach: 2.1, kb: 5.4, hitstun: 32, step: 2.2, staminaCost: 22, armorFrames: 16
   },
   ct1: {
-    name: 'Rika: Cleave', cost: 18, startup: 26, active: 6, recovery: 30,
-    effect: 'yuta_rika_swing', dmg: 14, reach: 2.7, arc: 2.4, kb: 5, kbY: 1.5,
-    armorFrames: 26, clip: 'ct1'
+    // RIKA'S GRASP — her oversized spectral hand flown down the lane
+    // (stick-steered). What it catches it BRINGS BACK, deposited at arm's
+    // reach in front of Yuta with the combo already his: the payoff moved
+    // from knockback to position, which is the scarier gift.
+    name: 'Rika: Grasp', cost: 18, startup: 26, active: 6, recovery: 30,
+    effect: 'yuta_rika_swing', dmg: 14, range: 6.0, speed: 17, dragGap: 1.6,
+    hitstun: 26, armorFrames: 26, clip: 'ct1'
   },
   ct2: {
     name: 'Rika: Lunge', cost: 12, startup: 12, active: 9, recovery: 16,

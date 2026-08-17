@@ -290,6 +290,23 @@ export class Effects {
   // techniques hit whoever the caster is currently closest to
   other(f) { return this.match.other(f); }
 
+  // ---- MOVEMENT-STEERED CASTS ---------------------------------------------
+  // The overhauled techniques ride the left stick: hold a direction while the
+  // cast comes out and the wave / swarm / rupture goes THAT way instead of
+  // straight ahead — the same read Jogo's and Hanami's eruptions already use
+  // for their ground markers, promoted to a roster-wide signature. Neutral
+  // falls back to facing, so a player who never learns it loses nothing.
+  _castDir(caster) {
+    const inp = this.match.inputFor?.(caster);
+    const mv = inp?.move;
+    if (mv && Math.hypot(mv.x, mv.z) > 0.25) {
+      const d = caster._moveVec(mv);
+      d.y = 0;
+      if (d.lengthSq() > 0.001) return d.normalize();
+    }
+    return caster.forward();
+  }
+
   // ---- KASHIMO: THE MAX-TIER DISCHARGE ------------------------------------
   // Called from the melee path (hits.js) on every CONFIRMED normal while he is
   // at tier 3, and from nowhere else. What it is NOT: a second hit on the
@@ -492,33 +509,28 @@ export class Effects {
         break;
       }
 
-      // FRAME KICK. One committed strike with enormous knockback. Nothing
-      // clever: it is the ender, and the interest is all in the 26-frame tell
-      // the animation gives it.
+      // FRAME KICK → FRAME 24. The kick is no longer one strike: it is the
+      // SAME kick delivered as a stack of frozen frames laid down a line, one
+      // frame popping per 1/24 s — the projection sorcery drawn on screen.
+      // Each frame is a hitbox for exactly one tick; the first one that
+      // connects delivers the whole kick's enormous knockback and burns the
+      // rest of the reel. The line is steered by the stick at cast, and the
+      // 26-frame tell is still the whole negotiation.
       case 'naoya_framekick': {
-        const reach = (opts.reach ?? 2.85) * caster.reachScale;
         m.sfx.frameKick?.();
         caster.model.projectionAttach?.(m.root);
         caster.model.projectionStep?.(caster.pos, caster.facing);
-        const foot = caster.pos.clone().setY(1.0).addScaledVector(caster.forward(), reach * 0.7);
-        for (let i = 0; i < 14; i++) {
-          m.fx._spawn(foot, {
-            color: i % 3 === 0 ? 0xfff0c0 : 0xe8c85a, size: rand(0.12, 0.34), aspect: 0.3,
-            life: rand(0.12, 0.26), vel: caster.forward().clone().multiplyScalar(rand(6, 18))
-              .add(v3(rand(-2, 2), rand(-1, 2), rand(-2, 2)))
-          });
-        }
-        m.fx._ring(foot, 0xe8c85a, { size: 0.5, growRate: 12, life: 0.22, flat: false });
-        m.arena?.destruct?.damageAt(foot, 2.0, opts.destruct ?? 46);
-        if (sure || inArc(caster, t, reach, 1.0)) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 17) * mult);
-          const r = t.applyHit({
-            ...hitOpts, dmg, kb: opts.kb ?? 13, kbY: opts.kbY ?? 1.6,
-            hitstun: opts.hitstun ?? 34, type: 'knockdown'
-          }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true });
-          m.cam.shake(0.7); m.cam.fovKick(8); m.hitstop(8);
-        }
+        const dir = this._castDir(caster);
+        const frames = opts.frames ?? 6;
+        const spacing = (opts.spacing ?? 1.15) * caster.reachScale;
+        this.entities.push({
+          type: 'frameLine', caster, sure, dir,
+          origin: caster.pos.clone(), i: 0, frames, spacing,
+          t: 0, interval: 1 / 24, radius: opts.radius ?? 1.15,
+          dmg: (opts.dmg ?? 17) * mult, kb: opts.kb ?? 13, kbY: opts.kbY ?? 1.6,
+          hitstun: opts.hitstun ?? 34, destruct: opts.destruct ?? 46, hitOpts
+        });
+        m.cam.shake(0.3);
         break;
       }
 
@@ -759,27 +771,24 @@ export class Effects {
       // mid-range game, and a radius burst at 2.45 m is the honest version of
       // "mid-range" for a fighter with no ranged tool at all.
       case 'panda_palm': {
-        const radius = opts.radius ?? 2.45;
-        const at = caster.pos.clone().setY(0.9).addScaledVector(caster.forward(), radius * 0.5);
+        // QUAKE PALM. The palm goes into the FLOOR, and the floor carries it:
+        // a rupture front of thrown turf and stone that runs six and a half
+        // metres down the lane, steered by the stick, popping whoever it
+        // reaches into the air. His only ranged tool, and the balanced core's
+        // reason to exist — the other two stances hit harder up close.
         m.sfx.pandaPalm?.();
-        m.cam.shake(0.3);
-        m.fx._ring(at.clone().setY(0.06), 0xdfe4ee, { size: 0.4, growRate: radius * 5, life: 0.28 });
-        for (let i = 0; i < 14; i++) {
-          const a = Math.random() * Math.PI * 2;
-          m.fx._spawn(at.clone().add(v3(Math.cos(a) * rand(0.2, radius), rand(0, 0.7), Math.sin(a) * rand(0.2, radius))), {
-            color: i % 3 === 0 ? 0xffffff : 0xb9c2d2, size: rand(0.10, 0.26),
-            life: rand(0.14, 0.30), vel: v3(Math.cos(a) * 3, rand(0.5, 2.5), Math.sin(a) * 3)
-          });
-        }
-        m.arena?.destruct?.damageAt(at, radius, 22);
-        if (sure || flatDist(t.pos, at) < radius + (t.hurtBox?.radius ?? 0.62)) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 13) * mult);
-          const r = t.applyHit({
-            ...hitOpts, dmg, kb: opts.kb ?? 4.5, kbY: opts.kbY ?? 0.8,
-            hitstun: opts.hitstun ?? 24, type: 'heavy'
-          }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true });
-        }
+        m.cam.shake(0.4);
+        const dir = this._castDir(caster);
+        m.fx._ring(caster.pos.clone().setY(0.06).addScaledVector(dir, 0.8),
+          0xdfe4ee, { size: 0.4, growRate: 10, life: 0.28 });
+        this.entities.push({
+          type: 'quakeWave', caster, sure, dir,
+          pos: caster.pos.clone().setY(0).addScaledVector(dir, 1.0),
+          spd: opts.speed ?? 12, travelled: 0, range: opts.range ?? 6.5,
+          radius: opts.radius ?? 1.5, dealt: false,
+          dmg: (opts.dmg ?? 13) * mult, kb: opts.kb ?? 3.5, kbY: opts.kbY ?? 6.5,
+          hitstun: opts.hitstun ?? 26, hitOpts, fxT: 0
+        });
         break;
       }
 
@@ -1011,13 +1020,23 @@ export class Effects {
         break;
       }
       case 'yuta_rika_swing': {
+        // RIKA'S GRASP. She still appears at his shoulder — but now her ARM
+        // goes out: an oversized spectral hand flown down the lane, and what
+        // it catches it BRINGS BACK, deposited at arm's reach in front of
+        // Yuta with the combo already his. The swing's damage is unchanged;
+        // the payoff moved from knockback to position, which is the scarier
+        // gift. Whiffing leaves the hand to dissolve at full extension.
         m.fx.rikaFlash(caster, 'swing');
         m.sfx.rikaSwing();
-        if (sure || inArc(caster, t, opts.reach ?? 2.7, opts.arc ?? 2.4)) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 14) * mult);
-          const r = t.applyHit({ ...hitOpts, dmg, kb: opts.kb ?? 5, kbY: opts.kbY ?? 1.5, hitstun: 24, type: 'heavy' }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true });
-        }
+        const dir = this._castDir(caster);
+        this.entities.push({
+          type: 'rikaHand', caster, sure, dir,
+          pos: caster.pos.clone().add(v3(0, 1.3, 0)).addScaledVector(dir, 1.0),
+          spd: opts.speed ?? 17, travelled: 0, range: opts.range ?? 6.0,
+          dmg: (opts.dmg ?? 14) * mult, hitstun: opts.hitstun ?? 26,
+          dragGap: opts.dragGap ?? 1.6,
+          node: m.fx.rikaHandNode(), hitOpts, fxT: 0
+        });
         break;
       }
       case 'yuta_lunge': {
@@ -1052,17 +1071,26 @@ export class Effects {
         break;
       }
       case 'nanami_cleave': {
+        // RATIO WAVE. The blunt blade projects its edge: a wide bar of gold
+        // that crosses seven metres of floor with the white 7:3 line drawn on
+        // its face. The technique IS the ratio, so the wave enforces it —
+        // caught in the band around seventy percent of its range, the hit is
+        // a guaranteed critical, exactly as if the blade itself had found the
+        // weak point. Landing anywhere still applies the 7:3 mark.
         m.fx.cleaveArc(caster);
         m.sfx.cleave();
-        if (sure || inArc(caster, t, opts.reach ?? 2.2, opts.arc ?? 1.8)) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 12) * mult);
-          const r = t.applyHit({ ...hitOpts, dmg, kb: opts.kb ?? 3.5, kbY: opts.kbY ?? 0.5, hitstun: 22, type: 'heavy' }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true });
-          if (r === 'hit' && opts.appliesMark && caster.cfg.ratio) {
-            caster.ratioMark = true;
-            m.hud.toast(caster, '7:3 MARKED');
-          }
-        }
+        const dir = this._castDir(caster);
+        const range = opts.range ?? 7.0;
+        this.entities.push({
+          type: 'ratioWave', caster, sure, dir,
+          pos: caster.pos.clone().add(v3(0, 1.1, 0)).addScaledVector(dir, 0.8),
+          spd: opts.speed ?? 15, travelled: 0, range,
+          sweetLo: range * 0.6, sweetHi: range * 0.8,
+          width: opts.width ?? 2.4, dmg: (opts.dmg ?? 12) * mult,
+          kb: opts.kb ?? 3.5, kbY: opts.kbY ?? 0.5, hitstun: opts.hitstun ?? 22,
+          appliesMark: !!(opts.appliesMark && caster.cfg.ratio),
+          hitOpts, fxT: 0
+        });
         break;
       }
       case 'nanami_overtime': {
@@ -1073,8 +1101,13 @@ export class Effects {
         break;
       }
       case 'yuji_divergent': {
-        // the fist lands now; the cursed energy arrives a beat later and
-        // launches. Both impacts open Yuji's Black Flash window.
+        // DIVERGENT FIST. The fist lands now; the cursed energy arrives a
+        // beat later as a VISIBLE crimson ghost of the same punch, erupting
+        // out of the body it is already inside. Both impacts open the Black
+        // Flash window. NEW: a whiffed fist is no longer a dead move — the
+        // late energy has to go SOMEWHERE, so it discharges forward as a
+        // short-range ghost-fist projectile. Weaker, no Black Flash, and the
+        // chain still dies — but the whiff now says what the technique IS.
         m.fx.divergentJab(caster);
         m.sfx.hit(true);
         if (sure || inArc(caster, t, opts.reach ?? 1.9, opts.arc ?? 1.6)) {
@@ -1085,17 +1118,37 @@ export class Effects {
           this.entities.push({ type: 'yujiShock', t: opts.delay ?? 0.45, caster, dmg: (opts.dmg2 ?? 10) * mult, sure });
         } else {
           caster.bfChain = 0; // whiffed the technique: the chain is done
+          const dir = caster.forward();
+          this.entities.push({
+            type: 'ghostFist', caster, dir, delay: opts.delay ?? 0.45,
+            pos: caster.pos.clone().add(v3(0, 1.3, 0)).addScaledVector(dir, 1.2),
+            spd: opts.ghostSpeed ?? 16, travelled: 0, range: opts.ghostRange ?? 6.5,
+            dmg: (opts.dmg2 ?? 10) * 0.7 * mult, hitOpts, fxT: 0
+          });
         }
         break;
       }
       case 'yuji_manji': {
+        // MANJI KICK. The kick still carries him in — and now it THROWS the
+        // 卍: a spinning crescent of cursed energy released off the heel,
+        // steered by the stick, so the lunge and the wave bracket the
+        // opponent from two directions at once. The old single hit's damage
+        // is split across the pair; eating both costs slightly more.
         const fw = caster.forward();
         caster.vel.x = fw.x * (opts.lungeSpeed ?? 13.5);
         caster.vel.z = fw.z * (opts.lungeSpeed ?? 13.5);
         if (opts.staminaCost) caster.res.stamina = Math.max(0, caster.res.stamina - opts.staminaCost);
         this.entities.push({
-          type: 'lungeHit', caster, frames: 14, dmg: (opts.dmg ?? 11) * mult,
+          type: 'lungeHit', caster, frames: 14, dmg: (opts.dmg ?? 6) * mult,
           kb: opts.kb ?? 7, hitstun: opts.hitstun ?? 24, heavy: true, src
+        });
+        const dir = this._castDir(caster);
+        this.entities.push({
+          type: 'crescent', caster, sure, dir,
+          pos: caster.pos.clone().add(v3(0, 1.2, 0)).addScaledVector(dir, 0.9),
+          spd: opts.waveSpeed ?? 15, travelled: 0, range: opts.waveRange ?? 7,
+          dmg: (opts.waveDmg ?? 7) * mult, kb: 4, kbY: 1.5, hitstun: 22,
+          color: 0xffa04a, hitOpts, fxT: 0
         });
         m.sfx.lunge();
         m.fx.dashTrail(caster);
@@ -1114,17 +1167,27 @@ export class Effects {
         break;
       }
       case 'todo_clapcombo': {
-        // rushing double-handed strike ending in a wide clap shockwave —
-        // rides the lunge window so the rush itself connects
-        const fw = caster.forward();
-        caster.vel.x = fw.x * (opts.lungeSpeed ?? 9);
-        caster.vel.z = fw.z * (opts.lungeSpeed ?? 9);
+        // RESONANT CLAP. He claps and the CONCUSSION goes without him: a wall
+        // of pink shock that crosses the arena at head height, steered by the
+        // stick at cast. What it does on arrival is drag the body BACK toward
+        // Todo — a clap is a pressure wave, and the low-pressure pocket behind
+        // it is the half everyone forgets. Mechanically that pull is the whole
+        // move: it feeds the Vice Grab, which is the fight he wants.
+        const dir = this._castDir(caster);
         this.entities.push({
-          type: 'lungeHit', caster, frames: opts.active ?? 8, dmg: (opts.dmg ?? 16) * mult,
-          kb: opts.kb ?? 6, hitstun: opts.hitstun ?? 26, heavy: true, radius: opts.radius ?? 2.5, clapRing: true, src
+          type: 'clapWave', caster, sure, dir,
+          pos: caster.pos.clone().add(v3(0, 1.1, 0)).addScaledVector(dir, 0.8),
+          spd: opts.speed ?? 13, travelled: 0, range: opts.range ?? 8.5,
+          width: opts.width ?? 2.6, pull: opts.pull ?? 3.2,
+          dmg: (opts.dmg ?? 14) * mult, kb: opts.kb ?? 2.0,
+          hitstun: opts.hitstun ?? 26, hitOpts, fxT: 0, dealt: false
         });
+        // the clap itself, at the hands
+        const at = caster.pos.clone().add(v3(0, 1.35, 0)).addScaledVector(dir, 0.7);
+        m.fx._ring(at, TODO_ACCENT, { size: 0.4, growRate: 14, life: 0.3, flat: false });
+        m.fx._spawn(at, { color: 0xffffff, size: 0.7, life: 0.16, vel: v3() });
         m.sfx.clap();
-        m.fx.dashTrail(caster);
+        m.cam.shake(0.3);
         break;
       }
       case 'todo_grab': {
@@ -1263,6 +1326,9 @@ export class Effects {
               t.buffs.soulWound = sw.duration;
               t.soulWoundMult = sw.dmgTakenMult;
               m.hud.toast(t, 'SOUL WOUND');
+              // the touched soul yanked briefly visible — the read for "your
+              // shape is his now" that a bare ring never carried
+              m.fx.soulRip(t.pos.clone());
               m.fx._ring(t.pos.clone().add(v3(0, 1.25, 0)), 0x8b9bab, { size: 0.4, growRate: 6, life: 0.4, flat: false });
             }
             m.domains.transfigChunk(caster, t, 'soulTouch', r === 'block');
@@ -1273,21 +1339,24 @@ export class Effects {
         break;
       }
       case 'mahito_bodyweapon': {
-        // BODY WEAPON: the arm reshapes (blade / hammer / spike fan — the
-        // model shows the actual geometry) and swings. Committed, high damage.
-        const variant = opts.variant ?? caster.bwVariant ?? 0;
+        // BODY LANCE. The arm no longer swings — it LEAVES: reshaped into a
+        // segmented lance of pale flesh that shoots out six and a half metres
+        // and reels back in, steered by the stick as it extends. The hammer
+        // variant still flattens on connect. Idle Transfiguration rides the
+        // steel exactly as it rode the swing: any touch feeds the soul chunk.
+        // clamp: bwVariant is -1 until startCT's rotation first picks one
+        // (a copied or sure-hit cast can arrive before that)
+        const variant = Math.max(0, opts.variant ?? caster.bwVariant ?? 0);
         caster.model.showBodyWeapon?.(variant);
-        m.fx.dashTrail(caster);
         m.sfx.bodyMorph(variant);
-        if (sure || inArc(caster, t, opts.reach ?? 2.6, opts.arc ?? 1.9)) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 16) * mult);
-          const type = variant === 1 ? 'knockdown' : 'heavy'; // the hammer flattens
-          const r = t.applyHit({ ...hitOpts, dmg, kb: opts.kb ?? 5, kbY: opts.kbY ?? 2, hitstun: opts.hitstun ?? 30, type }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true, knockdown: type === 'knockdown' });
-          if (r === 'hit' || r === 'otg' || r === 'block') {
-            m.domains.transfigChunk(caster, t, 'bodyWeapon', r === 'block');
-          }
-        }
+        const dir = this._castDir(caster);
+        this.entities.push({
+          type: 'bodyLance', caster, sure, dir, variant,
+          t: 0, extend: opts.extendTime ?? 0.22, hold: opts.holdTime ?? 0.1,
+          reach: opts.reach ?? 6.5, dealt: false,
+          dmg: (opts.dmg ?? 16) * mult, kb: opts.kb ?? 5, kbY: opts.kbY ?? 2,
+          hitstun: opts.hitstun ?? 30, hitOpts, fxT: 0
+        });
         break;
       }
       case 'mahito_summon': {
@@ -1560,28 +1629,31 @@ export class Effects {
 
       // ---- HAKARI: BASE KIT -----------------------------------------------
       case 'hakari_smash': {
-        // CURSED ENERGY SMASH: the overhead lands and a ring of cursed energy
-        // goes out from the point of impact. Type `knockdown` and otgOk, so it
-        // is his wake-up tool as well as his hardest single hit.
-        const reach = opts.reach ?? 2.2, radius = opts.radius ?? 2.7;
-        const at = caster.pos.clone().setY(0.06).addScaledVector(caster.forward(), reach * 0.6);
-        m.fx.ceShockwave(caster, radius);
-        m.sfx.ceSmash();
-        m.cam.shake(0.5);
-        m.cam.fovKick(6);
-        m.arena?.destruct?.damageAt(at.clone().setY(0.8), radius + 0.6, 70);
-        m.arena?.splash?.(at.x, at.z, 1.3);
-        if (sure || inArc(caster, t, reach, opts.arc ?? 1.5)) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 17) * mult);
-          const r = t.applyHit({
-            ...hitOpts, dmg, kb: opts.kb ?? 5, kbY: opts.kbY ?? 1.4,
-            hitstun: opts.hitstun ?? 32, type: 'knockdown', otgOk: true
-          }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true, knockdown: true });
-          m.hitstop(10);
-        } else {
-          m.sfx.whiff();
+        // PACHINKO VOLLEY. He pulls an invisible lever and the machine PAYS:
+        // a fan of neon pachinko balls launched down the lane, bouncing off
+        // the floor with loose homing, steered by the stick. The last ball is
+        // GOLD — the payout ball — and it alone knocks down (otgOk kept, so
+        // the volley is still his wake-up tool). The old overhead's damage is
+        // split across the rack; eating the whole rack costs slightly more.
+        const dir = this._castDir(caster);
+        const count = opts.count ?? 6;
+        for (let i = 0; i < count; i++) {
+          const gold = i === count - 1;
+          const spread = (i - (count - 1) / 2) * 0.16;
+          const d = dir.clone().applyAxisAngle(v3(0, 1, 0), spread);
+          this.entities.push({
+            type: 'pachinko', caster, sure, gold,
+            pos: caster.pos.clone().add(v3(0, 1.0, 0)).addScaledVector(d, 0.6),
+            vel: d.clone().multiplyScalar((opts.speed ?? 14) * rand(0.9, 1.1)).setY(rand(1.5, 3.5)),
+            spd: opts.speed ?? 14, homing: opts.homing ?? 1.6,
+            dmg: (gold ? (opts.goldDmg ?? 6) : (opts.dmg2 ?? 3.2)) * mult,
+            life: opts.lifetime ?? 1.3, delay: i * 0.06, fxT: 0, hitOpts
+          });
         }
+        m.fx._ring(caster.pos.clone().add(v3(0, 1.1, 0)).addScaledVector(dir, 0.7),
+          0x69f0ae, { size: 0.4, growRate: 10, life: 0.3, flat: false });
+        m.sfx.ceSmash();
+        m.cam.shake(0.35);
         break;
       }
       case 'hakari_rush': {
@@ -1695,25 +1767,35 @@ export class Effects {
 
       // ---- HIGURUMA ------------------------------------------------------
       case 'higuruma_gavel': {
-        // GAVEL STRIKE: a cursed-energy gavel raised overhead and brought
-        // down, with a small shockwave where it lands. His only real damage
-        // tool, and slow enough that it is a read rather than a poke.
-        const at = caster.pos.clone().addScaledVector(caster.forward(), (opts.reach ?? 2.0) * 0.7).setY(0.05);
-        m.fx.gavelSlam?.(at, opts.radius ?? 2.4);
-        m.sfx.gavel?.();
-        m.cam.shake(0.35);
-        m.arena?.destruct?.damageAt(at.clone().setY(0.6), (opts.radius ?? 2.4) + 0.6, 40);
-        m.arena?.splash?.(at.x, at.z, 1.2);
-        if (sure || inArc(caster, t, opts.reach ?? 2.0, opts.arc ?? 1.5)) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 15) * mult);
-          const r = t.applyHit({
-            ...hitOpts, dmg, kb: opts.kb ?? 4.2, kbY: opts.kbY ?? 1.2,
-            hitstun: opts.hitstun ?? 30, type: 'knockdown'
-          }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true, knockdown: true });
+        // VERDICT. The gavel no longer swings — it is PASSED DOWN: an
+        // oversized cursed-energy gavel condenses over a marked patch of
+        // ground and falls, stamping a court seal where it lands. Aim with
+        // the stick exactly like the roster's two eruptions; neutral leads
+        // the opponent's feet. Landing it files the blow as evidence, which
+        // is the character's whole economy arriving in his damage button.
+        const inp = m.inputFor(caster);
+        const mv = inp?.move ?? { x: 0, z: 0 };
+        const at = v3();
+        if (Math.hypot(mv.x, mv.z) > 0.25) {
+          const aim = caster._moveVec(mv);
+          const mag = Math.min(1, Math.hypot(mv.x, mv.z));
+          at.copy(caster.pos).addScaledVector(aim.normalize(), (opts.aimRange ?? 7) * mag);
         } else {
-          m.sfx.whiff();
+          at.copy(t.pos).addScaledVector(v3(t.vel.x, 0, t.vel.z), (opts.delay ?? 0.6) * 0.6);
         }
+        at.y = 0;
+        const rr = Math.hypot(at.x, at.z);
+        const lim = caster.arenaRadius - 0.3;
+        if (rr > lim) { at.x *= lim / rr; at.z *= lim / rr; }
+        const radius = opts.radius ?? 2.5;
+        this.entities.push({
+          type: 'gavelDrop', caster, sure, pos: at, t: 0,
+          delay: opts.delay ?? 0.6, radius,
+          dmg: (opts.dmg ?? 15) * mult, kb: opts.kb ?? 4.2, kbY: opts.kbY ?? 1.2,
+          hitstun: opts.hitstun ?? 30, evidence: opts.evidence ?? 5,
+          node: m.fx.gavelConstruct(radius), hitOpts, fxT: 0
+        });
+        m.sfx.gavel?.();
         break;
       }
       case 'higuruma_confiscate': {
@@ -1795,106 +1877,6 @@ export class Effects {
         break;
       }
 
-      // ---- HIGURUMA ------------------------------------------------------
-      case 'higuruma_gavel': {
-        // GAVEL STRIKE: a cursed-energy gavel raised overhead and brought
-        // down, with a small shockwave where it lands. His only real damage
-        // tool, and slow enough that it is a read rather than a poke.
-        const at = caster.pos.clone().addScaledVector(caster.forward(), (opts.reach ?? 2.0) * 0.7).setY(0.05);
-        m.fx.gavelSlam?.(at, opts.radius ?? 2.4);
-        m.sfx.gavel?.();
-        m.cam.shake(0.35);
-        m.arena?.destruct?.damageAt(at.clone().setY(0.6), (opts.radius ?? 2.4) + 0.6, 40);
-        m.arena?.splash?.(at.x, at.z, 1.2);
-        if (sure || inArc(caster, t, opts.reach ?? 2.0, opts.arc ?? 1.5)) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 15) * mult);
-          const r = t.applyHit({
-            ...hitOpts, dmg, kb: opts.kb ?? 4.2, kbY: opts.kbY ?? 1.2,
-            hitstun: opts.hitstun ?? 30, type: 'knockdown'
-          }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true, knockdown: true });
-        } else {
-          m.sfx.whiff();
-        }
-        break;
-      }
-      case 'higuruma_confiscate': {
-        // CONFISCATION: short range, NO DAMAGE. It takes one of their
-        // technique buttons away for `lock.duration` seconds — his survival
-        // tool, and the only thing about him worth Yuta copying.
-        m.fx.confiscate?.(caster);
-        m.sfx.confiscate?.();
-        const lock = opts.lock ?? { duration: 6, evidence: 6 };
-        if (sure || inArc(caster, t, opts.reach ?? 1.7, opts.arc ?? 1.2)) {
-          // it still has to get through a guard — it is a technique, not a
-          // sure-hit, and blocking it is the correct answer
-          const r = t.applyHit({
-            ...hitOpts, dmg: 0, kb: opts.kb ?? 1.2, kbY: 0,
-            hitstun: opts.hitstun ?? 20, type: 'light'
-          }, m.ctxFor(caster));
-          if (r === 'hit' || r === 'otg') {
-            t.confiscate(lock.duration);
-            m.hud.toast(caster, '没収 CONFISCATED');
-            m.fx._ring(t.pos.clone().add(v3(0, 1.3, 0)), 0xd8c78a,
-              { size: 0.45, growRate: 7, life: 0.5, flat: false });
-            m.sfx.confiscateLand?.();
-            m.cam.shake(0.2);
-            // filing a seizure is itself evidence
-            if (lock.evidence) gainEvidence(caster, lock.evidence);
-          } else {
-            hitFeedback(m, caster, t, r, {});
-          }
-        } else {
-          m.sfx.whiff();
-        }
-        break;
-      }
-      case 'higuruma_judgeman': {
-        m.judgemen?.spawn(caster);
-        m.sfx.judgemanSummon?.();
-        m.hud.toast(caster, '審判 JUDGEMAN');
-        m.fx._ring(caster.pos.clone().addScaledVector(caster.forward(), -1.4).setY(0.06),
-          0x8fb6d8, { size: 0.4, growRate: 6, life: 0.6 });
-        break;
-      }
-      case 'higuruma_judgment_slash': {
-        // JUDGMENT SLASH — the opener. A wide sweeping cut with real reach
-        // that launches, and it does NOT resolve the domain: it exists to put
-        // them somewhere the thrust can reach.
-        m.fx.judgmentArc?.(caster, opts.reach ?? 3.2);
-        m.sfx.swordSwing();
-        m.cam.shake(0.3);
-        for (let i = -1; i <= 1; i++) {
-          const dir = caster.forward().applyAxisAngle(v3(0, 1, 0), i * 0.5);
-          m.arena?.destruct?.damageAt(
-            caster.pos.clone().setY(1.2).addScaledVector(dir, (opts.reach ?? 3.2) * 0.7), 2.2, 55);
-        }
-        // it is a SWEEP: everyone in the arc, not just the nearest
-        for (const f of m.activeFighters) {
-          if (f === caster || !f.alive) continue;
-          if (!sure && !inArc(caster, f, opts.reach ?? 3.2, opts.arc ?? 2.2)) continue;
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 26) * mult);
-          const r = f.applyHit({
-            ...hitOpts, dmg, kb: opts.kb ?? 5.5, kbY: opts.kbY ?? 7.6,
-            hitstun: opts.hitstun ?? 30, type: 'launcher',
-            dir: v3(f.pos.x - caster.pos.x, 0, f.pos.z - caster.pos.z).normalize()
-          }, m.ctxFor(caster));
-          hitFeedback(m, caster, f, r, { crit, heavy: true });
-        }
-        break;
-      }
-      case 'higuruma_execution': {
-        // EXECUTION — the committed thrust. The connect window is an entity so
-        // that whiffing is a real, punishable event; a connection hands off to
-        // the domain system, which runs the duel that decides everything.
-        m.sfx.executionSwing?.();
-        m.fx.executionThrust?.(caster);
-        this.entities.push({
-          type: 'execHit', caster, frames: opts.active ?? 6,
-          reach: opts.reach ?? 2.6, arc: opts.arc ?? 1.1
-        });
-        break;
-      }
 
       // =====================================================================
       // TOJI — THE ARSENAL
@@ -1908,20 +1890,21 @@ export class Effects {
       // so it is the one move of his that resolves on a RADIUS rather than an
       // arc: there is no behind-him to escape to.
       case 'toji_cloud_sweep': {
-        m.fx.cleaveArc(caster);
+        // CLOUD CYCLONE. The three-section staff opened out and SPUN: an
+        // entity that whirls around him for half a second, ticking on
+        // everything in the circle while he keeps (slowed) control of his
+        // feet — a moving no-man's-land instead of a single radius check.
+        // Same total damage as the old sweep, arriving as the canonical
+        // flurry rather than one invisible tap.
         m.sfx.swordSwing();
         m.cam.shake(0.14);
-        const rad = opts.radius ?? 2.9;
-        if (sure || flatDist(caster.pos, t.pos) <= rad) {
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 6) * mult);
-          const away = t.pos.clone().sub(caster.pos).setY(0).normalize();
-          const r = t.applyHit({
-            ...hitOpts, dmg, kb: opts.kb ?? 2.6, kbY: opts.kbY ?? 0.4,
-            hitstun: opts.hitstun ?? 15, type: 'light',
-            dir: away.lengthSq() > 0.01 ? away : caster.forward()
-          }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit });
-        }
+        this.entities.push({
+          type: 'staffSpin', caster, sure,
+          t: 0, dur: opts.duration ?? 0.55, radius: opts.radius ?? 2.9,
+          tick: 0, interval: (opts.duration ?? 0.55) / (opts.hits ?? 4),
+          dmg: (opts.dmg ?? 6) * mult, kb: opts.kb ?? 2.6, kbY: opts.kbY ?? 0.4,
+          hitstun: opts.hitstun ?? 15, ang: caster.facing, hitOpts, fxT: 0
+        });
         break;
       }
 
@@ -1961,9 +1944,19 @@ export class Effects {
       // special: it is the poke that makes carrying the spear survivable, and
       // it deliberately does NOT nullify anything.
       case 'toji_spear_thrust': {
-        m.fx.cleaveArc(caster);
+        // The thrust drawn as what it is: a VACUUM LANCE — a thin hard line
+        // of white driven down the spear's whole length in one frame, and a
+        // line test to match, so the visual and the hitbox are the same
+        // object. Slightly longer than the old arc, twice as easy to
+        // sidestep; the trade is the point of the weapon.
+        const dir = caster.forward();
+        const range = (opts.reach ?? 4.2) * caster.reachScale;
+        m.fx.spearLance(caster.pos.clone().add(v3(0, 1.25, 0)).addScaledVector(dir, 0.4), dir, range);
         m.sfx.lunge();
-        if (sure || inArc(caster, t, opts.reach ?? 3.4, opts.arc ?? 0.7)) {
+        const rel = t.pos.clone().sub(caster.pos);
+        const along = rel.x * dir.x + rel.z * dir.z;
+        const perp = Math.abs(rel.x * dir.z - rel.z * dir.x);
+        if (sure || (along > -0.3 && along < range && perp < (opts.width ?? 0.75) + (t.hurtBox?.radius ?? 0.62))) {
           const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 12) * mult);
           const r = t.applyHit({
             ...hitOpts, dmg, kb: opts.kb ?? 3.0, kbY: 0,
@@ -2868,6 +2861,369 @@ export class Effects {
     const m = this.match;
     for (let i = this.entities.length - 1; i >= 0; i--) {
       const e = this.entities[i];
+      // ================================================================
+      // THE OVERHAULED TECHNIQUES. Travelling waves, constructs and
+      // volleys — each one draws itself at the position it tests, so the
+      // picture and the hitbox can never disagree.
+      // ================================================================
+      // TODO — RESONANT CLAP: the wall of shock in flight. On arrival it
+      // drags the body TOWARD Todo (kb dir points back at him), which is
+      // the Vice Grab dinner bell.
+      if (e.type === 'clapWave') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.03; m.fx.clapWaveTick(e.pos, e.dir, e.width); }
+        const t = this.other(e.caster);
+        if (t?.alive && !e.dealt
+          && (e.sure || flatDist(e.pos, t.pos) < e.width * 0.55 + (t.hurtBox?.radius ?? 0.62))) {
+          e.dealt = true;
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const back = v3(e.caster.pos.x - t.pos.x, 0, e.caster.pos.z - t.pos.z).normalize();
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: e.pull, kbY: 0.4, hitstun: e.hitstun,
+            type: 'heavy', dir: back, sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, t, r, { crit, heavy: true });
+          if (r === 'hit' || r === 'otg') m.hud.toast(e.caster, '共鳴 — PULLED IN');
+          m.cam.shake(0.4);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled >= e.range) this.entities.splice(i, 1);
+        continue;
+      }
+      // YUJI — the whiffed Divergent Fist's ghost: the late cursed energy
+      // discharged forward as a fist-shaped projectile. No Black Flash off
+      // it — the chain died with the whiff — but the whiff is no longer free.
+      if (e.type === 'ghostFist') {
+        if (e.delay > 0) { e.delay -= dt; continue; }
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.028; m.fx.ghostFistTrail(e.pos, e.dir); }
+        const t = this.other(e.caster);
+        if (t?.alive && e.pos.distanceTo(t.pos.clone().add(v3(0, 1.2, 0))) < 0.8 + (t.hurtBox?.pad ?? 0)) {
+          const { dmg } = computeDamage(e.caster, e.dmg, { canCrit: false });
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: 3.5, kbY: 2, hitstun: 22, type: 'heavy', dir: e.dir.clone()
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, t, r, { heavy: true });
+          m.fx.ghostFistBurst(e.pos, e.dir);
+          m.cam.shake(0.3);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled >= e.range) { m.fx.ghostFistBurst(e.pos, e.dir); this.entities.splice(i, 1); }
+        continue;
+      }
+      // YUJI — the thrown 卍 crescent off the Manji Kick's heel.
+      if (e.type === 'crescent') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.03; m.fx.crescentTick(e.pos, e.dir, e.color); }
+        const t = this.other(e.caster);
+        if (t?.alive && !e.dealt
+          && (e.sure || e.pos.distanceTo(t.pos.clone().add(v3(0, 1.1, 0))) < 1.0 + (t.hurtBox?.pad ?? 0))) {
+          e.dealt = true;
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'heavy', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, t, r, { crit, heavy: true });
+          m.fx._ring(e.pos.clone(), e.color, { size: 0.4, growRate: 9, life: 0.26, flat: false });
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled >= e.range) this.entities.splice(i, 1);
+        continue;
+      }
+      // NAOYA — FRAME 24: the reel of frozen kick-frames popping down the
+      // line at 24 fps. The first frame that connects delivers the whole
+      // kick and burns the rest of the reel.
+      if (e.type === 'frameLine') {
+        e.t -= dt;
+        if (e.t > 0) continue;
+        e.t += e.interval;
+        const c = e.caster;
+        if (!c.alive) { this.entities.splice(i, 1); continue; }
+        const at = e.origin.clone().addScaledVector(e.dir, e.spacing * (e.i + 1));
+        m.fx.frameFlash(at.clone().setY(1.25), e.i);
+        m.sfx.projectionStep?.();
+        m.arena?.destruct?.damageAt(at.clone().setY(1.0), 1.3, e.destruct / e.frames);
+        const t = this.other(c);
+        if (t?.alive && (e.sure || flatDist(at, t.pos) < e.radius + (t.hurtBox?.radius ?? 0.62))) {
+          const { dmg, crit } = computeDamage(c, e.dmg);
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'knockdown', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(c));
+          hitFeedback(m, c, t, r, { crit, heavy: true });
+          m.cam.shake(0.7); m.cam.fovKick(8); m.hitstop(8);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (++e.i >= e.frames) this.entities.splice(i, 1);
+        continue;
+      }
+      // NANAMI — the RATIO WAVE. Inside the 7:3 band of its range the hit
+      // is a forced critical: the technique finding the weak point is not a
+      // roll of the dice, it is the technique.
+      if (e.type === 'ratioWave') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        const sweet = e.travelled >= e.sweetLo && e.travelled <= e.sweetHi;
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.03; m.fx.ratioWaveTick(e.pos, e.dir, e.width, sweet); }
+        const t = this.other(e.caster);
+        if (t?.alive && !e.dealt
+          && (e.sure || flatDist(e.pos, t.pos) < e.width * 0.55 + (t.hurtBox?.radius ?? 0.62))) {
+          e.dealt = true;
+          const { dmg: base } = computeDamage(e.caster, e.dmg, { canCrit: false });
+          const dmg = sweet ? base * 1.5 : base;
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun + (sweet ? 6 : 0),
+            type: 'heavy', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, t, r, { crit: sweet, heavy: true });
+          if (r === 'hit' || r === 'otg') {
+            if (sweet) {
+              m.fx.ratioStrike(t.pos.clone().add(v3(0, 1.2, 0)), 1);
+              m.hud.toast(e.caster, '7:3 — THE WEAK POINT');
+            }
+            if (e.appliesMark) {
+              e.caster.ratioMark = true;
+              m.hud.toast(e.caster, '7:3 MARKED');
+            }
+          }
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled >= e.range) this.entities.splice(i, 1);
+        continue;
+      }
+      // HIGURUMA — the VERDICT falling. The construct hangs, drops with the
+      // fuse, stamps the seal. Landing it files evidence.
+      if (e.type === 'gavelDrop') {
+        e.t += dt;
+        const k = Math.min(1, e.t / e.delay);
+        if (e.node) {
+          e.node.position.set(e.pos.x, 7.5 - (7.5 - e.radius * 0.36) * (k * k), e.pos.z);
+          e.node.rotation.y = e.node.userData.spinAxis + k * 1.2;
+        }
+        e.fxT -= dt;
+        if (e.fxT <= 0) {
+          e.fxT = 0.11;
+          m.fx._ring(e.pos.clone().setY(0.05), 0xd8c78a,
+            { size: e.radius * (0.4 + 0.5 * (1 - k)), growRate: 0.4, life: 0.22 });
+        }
+        if (e.t < e.delay) continue;
+        if (e.node) { m.fx.scene.remove(e.node); }
+        m.fx.gavelVerdict(e.pos, e.radius);
+        m.sfx.slam();
+        m.cam.shake(0.6); m.cam.fovKick(5);
+        m.arena?.destruct?.damageAt(e.pos.clone().setY(0.6), e.radius + 0.6, 46);
+        m.arena?.splash?.(e.pos.x, e.pos.z, 1.2);
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive) continue;
+          if (!e.sure && flatDist(f.pos, e.pos) > e.radius + (f.hurtBox?.radius ?? 0.62)) continue;
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'knockdown', sureHit: e.sure,
+            dir: v3(f.pos.x - e.pos.x, 0, f.pos.z - e.pos.z).normalize()
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true, knockdown: true });
+          // the blow, entered into the record
+          if ((r === 'hit' || r === 'otg') && e.evidence) gainEvidence(e.caster, e.evidence);
+        }
+        this.entities.splice(i, 1);
+        continue;
+      }
+      // MAHITO — the BODY LANCE extending, holding, reeling back in.
+      if (e.type === 'bodyLance') {
+        e.t += dt;
+        const c = e.caster;
+        if (!c.alive) { this.entities.splice(i, 1); continue; }
+        const total = e.extend + e.hold + e.extend;
+        const k = e.t < e.extend ? e.t / e.extend
+          : e.t < e.extend + e.hold ? 1
+            : Math.max(0, 1 - (e.t - e.extend - e.hold) / e.extend);
+        const from = c.pos.clone().add(v3(0, 1.35, 0));
+        const tip = from.clone().addScaledVector(e.dir, 0.6 + (e.reach - 0.6) * k);
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.025; m.fx.bodyLanceTick(from, tip, e.dir); }
+        const t = this.other(c);
+        if (t?.alive && !e.dealt) {
+          // point-to-segment: is the chest anywhere along the extended arm?
+          const chest = t.pos.clone().add(v3(0, 1.2, 0));
+          const ab = tip.clone().sub(from);
+          const len2 = Math.max(0.001, ab.lengthSq());
+          const s = clamp(chest.clone().sub(from).dot(ab) / len2, 0, 1);
+          const d = chest.distanceTo(from.clone().addScaledVector(ab, s));
+          if (e.sure || d < 0.7 + (t.hurtBox?.pad ?? 0)) {
+            e.dealt = true;
+            const { dmg, crit } = computeDamage(c, e.dmg);
+            const type = e.variant === 1 ? 'knockdown' : 'heavy';
+            const r = t.applyHit({
+              ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+              type, dir: e.dir.clone(), sureHit: e.sure
+            }, m.ctxFor(c));
+            hitFeedback(m, c, t, r, { crit, heavy: true, knockdown: type === 'knockdown' });
+            if (r === 'hit' || r === 'otg' || r === 'block') {
+              m.domains.transfigChunk(c, t, 'bodyWeapon', r === 'block');
+            }
+          }
+        }
+        if (e.t >= total) this.entities.splice(i, 1);
+        continue;
+      }
+      // HAKARI — one PACHINKO ball: gravity, floor bounce, loose homing.
+      // The gold payout ball knocks down and works on a body already down.
+      if (e.type === 'pachinko') {
+        if (e.delay > 0) { e.delay -= dt; continue; }
+        e.life -= dt;
+        const t = this.other(e.caster);
+        if (t?.alive) {
+          const want = v3(t.pos.x - e.pos.x, 0, t.pos.z - e.pos.z).normalize().multiplyScalar(e.spd);
+          e.vel.x += (want.x - e.vel.x) * Math.min(1, e.homing * dt);
+          e.vel.z += (want.z - e.vel.z) * Math.min(1, e.homing * dt);
+        }
+        e.vel.y -= 20 * dt;
+        e.pos.addScaledVector(e.vel, dt);
+        if (e.pos.y < 0.22) { e.pos.y = 0.22; e.vel.y = Math.abs(e.vel.y) * 0.72; }
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.02; m.fx.pachinkoTrail(e.pos, e.gold); }
+        if (t?.alive && (e.sure || e.pos.distanceTo(t.pos.clone().add(v3(0, 0.9, 0))) < 0.85 + (t.hurtBox?.pad ?? 0))) {
+          const { dmg } = computeDamage(e.caster, e.dmg, { canCrit: false });
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: e.gold ? 4.5 : 1.0, kbY: e.gold ? 1.4 : 0,
+            hitstun: e.gold ? 30 : 12, type: e.gold ? 'knockdown' : 'light',
+            otgOk: true, sureHit: e.sure,
+            dir: v3(e.vel.x, 0, e.vel.z).normalize()
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, t, r, e.gold ? { heavy: true, knockdown: true } : {});
+          if (e.gold && (r === 'hit' || r === 'otg')) {
+            m.fx._ring(e.pos.clone(), 0xffc93c, { size: 0.5, growRate: 12, life: 0.35, flat: false });
+            m.cam.shake(0.45);
+            m.hitstop(8);
+          }
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.life <= 0) this.entities.splice(i, 1);
+        continue;
+      }
+      // YUTA — RIKA'S GRASP in flight. What it catches, it brings home.
+      if (e.type === 'rikaHand') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          e.node.quaternion.setFromUnitVectors(v3(0, 0, 1), e.dir);
+          e.node.rotateZ(Math.sin(e.travelled * 2.2) * 0.15);
+        }
+        e.fxT -= dt;
+        if (e.fxT <= 0) {
+          e.fxT = 0.035;
+          m.fx._spawn(e.pos.clone().add(v3(rand(-0.3, 0.3), rand(-0.3, 0.3), rand(-0.3, 0.3))), {
+            color: Math.random() < 0.3 ? 0x1a3a30 : 0x9ff5c9, size: rand(0.14, 0.3), life: 0.24,
+            vel: e.dir.clone().multiplyScalar(-rand(2, 4))
+          });
+        }
+        const c = e.caster;
+        const t = this.other(c);
+        if (t?.alive && (e.sure || e.pos.distanceTo(t.pos.clone().add(v3(0, 1.2, 0))) < 1.1 + (t.hurtBox?.pad ?? 0))) {
+          const { dmg, crit } = computeDamage(c, e.dmg);
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: 0.5, kbY: 0, hitstun: e.hitstun,
+            type: 'heavy', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(c));
+          hitFeedback(m, c, t, r, { crit, heavy: true });
+          if (r === 'hit' || r === 'otg') {
+            // handed over: deposited at arm's reach in front of Yuta
+            const dest = c.pos.clone().addScaledVector(c.forward(), e.dragGap);
+            dest.y = t.pos.y;
+            m.fx._spawn(t.pos.clone().add(v3(0, 1.2, 0)), { color: 0x9ff5c9, size: 0.6, life: 0.2, vel: v3() });
+            t.pos.copy(dest); t.prevPos.copy(dest);
+            t.vel.set(0, 0, 0);
+            m.hud.toast(c, 'RIKA — HANDED OVER');
+            m.cam.shake(0.4);
+          }
+          if (e.node) m.fx.release(e.node);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled >= e.range) {
+          if (e.node) m.fx.release(e.node);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+      // PANDA — the QUAKE PALM rupture front running down the lane.
+      if (e.type === 'quakeWave') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        e.fxT -= dt;
+        if (e.fxT <= 0) {
+          e.fxT = 0.05;
+          m.fx.quakeTick(e.pos, e.radius);
+          m.arena?.destruct?.damageAt(e.pos.clone().setY(0.5), e.radius, 14);
+        }
+        const t = this.other(e.caster);
+        if (t?.alive && !e.dealt
+          && (e.sure || flatDist(e.pos, t.pos) < e.radius + (t.hurtBox?.radius ?? 0.62))) {
+          e.dealt = true;
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'launcher', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, t, r, { crit, heavy: true });
+          m.cam.shake(0.4);
+        }
+        if (e.travelled >= e.range) this.entities.splice(i, 1);
+        continue;
+      }
+      // TOJI — CLOUD CYCLONE: the opened staff whirling around him, ticking
+      // on everything inside the circle.
+      if (e.type === 'staffSpin') {
+        e.t += dt;
+        e.tick -= dt;
+        const c = e.caster;
+        if (!c.alive) { this.entities.splice(i, 1); continue; }
+        e.ang += dt * (Math.PI * 2 * 3) / e.dur;
+        e.fxT -= dt;
+        if (e.fxT <= 0) {
+          e.fxT = 0.03;
+          m.fx.staffSpinTick(c, e.radius, e.ang);
+          m.fx.staffSpinTick(c, e.radius, e.ang + Math.PI);
+        }
+        if (e.tick <= 0) {
+          e.tick += e.interval;
+          const t = this.other(c);
+          if (t?.alive && (e.sure || flatDist(c.pos, t.pos) <= e.radius)) {
+            const { dmg, crit } = computeDamage(c, e.dmg);
+            const away = t.pos.clone().sub(c.pos).setY(0).normalize();
+            const r = t.applyHit({
+              ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+              type: 'light', sureHit: e.sure,
+              dir: away.lengthSq() > 0.01 ? away : c.forward()
+            }, m.ctxFor(c));
+            hitFeedback(m, c, t, r, { crit });
+          }
+        }
+        if (e.t >= e.dur) this.entities.splice(i, 1);
+        continue;
+      }
       // ---- NAOYA: PROJECTION RUSH -------------------------------------
       // One position per 1/24 s, and NOTHING between them. He is teleported
       // (`pos.copy`, never a lerp), an afterimage is left standing where he
@@ -3480,6 +3836,9 @@ export class Effects {
             }, m.ctxFor(e.caster));
             hitFeedback(m, e.caster, t, r, { crit, heavy: true });
             if (r === 'hit' || r === 'otg') openBlackFlash(e.caster, dmg);
+            // the late energy made visible: the same punch arriving again,
+            // in cursed-energy crimson, erupting out of the body
+            m.fx.ghostFistBurst(t.pos.clone().add(v3(0, 1.1, 0)), e.caster.forward());
             m.fx._ring(t.pos.clone().add(v3(0, 1.1, 0)), 0xffa04a, { size: 0.4, growRate: 9, life: 0.3, flat: false });
             m.cam.shake(0.4);
           }

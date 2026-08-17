@@ -88,13 +88,17 @@ const STANCES = {
       reach: 1.95, kb: 6.0, kbY: 0, hitstun: 30, step: 2.5,
       staminaCost: 20, armorFrames: 6, ceGain: 1.6, clip: 'heavy', src: 'panda_core'
     },
-    // NO PROJECTILE, per the brief. CT1 is a close shockwave off a two-paw
-    // slam — mid-range control without ever leaving the ground game.
+    // STILL NO PROJECTILE — the QUAKE PALM never leaves the ground: the palm
+    // goes into the FLOOR and the floor carries it, a rupture front of
+    // thrown turf running 6.5 m down the lane (stick-steered) that pops
+    // whoever it reaches into the air. Ground-game ranged control, which is
+    // the only kind the brief allows him.
     ct1: {
-      name: 'Cursed Palm', jpName: '呪掌', cost: 18,
+      name: 'Quake Palm', jpName: '震掌', cost: 18,
       startup: 14, active: 4, recovery: 22,
       effect: 'panda_palm', clip: 'ct1',
-      dmg: 13, radius: 2.45, kb: 4.5, kbY: 0.8, hitstun: 24, src: 'panda_core'
+      dmg: 13, range: 6.5, speed: 12, radius: 1.5,
+      kb: 3.5, kbY: 6.5, hitstun: 26, src: 'panda_core'
     },
     // A forward roll that ends in a body press. His gap closer and his only
     // real mobility outside the dash — and it is deliberately mediocre,

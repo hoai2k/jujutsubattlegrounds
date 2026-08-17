@@ -26,11 +26,14 @@ export const TODO = withDefaults({
     reach: 2.0, kb: 6.5, hitstun: 32, step: 2.6, staminaCost: 24, armorFrames: 14
   },
   ct1: {
-    // rushing double-handed strike ending in a clap shockwave — wide arc,
-    // his answer to approaches
-    name: 'Clap Combo', cost: 22, startup: 18, active: 8, recovery: 26,
-    effect: 'todo_clapcombo', dmg: 14, lungeSpeed: 9, radius: 2.5,
-    kb: 6, kbY: 1.5, hitstun: 26, clip: 'ct1'
+    // RESONANT CLAP — a wall of pink concussion sent down the lane without
+    // him, steered by the stick, that DRAGS whoever it hits back toward
+    // Todo. The pull is the design: everything he owns wants you at grab
+    // range, and now his ranged tool delivers you there personally.
+    name: 'Resonant Clap', jpName: '共鳴拍手', cost: 22,
+    startup: 18, active: 8, recovery: 26,
+    effect: 'todo_clapcombo', dmg: 14, speed: 13, range: 8.5, width: 2.6,
+    pull: 3.2, hitstun: 26, clip: 'ct1'
   },
   ct2: {
     // command grab: unblockable, slow enough to jump out of, terrifying with

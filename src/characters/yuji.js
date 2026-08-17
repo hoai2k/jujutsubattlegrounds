@@ -37,16 +37,24 @@ export const YUJI = withDefaults({
     ceRefund: 25, maxSpike: 8, reach: 2.4
   },
   ct1: {
-    // straight hit now, shockwave a beat later — the delayed launch catches
-    // anyone acting right after the block/hit. Both impacts are BF eligible.
+    // straight hit now, the cursed energy a beat later as a VISIBLE crimson
+    // ghost of the same punch — the delayed launch catches anyone acting
+    // right after the block/hit, and both impacts are BF eligible. A whiff
+    // discharges the late energy forward as a short ghost-fist projectile
+    // (70% of dmg2, no Black Flash): the miss still says what the move is.
     name: 'Divergent Fist', cost: 10, startup: 14, active: 4, recovery: 18,
     effect: 'yuji_divergent', dmg: 7, dmg2: 10, delay: 0.45,
+    ghostSpeed: 16, ghostRange: 6.5,
     reach: 1.9, arc: 1.6, kb: 2, hitstun: 18, clip: 'ct1'
   },
   ct2: {
-    // committed spinning kick: gap-closer, combo ender, domain-cast punish
+    // the kick still carries him in — and now it throws the 卍: a spinning
+    // crescent of cursed energy off the heel, steered by the stick, so the
+    // lunge and the wave bracket from two directions. Old damage split
+    // across the pair (6 + 7).
     name: 'Manji Kick', cost: 8, staminaCost: 22, startup: 15, active: 9, recovery: 24,
-    effect: 'yuji_manji', dmg: 11, lungeSpeed: 13.5, kb: 7, kbY: 2, hitstun: 24, clip: 'ct2'
+    effect: 'yuji_manji', dmg: 6, waveDmg: 7, waveSpeed: 15, waveRange: 7,
+    lungeSpeed: 13.5, kb: 7, kbY: 2, hitstun: 24, clip: 'ct2'
   },
   // SPECIAL — BLACK FLASH: B pressed inside the window a landed
   // technique opens (see blackFlash above). No CE cost — landing one REFUNDS

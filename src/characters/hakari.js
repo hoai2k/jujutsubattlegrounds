@@ -43,11 +43,15 @@ export const HAKARI = withDefaults({
   blockChipMult: 0.7,
   blockStaminaMult: 0.72,
   ct1: {
-    // CURSED ENERGY SMASH — a slow committed overhead with a shockwave on
-    // impact. Type `knockdown` and OTG-capable: this is his wake-up tool and
-    // the single hardest hit in the base kit.
-    name: 'Cursed Energy Smash', cost: 20, startup: 24, active: 5, recovery: 30,
-    effect: 'hakari_smash', dmg: 17, reach: 2.2, arc: 1.5, radius: 2.7,
+    // PACHINKO VOLLEY — he pulls an invisible lever and the machine PAYS: a
+    // stick-steered fan of neon balls bouncing down the lane with loose
+    // homing. The LAST ball is gold and knocks down (OTG-capable, so the
+    // volley keeps the old overhead's wake-up job). Total damage of a full
+    // rack ≈ the old single hit, arriving in coins instead of a bar.
+    name: 'Pachinko Volley', jpName: '大当りの玉', cost: 20,
+    startup: 24, active: 5, recovery: 30,
+    effect: 'hakari_smash', dmg: 17, count: 6, dmg2: 3.2, goldDmg: 6,
+    speed: 14, homing: 1.6, lifetime: 1.3,
     kb: 5.0, kbY: 1.4, hitstun: 32, armorFrames: 10, clip: 'ct1'
   },
   ct2: {

@@ -1317,6 +1317,272 @@ export class FXSystem {
     }
   }
 
+  // ===========================================================================
+  // TECHNIQUE OVERHAUL BUILDERS. Everything below serves the redesigned CT
+  // moves — travelling waves, constructs and swarms, all drawn per tick by the
+  // entity that owns the mechanic, so the visual can never desync from the
+  // hitbox: they read the same position.
+  // ===========================================================================
+
+  // TODO — RESONANT CLAP. A wall of pink concussion in flight: stacked
+  // vertical rings around the wavefront plus a snap bar, in his accent color.
+  clapWaveTick(pos, dir, width) {
+    const c = 0xff5fc8;
+    for (let k = 0; k < 2; k++) {
+      this._ring(pos.clone().add(v3(0, 0.55 + k * 0.85, 0)), k ? c : 0xffd0ec,
+        { size: width * (0.32 + k * 0.14), growRate: 2.2, life: 0.16, flat: false });
+    }
+    const bar = this._spawn(pos, { color: c, size: width * 0.8, aspect: 0.10, life: 0.14, vel: v3() });
+    bar.mesh.quaternion.copy(this.camera.quaternion);
+    for (let i = 0; i < 3; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.5, 0.5) * width * 0.4, rand(0.2, 1.7), rand(-0.5, 0.5) * width * 0.4)), {
+        color: i ? c : 0xffffff, size: rand(0.10, 0.24), life: 0.22,
+        vel: dir.clone().multiplyScalar(-rand(2, 5)).add(v3(rand(-1, 1), rand(0, 2), rand(-1, 1)))
+      });
+    }
+  }
+
+  // YUJI — the Divergent ghost fist: cursed energy in the SHAPE of the punch,
+  // arriving late. Trail while it flies, a knuckled burst when it lands.
+  ghostFistTrail(pos, dir) {
+    const fist = this._spawn(pos, { color: 0xff3b30, size: 0.62, aspect: 0.72, life: 0.12, vel: dir.clone().multiplyScalar(2) });
+    fist.mesh.material.opacity = 0.85;
+    for (let i = 0; i < 2; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.25, 0.25), rand(-0.25, 0.25), rand(-0.25, 0.25))), {
+        color: i ? 0x300810 : 0xff8a70, size: rand(0.12, 0.3), life: 0.2,
+        vel: dir.clone().multiplyScalar(-rand(3, 6))
+      });
+    }
+  }
+  ghostFistBurst(pos, dir) {
+    this._ring(pos, 0xff3b30, { size: 0.4, growRate: 12, life: 0.3, flat: false });
+    // four knuckle shards punched THROUGH the point of impact
+    for (let i = 0; i < 4; i++) {
+      const off = v3(rand(-0.3, 0.3), rand(-0.2, 0.35), rand(-0.3, 0.3));
+      this._spawn(pos.clone().add(off), {
+        color: 0xffb09a, size: rand(0.4, 0.7), aspect: 0.22, life: 0.26,
+        vel: dir.clone().multiplyScalar(rand(6, 11)).add(v3(rand(-1, 1), rand(-0.5, 1.5), rand(-1, 1)))
+      });
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = rand(0, Math.PI * 2);
+      this._spawn(pos, {
+        color: i % 3 ? 0xff3b30 : 0x1c060a, size: rand(0.12, 0.3), life: rand(0.2, 0.4),
+        vel: v3(Math.cos(a) * rand(2, 6), rand(0, 4), Math.sin(a) * rand(2, 6)), gravity: 7
+      });
+    }
+  }
+
+  // YUJI — the 卍 crescent: two crossed spinning bars riding the wavefront.
+  crescentTick(pos, dir, color = 0xffa04a) {
+    const spin = performance.now() * 0.02;
+    for (let k = 0; k < 2; k++) {
+      const bar = this._spawn(pos, { color: k ? color : 0xffe0c0, size: 1.35, aspect: 0.12, life: 0.12, vel: dir.clone().multiplyScalar(1) });
+      bar.mesh.quaternion.copy(this.camera.quaternion);
+      bar.mesh.rotateZ(spin + k * Math.PI / 2);
+      bar.mesh.userData.keepQuat = true;
+    }
+    this._spawn(pos, {
+      color, size: rand(0.1, 0.2), life: 0.22,
+      vel: dir.clone().multiplyScalar(-rand(2, 4)).add(v3(rand(-1, 1), rand(-0.5, 1), rand(-1, 1)))
+    });
+  }
+
+  // NAOYA — one frozen FILM FRAME of the kick: a hollow gold rectangle drawn
+  // from four thin bars, popped at the strike point and left to burn out.
+  frameFlash(pos, idx = 0) {
+    const gold = idx % 2 ? 0xe8c85a : 0xfff0c0;
+    const w = 1.35, h = 1.9, life = 0.34;
+    const edges = [
+      { off: v3(0, h / 2, 0), size: w, aspect: 0.05, rz: 0 },
+      { off: v3(0, -h / 2, 0), size: w, aspect: 0.05, rz: 0 },
+      { off: v3(-w / 2, 0, 0), size: h, aspect: 0.04, rz: Math.PI / 2 },
+      { off: v3(w / 2, 0, 0), size: h, aspect: 0.04, rz: Math.PI / 2 }
+    ];
+    for (const e of edges) {
+      const bar = this._spawn(pos.clone().add(e.off), { color: gold, size: e.size, aspect: e.aspect, life, vel: v3() });
+      bar.mesh.quaternion.copy(this.camera.quaternion);
+      bar.mesh.rotateZ(e.rz);
+      bar.mesh.userData.keepQuat = true;
+    }
+    // the kick inside the frame: a hard diagonal slash bar
+    const cut = this._spawn(pos, { color: 0xffffff, size: 1.6, aspect: 0.07, life: life * 0.7, vel: v3() });
+    cut.mesh.quaternion.copy(this.camera.quaternion);
+    cut.mesh.rotateZ(-0.7 + idx * 0.12);
+    cut.mesh.userData.keepQuat = true;
+  }
+
+  // NANAMI — the Ratio Wave in flight: a wide blunt-gold blade bar with the
+  // white 7:3 division line riding at seventy percent of its width.
+  ratioWaveTick(pos, dir, width, sweet = false) {
+    const gold = sweet ? 0xffe9b8 : 0xffd98f;
+    const bar = this._spawn(pos, { color: gold, size: width, aspect: 0.16, life: 0.13, vel: dir.clone().multiplyScalar(1.5) });
+    bar.mesh.quaternion.copy(this.camera.quaternion);
+    bar.mesh.userData.keepQuat = true;
+    // the 7:3 line, offset to the seventy-percent point of the blade
+    const notch = this._spawn(pos.clone().add(v3(dir.z, 0, -dir.x).multiplyScalar(width * 0.2)), {
+      color: 0xffffff, size: 0.55, aspect: 0.07, life: 0.13, vel: dir.clone().multiplyScalar(1.5)
+    });
+    notch.mesh.quaternion.copy(this.camera.quaternion);
+    notch.mesh.rotateZ(Math.PI / 2);
+    notch.mesh.userData.keepQuat = true;
+    if (sweet) {
+      this._spawn(pos.clone().add(v3(0, rand(0, 0.6), 0)), {
+        color: 0xffffff, size: rand(0.1, 0.2), life: 0.25,
+        vel: v3(rand(-2, 2), rand(1, 3), rand(-2, 2))
+      });
+    }
+  }
+
+  // HIGURUMA — the Verdict gavel itself, an oversized cursed-energy construct
+  // hanging over the marked ground. Returned as a node; the entity drops it.
+  gavelConstruct(radius) {
+    const g = new THREE.Group();
+    const wood = new THREE.MeshBasicMaterial({ color: 0x2c2436 });
+    const trim = makeGlowMat(0xd8c78a, 0.9);
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.34, radius * 0.34, radius * 0.9, 12), wood);
+    head.rotation.z = Math.PI / 2;
+    g.add(head);
+    for (const s of [-1, 1]) {
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.37, radius * 0.37, radius * 0.1, 12), trim);
+      band.rotation.z = Math.PI / 2;
+      band.position.x = s * radius * 0.38;
+      g.add(band);
+    }
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.07, radius * 0.09, radius * 1.5, 8), wood);
+    handle.position.y = radius * 0.75;
+    g.add(handle);
+    g.userData.spinAxis = rand(0, Math.PI * 2);
+    this.scene.add(g);
+    return g;
+  }
+  // the court seal stamped where it lands: gold rings plus a bench of upright
+  // bars around the rim, like the rail of a courtroom dock.
+  gavelVerdict(pos, radius) {
+    const base = pos.clone().setY(0.07);
+    this._ring(base, 0xd8c78a, { size: radius * 0.45, growRate: 15, life: 0.4 });
+    this._ring(base, 0xfff2cc, { size: radius * 0.3, growRate: 9, life: 0.5 });
+    const n = 12;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const bar = this._spawn(base.clone().add(v3(Math.cos(a) * radius * 0.85, 0.5, Math.sin(a) * radius * 0.85)), {
+        color: i % 3 ? 0xd8c78a : 0xffffff, size: rand(0.7, 1.1), aspect: 0.12, life: rand(0.3, 0.5),
+        vel: v3(0, rand(2, 4), 0), gravity: 10
+      });
+      bar.mesh.quaternion.copy(this.camera.quaternion);
+    }
+    this.debris(base, 10, 0x4a4258);
+  }
+
+  // MAHITO — the Body Lance mid-extension: segments of pale reshaped flesh
+  // shrinking toward a blade tip, plus the grey soul-ripple it drags.
+  bodyLanceTick(from, tip, dir) {
+    const len = from.distanceTo(tip);
+    const segs = Math.max(2, Math.round(len * 1.6));
+    for (let i = 0; i < segs; i++) {
+      const k = i / segs;
+      if (Math.random() > 0.5) continue;   // stochastic redraw — reads as writhing
+      const p = from.clone().lerp(tip, k);
+      this._spawn(p, {
+        color: i % 3 ? 0x8b9bab : 0xb8c6d4, size: 0.5 * (1 - k * 0.6), life: 0.13,
+        vel: v3(rand(-0.4, 0.4), rand(-0.4, 0.4), rand(-0.4, 0.4))
+      });
+    }
+    const blade = this._spawn(tip, { color: 0xdfe8f0, size: 0.8, aspect: 0.3, life: 0.1, vel: dir.clone().multiplyScalar(3) });
+    blade.mesh.quaternion.copy(this.camera.quaternion);
+  }
+  // the soul yanked visible: a grey silhouette burst rising off the body
+  soulRip(pos) {
+    for (let i = 0; i < 3; i++) {
+      const bar = this._spawn(pos.clone().add(v3(rand(-0.2, 0.2), 0.2 + i * 0.4, rand(-0.2, 0.2))), {
+        color: 0x8b9bab, size: 0.9 - i * 0.18, aspect: 1.6, life: 0.5,
+        vel: v3(0, 1.6, 0)
+      });
+      bar.mesh.material.opacity = 0.5;
+    }
+    this._ring(pos.clone().add(v3(0, 1.1, 0)), 0x8b9bab, { size: 0.4, growRate: 5, life: 0.45, flat: false });
+  }
+
+  // HAKARI — one pachinko ball in flight: a hot neon bead with a falling
+  // spark, gold when it is the jackpot ball.
+  pachinkoTrail(pos, hot = false) {
+    this._spawn(pos, { color: hot ? 0xffc93c : 0x69f0ae, size: hot ? 0.34 : 0.26, life: 0.1, vel: v3() });
+    if (Math.random() < 0.6) {
+      this._spawn(pos, {
+        color: hot ? 0xfff3c4 : 0xb9f6ca, size: rand(0.06, 0.14), life: 0.24,
+        vel: v3(rand(-1, 1), rand(-2, -0.5), rand(-1, 1))
+      });
+    }
+  }
+
+  // PANDA — the Quake Palm rupture front: turf and stone shoved up out of the
+  // ground at the wavefront, one burst per tick.
+  quakeTick(pos, radius) {
+    const base = pos.clone().setY(0.08);
+    this._ring(base, 0xdfe4ee, { size: radius * 0.4, growRate: 9, life: 0.22 });
+    for (let i = 0; i < 5; i++) {
+      const a = rand(0, Math.PI * 2), r = rand(0.1, radius * 0.8);
+      const sp = this._spawn(base.clone().add(v3(Math.cos(a) * r, 0.05, Math.sin(a) * r)), {
+        color: i % 2 ? 0x6b6f78 : 0x8a8fa0, size: rand(0.3, 0.62), aspect: 0.3,
+        life: rand(0.22, 0.4), vel: v3(rand(-1, 1), rand(5, 10), rand(-1, 1)), gravity: 22, spin: rand(-5, 5)
+      });
+      sp.mesh.quaternion.copy(this.camera.quaternion);
+    }
+  }
+
+  // TOJI — Playful Cloud whirling at full extension: a bar of staff-light
+  // swept around the orbit angle, plus the wind it kicks loose.
+  staffSpinTick(caster, radius, ang) {
+    const p = caster.pos.clone().add(v3(Math.sin(ang) * radius * 0.7, 1.2, Math.cos(ang) * radius * 0.7));
+    const bar = this._spawn(p, { color: 0xd8d2c4, size: radius * 0.9, aspect: 0.07, life: 0.11, vel: v3() });
+    bar.mesh.quaternion.copy(this.camera.quaternion);
+    bar.mesh.rotateZ(ang);
+    bar.mesh.userData.keepQuat = true;
+    this._spawn(p, {
+      color: 0xf2ead8, size: rand(0.08, 0.18), life: 0.2,
+      vel: v3(Math.cos(ang) * 3, rand(0, 1.5), -Math.sin(ang) * 3)
+    });
+  }
+
+  // TOJI — the spear thrust as a vacuum lance: a thin hard line of white
+  // driven down the whole length in one frame.
+  spearLance(origin, dir, range) {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.05, range, 6, 1, true), makeGlowMat(0xf4f8ff, 0.95));
+    mesh.position.copy(origin).addScaledVector(dir, range / 2);
+    mesh.quaternion.setFromUnitVectors(v3(0, 1, 0), dir);
+    this.scene.add(mesh);
+    this.beams.push({ mesh, life: 0.22, maxLife: 0.22 });
+    for (let i = 0; i < 8; i++) {
+      const p = origin.clone().addScaledVector(dir, rand(0.5, range));
+      this._spawn(p, {
+        color: i % 2 ? 0xf4f8ff : 0x8fb6d8, size: rand(0.08, 0.2), life: 0.2,
+        vel: v3(rand(-2, 2), rand(-1, 2), rand(-2, 2))
+      });
+    }
+  }
+
+  // YUTA — Rika's arm, manifested: an oversized spectral hand built from
+  // boxes, palm open, flown by the rikaHand entity. Returned as a node.
+  rikaHandNode() {
+    const g = new THREE.Group();
+    const mat = makeGlowMat(0x9ff5c9, 0.55);
+    const dark = makeGlowMat(0x1a3a30, 0.7);
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.0, 0.35), mat);
+    g.add(palm);
+    for (let i = 0; i < 4; i++) {
+      const fing = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.75, 0.22), i % 2 ? mat : dark);
+      fing.position.set(-0.33 + i * 0.22, 0.82, 0);
+      fing.rotation.x = -0.25;
+      g.add(fing);
+    }
+    const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.55, 0.22), dark);
+    thumb.position.set(0.55, 0.15, 0);
+    thumb.rotation.z = -0.7;
+    g.add(thumb);
+    this.scene.add(g);
+    return g;
+  }
+
   update(dt) {
     for (let i = this.parts.length - 1; i >= 0; i--) {
       const p = this.parts[i];
