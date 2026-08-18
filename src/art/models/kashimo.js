@@ -230,23 +230,40 @@ export function buildKashimo() {
   // outline, so a reversed patch pushes its BLACK hull inward and paints it
   // over the front of the body. The first render of this rebuild had a black
   // torso and black legs for exactly that reason.
-  // TALLER THAN A COLLAR HAS ANY RIGHT TO BE — it stands to the jaw and hides
-  // the neck completely, which is the read on the sheet. Built short first and
-  // he looked like a boy in a polo shirt with a very long neck.
+  // THE COLLAR STOPS UNDER THE CHIN, and the ceiling is MEASURED rather than
+  // eyeballed, because "tall funnel collar" is a description that walks
+  // straight into the face if you build to it by feel. The numbers on this
+  // rig:
+  //
+  //     neck joint   y = 1.513
+  //     chin         y = 1.539     (headC.y - headR)
+  //     eyes         y ≈ 1.650
+  //
+  // so there is only 2.6 cm of room between the neck and the jaw, and a
+  // collar that reads as tall in the source art has almost no vertical
+  // headroom on a model. The first build of this collar topped out at
+  // neckY + 0.098·H = 1.688 — a centimetre ABOVE the eyes — and rendered as a
+  // white mask across the lower half of his face. It looked like a garment
+  // bug and it was really an arithmetic one.
+  //
+  // The top now sits at neckY + 0.008·H = 1.527, about 1.2 cm clear of the
+  // chin, which leaves room for the head to nod in animation without the jaw
+  // sinking into the cloth. The COLLAR'S HEIGHT IS TRADED FOR WIDTH: it flares
+  // to 0.074·H so it still reads as a bunched funnel swallowing the neck,
+  // which is the silhouette the sheet is actually showing.
   bag.add('cloth', tGeo(latheY([
-    [0.050 * H, neckY - 0.034 * H],
-    [0.062 * H, neckY - 0.008 * H],
-    [0.070 * H, neckY + 0.026 * H],
-    [0.072 * H, neckY + 0.060 * H],
-    [0.066 * H, neckY + 0.086 * H],
-    [0.058 * H, neckY + 0.098 * H]
+    [0.052 * H, neckY - 0.048 * H],
+    [0.064 * H, neckY - 0.026 * H],
+    [0.072 * H, neckY - 0.008 * H],
+    [0.074 * H, neckY + 0.002 * H],
+    [0.068 * H, neckY + 0.008 * H]
   ], 20, 0.95), { pos: [0, 0, 0.004 * H] }), { bone: 'Chest', color: TOP });
   // the gather: three soft creases around it so the roll reads as cloth
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + 0.5;
-    bag.add('cloth', tGeo(roundBox(0.014 * H, 0.052 * H, 0.012 * H, 0.005 * H, 2), {
+    bag.add('cloth', tGeo(roundBox(0.014 * H, 0.038 * H, 0.012 * H, 0.005 * H, 2), {
       rot: [0, -a * 57.3, 0],
-      pos: [Math.sin(a) * 0.068 * H, neckY + 0.026 * H, Math.cos(a) * 0.068 * H + 0.004 * H]
+      pos: [Math.sin(a) * 0.070 * H, neckY - 0.014 * H, Math.cos(a) * 0.070 * H + 0.004 * H]
     }), { bone: 'Chest', color: TOP_SH });
   }
 
