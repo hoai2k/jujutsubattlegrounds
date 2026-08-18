@@ -1,10 +1,10 @@
 # Online multiplayer — design
 
-Cursed Arena is a 60 Hz fixed-step arena fighter with a very large, very
-stateful combat layer (domains, shikigami, minions, curses, swarms, finishers,
-cinematics). This document describes how online play was added to it without
-touching the feel of local play, and what the rules are for anyone extending
-it.
+Jujutsu Battlegrounds is a 60 Hz fixed-step arena fighter with a very large,
+very stateful combat layer (domains, shikigami, minions, curses, swarms,
+finishers, cinematics). This document describes how online play was added to
+it without touching the feel of local play, and what the rules are for anyone
+extending it.
 
 Read the **Invariants** section before changing anything in `src/net/`.
 

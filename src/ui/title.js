@@ -97,7 +97,7 @@ export class TitleScreen {
     this.el.innerHTML = `
       <div class="ts-kanji">呪術廻戦</div>
       <div class="ts-brand">
-        <h1>CURSED<br><em>ARENA</em></h1>
+        <h1>JUJUTSU<br><em>BATTLEGROUNDS</em></h1>
         <p>ALL ASSETS PROCEDURAL</p>
       </div>
       <div class="ts-menu"></div>

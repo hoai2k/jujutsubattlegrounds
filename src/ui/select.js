@@ -178,7 +178,7 @@ export class SelectScreen {
     // the first two seats, and the roster as a skewed strip along the bottom.
     this.el.innerHTML = `
       <div class="select-title">
-        <h1>CURSED<br>ARENA</h1>
+        <h1>JUJUTSU<br>BATTLEGROUNDS</h1>
         <p>ALL ASSETS PROCEDURAL</p>
       </div>
       <div class="brand-kanji">呪術</div>

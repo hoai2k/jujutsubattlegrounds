@@ -1,4 +1,4 @@
-# CURSED ARENA
+# JUJUTSU BATTLEGROUNDS
 
 A 3D anime arena brawler in the browser — a Jujutsu Kaisen: Cursed Clash-style
 1v1 fighter. **Every visual and sound effect is procedural**: models, rigs,
@@ -913,8 +913,9 @@ screen. The life pips sit next to each name plate; spent stocks go hollow.
 
 ## Music
 
-Streamed tracks live in `public/music/` and are the only non-procedural assets
-in the project:
+Streamed tracks live in `public/music/`. Along with the site icons in
+`public/brand/`, they are the only non-procedural assets in the project —
+everything the game itself draws is built in code:
 
 | File | Plays during |
 | --- | --- |
@@ -992,6 +993,11 @@ index.html
 workbench/index.html      second page: the developer workbench (/workbench/)
 vite.config.js            dev server + /__shot screenshot sink (dev only),
                           and the two-page build input list
+public/                   copied to the build root verbatim
+  music/                  the four streamed tracks (see Music)
+  brand/                  favicon set + web manifest, linked from both pages.
+                          Referenced as /brand/... so Vite rewrites them
+                          relative to each page for the sub-path deploy
 src/
   main.js                 entry: #viewer -> model viewer, else game
   workbench/

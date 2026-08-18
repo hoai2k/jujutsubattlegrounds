@@ -19,14 +19,15 @@ import { MAPS, MAP_IDS } from '../arena/index.js';
 import { finishersFor } from '../finishers/registry.js';
 import { playFinisher } from './run.js';
 
-const KEY = 'cursed-arena.workbench.finishers';
+const KEY = 'jujutsu-battlegrounds.workbench.finishers';
+const OLD_KEY = 'cursed-arena.workbench.finishers';   // pre-rename key; read-only fallback
 
 // The defaults are the matchup the feature was built around: the Shinjuku
 // showdown. Any of them can be changed, and the choice is remembered.
 const DEFAULTS = { winner: 'gojo', loser: 'sukuna', map: 'shinjuku', def: 'auto' };
 
 function loadPrefs() {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY) ?? '{}') }; }
   catch (e) { return { ...DEFAULTS }; }
 }
 function savePrefs(p) {
