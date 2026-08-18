@@ -99,6 +99,7 @@ export class TitleScreen {
       <div class="ts-brand">
         <h1>JUJUTSU<br><em>BATTLEGROUNDS</em></h1>
         <p>ALL ASSETS PROCEDURAL</p>
+        <p class="ts-by">A game by Francis Nguyen</p>
       </div>
       <div class="ts-menu"></div>
       <div class="ts-foot"></div>`;

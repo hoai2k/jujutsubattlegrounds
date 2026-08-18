@@ -2205,6 +2205,14 @@ html.filters-on #ui-root::after {
   margin-top: 12px; padding-left: 6px; font-size: 10px; font-weight: 600;
   letter-spacing: 9px; color: var(--bone-far); text-transform: uppercase;
 }
+/* THE BYLINE. Quieter than the tagline above it and set on the same left
+   margin as the title, so it reads as a signature under the logo rather than
+   as a second line of copy competing with it. */
+.ts-by {
+  margin-top: 10px; padding-left: 6px; font-size: 9px; font-weight: 600;
+  letter-spacing: 5px; color: var(--bone-far); opacity: 0.62;
+  text-transform: uppercase;
+}
 @keyframes ts-rise {
   from { opacity: 0; transform: translateY(24px); }
   to   { opacity: 1; transform: translateY(0); }
