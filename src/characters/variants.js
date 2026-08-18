@@ -184,11 +184,12 @@ export function joinPick(charId, variantId) {
 
 // ---------------------------------------------------------------------------
 // LAST-USED MEMORY, per character, persisted alongside the other settings.
-const LS_KEY = 'cursed-arena.variants';
+const LS_KEY = 'jujutsu-battlegrounds.variants';
+const OLD_LS_KEY = 'cursed-arena.variants';   // pre-rename key; read-only fallback
 let _last = null;
 function loadLast() {
   if (_last) return _last;
-  try { _last = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { _last = {}; }
+  try { _last = JSON.parse(localStorage.getItem(LS_KEY) ?? localStorage.getItem(OLD_LS_KEY) ?? '{}'); } catch (e) { _last = {}; }
   return _last;
 }
 export function lastVariant(charId) { return loadLast()[charId] || 'base'; }

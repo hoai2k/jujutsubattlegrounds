@@ -5,7 +5,10 @@
 // art decision and stays fixed.
 import { QUALITY_LEVELS, setQualityIndex, currentQuality } from '../arena/index.js';
 
-const KEY = 'cursed-arena.settings';
+const KEY = 'jujutsu-battlegrounds.settings';
+// The game shipped under an older name. Read the old key when the new one is
+// absent so a returning player keeps the settings they already chose.
+const OLD_KEY = 'cursed-arena.settings';
 
 export const DEFAULTS = {
   // The CRT layer: scanlines, film grain and the heavy vignette over the whole
@@ -21,7 +24,7 @@ export const settings = { ...DEFAULTS };
 
 export function loadSettings() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY);
     if (raw) Object.assign(settings, DEFAULTS, JSON.parse(raw));
   } catch { /* corrupt or unavailable storage: fall back to defaults */ }
   return settings;

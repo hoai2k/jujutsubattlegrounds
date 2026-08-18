@@ -1,4 +1,4 @@
-# Cursed Arena — project instructions
+# Jujutsu Battlegrounds — project instructions
 
 ## Git policy
 
@@ -42,5 +42,12 @@ an absolute base.
 ## Assets
 
 All game assets are procedural — geometry, materials, and animation are authored
-in code under `src/art/`. The only binary assets are the music tracks in
-`public/music/`. Do not introduce model/texture files.
+in code under `src/art/`. Do not introduce model/texture files.
+
+The only binary assets are outside the game itself:
+
+- the music tracks in `public/music/`
+- the site icons in `public/brand/` — favicon set and web manifest, browser
+  chrome rather than anything the game draws
+
+Nothing rendered inside the game may come from a file.

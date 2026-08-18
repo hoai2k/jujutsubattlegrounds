@@ -1,5 +1,5 @@
 /* ============================================================================
-   CURSED ARENA — UI
+   JUJUTSU BATTLEGROUNDS — UI
    ----------------------------------------------------------------------------
    Design rules, and they are rules rather than suggestions, because the last
    pass drifted into looking like a web page:
@@ -606,7 +606,7 @@ html.filters-on #ui-root::after {
   clip-path: polygon(0 0, 100% 0, calc(100% - 40px) 100%, 0 100%);
 }
 .select-title h1 {
-  font-size: 44px; font-weight: 700; font-style: italic; letter-spacing: 2px;
+  font-size: 36px; font-weight: 700; font-style: italic; letter-spacing: 2px;
   line-height: 0.94; color: var(--bone); text-shadow: 0 4px 0 #000;
 }
 .select-title h1::first-letter { color: var(--ce); text-shadow: 0 0 30px var(--ce); }
@@ -2189,11 +2189,13 @@ html.filters-on #ui-root::after {
 }
 
 .ts-brand {
-  position: absolute; left: 6vw; top: 17vh; max-width: 52vw;
+  position: absolute; left: 6vw; top: 17vh; max-width: 62vw;
   animation: ts-rise 700ms cubic-bezier(.2,.9,.3,1) both;
 }
 .ts-brand h1 {
-  font-size: min(9vw, 112px); font-weight: 700; font-style: italic;
+  /* Sized off BATTLEGROUNDS, the long line: it has to clear the pedestal
+     the fighter stands on rather than run under him. */
+  font-size: min(6.6vw, 84px); font-weight: 700; font-style: italic;
   letter-spacing: -1px; line-height: 0.86; color: var(--bone);
   text-shadow: 0 7px 0 #000, 0 0 90px rgba(0,0,0,0.9);
 }

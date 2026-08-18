@@ -2,21 +2,21 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "cursed-arena",
+      "name": "jujutsu-battlegrounds",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173,
       "autoPort": true
     },
     {
-      "name": "cursed-arena-alt",
+      "name": "jujutsu-battlegrounds-alt",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5199"],
       "port": 5199,
       "autoPort": true
     },
     {
-      "name": "cursed-arena-preview",
+      "name": "jujutsu-battlegrounds-preview",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "preview", "--", "--port", "4173"],
       "port": 4173,
