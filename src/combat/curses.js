@@ -154,6 +154,7 @@ class Curse {
       new THREE.MeshBasicMaterial({ color: VIOLET_HI, transparent: true, opacity: 0.95, depthWrite: false }));
     fill.position.z = 0.002;
     barG.add(back, fill);
+    barG.userData.billboard = true;   // camera-facing, aimed per eye in core/stage.js
     barG.position.y = this.body.height + 0.38;
     this.body.group.add(barG);
     this.barG = barG;
@@ -320,7 +321,6 @@ class Curse {
     }
     this.body.tick(dt, this.anim);
 
-    this.barG.quaternion.copy(m.stage.camera.quaternion);
     this.barFill.scale.x = Math.max(0.02, this.hp / this.maxHp);
     this.barFill.material.color.setHex(this.hp < this.maxHp * 0.35 ? 0xd85a4a : VIOLET_HI);
     return true;

@@ -179,6 +179,54 @@ export function createStage() {
     else { seamV.scale.set(0.008, 2, 1); seamV.position.set(0, 0, 0); }
   }
 
+  // ---- BILLBOARDS ---------------------------------------------------------
+  // A camera-facing quad can only face ONE camera, and the scene is drawn once
+  // per eye. Orienting them when the world updates therefore aims every
+  // billboard in the game at eye 0: correct on one screen, and edge-on — which
+  // is to say INVISIBLE — in every other view of a split-screen match. That is
+  // exactly what Choso's Blood Edge looked like from seat 2, and it was never
+  // his bug: every particle, ring, spark, HP bar and technique flare in the
+  // project is built the same way.
+  //
+  // So the aim moved here, to the only place that knows which eye is about to
+  // draw. Anything marked `userData.billboard` is re-aimed immediately before
+  // each eye renders (with an optional fixed roll in `userData.bbRoll`), so
+  // every view gets its own correct orientation out of the one shared scene.
+  // The list is gathered once per frame; the per-eye cost is a quaternion copy.
+  const bbList = [];
+  function collectBillboards(dt) {
+    bbList.length = 0;
+    scene.traverse(o => {
+      if (o.userData.billboard) bbList.push(o);
+      if (o.userData.spin) o.rotation.y += dt * 5;
+    });
+  }
+  // Local orientation is what gets written, so a billboard hanging off
+  // something that TURNS — an HP bar on a curse's body, the freeze countdown
+  // over a fighter's head — has to cancel its parent out or the plate swings
+  // with the body it is labelling. Parents repeat (every particle in the game
+  // shares the match root), so each one is solved once per eye and reused.
+  const _bbCache = new Map();
+  function parentAim(parent, cam) {
+    let q = _bbCache.get(parent);
+    if (!q) {
+      parent.updateWorldMatrix(true, false);
+      // world = parent * local, and world has to come out as the camera's
+      // orientation, so the local we want is parent⁻¹ * cam.
+      q = parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(cam.quaternion);
+      _bbCache.set(parent, q);
+    }
+    return q;
+  }
+  function aimBillboards(cam) {
+    _bbCache.clear();
+    for (const o of bbList) {
+      if (o.parent && o.parent !== scene) o.quaternion.copy(parentAim(o.parent, cam));
+      else o.quaternion.copy(cam.quaternion);
+      if (o.userData.bbRoll) o.rotateZ(o.userData.bbRoll);
+    }
+  }
+
   const gradeState = { ...GRADES.neutral, tint: [...GRADES.neutral.tint] };
   let gradeTarget = GRADES.neutral;
   let flash = 0;
@@ -262,8 +310,11 @@ export function createStage() {
       // material, so it has to be pointed at the right subject immediately
       // before each eye draws — in split screen the same materials are drawn
       // once per view, each following a different fighter.
+      collectBillboards(dt);
+
       if (views === 1) {
         applyXray(camera);
+        aimBillboards(camera);
         applyGrade(eyes[0]);
         if (quality === 0) {
           renderer.setRenderTarget(null);
@@ -289,6 +340,7 @@ export function createStage() {
           renderer.setViewport(vx, vy, vw, vh);
           renderer.setScissor(vx, vy, vw, vh);
           applyXray(eyeAt(i).camera);
+          aimBillboards(eyeAt(i).camera);
           renderer.render(scene, eyeAt(i).camera);
         });
         renderer.setScissorTest(false);
@@ -298,6 +350,7 @@ export function createStage() {
       for (let i = 0; i < views; i++) {
         const eye = eyeAt(i);
         applyXray(eye.camera);
+        aimBillboards(eye.camera);
         applyGrade(eye);
         eye.composer.renderToScreen = false;
         eye.composer.render();

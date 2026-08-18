@@ -148,7 +148,7 @@ export class Match {
     // identically, so crits, jackpot tiers and sword rolls agree everywhere.
     if (picks.seed != null) this._seedFighters(picks.seed);
 
-    this.fx = new FXSystem(this.root, stage.camera);
+    this.fx = new FXSystem(this.root);
     // Speech bubbles. On the match root so a round teardown takes them with it.
     this.bubbles = new BubbleSystem(this.root, stage.camera);
     for (const f of this.fighters) this.fx.attachShadow(f);
@@ -1571,7 +1571,10 @@ export class Match {
       _xrayAt.copy(me.pos).setY(me.pos.y + 1.0 + (me.cfg?.size?.camHeight ?? 0) * 0.6);
       setXrayFocus(cam.cam, _xrayAt);
     });
-    this.arena.update(frameDt, this.stage.camera);
+    // EVERY eye, not just the first: the arena culls zones and detail props
+    // against the cameras it is given, and anything culled is culled out of
+    // the one shared scene — so a second seat's interior has to count.
+    this.arena.update(frameDt, this.cams.map(c => c.cam));
     this.fx.update(frameDt);
     this.domainfx.update(frameDt, this.domains.state);
   }

@@ -2884,9 +2884,7 @@ export class Effects {
         // crossing slash lines — clean slicing damage, leaves them standing
         for (const rot of [0.5, -0.7]) {
           const bar = m.fx._spawn(chest, { color: entry.color, size: 2.0, aspect: 0.08, life: 0.26, vel: v3() });
-          bar.mesh.quaternion.copy(m.stage.camera.quaternion);
-          bar.mesh.rotateZ(rot);
-          bar.mesh.userData.keepQuat = true;
+          m.fx._bb(bar.mesh, rot);
         }
         m.sfx.cleave();
         const { dmg } = computeDamage(caster, entry.dmg, { canCrit: false });
@@ -3625,9 +3623,7 @@ export class Effects {
         if (c.alive && t?.alive && (e.sure || inArc(c, t, e.reach, e.arc))) {
           const p = t.pos.clone().add(v3(0, 1.2, 0));
           const bar = m.fx._spawn(p, { color: 0x8b9bab, size: 1.7, aspect: 0.08, life: 0.22, vel: v3() });
-          bar.mesh.quaternion.copy(m.fx.camera.quaternion);
-          bar.mesh.rotateZ(rand(-0.8, 0.8));
-          bar.mesh.userData.keepQuat = true;
+          m.fx._bb(bar.mesh, rand(-0.8, 0.8));
           const { dmg } = computeDamage(c, e.dmg, { canCrit: false });
           const r = t.applyHit({
             ...e.hitOpts, dmg, kb: 1.2, kbY: 0, hitstun: e.hitstun,

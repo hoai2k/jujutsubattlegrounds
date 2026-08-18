@@ -81,7 +81,7 @@ function buildMinionModel() {
     legs.push(leg);
   }
 
-  // floating health bar (billboarded in update)
+  // floating health bar (camera-facing; aimed per eye in core/stage.js)
   const barG = new THREE.Group();
   const back = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.07),
     new THREE.MeshBasicMaterial({ color: 0x14161f, transparent: true, opacity: 0.75, depthWrite: false }));
@@ -89,6 +89,7 @@ function buildMinionModel() {
     new THREE.MeshBasicMaterial({ color: 0x9fd08a, transparent: true, opacity: 0.95, depthWrite: false }));
   fill.position.z = 0.002;
   barG.add(back, fill);
+  barG.userData.billboard = true;   // camera-facing, aimed per eye in core/stage.js
   barG.position.y = head.position.y + headR * 2 + 0.25;
   g.add(barG);
 
@@ -273,8 +274,6 @@ class Minion {
     });
     if (this.state === 'hit') mm.torso.rotation.x = -0.3;
 
-    // health bar faces the camera
-    mm.barG.quaternion.copy(m.stage.camera.quaternion);
     mm.barFill.scale.x = Math.max(0.02, this.hp / this.maxHp);
     mm.barFill.material.color.setHex(this.hp < this.maxHp * 0.35 ? 0xd85a4a : 0x9fd08a);
     return true;

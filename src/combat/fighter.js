@@ -3669,6 +3669,9 @@ export class Fighter {
     if (!this.grounded) this.vel.y -= GRAVITY * dt;
     const wasFast = Math.hypot(this.vel.x, this.vel.z);
     const before = this.bounds ? { x: this.pos.x, z: this.pos.z } : null;
+    // Where the feet started this tick. The floor test below needs it: the
+    // fighter can cross a whole platform inside one step.
+    const yBefore = this.pos.y;
     this.pos.addScaledVector(this.vel, dt);
 
     const b = this.bounds;
@@ -3690,7 +3693,18 @@ export class Fighter {
       // FLOOR: the highest walkable surface at or below us. While rising we
       // ignore anything overhead so a jump passes through a mezzanine edge
       // rather than snapping onto it.
-      const ceil = this.vel.y > 0 ? this.pos.y - 0.05 : this.pos.y + STEP_TOL;
+      //
+      // FALLING, THE TEST IS SWEPT — the ceiling is where the feet were at the
+      // START of the tick, not where they ended it. Asking about the position
+      // after the step means a platform the fighter passed THROUGH during the
+      // step is already overhead and gets discarded, and they carry on down to
+      // whatever is under it: the long-drop fall-through. STEP_TOL alone hid
+      // it, because a 60 Hz tick only outruns 0.55 m of slack past about
+      // 33 m/s — which is a rooftop fall on the tall maps, a spike, or any
+      // downward knockback, and exactly the cases where it was reported.
+      const ceil = this.vel.y > 0
+        ? this.pos.y - 0.05
+        : Math.max(yBefore, this.pos.y) + STEP_TOL;
       const g = b.floorAt(this.pos.x, this.pos.z, this.grounded ? this.groundY + STEP_TOL : ceil);
       this.groundY = g;
       if (this.pos.y <= g + 1e-4 && this.vel.y <= 0) {

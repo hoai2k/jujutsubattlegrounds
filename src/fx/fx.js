@@ -26,9 +26,12 @@ function shadowTexture() {
 }
 
 export class FXSystem {
-  constructor(scene, camera) {
+  // NO CAMERA. Nothing in here may aim itself at one: the scene is drawn once
+  // per eye and anything oriented during the update can only be right for a
+  // single view. Camera-facing nodes are marked (see `_bb`) and aimed per eye
+  // in core/stage.js.
+  constructor(scene) {
     this.scene = scene;
-    this.camera = camera;
     this.parts = [];         // {mesh, vel, life, maxLife, grow, fade, spin}
     this.rings = [];         // {mesh, life, maxLife, growRate}
     this.shadows = [];       // {mesh, fighter}
@@ -69,10 +72,26 @@ export class FXSystem {
     this.shadows.push({ mesh, fighter });
   }
 
+  // ---- BILLBOARDS ---------------------------------------------------------
+  // Mark a node as camera-facing, with an optional fixed roll about its own
+  // view axis. NOTHING here writes a camera quaternion: the scene is drawn
+  // once per eye and a quad aimed while the world updates can only face one of
+  // them, which in split-screen leaves every other seat looking at it edge-on
+  // — invisible. The aim happens per eye in core/stage.js, immediately before
+  // that eye draws, off exactly these two userData flags.
+  _bb(obj, roll = 0) {
+    obj.userData.billboard = true;
+    obj.userData.bbRoll = roll;
+    return obj;
+  }
+
   _spawn(pos, opts = {}) {
     const size = opts.size ?? 0.3;
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size * (opts.aspect ?? 1)), makeGlowMat(opts.color ?? 0xffffff, opts.opacity ?? 1));
     mesh.position.copy(pos);
+    // every particle is a camera-facing card unless the caller lays it out in
+    // world space itself (`userData.billboard = false`)
+    this._bb(mesh);
     this.scene.add(mesh);
     const p = {
       mesh,
@@ -88,7 +107,7 @@ export class FXSystem {
     const mesh = new THREE.Mesh(new THREE.TorusGeometry(size, size * 0.14, 6, 26), makeGlowMat(color, 0.9));
     mesh.position.copy(pos);
     if (flat) mesh.rotation.x = -Math.PI / 2;
-    else mesh.quaternion.copy(this.camera.quaternion);
+    else this._bb(mesh);
     this.scene.add(mesh);
     this.rings.push({ mesh, life, maxLife: life, growRate });
   }
@@ -111,11 +130,9 @@ export class FXSystem {
   ratioMark(pos) {
     // 7:3 line flash — Nanami's signature
     const bar = this._spawn(pos, { color: 0xffd98f, size: 1.4, aspect: 0.06, life: 0.3, vel: v3(), spin: 0 });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
-    bar.mesh.rotateZ(0.4);
+    this._bb(bar.mesh, 0.4);
     const notch = this._spawn(pos.clone().add(v3(0.28, 0.12, 0)), { color: 0xffffff, size: 0.34, aspect: 0.12, life: 0.3, vel: v3() });
-    notch.mesh.quaternion.copy(this.camera.quaternion);
-    notch.mesh.rotateZ(-1.1);
+    this._bb(notch.mesh, -1.1);
   }
 
   guardSpark(pos) {
@@ -178,7 +195,7 @@ export class FXSystem {
   redBlast(caster, range) {
     const origin = caster.pos.clone().add(v3(0, 1.35, 0)).addScaledVector(caster.forward(), 0.7);
     const core = this._spawn(origin, { color: 0xff5a4a, size: 0.9, life: 0.35, vel: v3(), grow: 9 });
-    core.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(core.mesh);
     this._ring(origin, 0xff8a6a, { size: 0.5, growRate: 16, life: 0.35, flat: false });
     // rush of particles down range
     const fw = caster.forward();
@@ -208,7 +225,7 @@ export class FXSystem {
       const c = this._spawn(base.clone().add(v3(0, 0.3 + i * 0.28, 0)), {
         color: 0xff7a2f, size: rand(0.5, 1.0) * (1 - i * 0.08), life: 0.35, vel: v3(0, 5, 0), grow: 2
       });
-      c.mesh.quaternion.copy(this.camera.quaternion);
+      this._bb(c.mesh);
     }
   }
 
@@ -232,7 +249,7 @@ export class FXSystem {
         size: rand(0.5, 1.0), aspect: 0.22, life: rand(0.34, 0.58),
         vel: v3(0, rand(9, 15), 0), gravity: 22
       });
-      sp.mesh.quaternion.copy(this.camera.quaternion);
+      this._bb(sp.mesh);
     }
     for (let i = 0; i < 14; i++) {
       const a = rand(0, Math.PI * 2);
@@ -382,8 +399,7 @@ export class FXSystem {
   cleaveArc(caster, big = false) {
     const p = caster.pos.clone().add(v3(0, 1.3, 0)).addScaledVector(caster.forward(), 1.2);
     const arc = this._spawn(p, { color: big ? 0xffc25e : 0xffe2b0, size: big ? 2.6 : 1.9, aspect: 0.16, life: 0.22, vel: v3() });
-    arc.mesh.quaternion.copy(this.camera.quaternion);
-    arc.mesh.rotateZ(rand(-0.6, 0.2));
+    this._bb(arc.mesh, rand(-0.6, 0.2));
     for (let i = 0; i < 8; i++) {
       this._spawn(p, { color: 0xffd98f, size: rand(0.1, 0.2), life: 0.25, vel: v3(rand(-4, 4), rand(-1, 3), rand(-4, 4)) });
     }
@@ -427,8 +443,7 @@ export class FXSystem {
       const c = p.clone().add(v3(0, 1.1, 0));
       this._ring(c, color, { size: 0.5, growRate: 9, life: 0.28, flat: false });
       const bar = this._spawn(c, { color, size: 0.55, aspect: 3.2, life: 0.24, vel: v3() });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh);
       for (let i = 0; i < 8; i++) {
         const ang = rand(0, Math.PI * 2);
         this._spawn(c, {
@@ -444,20 +459,14 @@ export class FXSystem {
   ratioStrike(pos, level = 2) {
     const gold = 0xffd98f;
     const bar = this._spawn(pos, { color: gold, size: level === 2 ? 2.4 : 1.6, aspect: 0.07, life: 0.4, vel: v3() });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
-    bar.mesh.rotateZ(0.4);
-    bar.mesh.userData.keepQuat = true;
+    this._bb(bar.mesh, 0.4);
     const notch = this._spawn(pos.clone().add(v3(0.3, 0.2, 0)), { color: 0xffffff, size: 0.5, aspect: 0.1, life: 0.4, vel: v3() });
-    notch.mesh.quaternion.copy(this.camera.quaternion);
-    notch.mesh.rotateZ(-1.1);
-    notch.mesh.userData.keepQuat = true;
+    this._bb(notch.mesh, -1.1);
     if (level === 2) {
       // screen-crack read: hard white shards radiating from the point
       for (const rot of [0.2, 1.1, 2.0, 2.8]) {
         const shard = this._spawn(pos, { color: 0xffffff, size: rand(1.2, 1.9), aspect: 0.03, life: 0.3, vel: v3() });
-        shard.mesh.quaternion.copy(this.camera.quaternion);
-        shard.mesh.rotateZ(rot + rand(-0.15, 0.15));
-        shard.mesh.userData.keepQuat = true;
+        this._bb(shard.mesh, rot + rand(-0.15, 0.15));
       }
     }
     for (let i = 0; i < (level === 2 ? 16 : 8); i++) {
@@ -500,9 +509,7 @@ export class FXSystem {
         color: i % 3 === 0 ? 0xfff0c8 : 0xc6ac72, size: 1.5, aspect: 0.10,
         life: 0.26 + i * 0.008, vel: v3()
       });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(-a * 0.7 + 0.2);
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, -a * 0.7 + 0.2);
     }
     for (let i = 0; i < 20; i++) {
       const a = rand(-1.3, 1.3);
@@ -811,9 +818,7 @@ export class FXSystem {
         color: rot > 0 ? 0xff2f45 : 0xfff2f4, size: 2.3 * k, aspect: 0.07,
         life: 0.24 + depth * 0.12, vel: v3()
       });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(rot);
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, rot);
     }
     const n = Math.round(10 + depth * 22);
     for (let i = 0; i < n; i++) {
@@ -899,9 +904,7 @@ export class FXSystem {
       color: hot ? 0xff2f45 : 0x6e0c18, size: rand(1.6, 3.4) * scale, aspect: 0.05,
       life: rand(0.16, 0.30), opacity: hot ? 1 : 0.75, vel: v3()
     });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
-    bar.mesh.rotateZ(rot);
-    bar.mesh.userData.keepQuat = true;
+    this._bb(bar.mesh, rot);
     if (hot) {
       for (let i = 0; i < 5; i++) {
         const a = rand(0, Math.PI * 2);
@@ -934,9 +937,7 @@ export class FXSystem {
     if (scale > 0.8) {
       // the distortion bar: the space itself denting, camera-aligned
       const bar = this._spawn(at, { color: 0x14090c, size: 2.6, aspect: 0.10, life: 0.20, vel: v3() });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(rand(-1.2, 1.2));
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, rand(-1.2, 1.2));
     }
   }
 
@@ -956,8 +957,7 @@ export class FXSystem {
     const blade = this._spawn(pos.clone(), {
       color: 0xc4142c, size: 0.55, aspect: 0.22, life: 0.16, vel: v3()
     });
-    blade.mesh.quaternion.copy(this.camera.quaternion);
-    blade.mesh.rotateZ(Math.atan2(dir.y, Math.hypot(dir.x, dir.z)) + 0.25);
+    this._bb(blade.mesh, Math.atan2(dir.y, Math.hypot(dir.x, dir.z)) + 0.25);
     for (let i = 0; i < 2; i++) {
       this._spawn(pos.clone(), {
         color: 0x8e1020, size: rand(0.05, 0.12), life: rand(0.25, 0.45),
@@ -970,8 +970,7 @@ export class FXSystem {
   bloodEdgeCast(caster) {
     const p = caster.pos.clone().add(v3(0, 1.30, 0)).addScaledVector(caster.forward(), 0.6);
     const arc = this._spawn(p, { color: 0xc4142c, size: 1.05, aspect: 0.26, life: 0.20, vel: v3() });
-    arc.mesh.quaternion.copy(this.camera.quaternion);
-    arc.mesh.rotateZ(-0.55);
+    this._bb(arc.mesh, -0.55);
     for (let i = 0; i < 7; i++) {
       this._spawn(p, {
         color: i % 3 ? 0x8e1020 : 0xff4a5a, size: rand(0.08, 0.2), life: rand(0.2, 0.4),
@@ -1045,11 +1044,11 @@ export class FXSystem {
     const core = this._spawn(pos.clone(), {
       color: 0x5a0a14, size: 0.75 + k * 0.35, life: 0.10, vel: v3()
     });
-    core.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(core.mesh);
     const rim = this._spawn(pos.clone(), {
       color: 0xc4142c, size: 0.95 + k * 0.45, life: 0.09, vel: v3(), opacity: 0.55
     });
-    rim.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(rim.mesh);
     if (Math.random() < 0.7) {
       this._spawn(pos.clone(), {
         color: 0x8e1020, size: rand(0.08, 0.2), life: rand(0.3, 0.6),
@@ -1069,7 +1068,7 @@ export class FXSystem {
     this._ring(c, 0x8e1020, { size: radius * 0.16, growRate: radius * 4.0, life: 0.6, flat: false });
     this._ring(c.clone().setY(0.08), 0x8e1020, { size: radius * 0.35, growRate: radius * 4.5, life: 0.5 });
     const flash = this._spawn(c, { color: 0xff4a5a, size: radius * 0.5, life: 0.16, vel: v3(), grow: radius * 3 });
-    flash.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(flash.mesh);
     // the pellets themselves: a real sphere of directions, not a disc
     for (let i = 0; i < pellets; i++) {
       const u = (i + 0.5) / pellets;
@@ -1123,7 +1122,7 @@ export class FXSystem {
     const spike = this._spawn(pos.clone().add(v3(0, 0.18, 0)), {
       color: 0x2a2c34, size: 0.30, aspect: 0.22, life: 0.20, vel: v3()
     });
-    spike.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(spike.mesh);
     this._spawn(pos.clone().add(v3(0, 0.30, 0)), {
       color: 0xc9a24a, size: 0.10, life: 0.24, vel: v3(0, 0.4, 0), opacity: 0.8
     });
@@ -1139,9 +1138,7 @@ export class FXSystem {
         life: rand(0.22, 0.4),
         vel: v3(Math.cos(a) * rand(5, 11), rand(0.5, 4), Math.sin(a) * rand(5, 11)), gravity: 10
       });
-      p.mesh.quaternion.copy(this.camera.quaternion);
-      p.mesh.rotateZ(a);
-      p.mesh.userData.keepQuat = true;
+      this._bb(p.mesh, a);
     }
   }
 
@@ -1176,9 +1173,7 @@ export class FXSystem {
         color: i % 4 === 0 ? 0xc9a24a : 0x2a2c34, size: 0.34 + power * 0.5, aspect: 0.16,
         life: 0.30 + power * 0.2, vel: d.clone().multiplyScalar(1.6 + power * 3)
       });
-      p.mesh.quaternion.copy(this.camera.quaternion);
-      p.mesh.rotateZ(Math.atan2(d.y, d.x) - Math.PI / 2);
-      p.mesh.userData.keepQuat = true;
+      this._bb(p.mesh, Math.atan2(d.y, d.x) - Math.PI / 2);
     }
     this._ring(pos.clone(), 0xf0e2b8, { size: 0.25, growRate: 5 + power * 12, life: 0.32, flat: false });
     for (let i = 0; i < 8 + power * 14; i++) {
@@ -1301,7 +1296,7 @@ export class FXSystem {
     this._ring(pos, color, { size: 0.30 * k, growRate: 20 * k, life: 0.45, flat: false });
     this._ring(pos, 0x0a0a10, { size: 0.55 * k, growRate: 12 * k, life: 0.55, flat: false });
     const flash = this._spawn(pos, { color: 0xffffff, size: 0.7 * k, life: 0.12, vel: v3(), grow: 6 * k });
-    flash.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(flash.mesh);
     for (let i = 0; i < 18; i++) {
       const a = (i / 18) * Math.PI * 2 + rand(-0.2, 0.2);
       this._spawn(pos, {
@@ -1359,7 +1354,7 @@ export class FXSystem {
         { size: width * (0.32 + k * 0.14), growRate: 2.2, life: 0.16, flat: false });
     }
     const bar = this._spawn(pos, { color: c, size: width * 0.8, aspect: 0.10, life: 0.14, vel: v3() });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(bar.mesh);
     for (let i = 0; i < 3; i++) {
       this._spawn(pos.clone().add(v3(rand(-0.5, 0.5) * width * 0.4, rand(0.2, 1.7), rand(-0.5, 0.5) * width * 0.4)), {
         color: i ? c : 0xffffff, size: rand(0.10, 0.24), life: 0.22,
@@ -1404,9 +1399,7 @@ export class FXSystem {
     const spin = performance.now() * 0.02;
     for (let k = 0; k < 2; k++) {
       const bar = this._spawn(pos, { color: k ? color : 0xffe0c0, size: 1.35, aspect: 0.12, life: 0.12, vel: dir.clone().multiplyScalar(1) });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(spin + k * Math.PI / 2);
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, spin + k * Math.PI / 2);
     }
     this._spawn(pos, {
       color, size: rand(0.1, 0.2), life: 0.22,
@@ -1427,15 +1420,11 @@ export class FXSystem {
     ];
     for (const e of edges) {
       const bar = this._spawn(pos.clone().add(e.off), { color: gold, size: e.size, aspect: e.aspect, life, vel: v3() });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(e.rz);
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, e.rz);
     }
     // the kick inside the frame: a hard diagonal slash bar
     const cut = this._spawn(pos, { color: 0xffffff, size: 1.6, aspect: 0.07, life: life * 0.7, vel: v3() });
-    cut.mesh.quaternion.copy(this.camera.quaternion);
-    cut.mesh.rotateZ(-0.7 + idx * 0.12);
-    cut.mesh.userData.keepQuat = true;
+    this._bb(cut.mesh, -0.7 + idx * 0.12);
   }
 
   // NANAMI — the Ratio Wave in flight: a wide blunt-gold blade bar with the
@@ -1443,15 +1432,12 @@ export class FXSystem {
   ratioWaveTick(pos, dir, width, sweet = false) {
     const gold = sweet ? 0xffe9b8 : 0xffd98f;
     const bar = this._spawn(pos, { color: gold, size: width, aspect: 0.16, life: 0.13, vel: dir.clone().multiplyScalar(1.5) });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
-    bar.mesh.userData.keepQuat = true;
+    this._bb(bar.mesh);
     // the 7:3 line, offset to the seventy-percent point of the blade
     const notch = this._spawn(pos.clone().add(v3(dir.z, 0, -dir.x).multiplyScalar(width * 0.2)), {
       color: 0xffffff, size: 0.55, aspect: 0.07, life: 0.13, vel: dir.clone().multiplyScalar(1.5)
     });
-    notch.mesh.quaternion.copy(this.camera.quaternion);
-    notch.mesh.rotateZ(Math.PI / 2);
-    notch.mesh.userData.keepQuat = true;
+    this._bb(notch.mesh, Math.PI / 2);
     if (sweet) {
       this._spawn(pos.clone().add(v3(0, rand(0, 0.6), 0)), {
         color: 0xffffff, size: rand(0.1, 0.2), life: 0.25,
@@ -1495,7 +1481,7 @@ export class FXSystem {
         color: i % 3 ? 0xd8c78a : 0xffffff, size: rand(0.7, 1.1), aspect: 0.12, life: rand(0.3, 0.5),
         vel: v3(0, rand(2, 4), 0), gravity: 10
       });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
+      this._bb(bar.mesh);
     }
     this.debris(base, 10, 0x4a4258);
   }
@@ -1515,7 +1501,7 @@ export class FXSystem {
       });
     }
     const blade = this._spawn(tip, { color: 0xdfe8f0, size: 0.8, aspect: 0.3, life: 0.1, vel: dir.clone().multiplyScalar(3) });
-    blade.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(blade.mesh);
   }
   // the soul yanked visible: a grey silhouette burst rising off the body
   soulRip(pos) {
@@ -1552,7 +1538,7 @@ export class FXSystem {
         color: i % 2 ? 0x6b6f78 : 0x8a8fa0, size: rand(0.3, 0.62), aspect: 0.3,
         life: rand(0.22, 0.4), vel: v3(rand(-1, 1), rand(5, 10), rand(-1, 1)), gravity: 22, spin: rand(-5, 5)
       });
-      sp.mesh.quaternion.copy(this.camera.quaternion);
+      this._bb(sp.mesh);
     }
   }
 
@@ -1561,9 +1547,7 @@ export class FXSystem {
   staffSpinTick(caster, radius, ang) {
     const p = caster.pos.clone().add(v3(Math.sin(ang) * radius * 0.7, 1.2, Math.cos(ang) * radius * 0.7));
     const bar = this._spawn(p, { color: 0xd8d2c4, size: radius * 0.9, aspect: 0.07, life: 0.11, vel: v3() });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
-    bar.mesh.rotateZ(ang);
-    bar.mesh.userData.keepQuat = true;
+    this._bb(bar.mesh, ang);
     this._spawn(p, {
       color: 0xf2ead8, size: rand(0.08, 0.18), life: 0.2,
       vel: v3(Math.cos(ang) * 3, rand(0, 1.5), -Math.sin(ang) * 3)
@@ -1575,9 +1559,7 @@ export class FXSystem {
   staffSlamCrack(caster, dir, reach) {
     const at = caster.pos.clone().addScaledVector(dir, reach * 0.6);
     const bar = this._spawn(at.clone().setY(1.6), { color: 0xd8d2c4, size: 2.4, aspect: 0.09, life: 0.2, vel: v3(0, -6, 0) });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
-    bar.mesh.rotateZ(1.35);
-    bar.mesh.userData.keepQuat = true;
+    this._bb(bar.mesh, 1.35);
     this._ring(at.clone().setY(0.07), 0xd8d2c4, { size: 0.5, growRate: 12, life: 0.35 });
     // the crack: hard flat bars stepped down the line with the debris they threw
     for (let i = 0; i < 4; i++) {
@@ -1585,7 +1567,7 @@ export class FXSystem {
       const c = this._spawn(p, { color: i % 2 ? 0x8a8fa0 : 0xf2ead8, size: 0.9, aspect: 0.14, life: 0.24 + i * 0.05, vel: v3() });
       c.mesh.rotation.x = -Math.PI / 2;
       c.mesh.rotation.z = Math.atan2(dir.x, dir.z) + rand(-0.15, 0.15);
-      c.mesh.userData.keepQuat = true;
+      c.mesh.userData.billboard = false;
       this.debris(p, 3, 0x6b6f78);
     }
   }
@@ -1600,9 +1582,7 @@ export class FXSystem {
         color: k === 0 ? 0xbfd4e8 : 0x8b9bab, size: big ? 2.5 : 2.0, aspect: 0.09,
         life: 0.2 + k * 0.04, vel: v3()
       });
-      arc.mesh.quaternion.copy(this.camera.quaternion);
-      arc.mesh.rotateZ(-0.5 + k * 0.55 + rand(-0.1, 0.1));
-      arc.mesh.userData.keepQuat = true;
+      this._bb(arc.mesh, -0.5 + k * 0.55 + rand(-0.1, 0.1));
     }
     for (let i = 0; i < 7; i++) {
       this._spawn(p, {
@@ -1638,9 +1618,7 @@ export class FXSystem {
         color: i % 2 ? 0x6ea88a : 0xd9ffe8, size: 0.5, aspect: 0.12, life: 0.4,
         vel: v3(-Math.cos(a) * 1.6, 0, -Math.sin(a) * 1.6)
       });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(a);
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, a);
     }
   }
 
@@ -1676,7 +1654,7 @@ export class FXSystem {
   }
   redOrbBurst(pos) {
     const core = this._spawn(pos, { color: 0xff5a4a, size: 1.0, life: 0.35, vel: v3(), grow: 11 });
-    core.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(core.mesh);
     this._ring(pos, 0xff8a6a, { size: 0.5, growRate: 18, life: 0.4, flat: false });
     this._ring(pos.clone().setY(0.07), 0xff5a4a, { size: 0.5, growRate: 14, life: 0.35 });
     for (let i = 0; i < 20; i++) {
@@ -1693,9 +1671,7 @@ export class FXSystem {
   dismantleTick(pos, dir, width) {
     for (const rz of [0.7, -0.7]) {
       const bar = this._spawn(pos, { color: Math.random() < 0.3 ? 0xffffff : 0xff2f45, size: width * 1.3, aspect: 0.06, life: 0.13, vel: dir.clone().multiplyScalar(2) });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(rz + rand(-0.12, 0.12));
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, rz + rand(-0.12, 0.12));
     }
     this._spawn(pos.clone().add(v3(rand(-0.4, 0.4), rand(-0.3, 0.5), rand(-0.4, 0.4))), {
       color: 0xff2f45, size: rand(0.08, 0.2), life: 0.2,
@@ -1826,10 +1802,13 @@ export class FXSystem {
   nullifySealAt(pos, radius = 1.4) {
     const node = buildNullifySeal(radius);
     node.position.copy(pos).add(v3(0, 1.1, 0));
-    node.quaternion.copy(this.camera.quaternion);
+    this._bb(node);
     this.prop(node, 0.5, (n, k) => {
       n.scale.setScalar(1 - k * 0.55);
-      n.rotation.z += 0.09;
+      // the spin rides in the billboard roll, not in rotation.z — the per-eye
+      // aim rewrites the quaternion outright, so a roll written here would be
+      // thrown away before it ever drew
+      n.userData.bbRoll += 0.09;
       n.traverse(o => { if (o.material) o.material.opacity = 1 - k; });
     });
     return node;
@@ -1877,7 +1856,6 @@ export class FXSystem {
       if (p.grow) p.mesh.scale.addScalar(p.grow * dt);
       const a = p.life / p.maxLife;
       p.mesh.material.opacity = a;
-      if (!p.mesh.userData.keepQuat) p.mesh.quaternion.copy(this.camera.quaternion);
     }
     for (let i = this.rings.length - 1; i >= 0; i--) {
       const r = this.rings[i];
@@ -1940,10 +1918,8 @@ export class FXSystem {
         this.rika.setOpacity(0);
       }
     }
-    // billboard + spin decorations
-    this.scene.traverse(o => {
-      if (o.userData.billboard) o.quaternion.copy(this.camera.quaternion);
-      if (o.userData.spin) o.rotation.y += dt * 5;
-    });
+    // Billboards and spin decorations are driven in core/stage.js: billboards
+    // because they have to be aimed once per eye, spin because it rides along
+    // in the same pass and there is no reason to walk the scene twice.
   }
 }

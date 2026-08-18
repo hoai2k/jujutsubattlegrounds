@@ -80,6 +80,7 @@ class Shiki {
       new THREE.MeshBasicMaterial({ color: 0x8fb6d8, transparent: true, opacity: 0.95, depthWrite: false }));
     fill.position.z = 0.002;
     barG.add(back, fill);
+    barG.userData.billboard = true;   // camera-facing, aimed per eye in core/stage.js
     barG.position.y = this.model.height + 0.34;
     this.model.group.add(barG);
     this.barG = barG;
@@ -213,7 +214,6 @@ class Shiki {
     this.anim.hurt = this.hurtT > 0;
     this.model.tick(dt, this.anim);
 
-    this.barG.quaternion.copy(m.stage.camera.quaternion);
     this.barG.visible = this.key !== 'rabbits';
     this.barFill.scale.x = Math.max(0.02, this.hp / this.maxHp);
     this.barFill.material.color.setHex(this.hp < this.maxHp * 0.35 ? 0xd85a4a : 0x8fb6d8);

@@ -228,15 +228,14 @@ export class BubbleSystem {
       new THREE.MeshBasicMaterial({
         map: tex, transparent: true, depthTest: false, depthWrite: false,
         toneMapped: false,                     // the grade pass owns the look
-        // DOUBLE-SIDED, and this is not cosmetic. The quad billboards to ONE
-        // camera; on a single-sided plane every other eye in a split-screen
-        // match sees the back face, which is to say sees NOTHING. Caught by
-        // shooting the same taunt from the opposite side and finding an empty
-        // sky where the bubble was. Double-siding costs nothing and turns the
-        // worst case from "invisible" into "read at an angle".
+        // DOUBLE-SIDED. The quad is now aimed once per eye (see below), so no
+        // seat sees the back face any more — but the belt stays with the
+        // braces: a plane this thin is invisible rather than merely turned if
+        // anything ever hands it the wrong orientation again.
         side: THREE.DoubleSide
       }));
     mesh.renderOrder = 900;                    // over the world, over the FX
+    mesh.userData.billboard = true;            // aimed per eye in core/stage.js
     mesh.frustumCulled = false;
     this.scene.add(mesh);
     const b = { mesh, fighter, t: 0, hold, aspect, cam };
@@ -265,11 +264,10 @@ export class BubbleSystem {
   update(dt) {
     for (let i = this.live.length - 1; i >= 0; i--) {
       const b = this.live[i];
-      // THE EYE THIS BUBBLE BELONGS TO. One shared scene is rendered once per
-      // eye, so a billboard can only face one of them — and the right one to
-      // pick is the TAUNTING PLAYER'S own. They are the person who pressed the
-      // button and the person watching their own joke land; they get it dead
-      // on. Other seats see it turned, and (being double-sided) still see it.
+      // THE EYE THIS BUBBLE SIZES ITSELF FOR. Orientation is per eye now, but
+      // SCALE is baked into one shared quad and can only suit one view, so it
+      // suits the TAUNTING PLAYER'S: they pressed the button and they are the
+      // one watching their own joke land.
       const cam = b.cam || this.camera;
       b.t += dt;
       const f = b.fighter;
@@ -308,14 +306,11 @@ export class BubbleSystem {
       b.mesh.material.opacity = alpha;
       b.mesh.position.set(f.pos.x, headY + 0.34 * s * k + 0.5 * s * k, f.pos.z);
       b.mesh.scale.set(s * k, s * k, s * k);
-      // Billboard off the MAIN camera, the same rule every other world-space
-      // readout in this project follows (the curse HP bars, the reach markers).
-      // In split-screen that means the off-eye sees the bubble slightly turned
-      // rather than dead-on; it stays legible because the quad is textured on
-      // both faces of a plane facing the shared camera, and a per-eye copy
-      // would mean four canvases per bubble for a difference the players do not
-      // look at while reading a joke.
-      b.mesh.quaternion.copy(cam.quaternion);
+      // ORIENTATION is not set here. Every eye aims it at itself immediately
+      // before drawing (core/stage.js), so all seats read the bubble dead on
+      // out of the one shared quad. `cam` above is still the taunting seat's
+      // eye, and still the right one for the DISTANCE that drives the scale:
+      // the size is baked into the geometry and can only suit one view.
     }
   }
 
