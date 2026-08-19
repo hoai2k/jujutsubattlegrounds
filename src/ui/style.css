@@ -430,7 +430,49 @@ html.filters-on #ui-root::after {
   padding: 1px 4px; background: var(--shadow-blue); color: #0d141c; transform: skewX(calc(var(--skew) * -1));
 }
 .sw-opt.b2::after { content: 'RT'; background: var(--ce); color: #14101e; }
+/* THE THIRTEEN-ENTRY RING. Megumi's wheel went from six shikigami to thirteen
+   (nine summons, three fusions and the ritual-only Mahoraga), and at the
+   six-entry chip size they overlap into a smear. `dense` narrows the chip and
+   tightens the type; the ring radius is widened in hud.js to match. */
+.sw-opt.dense { width: 72px; padding: 4px 2px; }
+.sw-opt.dense b { font-size: 9.5px; letter-spacing: 0.5px; }
+.sw-opt.dense i { font-size: 10px; letter-spacing: 1px; }
+.sw-opt.dense u { font-size: 8px; }
+/* A FUSION IS A DIFFERENT KIND OF ENTRY and reads as one before it is even
+   selected: a warm border and a corner tick, against the cool blue of an
+   ordinary summon. It is the difference between spending cursed energy and
+   spending shikigami. */
+.sw-opt.fusion { border-left-color: #c8952c; }
+.sw-opt.fusion b { color: #e2b357; }
+.sw-opt.fusion.focus { border-left-color: #ffd98a; box-shadow: 0 0 30px rgba(226, 179, 87, 0.45); }
+.sw-opt.fusion.focus b { color: #fff; }
+/* BLOCKED is not LOST. A fusion whose components are dead is unreachable, not
+   destroyed — and unlike a destroyed shikigami it can come back (inside the
+   Shadow Garden, or via the unlock-on-loss path). So it is greyed and hatched
+   rather than struck through in blood. */
+.sw-opt.blocked {
+  opacity: 0.4; color: #5a5f66; border-left-color: #4a4f57;
+  background: repeating-linear-gradient(135deg, rgba(8,10,14,0.92) 0 5px, rgba(20,24,30,0.92) 5px 10px);
+}
+.sw-opt.blocked b { color: #6a7078; }
+.sw-opt.ritual { border-left-color: #6a5c8a; }
+.sw-opt.ritual u { color: #9a86c8; }
 .sw-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 170px; text-align: center; }
+/* THE COMPONENT STRIP — one chip per component of the selected fusion, lit if
+   that shikigami is still alive and struck if it is gone. This is the line
+   that has to answer "what will this cost me" without being read as a
+   sentence, and it sits directly under the wheel's caption. */
+.sw-parts { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
+.sw-parts i {
+  font-style: normal; font-size: 8px; font-weight: 700; letter-spacing: 1px;
+  padding: 2px 5px; border: 1px solid;
+}
+.sw-parts i.live { color: #ffd98a; border-color: rgba(255, 217, 138, 0.55); background: rgba(60, 44, 14, 0.6); }
+.sw-parts i.gone {
+  color: #7a3038; border-color: rgba(160, 50, 60, 0.5); background: rgba(30, 8, 12, 0.7);
+  text-decoration: line-through;
+}
+.shiki-wheel.fusing .sw-center b { color: #e2b357; }
 .sw-center b {
   display: block; font-size: 12px; font-weight: 700; font-style: italic;
   letter-spacing: 3px; color: var(--shadow-blue);

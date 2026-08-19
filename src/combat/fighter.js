@@ -1337,10 +1337,19 @@ export class Fighter {
     const def = sys.defsFor(this)[key];
     if (!this.spendCE(def.cost)) { this.emit('noCE'); return false; }
     const base = this._def(slot);
+    // A MID GRADE IS NOT A SPECIAL GRADE AND MUST NOT COST 44 FRAMES OF
+    // STARTUP. CT2's frame data is written for the monsters — a long, exposed,
+    // arms-open cast that advertises what it is paying for — and applying it to
+    // a 20-CE grasshopper would make the four new medium bodies unusable. A def
+    // may override the frames; the special grades do not, so the exposure that
+    // is the price of a monster is unchanged.
     const move = {
       name: def.name, kind: 'ct', slot, isCT: true, effect: base.effect,
-      curse: key, startup: base.startup, active: base.active,
-      recovery: base.recovery, clip: base.clip
+      curse: key,
+      startup: def.frames?.startup ?? base.startup,
+      active: def.frames?.active ?? base.active,
+      recovery: def.frames?.recovery ?? base.recovery,
+      clip: def.frames?.clip ?? base.clip
     };
     this._applyGrowth(move);
     this.setState('ct', { move });
@@ -1612,9 +1621,14 @@ export class Fighter {
         // nothing — but only if it is still alive. A binding pointing at a dead
         // shikigami must not be the thing a tap re-commits.
         const cur = sys.bindingOf(this, 'ct1');
+        // `selectable` is a superset of "not lost": it also excludes the
+        // ritual-only Mahoraga entry (which the wheel now SHOWS, greyed, so the
+        // technique reads as complete) and any fusion whose components have
+        // been destroyed. Both are holes in the ring rather than options that
+        // refuse at release.
         this._openWheel({
           sel: order.indexOf(cur), slot: 'ct1', t: 0, changed: false,
-          order, avail: order.filter(k => !sys.isLost(this, k))
+          order, avail: sys.selectable(this)
         }, sp);
         return true;
       }
@@ -1656,7 +1670,11 @@ export class Fighter {
         }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         // open on whatever is currently selected, so a mis-tap changes nothing
-        const order = this.cfg.curses.specialOrder;
+        // MID GRADES AND SPECIAL GRADES BOTH. The stable grew from eight to
+        // sixteen and the four new medium bodies need a home; putting them on
+        // the wheel keeps the pad mapping at three buttons (chaff / chosen /
+        // choose) instead of adding a fourth.
+        const order = this.cfg.curses.wheelOrder ?? this.cfg.curses.specialOrder;
         this._openWheel({
           sel: order.indexOf(sys.selected(this)), slot: 'ct2', t: 0, changed: false,
           order, avail: order.filter(k => !sys.isLost(this, k))
@@ -3361,7 +3379,7 @@ export class Fighter {
       case 'wheel': {
         const sp = this.cfg.special;
         const curses = this.cfg.curses;
-        const order = curses ? curses.specialOrder : this.cfg.shikigami.order;
+        const order = curses ? (curses.wheelOrder ?? curses.specialOrder) : this.cfg.shikigami.order;
         const w = this.wheel;
         if (!w) { this.setState('idle', { clip: 'idle' }); break; }
         w.t += dt;
@@ -3396,13 +3414,16 @@ export class Fighter {
           // `avail` was filtered at open time and the stick can only land on a
           // live sector, so this cannot be a corpse. Kept as a guard because a
           // shikigami can die DURING the hold.
-          const dead = curses
-            ? ctx.match.curses.isLost(this, key)
-            : ctx.match.shikigami.isLost(this, key);
-          if (dead) {
-            this.emit('curseBlocked', {
-              text: (curses ? this.cfg.curses.defs[key].short : key.toUpperCase()) + ' IS GONE'
-            });
+          // For Megumi this is now the FULL gate rather than just the loss
+          // ledger, because a fusion can also become unavailable during the
+          // hold — its components can die while the radial is open.
+          const blockText = curses
+            ? (ctx.match.curses.isLost(this, key) ? this.cfg.curses.defs[key].short + ' IS GONE' : null)
+            : (ctx.match.shikigami.selectable(this).includes(key)
+              ? null
+              : (ctx.match.shikigami.blockReason(this, key) ?? key.toUpperCase() + ' IS GONE'));
+          if (blockText) {
+            this.emit('curseBlocked', { text: blockText });
           } else if (curses) {
             ctx.match.curses.select(this, key);
             this.emit('wheelConfirm', { key, slot: 'ct2', curse: true, tapped: !w.open });

@@ -1463,7 +1463,17 @@ export class Match {
   // to them (CT1 takes the first available), so putting them on the wheel
   // would be four sectors that do nothing.
   _wheelSnapshot(f) {
-    if (f.cfg.curses) return this.curses.snapshot(f).filter(s => s.def.specialGrade);
+    // THE SNAPSHOT AND THE WHEEL'S SECTOR LIST HAVE TO BE THE SAME LIST, in the
+    // same order — the widget indexes the snapshot with `wheel.sel`. Geto's
+    // wheel now offers his MID grades as well as his special grades (that is
+    // where the four new medium bodies live), so filtering to `specialGrade`
+    // here left an eleven-sector wheel indexing a seven-entry array and the HUD
+    // read past the end of it. Both sides read `wheelOrder`.
+    if (f.cfg.curses) {
+      const order = f.cfg.curses.wheelOrder ?? f.cfg.curses.specialOrder;
+      const by = new Map(this.curses.snapshot(f).map(s => [s.key, s]));
+      return order.map(k => by.get(k)).filter(Boolean);
+    }
     // PANDA: THE CORE RADIAL REUSES THE SHIKIGAMI WIDGET rather than getting a
     // fourth one. All the widget needs is this shape, and the mapping is
     // natural: a DESTROYED core is `lost` (greyed and struck through, exactly
