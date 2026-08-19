@@ -765,6 +765,17 @@ export class Finishers {
     }
 
     m.fx.update(dt);
+    // CURSED SPEECH. `Match.update` returns early for the whole length of a
+    // finisher, so the glyph system would freeze mid-flight — a word thrown in
+    // the choreography would hang in the air and never arrive. It is ticked
+    // here instead, on the cinematic's own clock, which also means a command
+    // still travelling when the KO landed carries through into the opening
+    // shot rather than being cut off.
+    //
+    // Nothing gameplay-facing rides on it here: every `speak` in a finisher
+    // passes `onArrive: null`, so the payload never fires and the damage comes
+    // from the director's own `blast` like every other finisher hit.
+    m.speechfx?.update(dt);
     m.arena.update(dt, m.stage.camera);
   }
 

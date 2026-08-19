@@ -1666,6 +1666,198 @@ export const FINISHERS_BY_PICK = {
         heroShot: S.faceWin({ d: 1.5, side: 0.6 }), heroDof: 0.8
       })
     ]
+  },
+
+  // =========================================================================
+  // INUMAKI TOGE — 「呪言」 ONE WORD TOO MANY
+  // The Kyoto Goodwill Event, against a special grade. Sourced: his throat was
+  // bleeding after a handful of commands aimed at Hanami — and he stepped back
+  // up and said another one anyway, so Megumi would not have to fight a
+  // special grade alone.
+  //
+  // So this is the only finisher in the file whose subject is NOT the kill.
+  // Every other winner here is having their best moment; he is having his
+  // worst one on purpose. The choreography says it in three beats:
+  //
+  //   HE IS LOSING IT.   The first exchanges go against him. He has the worst
+  //                      normals in the game and the fight opens by proving it
+  //                      — he slips one, gets caught by the next, and gets put
+  //                      on the back foot. Nothing he throws lands, because he
+  //                      does not throw anything.
+  //   HE OPENS HIS COLLAR. Not a strike. The garment exists so that a
+  //                      technique cannot go off by accident, and taking it
+  //                      off is the decision the whole finisher turns on.
+  //   IT COSTS HIM.      Two words in and his throat opens. He folds over it,
+  //                      coughs, holds there long enough that it reads as
+  //                      finished — and then straightens and says the third.
+  //
+  // He never touches them. Every hit in this finisher is a WORD, delivered as
+  // a `blast` so he never walks into range for it: nobody steps forward to say
+  // something.
+  // =========================================================================
+  inumaki: {
+    id: 'inumaki_one_word',
+    moment: 'The Goodwill Event — his throat gives out, and he speaks again anyway.',
+    color: '#9fd8c8', grade: 'void', chord: 'cold', root: 146.83,
+    // fragments of half-said words drifting around him. The ambient hook runs
+    // for the whole cinematic, so it stays small: a few characters' worth of
+    // debris at head height, never a storm.
+    ambient: (d, t) => {
+      if ((t * 60 | 0) % 7) return;
+      const a = t * 1.1, r = 1.25;
+      d.fx._spawn(
+        d.win.pos.clone().add({ x: Math.cos(a) * r, y: 1.35 + Math.sin(t * 1.9) * 0.3, z: Math.sin(a) * r }),
+        { color: 0x9fd8c8, size: 0.09, life: 0.6, vel: { x: 0, y: 0.22, z: 0 } });
+    },
+    actions: [
+      // ---- HE IS LOSING IT ------------------------------------------------
+      // he is not where the first one is, and that is the only thing he is
+      // good at
+      { op: 'fCross', strike: 'op', hit: false, miss: true, win: 'fSlip', shot: S.lowR(), dofBase: 0.2 },
+      // the second one finds him
+      {
+        op: 'fHook', strike: 'op', hit: true, react: 'rSnapHead', win: null,
+        shot: S.otsWin(), power: 1.0, knock: 0.6
+      },
+      // ---- HE OPENS HIS COLLAR --------------------------------------------
+      // The hinge of the finisher, and there is no strike in it at all. Held
+      // close on his face: the zip rides down, the mouth appears, and the
+      // clan seals on both cheeks light for the first time.
+      {
+        win: 'inumakiCollar', op: 'fGuardUp', span: 1.35,
+        shot: S.faceWin({ d: 1.15, side: 0.55 }), dofBase: 0.95,
+        fx: d => {
+          d.win.model.setCollar?.(1);
+          d.win.model.setMarks?.(true);
+          d.sfx.utterStart?.('heavy', 0);
+          d.audio.accent(196, { gain: 0.1, dur: 1.1 });
+          d.fx.techCharge?.(d.bone(d.win, 'Neck'), 0x9fd8c8, 1.1);
+        }
+      },
+
+      // ---- 動くな — the cheap word, and it is not the point -----------------
+      // He opens with the word he always opens with. It stops them where they
+      // stand; it does not hurt them. The knock is deliberately tiny — being
+      // rooted is not being hit.
+      {
+        win: 'utterLight', strike: 'win',
+        blast: { at: 0.30, aim: 'chest', power: 0.9, kind: 'blast' },
+        hit: true, react: 'rSnapHead', op: 'fCross', span: 0.95,
+        power: 0.9, knock: 0.15, shot: S.hitL(), dofBase: 0.3,
+        fx: d => {
+          d.m.speechfx?.speak(d.win, d.lose, d.win.cfg.commands.defs.dont_move,
+            { scale: 0.9, onArrive: null });
+          d.sfx.command?.('light', 0);
+        },
+        onContact: (d, at) => {
+          d.m.speechfx?.cage(d.lose, d.win.cfg.commands.defs.dont_move, 3.2);
+          d.fx.impactBloom(at, 0x5fb0ff, 0.6);
+        }
+      },
+
+      // ---- 潰れろ — and this one does ---------------------------------------
+      // A field of gravity, so the glyph comes DOWN on them and they go to
+      // their knees. `rKneel` rather than a knockback: nothing about GET
+      // CRUSHED moves you sideways.
+      {
+        win: 'utterHeavy', strike: 'win',
+        blast: { at: 0.52, aim: 'head', power: 1.6, kind: 'blast' },
+        hit: true, react: 'rKneel', op: 'fGuardUp', span: 1.25,
+        // A LOW SIDE SHOT, NOT A CRANE. The crane sat behind him and his own
+        // back filled the frame — which hid the two things this beat is: a
+        // glyph coming down from above, and a body going to its knees under
+        // it. From the floor, looking up and across, both read.
+        power: 1.6, knock: 0.2, shot: S.lowL(2.1), impact: 0.16, flash: 0.35,
+        fx: d => {
+          d.m.speechfx?.speak(d.win, d.lose, d.win.cfg.commands.defs.crush,
+            { scale: 1.05, onArrive: null });
+          d.sfx.command?.('heavy', 1);
+        },
+        onContact: (d, at) => {
+          d.m.speechfx?.slam(d.lose, d.win.cfg.commands.defs.crush);
+          d.sfx.commandCrush?.();
+          d.fx.impactBloom(at, 0x9b5fd0, 1.1);
+          d.fx.debris(d.lose.pos.clone(), 12, 0x9b5fd0);
+          d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.4), 2.4, 70, { kind: 'body' });
+        }
+      },
+
+      // ---- IT COSTS HIM ---------------------------------------------------
+      // Two words, and his throat is gone. The longest beat in the finisher
+      // and the only one with no camera movement in it at all — he coughs,
+      // folds over it, and holds there long enough that it reads as over.
+      //
+      // The blood on the collar is not a decal that fades: `setStrain(3, 1)`
+      // latches it, and his model keeps it for the rest of the round.
+      {
+        win: 'inumakiThroat', op: 'rKneel', span: 1.55,
+        // FROM BELOW. A face lens on a body folding forward frames the crown of
+        // the head and nothing else — which is exactly what it did. Looking UP
+        // at someone doubling over is both the readable angle and the right
+        // one: it is the only shot in the finisher where he is above the
+        // camera, and he spends it losing.
+        shot: S.lowL(1.55), dofBase: 0.85, speed: 0.95,
+        fx: d => {
+          d.win.model.setStrain?.(3, 1);
+          d.sfx.silenced?.();
+          d.audio.accent(110, { gain: 0.12, dur: 1.6 });
+          d.fx._spawn(d.bone(d.win, 'Neck'), { color: 0x8c1420, size: 0.11, life: 0.9, vel: { x: 0, y: -0.4, z: 0.2 }, gravity: 5 });
+          d.fx._spawn(d.bone(d.win, 'Neck'), { color: 0x6e0a12, size: 0.08, life: 1.1, vel: { x: 0.1, y: -0.3, z: 0.3 }, gravity: 5 });
+        }
+      },
+
+      // ---- 爆ぜろ — the word he should not be able to say -------------------
+      // His own ultimate clip: the refusal, the forced shout, the collapse.
+      // It is the only thing in this finisher he has to be TALKED INTO by his
+      // own body, and the clip is authored to look like it hurts.
+      {
+        win: 'ult', strike: 'win',
+        blast: { at: 0.56, aim: 'chest', power: 2.1, kind: 'blast' },
+        hit: true, react: 'rBurn', op: 'rKneel', span: 1.95,
+        // A WIDE CRANE, like Uzumaki's, because `bigHit` is a tight lens and
+        // a knock this size throws the loser straight out of it — the first
+        // pass lost BOTH bodies off frame on the money shot. The knock comes
+        // down a little too: 3.0 still crosses the street.
+        power: 2.1, knock: 3.0, shot: S.crane({ d: 6.4, top: 3.0 }), sting: true, impact: 0.30, flash: 0.95,
+        fx: d => {
+          d.m.speechfx?.speak(d.win, d.lose, {
+            key: 'explode', short: 'EXPLODE', name: 'EXPLODE', jp: '爆ぜろ',
+            romaji: 'HAZERO', kanji: '爆ぜろ', color: 0xff7a2a, weight: 'heavy'
+          }, { scale: 1.25, onArrive: null });
+          // NO TITLE CARD HERE, deliberately. In a live match the command
+          // slams the word across the screen (ui/commandcard.js), but that
+          // card lives on the HUD root and a finisher hides the HUD outright —
+          // "the scene and nothing else" is the rule this whole system is
+          // built on, and a DOM overlay would be the exception that breaks it.
+          // The extruded glyphs are the statement here.
+          d.sfx.explodeCommand?.();
+          d.audio.accent(73.4, { gain: 0.16, dur: 2.0 });
+        },
+        onContact: (d, at) => {
+          d.m.speechfx?.detonate(d.lose, {
+            kanji: '爆ぜろ', color: 0xff7a2a, weight: 'heavy'
+          }, 4.6);
+          d.fx.ceShockwave(d.win, 5);
+          d.fx.impactBloom(at, 0xff7a2a, 1.9);
+          d.fx.debris(d.lose.pos.clone(), 22, 0xff7a2a);
+          d.fx.scorch(d.lose.pos.clone(), 3.6, 0xff7a2a);
+          d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.5), 5.4, 150, { kind: 'body' });
+        }
+      },
+
+      // He does not celebrate. He puts his collar back over his mouth, puts
+      // his hand in his pocket, and looks at the floor — with the blood still
+      // on the collar, which is the last thing the shot holds on.
+      ...OUTRO('idle', {
+        fallSpan: 1.20, fallShot: S.wide({ d: 6.2, side: 1, y: 0.5 }),
+        fallFx: d => { d.win.model.setCollar?.(0); d.win.model.setMarks?.(false); },
+        heroClip: 'inumakiCollarUp', heroSpan: 1.5, heroSpeed: 0.85,
+        // `y` drops the lens to just under his eye line: at the default the
+        // camera looked down at him and his own fringe covered the only part
+        // of his face the design has to work with.
+        heroShot: S.faceWin({ d: 1.35, side: 0.5, y: -0.10 }), heroDof: 0.85
+      })
+    ]
   }
 };
 

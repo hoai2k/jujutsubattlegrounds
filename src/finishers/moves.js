@@ -1877,6 +1877,202 @@ export const SIGNATURE_CLIPS = {
     ]
   },
 
+  // ---- INUMAKI — THE COLLAR COMES DOWN -----------------------------------
+  // Not a strike. A DECISION, and the whole finisher turns on it.
+  //
+  // Everything he does is built to avoid this: the collar is a garment worn so
+  // that a technique cannot go off by accident, and taking it off is the one
+  // thing he never does casually. So the clip is authored as reluctance
+  // followed by commitment — both hands come up, he hesitates with them on it,
+  // and then he HAULS it down in a single frame and squares up.
+  //
+  // The garment itself is not animated here. It is geometry on its own pivot
+  // (art/models/inumaki.js `setCollar`), driven from the registry's `fx` hook,
+  // so the cloth answers to the beat rather than to this clip's playback rate.
+  inumakiCollar: {
+    dur: 1.20, loop: false, keys: [
+      K(0, {}),
+      // both hands to the collar, head down. He is not looking at them.
+      K(0.28, {
+        Hips: [0, 32, 0], Hips_pos: [0, -0.075, -0.02],
+        Spine: [13, -8, 0], Chest: [15, -10, 0], Neck: [8, -2, 0], Head: [13, -8, 0],
+        ClavL: [11, 0, 0], ClavR: [11, 0, 0],
+        UpArmL: [-66, 16, -4], LoArmL: [-126, 58, 0], HandL: [-30, 60, 0],
+        UpArmR: [-64, -14, 5], LoArmR: [-128, -56, 0], HandR: [-30, -60, 0]
+      }, 'in'),
+      // the hesitation. Nothing moves for a third of a second.
+      K(0.62, {
+        Hips: [0, 32, 0], Hips_pos: [0, -0.082, -0.02],
+        Spine: [15, -8, 0], Chest: [17, -10, 0], Neck: [9, -2, 0], Head: [15, -8, 0],
+        ClavL: [12, 0, 0], ClavR: [12, 0, 0],
+        UpArmL: [-68, 16, -4], LoArmL: [-130, 58, 0], HandL: [-31, 60, 0],
+        UpArmR: [-66, -14, 5], LoArmR: [-132, -56, 0], HandR: [-31, -60, 0]
+      }, 'hold'),
+      // DOWN. One frame. The hands drag to the collarbone and the chin comes
+      // up for the first time in the fight.
+      K(0.76, {
+        Hips: [0, 12, 0], Hips_pos: [0, -0.052, 0.03],
+        Spine: [2, -4, 0], Chest: [-2, -6, 0], Neck: [-8, -2, 0], Head: [-13, -4, 0],
+        ClavL: [-4, 0, 0], ClavR: [-4, 0, 0],
+        UpArmL: [-40, 14, 6], LoArmL: [-58, 30, 0], HandL: [-16, 44, 0],
+        UpArmR: [-38, -12, -7], LoArmR: [-56, -28, 0], HandR: [-16, -44, 0],
+        ThighL: [-22, -4, 0], ShinL: [18, 0, 0], ThighR: [16, 6, 0], ShinR: [28, 0, 0]
+      }, 'snap'),
+      // and the hands fall away. He is standing square for the first time.
+      K(1.20, {
+        Hips: [0, 10, 0], Hips_pos: [0, -0.050, 0.03],
+        Spine: [4, -4, 0], Chest: [0, -6, 0], Neck: [-6, -2, 0], Head: [-10, -4, 0],
+        ClavL: [-2, 0, 0], ClavR: [-2, 0, 0],
+        UpArmL: [-12, 12, 4], LoArmL: [-34, 26, 0], HandL: [-12, 46, 0],
+        UpArmR: [-10, -10, -5], LoArmR: [-32, -24, 0], HandR: [-12, -46, 0],
+        ThighL: [-22, -4, 0], ShinL: [18, 0, 0], ThighR: [16, 6, 0], ShinR: [28, 0, 0]
+      }, 'out')
+    ]
+  },
+
+  // ---- INUMAKI — THE THROAT GIVES OUT ------------------------------------
+  // The beat this whole finisher exists for, and the reason it is HIS.
+  //
+  // Sourced: at the Kyoto Goodwill Event his throat was bleeding after a
+  // handful of commands aimed at a special grade — and he stepped back up and
+  // said another one anyway, so Megumi would not have to fight it alone. That
+  // is the moment. Not the kill; the price of the kill, taken on purpose.
+  //
+  // So the clip is a body failing: the knees go, he folds over his own throat,
+  // one hand clamps under the jaw, and there is a cough he cannot stop. Then —
+  // and this is the only part that matters — he STRAIGHTENS. Not all the way,
+  // and not quickly. He gets his chin back up with one hand still on his neck,
+  // and the last key is him deciding to say one more word.
+  inumakiThroat: {
+    dur: 1.60, loop: false, keys: [
+      K(0, {}),
+      // it goes. The whole frame collapses forward at once.
+      //
+      // THE FOLD IS 24 DEGREES, NOT 35, and that number was set by looking at
+      // it rather than by authoring it: past about twenty-five degrees of
+      // combined spine and head lean the camera stops seeing a face and starts
+      // seeing a crown, and this is the one beat in the finisher that is
+      // entirely about his face. The read comes from the KNEES and the
+      // shoulders instead — they carry the collapse, and the head only has to
+      // come down enough to agree with them.
+      K(0.14, {
+        Hips: [0, 26, 0], Hips_pos: [0, -0.145, 0.04],
+        Spine: [20, -6, 0], Chest: [22, -8, 0], Neck: [13, -2, 0], Head: [19, -6, 0],
+        ClavL: [18, 0, 0], ClavR: [18, 0, 0],
+        UpArmR: [-74, -14, 6], LoArmR: [-138, -58, 0], HandR: [-36, -64, 0],
+        UpArmL: [-30, 16, 10], LoArmL: [-84, 34, 0], HandL: [-18, 48, 0],
+        ThighL: [-30, -6, 0], ShinL: [40, 0, 0], ThighR: [24, 8, 0], ShinR: [44, 0, 0]
+      }, 'snap'),
+      // the cough. Two hard convulsions through the chest, and nothing else in
+      // the body moves — a cough is the ribs, not the arms.
+      K(0.36, {
+        Hips: [0, 26, 0], Hips_pos: [0, -0.170, 0.05],
+        Spine: [25, -6, 0], Chest: [28, -8, 0], Neck: [17, -2, 0], Head: [25, -6, 0],
+        ClavL: [21, 0, 0], ClavR: [21, 0, 0],
+        UpArmR: [-76, -14, 6], LoArmR: [-140, -58, 0], HandR: [-38, -64, 0],
+        UpArmL: [-32, 16, 10], LoArmL: [-86, 34, 0], HandL: [-18, 48, 0],
+        ThighL: [-34, -6, 0], ShinL: [44, 0, 0], ThighR: [26, 8, 0], ShinR: [48, 0, 0]
+      }, 'snap'),
+      K(0.52, {
+        Hips: [0, 26, 0], Hips_pos: [0, -0.150, 0.05],
+        Spine: [21, -6, 0], Chest: [23, -8, 0], Neck: [14, -2, 0], Head: [20, -6, 0],
+        ClavL: [18, 0, 0], ClavR: [18, 0, 0],
+        UpArmR: [-74, -14, 6], LoArmR: [-138, -58, 0], HandR: [-36, -64, 0],
+        UpArmL: [-30, 16, 10], LoArmL: [-84, 34, 0], HandL: [-18, 48, 0],
+        ThighL: [-32, -6, 0], ShinL: [42, 0, 0], ThighR: [25, 8, 0], ShinR: [46, 0, 0]
+      }, 'out'),
+      K(0.70, {
+        Hips: [0, 26, 0], Hips_pos: [0, -0.176, 0.05],
+        Spine: [26, -6, 0], Chest: [29, -8, 0], Neck: [18, -2, 0], Head: [27, -6, 0],
+        ClavL: [22, 0, 0], ClavR: [22, 0, 0],
+        UpArmR: [-77, -14, 6], LoArmR: [-141, -58, 0], HandR: [-39, -64, 0],
+        UpArmL: [-33, 16, 10], LoArmL: [-87, 34, 0], HandL: [-18, 48, 0],
+        ThighL: [-35, -6, 0], ShinL: [45, 0, 0], ThighR: [27, 8, 0], ShinR: [49, 0, 0]
+      }, 'snap'),
+      // and he holds there, bent over it, for long enough that it reads as
+      // over. That hold is what makes the next key mean something.
+      K(1.02, {
+        Hips: [0, 26, 0], Hips_pos: [0, -0.168, 0.05],
+        Spine: [25, -6, 0], Chest: [28, -8, 0], Neck: [17, -2, 0], Head: [26, -6, 0],
+        ClavL: [21, 0, 0], ClavR: [21, 0, 0],
+        UpArmR: [-76, -14, 6], LoArmR: [-140, -58, 0], HandR: [-38, -64, 0],
+        UpArmL: [-32, 16, 10], LoArmL: [-86, 34, 0], HandL: [-18, 48, 0],
+        ThighL: [-34, -6, 0], ShinL: [44, 0, 0], ThighR: [26, 8, 0], ShinR: [48, 0, 0]
+      }, 'hold'),
+      // HE STRAIGHTENS. Slowly, and not all the way. The right hand stays on
+      // his throat the entire time — he is holding it together, not recovered.
+      K(1.60, {
+        Hips: [0, 18, 0], Hips_pos: [0, -0.088, 0.03],
+        Spine: [10, -6, 0], Chest: [8, -8, 0], Neck: [-2, -2, 0], Head: [-4, -6, 0],
+        ClavL: [8, 0, 0], ClavR: [12, 0, 0],
+        UpArmR: [-62, -14, 4], LoArmR: [-126, -54, 0], HandR: [-30, -58, 0],
+        UpArmL: [-14, 14, 6], LoArmL: [-44, 28, 0], HandL: [-12, 48, 0],
+        ThighL: [-26, -4, 0], ShinL: [24, 0, 0], ThighR: [18, 6, 0], ShinR: [32, 0, 0]
+      }, 'out')
+    ]
+  },
+
+  // ---- INUMAKI — THE COLLAR GOES BACK UP ---------------------------------
+  // The hero pose, and it is deliberately the smallest one in this file.
+  //
+  // Every other winner in the game is left DOING something — Toji walks off,
+  // Todo laughs, Nanami checks his watch, Mahito looks at his own hand. He
+  // pulls his collar back over his mouth, puts his hand in his pocket, and
+  // looks at the floor. He is not pleased, he is not vindicated, and he has
+  // nothing to say about it — which for a character whose entire kit is
+  // speaking is the only ending that reads.
+  //
+  // The last key is his STANCE, exactly: he finishes the match standing the
+  // way he started it.
+  inumakiCollarUp: {
+    dur: 1.55, loop: false, keys: [
+      K(0, {}),
+      // the hand comes up to the collar — the same gesture as `inumakiCollar`,
+      // played backwards, which is the point
+      K(0.34, {
+        Hips: [0, 22, 0], Hips_pos: [0, -0.070, 0],
+        Spine: [10, -8, 0], Chest: [11, -11, 0], Neck: [4, -3, 0], Head: [8, -8, 0],
+        ClavR: [12, 0, 0],
+        UpArmR: [-60, -14, 4], LoArmR: [-122, -54, 0], HandR: [-32, -58, 0],
+        UpArmL: [-12, 12, -4], LoArmL: [-28, 42, 0], HandL: [-10, 56, 0]
+      }, 'in'),
+      // UP. One movement, and the mouth is covered again.
+      K(0.62, {
+        Hips: [0, 26, 0], Hips_pos: [0, -0.058, 0],
+        Spine: [6, -9, 0], Chest: [6, -12, 0], Neck: [-2, -4, 0], Head: [-2, -10, 0],
+        ClavR: [4, 0, 0],
+        UpArmR: [-52, -14, 2], LoArmR: [-112, -50, 0], HandR: [-26, -56, 0],
+        UpArmL: [-10, 12, -4], LoArmL: [-26, 42, 0], HandL: [-10, 56, 0]
+      }, 'snap'),
+      // held. He is checking it is closed.
+      K(0.88, {
+        Hips: [0, 26, 0], Hips_pos: [0, -0.058, 0],
+        Spine: [6, -9, 0], Chest: [6, -12, 0], Neck: [-2, -4, 0], Head: [-1, -10, 0],
+        ClavR: [4, 0, 0],
+        UpArmR: [-50, -14, 2], LoArmR: [-110, -50, 0], HandR: [-25, -56, 0],
+        UpArmL: [-10, 12, -4], LoArmL: [-26, 42, 0], HandL: [-10, 56, 0]
+      }, 'hold'),
+      // the hand goes in the pocket, the chin drops, and that is the character
+      K(1.24, {
+        Hips: [0, 38, 0], Hips_pos: [0, -0.042, 0],
+        Spine: [6, -10, 0], Chest: [7, -13, 0], Neck: [1, -6, 0], Head: [5, -11, 0],
+        ClavR: [6, 0, 0], ClavL: [6, 0, 0],
+        UpArmR: [-8, -8, 4], LoArmR: [-22, -42, 0], HandR: [-10, -58, 0],
+        UpArmL: [-8, 10, -5], LoArmL: [-24, 44, 0], HandL: [-10, 58, 0]
+      }, 'out'),
+      // NOT quite stance: the chin is two degrees higher than his idle. At
+      // stance exactly, his own fringe sits on his eyes under a close lens,
+      // and the last frame of the character is a haircut.
+      K(1.55, {
+        Hips: [0, 40, 0], Hips_pos: [0, -0.038, 0],
+        Spine: [6, -10, 0], Chest: [7, -14, 0], Neck: [-1, -6, 0], Head: [0, -12, 0],
+        ClavL: [6, 0, 0], ClavR: [6, 0, 0],
+        UpArmL: [-5, 10, -5], LoArmL: [-20, 44, 0], HandL: [-10, 58, 0],
+        UpArmR: [-3, -8, 4], LoArmR: [-18, -42, 0], HandR: [-10, -58, 0]
+      }, 'out')
+    ]
+  },
+
   // ---- MAHORAGA — THE WHEEL TURNS ----------------------------------------
   // The one on his head does the moving; his body simply stops. Head down, one
   // hand out flat, and then a single deliberate step forward — the step is the
