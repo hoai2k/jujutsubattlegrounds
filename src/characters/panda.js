@@ -228,9 +228,11 @@ const STANCES = {
   // the numbers, and `_def`/`_punchSet` already route through the active
   // stance so every system reads them for free.
   //
-  // RB is Gorilla's Drumming Beat and RT is the Triceratops's Gore Charge —
+  // RB is the Triceratops's Gore Charge and RT is Gorilla's Drumming Beat —
   // the two signature techniques, both available at once, which is what makes
-  // the window feel like three characters rather than a stat boost.
+  // the window feel like three characters rather than a stat boost. They sit
+  // that way round for the roster convention: RB is the one that covers
+  // ground (8 m of charge), RT the one that hits hardest (21, unblockable).
   all: {
     name: 'THREE CORES', jp: '三核共鳴', short: 'ALL', clipSuffix: 'Gor',
     // 1.55 damage scale — HIGHER THAN GORILLA'S 1.30, and it has to be, because
@@ -250,18 +252,18 @@ const STANCES = {
       staminaCost: 18, armorFrames: 18, ceGain: 1.8, clip: 'heavyGor', src: 'panda_gorilla'
     },
     ct1: {
-      name: 'Drumming Beat', jpName: '不可視の連打', cost: 0,
-      startup: 14, active: 5, recovery: 18,
-      effect: 'panda_drum', clip: 'ct1Gor',
-      dmg: 21, radius: 2.60, kb: 5.5, kbY: 1.0, hitstun: 28,
-      unblockable: true, src: 'panda_gorilla'
-    },
-    ct2: {
       name: 'Gore Charge', jpName: '突角突進', cost: 0,
       startup: 8, active: 14, recovery: 14,
       effect: 'panda_gore', clip: 'ct1Tri',
       dmg: 16, reach: 2.1, travel: 8.0, speed: 17, kb: 4.5, kbY: 1.0, hitstun: 24,
       destruct: 44, src: 'panda_trike'
+    },
+    ct2: {
+      name: 'Drumming Beat', jpName: '不可視の連打', cost: 0,
+      startup: 14, active: 5, recovery: 18,
+      effect: 'panda_drum', clip: 'ct1Gor',
+      dmg: 21, radius: 2.60, kb: 5.5, kbY: 1.0, hitstun: 28,
+      unblockable: true, src: 'panda_gorilla'
     },
     blockChipMult: 0.70, blockStaminaMult: 0.62, blockStartupFrames: 2,
     dashIFrames: 6

@@ -46,7 +46,7 @@ export const EFFECT_SRC = {
   jogo_embers: 'projectile', jogo_eruption: 'ct2', jogo_overheat: null,
   // MAHITO — Soul Touch is a grab in shape but it is a cursed technique in
   // substance (it applies Soul Wound, not a throw), so it stays on its slot.
-  mahito_soultouch: 'ct1', mahito_bodyweapon: 'ct2', mahito_summon: null,
+  mahito_soultouch: 'ct2', mahito_bodyweapon: 'ct1', mahito_summon: null,
   // MEGUMI — the summon gesture deals nothing; the shikigami do, and they are
   // tagged `summon` where they strike (combat/shikigami.js).
   megumi_shikigami: null, megumi_copy_dog: null,
@@ -171,7 +171,7 @@ export const EFFECT_SRC = {
   // ROOT FIELD deals no damage at all: there is nothing to adapt to, the same
   // ruling Overtime, Overheat and the Shutter already get. The Wooden Ball is
   // his ultimate-tier button.
-  hanami_roots: 'ct1', hanami_rootswarm: 'ct2', hanami_rootfield: null,
+  hanami_roots: 'ct2', hanami_rootswarm: 'ct1', hanami_rootfield: null,
   hanami_woodenball: 'ultimate',
   // ---- KUROURUSHI ---------------------------------------------------------
   // THE SWARM IS `summon`. This is the interesting call and it is deliberate:

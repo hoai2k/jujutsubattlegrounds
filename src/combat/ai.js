@@ -535,9 +535,9 @@ export class CPU {
         //    in front rather than merely nearby. The CPU aims it by walking
         //    into them, which is exactly how the stick-steering reads.
         this._budT = (this._budT ?? 0) - dt;
-        if (this._budT <= 0 && dist < (me.cfg.ct2.range ?? 11) - 1.5 && !fl?.budOn(foe)
-          && me.res.curCE >= me.cfg.ct2.cost + 8) {
-          f.ct2 = true;
+        if (this._budT <= 0 && dist < (me.cfg.ct1.range ?? 11) - 1.5 && !fl?.budOn(foe)
+          && me.res.curCE >= me.cfg.ct1.cost + 8) {
+          f.ct1 = true;
           f.move.z = 1;                 // lean into the swarm's direction
           this._budT = rand(1.4, 2.4);
           this._edges(f);
@@ -553,10 +553,10 @@ export class CPU {
         const opening = ['knockdown', 'getup'].includes(foe.state)
           || (dist < 7 && (foe.state === 'run' || foe.state === 'dash'));
         this._rootT = (this._rootT ?? 0) - dt;
-        if (this._rootT <= 0 && dist < (me.cfg.ct1.aimRange ?? 9)
-          && me.res.curCE >= me.cfg.ct1.cost
+        if (this._rootT <= 0 && dist < (me.cfg.ct2.aimRange ?? 9)
+          && me.res.curCE >= me.cfg.ct2.cost
           && Math.random() < (opening ? 0.62 : 0.30)) {
-          f.ct1 = true;
+          f.ct2 = true;
           this._rootT = opening ? rand(0.9, 1.7) : rand(1.8, 3.0);
           this._edges(f);
           return f;
@@ -572,7 +572,7 @@ export class CPU {
       //    slowest pace in the game, and once he owns the space he does not
       //    give it back and does not follow you out of it.
       if (!f.ct1 && !f.ct2 && !f.copy) {
-        if (dist > (me.cfg.ct1.aimRange ?? 9) - 1.5) f.move.z = -0.55;
+        if (dist > (me.cfg.ct2.aimRange ?? 9) - 1.5) f.move.z = -0.55;
         else if (dist < 1.4) f.move.z = 0.4;          // he is being crowded
         else if (onDead && dist > 4) {
           // walk toward the nearest patch of his own that is still alive,
@@ -876,8 +876,8 @@ export class CPU {
       f.dash = dist > 2.6 && me.res.stamina > 10;
       if (dist < 2.0 && !me.busy) {
         const r = Math.random();
-        if (r < 0.25 && me.res.curCE >= me.cfg.ct1.cost) f.ct1 = true;      // soul touch: big chunk
-        else if (r < 0.4 && me.res.curCE >= me.cfg.ct2.cost) f.ct2 = true;  // body weapon
+        if (r < 0.25 && me.res.curCE >= me.cfg.ct2.cost) f.ct2 = true;      // soul touch: big chunk
+        else if (r < 0.4 && me.res.curCE >= me.cfg.ct1.cost) f.ct1 = true;  // body weapon
         else f.punch = true;
       }
       this._edges(f);
@@ -1506,9 +1506,13 @@ export class CPU {
         else this.plan = r < 0.62 ? 'punch' : r < 0.78 ? 'block' : r < 0.9 ? 'strafe' : 'backoff';
         this.planT = rand(0.4, 1.0);
       }
-      // yuji: Divergent Fist to catch wake-up
+      // yuji: Divergent Bloom to catch wake-up. Read by EFFECT rather than by
+      // slot: RB/RT hold the ranged move and the strong one respectively, and
+      // which is which differs between the characters that share `blackFlash`.
       if (me.cfg.blackFlash && !me.busy) {
-        if (foe.state === 'knockdown' && dist < 1.9 && me.res.curCE >= me.cfg.ct1.cost && Math.random() < 0.4) f.ct1 = true;
+        const near = me.cfg.ct2?.effect === 'yuji_divergent' ? 'ct2' : 'ct1';
+        if (foe.state === 'knockdown' && dist < 1.9 && me.res.curCE >= me.cfg[near].cost
+          && Math.random() < 0.4) f[near] = true;
       }
       // ---- specials: each profile leans on its own signature -------------
       const spKey = me.cfg.special?.key;
@@ -1614,10 +1618,15 @@ export class CPU {
       case 'ct': {
         // The brawler picks by range instead of at random — his techniques are
         // his only Black Flash openers, so throwing one from out of reach
-        // wastes the opening. Divergent Fist is point-blank (reach 1.9), Manji
-        // Kick is the gap-closer; from further out he just keeps walking in.
+        // wastes the opening. Divergent Bloom is point-blank (reach 3.2), the
+        // Manji Slash is the gap-closer; from further out he just keeps
+        // walking in. Both are found by EFFECT, because Yuji holds the Manji
+        // on RB (his furthest) and Nobara — who shares `blackFlash` — does
+        // not have either move at all.
+        const bfNear = me.cfg.ct2?.effect === 'yuji_divergent' ? 'ct2' : 'ct1';
+        const bfFar = bfNear === 'ct2' ? 'ct1' : 'ct2';
         const pick = me.cfg.blackFlash
-          ? (dist < 1.9 ? 'ct1' : dist < 4.5 ? 'ct2' : null)
+          ? (dist < 1.9 ? bfNear : dist < 4.5 ? bfFar : null)
           : me.cfg.ct2?.effect === 'todo_grab'
             ? (dist < 3 ? 'ct1' : null) // the grab is hunted separately, in range
             : me.cfg.ct2?.effect === 'jogo_eruption'

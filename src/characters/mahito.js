@@ -23,16 +23,11 @@ export const MAHITO = withDefaults({
     name: 'Flesh Maul', dmg: 15, startup: 17, active: 5, recovery: 29,
     reach: 2.0, kb: 5.5, hitstun: 30, step: 2.2, staminaCost: 20, clip: 'heavy'
   },
+  // ---- RB · CT1 — THE RANGED SLOT ------------------------------------------
+  // ROSTER CONVENTION: RB holds the furthest-reaching technique, RT the
+  // strongest. Body Lance extends to 6.5 m; Soul Touch is a 1.6 m read that
+  // leaves a Soul Wound behind it, which is the bigger payload of the two.
   ct1: {
-    // SOUL TOUCH — short-range grab-strike: damage plus a lingering SOUL
-    // WOUND (increased damage taken from all sources). Narrow and whiffs
-    // badly on a miss — it's a read, not a poke.
-    name: 'Soul Touch', cost: 18, startup: 13, active: 4, recovery: 34,
-    effect: 'mahito_soultouch', dmg: 10, reach: 1.6, arc: 1.1,
-    kb: 2.5, kbY: 0, hitstun: 26,
-    soulWound: { duration: 6, dmgTakenMult: 1.3 }, clip: 'ct1'
-  },
-  ct2: {
     // BODY WEAPON — the arm reshapes into a blade / hammer / spike fan and
     // swings. Committed, high damage, long reach. The variant (geometry AND
     // animation) rotates so it never repeats twice in a row — see
@@ -42,6 +37,16 @@ export const MAHITO = withDefaults({
     extendTime: 0.22, holdTime: 0.1,
     kb: 5, kbY: 2, hitstun: 30,
     clips: ['bwBlade', 'bwHammer', 'bwSpikes'], clip: 'bwBlade'
+  },
+  // ---- RT · CT2 — THE POWER SLOT -------------------------------------------
+  ct2: {
+    // SOUL TOUCH — short-range grab-strike: damage plus a lingering SOUL
+    // WOUND (increased damage taken from all sources). Narrow and whiffs
+    // badly on a miss — it's a read, not a poke.
+    name: 'Soul Touch', cost: 18, startup: 13, active: 4, recovery: 34,
+    effect: 'mahito_soultouch', dmg: 10, reach: 1.6, arc: 1.1,
+    kb: 2.5, kbY: 0, hitstun: 26,
+    soulWound: { duration: 6, dmgTakenMult: 1.3 }, clip: 'ct1'
   },
   // SPECIAL — SUMMON TRANSFIGURED HUMAN (B): a weak independent AI ally.
   // Fragile, low damage; its value is pressure, and the pressure is meant to

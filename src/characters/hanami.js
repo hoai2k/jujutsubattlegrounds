@@ -93,17 +93,12 @@ export const HANAMI = withDefaults({
     staminaCost: 18, armorFrames: 20, ceGain: 1.7, clip: 'heavy'
   },
 
-  ct1: {
-    name: 'Root Eruption', jpName: '根の噴出', cost: 16,
-    startup: 22, active: 4, recovery: 31,          // 57f = the clip's 0.95 s
-    effect: 'hanami_roots', clip: 'ct1',
-    dmg: 16, delay: 0.75, radius: 2.6, aimRange: 9, kb: 4, kbY: 9.5,
-    // NATURAL GROUND: it comes up faster, wider and harder, because there is
-    // something down there to come up out of.
-    natural: { dmg: 22, delay: 0.52, radius: 3.05 }
-  },
-
-  // ---- RT · CT2 — CURSED BUD ----------------------------------------------
+  // ---- RB · CT1 / RT · CT2 -------------------------------------------------
+  // ROSTER CONVENTION: RB holds the furthest-reaching technique, RT the
+  // strongest. The Root Swarm travels 11 m; the Root Eruption is placed
+  // within 9 m and hits harder (16, and 22 on natural ground).
+  //
+  // ---- THE CURSED BUD (carried by the Root Swarm) --------------------------
   // Canon calls this the Cursed Bud: a parasitic seed that lives on cursed
   // energy and grows by taking the victim's. Direct damage is almost nothing.
   // The point is STARVING them — six seconds of drain is most of a bar, and a
@@ -114,7 +109,7 @@ export const HANAMI = withDefaults({
   // counterplay to "you cannot reach your ultimate" is to go and hit him, which
   // is exactly the fight he wants to have and exactly the fight you have to
   // win anyway.
-  // ---- RT · CT2 — ROOT SWARM 根の群れ --------------------------------------
+  // ---- RB · CT1 — ROOT SWARM 根の群れ --------------------------------------
   // He drives an arm into the deck and the roots go hunting UNDER it: a line
   // of them races away in THE DIRECTION HE IS MOVING, surfacing as it travels
   // (real wooden geometry, one clump every metre), and whatever the line
@@ -127,7 +122,7 @@ export const HANAMI = withDefaults({
   // own, which keeps his CE-drain identity and loses the worst-looking move
   // in his kit. Everything about the drain itself is unchanged and still
   // lives in combat/flora.js — including the cleanse counterplay.
-  ct2: {
+  ct1: {
     name: 'Root Swarm', jpName: '根の群れ', cost: 16,
     startup: 18, active: 3, recovery: 26,
     effect: 'hanami_rootswarm', clip: 'ct2',
@@ -140,6 +135,17 @@ export const HANAMI = withDefaults({
       // the ruling written out there for Toji and Mahoraga
       flatVsNoCE: { dps: 3.4 }
     }
+  },
+
+  // ---- RT · CT2 — ROOT ERUPTION 根の噴出 ------------------------------------
+  ct2: {
+    name: 'Root Eruption', jpName: '根の噴出', cost: 16,
+    startup: 22, active: 4, recovery: 31,          // 57f = the clip's 0.95 s
+    effect: 'hanami_roots', clip: 'ct1',
+    dmg: 16, delay: 0.75, radius: 2.6, aimRange: 9, kb: 4, kbY: 9.5,
+    // NATURAL GROUND: it comes up faster, wider and harder, because there is
+    // something down there to come up out of.
+    natural: { dmg: 22, delay: 0.52, radius: 3.05 }
   },
 
   // ---- LT · BLOCK ---------------------------------------------------------

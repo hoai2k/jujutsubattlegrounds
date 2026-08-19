@@ -229,20 +229,24 @@ export const TOJI = withDefaults({
       chain: {
         name: 'CHAIN OF A THOUSAND MILES', short: 'CHAIN', jp: '万里ノ鎖', clipSuffix: 'Chain',
         desc: 'RANGE · GRAPPLE · CLOSES ON ZONERS',
+        // ROSTER CONVENTION: RB is the furthest-reaching of the pair, RT the
+        // strongest. The Snare reaches 8.5 m to the Whip's 7.0; the Whip hits
+        // for 11 to the Snare's 8.
+        //
+        // On hit the Snare decides which way to close by DISTANCE: past
+        // `pullFrom` it hauls him to them (the approach), inside it, it hauls
+        // them to him (the reset). One button, two answers, and which one you
+        // get is a consequence of where you were standing.
         ct1: {
-          name: 'Whip Strike', cost: 0, startup: 11, active: 6, recovery: 24,
-          effect: 'toji_chain_whip', dmg: 11, reach: 7.0, arc: 0.55,
-          kb: 3.4, kbY: 0, hitstun: 20, clip: 'ct1Chain'
-        },
-        // On hit it decides which way to close by DISTANCE: past `pullFrom` it
-        // hauls him to them (the approach), inside it, it hauls them to him
-        // (the reset). One button, two answers, and which one you get is a
-        // consequence of where you were standing.
-        ct2: {
           name: 'Snare', cost: 0, startup: 14, active: 6, recovery: 30,
           effect: 'toji_chain_snare', dmg: 8, reach: 8.5, arc: 0.5,
           kb: 0, kbY: 0, hitstun: 30, clip: 'ct2Chain',
           pullFrom: 5.5, endGap: 1.5
+        },
+        ct2: {
+          name: 'Whip Strike', cost: 0, startup: 11, active: 6, recovery: 24,
+          effect: 'toji_chain_whip', dmg: 11, reach: 7.0, arc: 0.55,
+          kb: 3.4, kbY: 0, hitstun: 20, clip: 'ct1Chain'
         }
       }
     }
