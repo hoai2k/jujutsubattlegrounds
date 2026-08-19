@@ -646,6 +646,11 @@ export class Match {
       switch (e.type) {
         case 'jump': this.sfx.jump(); this.fx.jumpPuff(f.pos.clone()); break;
         case 'land': this.sfx.land(); break;
+        case 'dashBurst':
+          // the push-off, on top of the dash's own sound and trail
+          this.sfx.dashBurst();
+          this.fx.dashBurst(f, f.dashBurstDir);
+          break;
         case 'dash':
           this.sfx.dash();
           this.fx.dashTrail(f);

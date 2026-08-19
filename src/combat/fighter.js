@@ -12,6 +12,40 @@ import { tickCharge, spendCharge, chargeDmg, chargeSize, chargeSpeed, chargeFrac
 import { buildCores, resetCores, coresAlive, nextCore, coreIndexOf } from './cores.js';
 
 const GRAVITY = 26;
+
+// ---------------------------------------------------------------------------
+// THE DASH BURST
+// ---------------------------------------------------------------------------
+// A dash used to be a speed: hold the button with a direction and the velocity
+// eased toward `dashSpeed`, which took about a fifth of a second to arrive and
+// covered a metre in the process. That is a jog, and a jog does not beat a
+// startup — every attack in the game closes 1.5-2.2 m and the ones worth
+// dodging are active within a quarter of a second, so the dash could never
+// actually take you out of one.
+//
+// So the first beat of a dash is now an IMPULSE. Velocity is set outright to
+// `speed` x the character's own dash speed, held for `time`, and then eased
+// back into the ordinary dash. That is ~2.9 m of ground for a typical fighter
+// in 0.17 s, against a punch that reaches 1.6 m: the dodge is real, and it is
+// real for everyone rather than only for Toji, whose i-frames are untouched
+// and remain his own thing.
+//
+// IT COSTS MORE THAN RUNNING DOES, up front, which is the whole balance of it.
+// `costSeconds` is denominated in the character's OWN dash drain — 0.55 s of
+// dashing, paid on the frame it fires — so it scales with a roster whose
+// stamina economies differ by a factor of three, and so a fighter who has been
+// leaning on the dash cannot also have the dodge. Out of stamina for the
+// burst, the dash still works: it is just the jog it always was.
+//
+// A DIRECTION IS REQUIRED, and that falls out of `canDash` already needing
+// one — the dash button alone has never done anything. The heading is LOCKED
+// for the length of the burst: a dodge that curves under the stick is not a
+// dodge, and committing to the direction is what makes the read matter.
+const DASH_BURST = {
+  speed: 2.0,          // x dashSpeed, for the length of the burst
+  time: 0.17,          // seconds at full burst, then back to the dash
+  costSeconds: 0.55    // x dashDrain, spent up front
+};
 // how far above the current surface a fighter may step without jumping — kerbs,
 // stair lips, the first bleacher row
 const STEP_TOL = 0.55;
@@ -179,6 +213,11 @@ export class Fighter {
     this.wheel = null;           // {sel, slot, t} while the shikigami wheel is held
     this.submerged = 0;          // 0..1 sunk into the shadow (untargetable at 1)
     this.shadowDash = false;     // dashing THROUGH the shadow rather than over it
+
+    // ---- the dash burst (see DASH_BURST) ----
+    this.dashBurstT = 0;         // seconds of impulse left
+    this.dashBurstDir = v3();    // the heading it committed to
+    this.dashBurst = null;       // the tunable it fired with
 
     // ---- naoya: PROJECTION SORCERY ----
     // `frozenT` is on EVERY fighter, not just Naoya, because any of them can
@@ -540,6 +579,7 @@ export class Fighter {
     this.wheel = null;
     this.submerged = 0;
     this.shadowDash = false;
+    this.dashBurstT = 0;
     this.model.setSubmerged?.(0);
     // PROJECTION SORCERY — every piece of it is round-scoped, including the
     // freeze. FreezeSystem.clear() restores the victim's materials on the same
@@ -885,6 +925,11 @@ export class Fighter {
 
   // ---- state helpers ------------------------------------------------------
   setState(state, opts = {}) {
+    // A BURST ENDS WITH THE DASH. Anything else taking the fighter over — a
+    // hit landing on him, a block, an attack he threw out of it, a launch —
+    // ends the impulse then and there; without this the leftover timer would
+    // be spent by whatever dash came next, in whatever direction that one was.
+    if (state !== 'dash') this.dashBurstT = 0;
     this.state = state;
     this.f = 0;
     if (opts.move !== undefined) this.move = opts.move;
@@ -3612,6 +3657,29 @@ export class Fighter {
     return v3(sin * fwd - cos * strafe, 0, cos * fwd + sin * strafe);
   }
 
+  // THE FIRST BEAT OF A DASH (see DASH_BURST). Fires on the frame the dash
+  // starts and only then — holding the button re-enters nothing, so the cost is
+  // paid once per dash rather than once per frame. Refuses quietly when the
+  // stamina is not there, which leaves the plain dash behind it.
+  _startDashBurst(dir, mag, stats) {
+    // `dashBurst: false` on a character (or a stance) opts out of it entirely;
+    // an object overrides the defaults field by field.
+    const t = this._tune('dashBurst');
+    if (t === false) return;
+    const b = { ...DASH_BURST, ...(t || {}) };
+    if (mag < 0.1) return;                             // no heading, no dodge
+    const cost = (stats.dashDrain ?? 0) * b.costSeconds;
+    if (cost > 0 && this.res.stamina < cost) return;   // spent: the jog is what is left
+    this.res.stamina = Math.max(0, this.res.stamina - cost);
+    this.dashBurst = b;
+    this.dashBurstT = b.time;
+    this.dashBurstDir.set(dir.x / mag, 0, dir.z / mag);
+    const bs = stats.dashSpeed * b.speed * this.speedMult;
+    this.vel.x = this.dashBurstDir.x * bs;
+    this.vel.z = this.dashBurstDir.z * bs;
+    this.emit('dashBurst');
+  }
+
   _locomote(move, dashHeld, ctx, dt) {
     // `this.stats` — see the getter. Identical to `cfg.stats` for everyone
     // except Panda, whose three cores each carry their own movement numbers.
@@ -3627,6 +3695,10 @@ export class Fighter {
     const trav = ctx.domains.shadowTravel?.(this);
     this.shadowDash = !!(trav && canDash);
     if (this.shadowDash) {
+      // the submerge takes the dash over, burst included: he is under the
+      // shadow now, and an impulse still steering him would surface him
+      // somewhere he did not choose
+      this.dashBurstT = 0;
       const t = trav.travel;
       this.res.stamina = Math.max(0, this.res.stamina - t.drain * dt);
       this.vel.x = damp(this.vel.x, m.x * t.speed, 16, dt);
@@ -3638,12 +3710,27 @@ export class Fighter {
     // input entirely — there is no dash on him to fall back to.
     const hc = this.cfg.heavyCharge;
     if (hc && dashHeld && this.grounded && this.chargeCD <= 0 && mag > 0.1) {
+      this.dashBurstT = 0;                    // the charge owns him now
       this.chargeDir = this._moveVec(move, ctx.camYaw).normalize();
       this.armorFrames = Math.max(this.armorFrames, hc.armorFrames ?? 0);
       this.setState('charge', { clip: 'dash' });
       this.emit('charge');
       return;
     }
+    // A BURST ALREADY IN THE AIR OWNS THE FIGHTER. It carries its own heading
+    // and its own speed, it ignores the stick, and it does not care whether the
+    // button is still held: it was paid for on the frame it started. Letting go
+    // mid-dodge cancelling it would make the dodge unreliable in exactly the
+    // moment it is being used.
+    if (this.dashBurstT > 0) {
+      this.dashBurstT -= dt;
+      const bs = stats.dashSpeed * this.dashBurst.speed * this.speedMult;
+      this.vel.x = this.dashBurstDir.x * bs;
+      this.vel.z = this.dashBurstDir.z * bs;
+      this.res.stamina = Math.max(0, this.res.stamina - stats.dashDrain * dt);
+      return;
+    }
+
     let speed = 0, next = 'idle';
     if (canDash) {
       speed = stats.dashSpeed; next = 'dash';
@@ -3663,6 +3750,7 @@ export class Fighter {
         const inv = this._tune('dashIFrames') ?? 0;
         if (inv > 0) this.iFrames = Math.max(this.iFrames, inv);
         this.emit('dash');
+        this._startDashBurst(m, mag, stats);
       }
     } else if (['idle', 'walk', 'run'].includes(next)) {
       // keep the loop running (no restart)

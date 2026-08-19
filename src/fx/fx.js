@@ -164,6 +164,31 @@ export class FXSystem {
     }
   }
 
+  // THE DASH BURST — the impulse at the front of a dash. Louder than the trail
+  // that follows it and thrown BACKWARD along the heading, so the read is "he
+  // left from here" rather than "he is moving fast": a scuff ring on the floor
+  // at the push-off, a fan of dust behind it, and a pair of camera-facing
+  // streaks for the snap.
+  dashBurst(fighter, dir) {
+    const at = fighter.pos.clone();
+    const back = dir.clone().multiplyScalar(-1);
+    const col = fighter.model.palette.energy ?? 0x9fd0ff;
+    this._ring(at.clone().setY(0.06), col, { size: 0.35, growRate: 9, life: 0.26 });
+    for (let i = 0; i < 10; i++) {
+      this._spawn(at.clone().add(v3(rand(-0.3, 0.3), rand(0.1, 1.4), rand(-0.3, 0.3))), {
+        color: i % 3 ? 0xb8c0d8 : col, size: rand(0.14, 0.32), life: rand(0.18, 0.34),
+        vel: back.clone().multiplyScalar(rand(3, 7)).add(v3(rand(-1, 1), rand(0.2, 1.6), rand(-1, 1))),
+        gravity: 5
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      const bar = this._spawn(at.clone().add(v3(0, 0.8 + i * 0.5, 0)).addScaledVector(back, 0.35), {
+        color: col, size: 1.5, aspect: 0.09, life: 0.16, vel: back.clone().multiplyScalar(2)
+      });
+      this._bb(bar.mesh, rand(-0.35, 0.35));
+    }
+  }
+
   jumpPuff(pos) {
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;

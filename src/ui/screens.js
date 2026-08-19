@@ -176,7 +176,7 @@ export class Legend {
       <div><b>RB</b> Technique 1 <span style="color:#8b98bc">(U / [)</span></div>
       <div><b>RT</b> Technique 2 <span style="color:#8b98bc">(I / ])</span></div>
       <div><b>LT</b> block — hold <span style="color:#8b98bc">(K / ')</span></div>
-      <div><b>LB</b> dash — stamina <span style="color:#8b98bc">(Shift / RCtrl)</span></div>
+      <div><b>LB</b> dash — stamina <span style="color:#8b98bc">(Shift / RCtrl)</span>. Hold a direction and it opens with a BURST that will take you out of an attack; the burst costs stamina up front, the dash itself drains it</div>
       <div><b>D-Right</b> Domain / Ultimate <span style="color:#8b98bc">(O / \\)</span> — needs MAX+FULL CE</div>
       <div><b>D-Right again</b> release your own domain early</div>
       <div><b>B</b> SPECIAL <span style="color:#8b98bc">(H / M)</span> — Gojo: warp · Nanami: 7:3 timing (press again to stop) · Yuta: Copy · Yuji: Black Flash · Todo: Boogie Woogie</div>
