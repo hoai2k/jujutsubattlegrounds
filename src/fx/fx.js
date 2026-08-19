@@ -189,6 +189,33 @@ export class FXSystem {
     }
   }
 
+  // ---- WATER ---------------------------------------------------------------
+  // WHAT STANDING IN A RIVER LOOKS LIKE. The maps have had water since the
+  // start and it only ever reacted to techniques hitting it, so a fighter in
+  // Kyoto's river — which runs down most of the middle of the map — was a body
+  // cut off at the thigh by a flat green sheet that did nothing. That reads as
+  // falling through the floor, and every player who saw it read it that way.
+  //
+  // `power` scales the whole thing: a footfall is ~0.4, walking out of a jump
+  // into the river is ~1.4. The ring is laid FLAT at the water's own height so
+  // it sits on the surface rather than around the body.
+  waterRing(x, y, z, power = 1) {
+    const at = v3(x, y + 0.02, z);
+    this._ring(at, 0xcfeef8, { size: 0.34 * power, growRate: 2.2 + power * 2.4, life: 0.34 + power * 0.2 });
+    if (power > 0.7) this._ring(at, 0x8fd0e0, { size: 0.2 * power, growRate: 1.6 + power * 3.4, life: 0.5 });
+    const n = Math.round(3 + power * 9);
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2);
+      const out = rand(0.15, 0.5) * power;
+      this._spawn(v3(x + Math.cos(a) * out, y + 0.05, z + Math.sin(a) * out), {
+        color: i % 3 ? 0xcfeef8 : 0x8fd0e0, size: rand(0.05, 0.13) * (0.6 + power),
+        life: rand(0.24, 0.5),
+        vel: v3(Math.cos(a) * rand(0.6, 2.2) * power, rand(1.4, 4.2) * power, Math.sin(a) * rand(0.6, 2.2) * power),
+        gravity: 11
+      });
+    }
+  }
+
   jumpPuff(pos) {
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;

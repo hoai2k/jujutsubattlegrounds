@@ -1718,6 +1718,7 @@ export class Match {
       // if it knows where his footing is (see art/shaders/xray.js).
       setXrayFocus(cam.cam, _xrayAt, me.pos.y);
     });
+    this._wading(frameDt);
     // EVERY eye, not just the first: the arena culls zones and detail props
     // against the cameras it is given, and anything culled is culled out of
     // the one shared scene — so a second seat's interior has to count.
@@ -1727,6 +1728,63 @@ export class Match {
     // not, and are ticked from the logic step in `update`
     this.commandCard.update(frameDt);
     this.domainfx.update(frameDt, this.domains.state);
+  }
+
+  // ---- WADING --------------------------------------------------------------
+  // A FIGHTER STANDING IN WATER HAS TO LOOK LIKE ONE. The maps have had water
+  // since the beginning and it only ever answered to techniques landing in it,
+  // so a body in Kyoto's river — which is most of the middle of that map — was
+  // cut off at the thigh by a flat green sheet that did not move, did not
+  // sound, and did not part. Every player who saw it read it as falling
+  // through the floor, and they were right to: nothing on screen said water.
+  //
+  // Purely presentational, and deliberately so — it runs on frame time next to
+  // the rest of the FX rather than in the fixed step, and it changes nothing
+  // about how anyone moves or how a hit resolves. The surface itself is driven
+  // through the arena's own `splash`, which is the same ripple techniques use.
+  _wading(dt) {
+    if (!this.arena?.waterAt) return;
+    for (const f of this.fighters) {
+      if (f.eliminated) continue;
+      const wy = f.alive ? this.arena.waterAt(f.pos.x, f.pos.z) : null;
+      // the SURFACE has to be over his feet AND not over his head — a fighter
+      // on the stepping stones or on a bank is not wading
+      const inWater = wy != null && f.pos.y < wy - 0.04;
+      // Outside the fight itself — the intro, a KO, the round change — the
+      // state is tracked SILENTLY. A fighter respawning on dry land after a
+      // round that ended in the river would otherwise open the next one with a
+      // splash out of nothing.
+      if (this.phase !== 'fight') { f._inWater = inWater; continue; }
+      const was = f._inWater ?? false;
+      const spd = Math.hypot(f.vel.x, f.vel.z);
+      if (inWater && !was) {
+        // ARRIVING. A drop into the river is a bigger event than walking into
+        // it, so the fall speed is most of the power.
+        const p = Math.max(0.55, Math.min(1.6, 0.55 + Math.abs(f.vel.y) * 0.09 + spd * 0.04));
+        this.sfx.splash(p);
+        this.fx.waterRing(f.pos.x, wy, f.pos.z, p);
+        this.arena.splash?.(f.pos.x, f.pos.z, p);
+        f._wadeT = 0;
+      } else if (inWater) {
+        // STANDING IN IT. Ripples keep coming even at a standstill — moving
+        // water is what makes it read as water — and quicken with the pace.
+        f._wadeT = (f._wadeT ?? 0) - dt;
+        if (f._wadeT <= 0) {
+          const p = 0.3 + Math.min(0.7, spd * 0.075);
+          f._wadeT = spd > 0.4 ? 0.16 : 0.6;
+          this.fx.waterRing(f.pos.x, wy, f.pos.z, p);
+          this.arena.splash?.(f.pos.x, f.pos.z, 0.35 + p);
+          if (spd > 1.2) this.sfx.wade();
+        }
+      } else if (was) {
+        // LEAVING IT, at the last place he was in it.
+        this.fx.waterRing(f.pos.x, f._waterY ?? f.pos.y, f.pos.z, 0.5);
+        this.arena.splash?.(f.pos.x, f.pos.z, 0.6);
+        this.sfx.wade();
+      }
+      f._inWater = inWater;
+      if (inWater) f._waterY = wy;
+    }
   }
 
   destroy() {

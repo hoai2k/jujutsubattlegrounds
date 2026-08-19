@@ -100,8 +100,16 @@ export function build(quality) {
   b.pit(-BX, -BZ, -RX, BZ, SY);
   b.pit(RX, -BZ, BX, BZ, SY);
   b.floor(-RX, PZ1, RX, 54, SY, { mat: M.rock });
+  // OPACITY IS LOAD-BEARING HERE, not a look. The river is knee-deep and runs
+  // down the middle of the map, so most fights cross it — and at 0.62 the
+  // surface swallowed everything under it, which turned a fighter standing in
+  // the water into a fighter buried to the thigh in green ground. At 0.42 the
+  // submerged half of the body reads through the surface, and reading the legs
+  // is what tells you it is water rather than a hole. The plunge pool keeps a
+  // heavier surface: it is deeper, it is meant to hide its floor, and nobody
+  // fights standing in it.
   b.water(-RX + 0.3, PZ1, RX - 0.3, 54, SY + 0.48,
-    { shallow: 0x8fd0e0, deep: 0x2a6a7a, opacity: 0.62, caustic: 0.4 });
+    { shallow: 0x8fd0e0, deep: 0x2a6a7a, opacity: 0.42, caustic: 0.4 });
 
   // BANK SLOPES so you can always get out of the water, one per side. Authored
   // low-end-first in both directions: `bounds.ramp` pins yLow to the MINIMUM
@@ -135,7 +143,7 @@ export function build(quality) {
   // can fall into and not climb out of is worse than a shallow one.
   b.floor(-RX, PZ0, RX, PZ1, SY - 0.5, { mat: M.rock, id: 'pool' });
   b.water(-RX + 0.3, PZ0 + 0.5, RX - 0.3, PZ1, SY + 0.34,
-    { shallow: 0xa8e0ec, deep: 0x256878, opacity: 0.66, caustic: 0.55 });
+    { shallow: 0xa8e0ec, deep: 0x256878, opacity: 0.56, caustic: 0.55 });
   // the grass closes over the head of the channel, so the top of the fall is
   // walkable ground rather than a hole in the map edge
   b.floor(-RX, -54, RX, PZ0, 0, { mat: M.grass });
