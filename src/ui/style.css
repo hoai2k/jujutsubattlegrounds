@@ -1,5 +1,5 @@
 /* ============================================================================
-   CURSED ARENA — UI
+   JUJUTSU BATTLEGROUNDS — UI
    ----------------------------------------------------------------------------
    Design rules, and they are rules rather than suggestions, because the last
    pass drifted into looking like a web page:
@@ -430,7 +430,49 @@ html.filters-on #ui-root::after {
   padding: 1px 4px; background: var(--shadow-blue); color: #0d141c; transform: skewX(calc(var(--skew) * -1));
 }
 .sw-opt.b2::after { content: 'RT'; background: var(--ce); color: #14101e; }
+/* THE THIRTEEN-ENTRY RING. Megumi's wheel went from six shikigami to thirteen
+   (nine summons, three fusions and the ritual-only Mahoraga), and at the
+   six-entry chip size they overlap into a smear. `dense` narrows the chip and
+   tightens the type; the ring radius is widened in hud.js to match. */
+.sw-opt.dense { width: 72px; padding: 4px 2px; }
+.sw-opt.dense b { font-size: 9.5px; letter-spacing: 0.5px; }
+.sw-opt.dense i { font-size: 10px; letter-spacing: 1px; }
+.sw-opt.dense u { font-size: 8px; }
+/* A FUSION IS A DIFFERENT KIND OF ENTRY and reads as one before it is even
+   selected: a warm border and a corner tick, against the cool blue of an
+   ordinary summon. It is the difference between spending cursed energy and
+   spending shikigami. */
+.sw-opt.fusion { border-left-color: #c8952c; }
+.sw-opt.fusion b { color: #e2b357; }
+.sw-opt.fusion.focus { border-left-color: #ffd98a; box-shadow: 0 0 30px rgba(226, 179, 87, 0.45); }
+.sw-opt.fusion.focus b { color: #fff; }
+/* BLOCKED is not LOST. A fusion whose components are dead is unreachable, not
+   destroyed — and unlike a destroyed shikigami it can come back (inside the
+   Shadow Garden, or via the unlock-on-loss path). So it is greyed and hatched
+   rather than struck through in blood. */
+.sw-opt.blocked {
+  opacity: 0.4; color: #5a5f66; border-left-color: #4a4f57;
+  background: repeating-linear-gradient(135deg, rgba(8,10,14,0.92) 0 5px, rgba(20,24,30,0.92) 5px 10px);
+}
+.sw-opt.blocked b { color: #6a7078; }
+.sw-opt.ritual { border-left-color: #6a5c8a; }
+.sw-opt.ritual u { color: #9a86c8; }
 .sw-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 170px; text-align: center; }
+/* THE COMPONENT STRIP — one chip per component of the selected fusion, lit if
+   that shikigami is still alive and struck if it is gone. This is the line
+   that has to answer "what will this cost me" without being read as a
+   sentence, and it sits directly under the wheel's caption. */
+.sw-parts { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
+.sw-parts i {
+  font-style: normal; font-size: 8px; font-weight: 700; letter-spacing: 1px;
+  padding: 2px 5px; border: 1px solid;
+}
+.sw-parts i.live { color: #ffd98a; border-color: rgba(255, 217, 138, 0.55); background: rgba(60, 44, 14, 0.6); }
+.sw-parts i.gone {
+  color: #7a3038; border-color: rgba(160, 50, 60, 0.5); background: rgba(30, 8, 12, 0.7);
+  text-decoration: line-through;
+}
+.shiki-wheel.fusing .sw-center b { color: #e2b357; }
 .sw-center b {
   display: block; font-size: 12px; font-weight: 700; font-style: italic;
   letter-spacing: 3px; color: var(--shadow-blue);
@@ -606,7 +648,7 @@ html.filters-on #ui-root::after {
   clip-path: polygon(0 0, 100% 0, calc(100% - 40px) 100%, 0 100%);
 }
 .select-title h1 {
-  font-size: 44px; font-weight: 700; font-style: italic; letter-spacing: 2px;
+  font-size: 36px; font-weight: 700; font-style: italic; letter-spacing: 2px;
   line-height: 0.94; color: var(--bone); text-shadow: 0 4px 0 #000;
 }
 .select-title h1::first-letter { color: var(--ce); text-shadow: 0 0 30px var(--ce); }
@@ -695,6 +737,10 @@ html.filters-on #ui-root::after {
   clip-path: polygon(44px 0, 100% 0, 100% 100%, 0 100%);
 }
 .sel-hero.on { opacity: 1; }
+/* Display only. It is a wide, mostly-transparent slab pinned to the edge of
+   the screen, and with pointer events on it silently ate clicks aimed at
+   anything underneath it — the online panel among them. */
+.sel-hero { pointer-events: none; }
 .sel-hero .sh-seat {
   display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 4px;
   padding: 2px 10px; margin-bottom: 6px; color: #0a0a0e;
@@ -2137,4 +2183,280 @@ html.filters-on #ui-root::after {
 @keyframes ccRasp {
   0%, 100% { transform: skewX(-7deg) translateX(0); }
   50% { transform: skewX(-7deg) translateX(3px); }
+}
+/* ============================================================== ONLINE == */
+/* The online panel shares the top-right slot with the device readout: your
+   hardware, then your connection. When a session opens the panel is replaced
+   in place by the lobby, so the eye never has to go looking for it. */
+.online-panel {
+  position: absolute; top: 150px; right: 26px; width: 290px; text-align: right;
+  z-index: 5;
+  padding: 10px 18px 12px 24px; background: rgba(4, 4, 8, 0.9);
+  clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%);
+  border-bottom: 3px solid #3a3a46; transition: opacity 140ms, border-color 200ms;
+}
+/* `visibility`, not `pointer-events` — `#ui-root > *` sets pointer-events on
+   every top-level overlay with ID specificity, so a class rule cannot turn it
+   back off. A hidden overlay that still eats clicks is how the online panel
+   ended up unclickable behind an invisible one. The same applies to the lobby,
+   the banner and the toast below. */
+.online-panel.gone { opacity: 0; visibility: hidden; }
+.online-panel.live { border-bottom-color: var(--gold); }
+.online-panel.down { border-bottom-color: #4a2a2a; opacity: 0.62; }
+.op-head {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  font-size: 12px; font-weight: 700; letter-spacing: 4px; color: var(--bone-dim);
+}
+.op-head b { font-style: italic; }
+.op-dot {
+  width: 7px; height: 7px; background: #45454f; border-radius: 50%;
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+}
+.online-panel.live .op-dot { background: var(--gold); animation: op-beat 1.5s infinite; }
+.online-panel.busy .op-dot { background: var(--ce); animation: op-beat 1.1s infinite; }
+.online-panel.down .op-dot { background: var(--blood); }
+@keyframes op-beat {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 199, 94, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(255, 199, 94, 0); }
+}
+/* Collapses to nothing when there is nothing to say — with nobody hosting the
+   panel is a header and a HOST button, and that is all. */
+.op-body:not(:empty) { margin: 7px 0 9px; min-height: 34px; }
+.op-msg, .op-live { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.op-msg, .op-live b {
+  font-size: 15px; font-weight: 700; font-style: italic; letter-spacing: 2px;
+  color: var(--bone); text-shadow: 0 2px 0 #000;
+}
+.op-msg i, .op-live i {
+  font-size: 10px; font-style: italic; letter-spacing: 1.5px; color: var(--bone-far);
+  text-transform: none;
+}
+.online-panel.live .op-live b { color: var(--gold); }
+.op-actions { display: flex; flex-direction: column; gap: 5px; align-items: stretch; }
+/* JOIN only exists when there is a game to join. It is removed from the layout
+   rather than disabled — a dead button is worse than no button — and it slides
+   in so a game appearing while you are looking elsewhere still catches the eye. */
+.op-join { display: none; }
+.op-join.on { display: block; }
+.op-join.in { animation: op-slide 340ms cubic-bezier(.2,.9,.3,1); }
+@keyframes op-slide {
+  from { opacity: 0; transform: skewX(var(--skew)) translateX(26px); }
+  to   { opacity: 1; transform: skewX(var(--skew)) translateX(0); }
+}
+.op-btn {
+  font-family: var(--font); font-size: 11px; font-weight: 700; letter-spacing: 3px;
+  padding: 7px 12px; color: var(--bone); background: rgba(20, 20, 28, 0.9);
+  border: 1px solid #33333d; border-bottom-width: 2px; cursor: pointer;
+  transform: skewX(var(--skew)); transition: all 110ms;
+}
+.op-btn:hover:not(:disabled) { background: rgba(40, 40, 54, 0.95); border-color: var(--ce); }
+.op-btn.primary { border-bottom-color: var(--ce); color: #fff; }
+.online-panel.live .op-btn.primary { border-bottom-color: var(--gold); }
+.op-btn:disabled { opacity: 0.32; cursor: default; }
+.op-hint {
+  margin-top: 8px; font-size: 9px; font-weight: 700; letter-spacing: 3px;
+  color: var(--bone-far);
+}
+
+/* ---- the lobby ---------------------------------------------------------- */
+/* Not modal on purpose: the roster underneath stays live, and locking a
+   fighter in there is what marks you READY here. */
+.lobby-overlay {
+  position: absolute; top: 150px; right: 26px; width: 340px; z-index: 6;
+  padding: 12px 18px 13px; background: rgba(4, 4, 8, 0.95);
+  clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%);
+  border-bottom: 3px solid var(--ce);
+  opacity: 0; visibility: hidden; transition: opacity 160ms;
+}
+.lobby-overlay.on { opacity: 1; visibility: visible; }
+.lb-head { display: flex; align-items: baseline; justify-content: space-between; }
+.lb-title {
+  font-size: 15px; font-weight: 700; font-style: italic; letter-spacing: 4px;
+  color: var(--bone); text-shadow: 0 2px 0 #000;
+}
+.lb-code { font-size: 9px; letter-spacing: 2px; color: var(--bone-far); }
+.lb-code b {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; font-size: 12px;
+  letter-spacing: 3px; color: #0a0a0e; background: var(--ce);
+  transform: skewX(var(--skew));
+}
+.lb-status {
+  margin: 8px 0 9px; font-size: 10px; font-weight: 700; letter-spacing: 2px;
+  color: var(--bone-dim); min-height: 14px;
+}
+.lb-status.wait { color: var(--ce); }
+.lb-status.go { color: var(--gold); }
+.lb-status.bad { color: var(--blood); }
+.lb-players { display: flex; flex-direction: column; gap: 3px; }
+.lb-p {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center;
+  padding: 5px 9px; background: rgba(18, 18, 26, 0.85);
+  border-left: 3px solid #33333d;
+}
+.lb-p.ready { border-left-color: var(--gold); }
+.lb-p.me { background: rgba(34, 30, 52, 0.9); }
+.lb-p.empty { opacity: 0.4; border-left-style: dashed; }
+.lb-n { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: var(--bone); }
+.lb-n em {
+  font-style: normal; font-size: 8px; letter-spacing: 2px; color: #0a0a0e;
+  background: var(--bone-dim); padding: 1px 4px; margin-left: 5px;
+}
+.lb-n em.you { background: var(--ce); }
+.lb-c { display: flex; gap: 4px; }
+.lb-c i {
+  font-style: italic; font-size: 9px; letter-spacing: 1px; color: var(--gold);
+  border: 1px solid rgba(255, 199, 94, 0.3); padding: 1px 5px;
+}
+.lb-c i.none { color: var(--bone-far); border-color: #2c2c36; }
+.lb-r { font-size: 9px; font-weight: 700; letter-spacing: 2px; color: var(--bone-far); }
+.lb-p.ready .lb-r { color: var(--gold); }
+.lb-stage {
+  display: flex; align-items: center; gap: 8px; margin: 9px 0 3px;
+  font-size: 9px; font-weight: 700; letter-spacing: 3px; color: var(--bone-far);
+}
+.lb-stage b { flex: 1; text-align: center; font-size: 12px; font-style: italic; color: var(--bone); }
+.lb-sarrow {
+  font-family: var(--font); background: rgba(24, 24, 34, 0.9); color: var(--bone);
+  border: 1px solid #33333d; cursor: pointer; padding: 2px 8px; font-size: 10px;
+}
+.lb-sarrow:hover { border-color: var(--ce); }
+.lb-stage.ro .lb-sarrow { visibility: hidden; }
+.lb-foot { display: flex; gap: 6px; margin-top: 9px; position: relative; z-index: 1; }
+.lb-foot .op-btn { flex: 1; }
+.lb-hint {
+  margin-top: 7px; font-size: 8px; font-weight: 700; letter-spacing: 2px;
+  color: var(--bone-far);
+}
+
+/* With the lobby open the right-hand hero panel drops out of its way. Both
+   things have to stay readable: the lobby tells you who is here, the hero
+   panel tells you who you are about to lock in. */
+.select-screen.online .sel-hero.h1 { top: 68%; }
+
+/* ---- in-match banner + transient toast ---------------------------------- */
+.net-banner {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+  padding: 4px 18px; font-size: 11px; font-weight: 700; letter-spacing: 3px;
+  background: rgba(4, 4, 8, 0.92); color: var(--bone);
+  border-bottom: 2px solid var(--ce); opacity: 0; transition: opacity 180ms;
+  visibility: hidden; white-space: nowrap;
+}
+.net-banner.on { opacity: 1; visibility: visible; }
+.net-banner.warn { border-bottom-color: var(--gold); color: var(--gold); }
+/* THE single online message channel — a game opening up, a failed join, a
+   player dropping, the session ending. One place, one look, on every screen. */
+.online-toast {
+  position: absolute; top: 46px; left: 50%; transform: translateX(-50%);
+  padding: 7px 22px; font-size: 12px; font-weight: 700; letter-spacing: 3px;
+  background: rgba(4, 4, 8, 0.95); color: var(--bone);
+  border-bottom: 2px solid var(--ce);
+  opacity: 0; transition: opacity 200ms; visibility: hidden; white-space: nowrap;
+  z-index: 40;
+}
+.online-toast.on { opacity: 1; visibility: visible; animation: toast-in 260ms cubic-bezier(.2,.9,.3,1); }
+.online-toast.good { border-bottom-color: var(--gold); color: var(--gold); }
+.online-toast.bad { border-bottom-color: var(--blood); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* The result screen while the host decides. The buttons stay visible and go
+   dead rather than vanishing, so nobody wonders where the menu went. */
+.result-screen.locked .r-btn { opacity: 0.3; cursor: default; }
+.r-wait {
+  margin-top: 10px; font-size: 11px; font-weight: 700; letter-spacing: 4px;
+  color: var(--ce); opacity: 0; transition: opacity 160ms;
+}
+.r-wait.on { opacity: 1; }
+
+/* ============================================================== TITLE == */
+/* The front door, and the page's first user gesture: PRESS START is what
+   unlocks audio and what buys the fullscreen request. */
+.title-screen { position: absolute; inset: 0; pointer-events: none; }
+.title-screen > * { pointer-events: auto; }
+.title-screen.go { animation: ts-out 260ms ease-in forwards; }
+@keyframes ts-out { to { opacity: 0; } }
+
+.ts-kanji {
+  position: absolute; right: 2.5vw; top: 6vh;
+  font-family: var(--jp); font-size: min(9vh, 66px); font-weight: 700;
+  letter-spacing: 10px; writing-mode: vertical-rl;
+  color: var(--ac, var(--ce)); opacity: 0.2;
+  text-shadow: 0 0 50px var(--ac, var(--ce)); pointer-events: none;
+}
+
+.ts-brand {
+  position: absolute; left: 6vw; top: 17vh; max-width: 62vw;
+  animation: ts-rise 700ms cubic-bezier(.2,.9,.3,1) both;
+}
+.ts-brand h1 {
+  /* Sized off BATTLEGROUNDS, the long line: it has to clear the pedestal
+     the fighter stands on rather than run under him. */
+  font-size: min(6.6vw, 84px); font-weight: 700; font-style: italic;
+  letter-spacing: -1px; line-height: 0.86; color: var(--bone);
+  text-shadow: 0 7px 0 #000, 0 0 90px rgba(0,0,0,0.9);
+}
+.ts-brand h1::first-letter { color: var(--ce); text-shadow: 0 0 46px var(--ce); }
+.ts-brand h1 em { font-style: italic; color: var(--ac, var(--ce)); text-shadow: 0 7px 0 #000, 0 0 60px var(--ac, var(--ce)); }
+.ts-brand p {
+  margin-top: 12px; padding-left: 6px; font-size: 10px; font-weight: 600;
+  letter-spacing: 9px; color: var(--bone-far); text-transform: uppercase;
+}
+/* THE BYLINE. Quieter than the tagline above it and set on the same left
+   margin as the title, so it reads as a signature under the logo rather than
+   as a second line of copy competing with it. */
+.ts-by {
+  margin-top: 10px; padding-left: 6px; font-size: 9px; font-weight: 600;
+  letter-spacing: 5px; color: var(--bone-far); opacity: 0.62;
+  text-transform: uppercase;
+}
+@keyframes ts-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ts-menu {
+  position: absolute; left: 6vw; top: 56vh;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  animation: ts-rise 700ms 220ms cubic-bezier(.2,.9,.3,1) both;
+}
+.ts-opt {
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--font); font-size: 17px; font-weight: 700; font-style: italic;
+  letter-spacing: 6px; color: var(--bone-dim); background: transparent;
+  border: 0; border-left: 4px solid transparent; padding: 7px 20px 7px 16px;
+  cursor: pointer; transition: color 140ms, border-color 140ms, background 140ms;
+  text-align: left;
+}
+.ts-opt.focus {
+  color: var(--bone); border-left-color: var(--ce);
+  background: linear-gradient(90deg, rgba(185,143,255,0.16), transparent 78%);
+  text-shadow: 0 2px 0 #000;
+}
+/* PRESS START breathes so it reads as an invitation rather than a label. */
+.ts-start.focus span { animation: ts-pulse 1.7s ease-in-out infinite; }
+@keyframes ts-pulse { 0%, 100% { opacity: 1; } 55% { opacity: 0.38; } }
+
+/* The online option only exists when a game does, so it slides in mid-screen
+   rather than sitting there greyed out. */
+.ts-join { animation: ts-slide 420ms cubic-bezier(.2,.9,.3,1) both; }
+.ts-join.focus { border-left-color: var(--gold); background: linear-gradient(90deg, rgba(255,199,94,0.16), transparent 78%); }
+.ts-join em {
+  font-style: italic; font-size: 9px; letter-spacing: 2px; color: var(--bone-far);
+}
+.ts-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--gold);
+  animation: op-beat 1.5s infinite; flex: none;
+}
+@keyframes ts-slide {
+  from { opacity: 0; transform: translateX(-26px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Bottom RIGHT — the system bar owns the bottom-left corner. */
+.ts-foot {
+  position: absolute; right: 3vw; bottom: 4vh;
+  font-size: 9px; font-weight: 700; letter-spacing: 4px; color: var(--bone-far);
+  animation: ts-rise 700ms 380ms cubic-bezier(.2,.9,.3,1) both;
 }

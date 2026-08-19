@@ -81,8 +81,11 @@ export const SUKUNA = withDefaults({
     startup: 20, active: 5, recovery: 26,       // 51f
     effect: 'sukuna_dismantle', clip: 'ct1',
     dmg: 16, range: 13.0, width: 1.4, kb: 5.0, kbY: 1.2, hitstun: 26,
-    // the environment cut, stepped along the line
-    destroySteps: 13, destroyStep: 1.0, destroyRadius: 1.9, destroyPower: 95
+    // the cut RACES down the line at waveSpeed rather than existing all at
+    // once: near-instant up close, genuinely dodgeable at thirteen metres
+    waveSpeed: 26,
+    // the environment cut, torn as the wavefront reaches it
+    destroyRadius: 1.9, destroyPower: 95
   },
 
   // ---- RT (tap) · CT2 — CLEAVE 捌 -----------------------------------------

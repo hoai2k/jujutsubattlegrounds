@@ -39,9 +39,33 @@ export const XRAY = {
   // above 0.9375 removes the occluder completely. 0.86 keeps roughly one pixel
   // in sixteen, which reads as a ghost of the wall rather than a hole in the map.
   strength: 0.92,
-  nearClip: 0.35,   // ignore fragments right on the lens
-  backOff: 1.20     // stop cutting this far in front of the subject, so the
-                    // floor he is standing on is never punched through
+  // HOW CLOSE TO THE LENS THE CUT STILL WORKS. This used to be 0.35 m with a
+  // 0.9 m ramp behind it, and that band is exactly where the complaint lived:
+  // back into a corner, the rig ends up hard against the wall behind the
+  // fighter, the wall's fragments land 0.1-0.3 m from the lens — inside the
+  // dead band — and a surface filling the entire screen was the one thing the
+  // cut would not touch. The cone is angular, so cutting close to the lens
+  // removes the same DISC of screen as cutting far from it; there is nothing
+  // to be gained by holding off. What is left is a hair of clearance so a
+  // fragment sitting exactly on the near plane cannot flicker.
+  nearClip: 0.04,
+  nearRamp: 0.30,   // and the cut reaches full strength this far in
+  // HOW CLOSE TO THE SUBJECT THE CUT STILL WORKS. This was 1.20 m, and it was
+  // doing a job it was bad at: the only thing it needed to protect was the
+  // FLOOR under the fighter, and the way it protected it was to stop cutting
+  // anything at all within a metre and a bit of him — which is where a crate,
+  // a low wall or a pillar he has backed into actually sits. Those are the
+  // obstacles that hide a fighter completely, and they were the ones the cut
+  // refused to touch. The floor is protected properly now (see `uXrayFoot`
+  // below), so this is back to what it should always have been: a hair of
+  // clearance so the cut cannot chew into the subject's own footing.
+  backOff: 0.35,
+  // THE GROUND GUARD. Fragments below the subject's feet, and within this far
+  // of him along the sightline, are never cut — that is the floor he stands on
+  // and the step he is climbing. Anything further from him than this is cut
+  // even when it is below his feet, because that is a walkway underside or a
+  // parapet between the camera and the fight, not his footing.
+  footGuard: 1.60
 };
 
 // SCOPE. This is applied to the MAP's materials only (see kit.js) and
@@ -56,12 +80,15 @@ export const XRAY = {
 // frame, twice per view in split screen.
 const U = {
   uXrayN: { value: 0 },
-  uXrayA: { value: new THREE.Vector3() },
-  uXrayB: { value: new THREE.Vector3() },
+  uXrayA: { value: new THREE.Vector3() },     // the subject, in view space
+  uXrayFoot: { value: new THREE.Vector3() },  // and the ground under him
+  uXrayUp: { value: new THREE.Vector3(0, 1, 0) },  // world up, in view space
   uXrayR: { value: XRAY.radius },
   uXrayK: { value: XRAY.strength },
   uXrayNear: { value: XRAY.nearClip },
-  uXrayBack: { value: XRAY.backOff }
+  uXrayRamp: { value: XRAY.nearRamp },
+  uXrayBack: { value: XRAY.backOff },
+  uXrayFootG: { value: XRAY.footGuard }
 };
 
 const VERT_HEAD = 'varying vec3 vXrayVP;\n';
@@ -69,8 +96,9 @@ const VERT_BODY = '\nvXrayVP = mvPosition.xyz;';
 
 const FRAG_HEAD = /* glsl */`
 varying vec3 vXrayVP;
-uniform float uXrayN; uniform vec3 uXrayA; uniform vec3 uXrayB;
+uniform float uXrayN; uniform vec3 uXrayA; uniform vec3 uXrayFoot; uniform vec3 uXrayUp;
 uniform float uXrayR; uniform float uXrayK; uniform float uXrayNear; uniform float uXrayBack;
+uniform float uXrayRamp; uniform float uXrayFootG;
 // how much of this fragment is inside the cone from the camera to the subject
 float xrayCut( vec3 p, vec3 f ) {
   float L = length( f );
@@ -84,8 +112,17 @@ float xrayCut( vec3 p, vec3 f ) {
   float k = 1.0 - smoothstep( lim * 0.55, lim, ang );
   // soften the cut back in at both ends: hard edges where a wall enters the
   // cone read as a hole punched in the world, a gradient reads as a fade
-  k *= smoothstep( uXrayNear, uXrayNear + 0.9, t );
-  k *= smoothstep( 0.0, 1.4, L - uXrayBack - t );
+  k *= smoothstep( uXrayNear, uXrayNear + uXrayRamp, t );
+  k *= smoothstep( 0.0, 0.5, L - uXrayBack - t );
+  // THE FLOOR HE IS STANDING ON. Punching a hole in it is worse than any
+  // occluder: the fighter reads as standing over a void. So a fragment that is
+  // BELOW his feet and CLOSE to him is left alone — and only then. Further out
+  // along the sightline the same test would protect the underside of every
+  // walkway the camera looks up through, which is the exact thing this whole
+  // file exists to cut away.
+  float h = dot( p - uXrayFoot, uXrayUp );       // height above his feet
+  float near = 1.0 - smoothstep( uXrayFootG, uXrayFootG + 1.2, L - t );
+  k *= mix( 1.0, smoothstep( -0.30, 0.10, h ), near );
   return k;
 }
 // 4x4 ordered (Bayer) dither — a stable screen-door pattern, so a partly-cut
@@ -111,7 +148,6 @@ const FRAG_BODY = /* glsl */`
 {
   float xk = 0.0;
   if ( uXrayN > 0.5 ) xk = xrayCut( vXrayVP, uXrayA );
-  if ( uXrayN > 1.5 ) xk = max( xk, xrayCut( vXrayVP, uXrayB ) );
   if ( xk > 0.002 && xrayDither( gl_FragCoord.xy ) < xk * uXrayK ) discard;
 }
 `;
@@ -146,19 +182,48 @@ export function xrayable(material) {
   return material;
 }
 
+// EVERY material on a built environment, in one sweep. Hunting call sites is
+// how the cut ends up with holes in it: a level is a few hundred meshes built
+// by a dozen helpers, and the ones that were missed are exactly the ones that
+// stand in front of the fighter and stay solid — a car, a big screen, a torii,
+// a domain's furniture. Anything the map or a domain draws goes through here
+// once, at build time; `xrayable` is idempotent so a shared material patched by
+// one mesh is skipped by the next.
+//
+// SCOPE IS THE GROUP, and that is what keeps the roster out of it: fighters,
+// minions and curses live on the match root, never inside a map or a domain.
+export function xrayAll(root) {
+  if (!root) return root;
+  root.traverse(o => {
+    const m = o.material;
+    if (!m) return;
+    if (Array.isArray(m)) m.forEach(xrayable);
+    else xrayable(m);
+  });
+  return root;
+}
+
 // ---------------------------------------------------------------------------
 // per-view focus
 // ---------------------------------------------------------------------------
 // Each eye follows a different fighter, and split screen renders the same
 // materials once per eye, so the focus cannot live on the material. It is
 // registered against the CAMERA and uploaded immediately before that eye draws.
-const _focus = new Map();   // camera -> Vector3 (world) | null
+const _focus = new Map();   // camera -> {at, foot} in world space, or absent
 const _v = new THREE.Vector3();
+const _vf = new THREE.Vector3();
 
-export function setXrayFocus(camera, worldPos) {
+// `worldPos` is what the shot is framed on (the chest). `footY` is the ground
+// under him, and it is what the floor guard is measured from — pass it or the
+// guard falls back to a metre under the focus, which is right for a person and
+// wrong for Mahoraga.
+export function setXrayFocus(camera, worldPos, footY) {
   if (!camera) return;
-  if (!worldPos) _focus.delete(camera);
-  else _focus.set(camera, (_focus.get(camera) || new THREE.Vector3()).copy(worldPos));
+  if (!worldPos) { _focus.delete(camera); return; }
+  const e = _focus.get(camera) || { at: new THREE.Vector3(), foot: new THREE.Vector3() };
+  e.at.copy(worldPos);
+  e.foot.copy(worldPos).setY(footY ?? worldPos.y - 1.0);
+  _focus.set(camera, e);
 }
 export function clearXrayFocus() { _focus.clear(); }
 
@@ -167,15 +232,23 @@ export function applyXray(camera) {
   U.uXrayR.value = XRAY.radius;
   U.uXrayK.value = XRAY.strength;
   U.uXrayNear.value = XRAY.nearClip;
+  U.uXrayRamp.value = XRAY.nearRamp;
   U.uXrayBack.value = XRAY.backOff;
-  const f = XRAY.enabled ? _focus.get(camera) : null;
-  if (!f) { U.uXrayN.value = 0; return; }
+  U.uXrayFootG.value = XRAY.footGuard;
+  const e = XRAY.enabled ? _focus.get(camera) : null;
+  if (!e) { U.uXrayN.value = 0; return; }
   // The fight camera writes its transform with `lookAt` and never updates the
   // matrices itself — the renderer does that later, on its way in. Do it here
   // so the view-space conversion below is this frame's and not last frame's.
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
-  _v.copy(f).applyMatrix4(camera.matrixWorldInverse);
+  _v.copy(e.at).applyMatrix4(camera.matrixWorldInverse);
   U.uXrayA.value.copy(_v);
+  _vf.copy(e.foot).applyMatrix4(camera.matrixWorldInverse);
+  U.uXrayFoot.value.copy(_vf);
+  // World up as a DIRECTION in view space: the floor guard asks how high a
+  // fragment sits above his feet, and that question is only meaningful along
+  // the world's up, not the camera's.
+  U.uXrayUp.value.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
   U.uXrayN.value = 1;
 }

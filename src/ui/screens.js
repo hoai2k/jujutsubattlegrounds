@@ -29,13 +29,32 @@ export class ResultScreen {
     this.shown = true;
     this._refresh();
   }
+  // ONLINE: what happens next is the host's call — three people cannot each
+  // decide whether this is a rematch. A guest's buttons go dead and the screen
+  // says who it is waiting for, rather than pretending the press did nothing.
+  setLocked(on, text = 'WAITING FOR THE HOST') {
+    this.locked = !!on;
+    this.el.classList.toggle('locked', this.locked);
+    let n = this.el.querySelector('.r-wait');
+    if (!n) {
+      n = document.createElement('div');
+      n.className = 'r-wait';
+      this.el.appendChild(n);
+    }
+    n.textContent = this.locked ? text : '';
+    n.classList.toggle('on', this.locked);
+  }
   _refresh() { this.buttons.forEach((b, i) => b.classList.toggle('focus', i === this.focus)); }
   _pick(i) {
+    if (this.locked) return;
     this.sfx.uiOk();
     this._resolve(i === 0 ? 'rematch' : 'select');
   }
   update(inputFrame) {
     if (!this.shown) return;
+    // A locked screen still replays the taunt — that costs nobody anything
+    // and it is the one thing there is to do while waiting.
+    if (this.locked) { if (inputFrame.tauntP) this.onTaunt(); return; }
     // TAUNT is read FIRST and swallows the frame's `leftP`. D-pad Left is both
     // the taunt button and a menu-left on this screen, and the menu here is two
     // buttons on one axis — so left and right would otherwise both toggle the
@@ -126,6 +145,16 @@ export class SystemBar {
   destroy() { this.el.remove(); }
 }
 
+// Enter (never leave). Called from the title screen's PRESS START, which is
+// the one moment the game has a genuine user gesture to spend — the browser
+// rejects the request without one, and a gamepad poll is not one. Failure is
+// silent on purpose: not being fullscreen is not an error.
+export function enterFullscreen() {
+  if (document.fullscreenElement) return;
+  const el = document.getElementById('app') || document.documentElement;
+  try { el.requestFullscreen?.()?.catch?.(() => { }); } catch { }
+}
+
 export function toggleFullscreen() {
   const el = document.getElementById('app') || document.documentElement;
   if (!document.fullscreenElement) el.requestFullscreen?.().catch(() => { });
@@ -147,7 +176,7 @@ export class Legend {
       <div><b>RB</b> Technique 1 <span style="color:#8b98bc">(U / [)</span></div>
       <div><b>RT</b> Technique 2 <span style="color:#8b98bc">(I / ])</span></div>
       <div><b>LT</b> block — hold <span style="color:#8b98bc">(K / ')</span></div>
-      <div><b>LB</b> dash — stamina <span style="color:#8b98bc">(Shift / RCtrl)</span></div>
+      <div><b>LB</b> dash — stamina <span style="color:#8b98bc">(Shift / RCtrl)</span>. Hold a direction and it opens with a BURST that will take you out of an attack; the burst costs stamina up front, the dash itself drains it</div>
       <div><b>D-Right</b> Domain / Ultimate <span style="color:#8b98bc">(O / \\)</span> — needs MAX+FULL CE</div>
       <div><b>D-Right again</b> release your own domain early</div>
       <div><b>B</b> SPECIAL <span style="color:#8b98bc">(H / M)</span> — Gojo: warp · Nanami: 7:3 timing (press again to stop) · Yuta: Copy · Yuji: Black Flash · Todo: Boogie Woogie</div>

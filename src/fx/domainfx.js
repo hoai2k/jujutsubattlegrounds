@@ -2,6 +2,7 @@
 // Unlimited Void: black infinity, information streams, a starfield horizon.
 // Authentic Mutual Love: dark field of cross pillars, infinite katanas, ropes.
 import * as THREE from 'three';
+import { xrayAll } from '../art/shaders/xray.js';
 import { makeGlowMat } from '../arena/arena.js';
 import { toonMaterial } from '../art/shaders/toon.js';
 import { rand, v3 } from '../core/mathutil.js';
@@ -66,6 +67,12 @@ export class DomainFX {
     else if (kind === 'pachinko') this._buildPachinko(g);
     else if (kind === 'courtroom') this._buildCourtroom(g);
     else this._buildSwordField(g, caster);
+    // A domain replaces the level, so it inherits the level's rule: anything
+    // standing between an eye and the fighter it follows dissolves rather than
+    // blocking the shot. Without this the courtroom's pillars, the shrine's
+    // torii and the parlor's cabinets were the only solid occluders left in
+    // the game.
+    xrayAll(g);
     this.scene.add(g);
     this.env = g;
     if (!open) this._buildBarrier(kind);

@@ -9,7 +9,10 @@ export function computeDamage(attacker, baseDmg, opts = {}) {
   let crit = !!opts.forceCrit || attacker.ratioPrimed === 2;
   const ratio = attacker.cfg.ratio;
   if (ratio && !crit && opts.canCrit !== false) {
-    if (attacker.ratioMark || Math.random() < ratio.critChance) {
+    // The attacker's own seeded stream, not Math.random: a crit is a gameplay
+    // outcome, and online every client has to roll the same one. See the
+    // stream note in combat/fighter.js.
+    if (attacker.ratioMark || (attacker.rng ? attacker.rng() : Math.random()) < ratio.critChance) {
       crit = true;
       attacker.ratioMark = false;
     }

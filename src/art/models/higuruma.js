@@ -445,7 +445,7 @@ export function buildHiguruma() {
           // Solved against his own STANCE rather than copied — see the note on
           // Toji's split_soul for why an attachment rotation never transfers
           // between characters.
-          hand: { bone: 'HandR', pos: [0, -0.048 * H, 0.014 * H], rot: [23, -5, -25] },
+          hand: { bone: 'HandR', pos: [0, -0.048 * H, 0.014 * H], rot: [21, -1, -95] },
           away: { bone: 'Hips', pos: [0, -40, 0], rot: [0, 0, 0] }
         }
       }

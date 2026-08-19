@@ -36,8 +36,24 @@ import {
   buildDivineDog, buildNue, buildToad, buildGreatSerpent,
   buildMaxElephant, buildRabbitSwarm
 } from '../art/models/shikigami.js';
+import { buildRoundDeer, buildPiercingOx, buildTigerFuneral } from '../art/models/shikigami_beasts.js';
+import {
+  buildDivineDogTotality, buildMergedBeastAgito, buildWingedToads
+} from '../art/models/shikigami_fusions.js';
+import { buildTransfigured, TRANSFIGURED_IDS } from '../art/models/transfigured.js';
+import {
+  buildCentipede, buildDecoyEye, buildFleshEater, buildKoGuy, buildFungusHead,
+  buildDaruma, buildPillarCurse, buildMantaRay, buildRainbowDragon, buildHookworm
+} from '../art/models/getocurses.js';
 import { makeClips } from '../art/anim/index.js';
 import { AnimPlayer } from '../art/anim/player.js';
+// THE FINISHER SET. Authored in src/finishers, compiled per body at match time
+// and — until now — inspectable only by winning a match with the right
+// character, which is a terrible iteration loop for twenty-five hand-authored
+// clips. The bench installs them exactly the way the director does.
+import { FIGHT_HUMAN, FIGHT_GIANT } from '../finishers/fight.js';
+import { SIGNATURE_CLIPS } from '../finishers/moves.js';
+import { installClips, FIN_PREFIX } from '../finishers/retarget.js';
 
 const BUILDERS = { gojo: buildGojo, yuta: buildYuta, megumi: buildMegumi, nanami: buildNanami, yuji: buildYuji, todo: buildTodo, jogo: buildJogo, mahito: buildMahito, mahoraga: buildMahoraga, higuruma: buildHiguruma, hakari: buildHakari, sukuna: buildSukuna, toji: buildToji,
   hanami: buildHanami, kurourushi: buildKurourushi, choso: buildChoso, nobara: buildNobara,
@@ -71,6 +87,59 @@ const CREATURES = {
   serpent: { build: buildGreatSerpent, states: { idle: { speed: 0 }, rush: { rush: 1, speed: 8 }, coil: { coil: 1 }, bite: { action: 'bite', actionK: 0.5 }, hurt: { hurt: true } } },
   elephant: { build: buildMaxElephant, states: { idle: { speed: 0 }, walk: { speed: 2 }, torrent: { torrent: 1 }, hurt: { hurt: true } } },
   rabbits: { build: () => buildRabbitSwarm(22), states: { swarm: { spread: 1 } } },
+  // ---- THE THREE NEW BEASTS ------------------------------------------------
+  // `heal` is Round Deer's reverse-cursed-technique aura, `charge` is the
+  // Piercing Ox's runway (its entire identity — at 0 it is a shove, at 1 it is
+  // the biggest single hit Megumi owns), and Tiger Funeral gets the full melee
+  // state set because it is the all-rounder.
+  deer: {
+    build: buildRoundDeer,
+    states: { idle: { speed: 0 }, walk: { speed: 3 }, heal: { heal: 1 }, hurt: { hurt: true } }
+  },
+  ox: {
+    build: buildPiercingOx,
+    states: { idle: { speed: 0 }, walk: { speed: 3 }, charge: { speed: 12, charge: 1 }, hurt: { hurt: true } }
+  },
+  tiger: {
+    build: buildTigerFuneral,
+    states: {
+      idle: { speed: 0 }, run: { speed: 7 }, swipe: { speed: 2, action: 'swipe', actionK: 0.55 },
+      bite: { action: 'bite', actionK: 0.5 }, pounce: { action: 'pounce', actionK: 0.8 }, hurt: { hurt: true }
+    }
+  },
+  // ---- THE THREE FUSIONS ---------------------------------------------------
+  totality: {
+    build: buildDivineDogTotality,
+    states: {
+      idle: { speed: 0 }, run: { speed: 9 }, slash: { speed: 3, action: 'slash', actionK: 0.6 },
+      bite: { action: 'bite', actionK: 0.5 }, hurt: { hurt: true }
+    }
+  },
+  agito: {
+    build: buildMergedBeastAgito,
+    states: {
+      idle: { speed: 0 }, walk: { speed: 4 }, grab: { action: 'grab', actionK: 0.7 },
+      zap: { charge: 1 }, regen: { heal: 1 }, hurt: { hurt: true }
+    }
+  },
+  'winged toads': {
+    build: () => buildWingedToads(3),
+    states: { fly: {}, tongue: { tongue: 1 }, hurt: { hurt: true } }
+  },
+  // ---- MAHITO'S TRANSFIGURED HUMANS ---------------------------------------
+  // Five body plans, and the bench is the only place they can be compared side
+  // by side — in a fight only one exists at a time. `surface` is the beat where
+  // the person inside gets back to the surface, which is the state that most
+  // needs looking at because it is the one that has to land as horror rather
+  // than as a wobble.
+  ...Object.fromEntries(TRANSFIGURED_IDS.map(id => [`tf·${id}`, {
+    build: () => buildTransfigured(id),
+    states: {
+      idle: { speed: 0 }, walk: { speed: 3.4 },
+      swipe: { speed: 1, action: 'swipe', actionK: 0.6 },
+      surface: { speed: 0, surface: 1 }, hurt: { hurt: true }
+    }
+  }])),
   // GETO'S TWO LOW-GRADE CURSES. On the bench for the same reason the
   // shikigami are: they are entity models with their own animators rather than
   // CharacterModels, so this simpler path is the only place they can be
@@ -78,6 +147,21 @@ const CREATURES = {
   // curtain on `lash`.
   maw: { build: buildGapingMaw, states: { idle: { speed: 0 }, hop: { speed: 5 }, bite: { speed: 2, action: 'bite', actionK: 0.8 }, hurt: { hurt: true } } },
   wisp: { build: buildTendrilWisp, states: { idle: { speed: 0 }, drift: { speed: 4 }, lash: { action: 'lash', actionK: 0.9 }, hurt: { hurt: true } } },
+  // ---- THE REST OF GETO'S STABLE -------------------------------------------
+  // Ten more original curse bodies. The bench is the only place they can be
+  // judged against each other, and "as a set they should share a visual
+  // grammar while staying individually identifiable" is a claim that can only
+  // be checked by looking at them in a row.
+  centipede: { build: buildCentipede, states: { idle: { speed: 0 }, run: { speed: 8 }, bite: { speed: 3, action: 'bite', actionK: 0.8 }, hurt: { hurt: true } } },
+  'decoy eye': { build: buildDecoyEye, states: { idle: { speed: 0 }, drift: { speed: 3 }, lash: { action: 'lash', actionK: 0.9 }, hurt: { hurt: true } } },
+  'flesh-eater': { build: buildFleshEater, states: { idle: { speed: 0 }, crawl: { speed: 5 }, bite: { speed: 1, action: 'bite', actionK: 0.9 }, hurt: { hurt: true } } },
+  'ko-guy': { build: buildKoGuy, states: { idle: { speed: 0 }, hop: { speed: 6 }, bite: { speed: 2, action: 'bite', actionK: 0.8 }, spit: { action: 'spit', actionK: 0.8 }, hurt: { hurt: true } } },
+  fungus: { build: buildFungusHead, states: { idle: { speed: 0 }, lean: { speed: 2 }, grab: { action: 'grab', actionK: 0.9 }, hurt: { hurt: true } } },
+  daruma: { build: buildDaruma, states: { idle: { speed: 0 }, rock: { speed: 4 }, slam: { action: 'slam', actionK: 0.5 }, hurt: { hurt: true } } },
+  pillar: { build: buildPillarCurse, states: { idle: { speed: 0 }, drift: { speed: 2 }, aim: { action: 'aim', actionK: 1 }, hurt: { hurt: true } } },
+  manta: { build: buildMantaRay, states: { fly: {}, carry: { carry: 1 }, dive: { action: 'dive', actionK: 0.8 }, hurt: { hurt: true } } },
+  dragon: { build: buildRainbowDragon, states: { fly: { speed: 0 }, swim: { speed: 5 }, smash: { action: 'smash', actionK: 0.8 }, bite: { action: 'bite', actionK: 0.5 }, hurt: { hurt: true } } },
+  hookworm: { build: buildHookworm, states: { idle: { speed: 0 }, sway: { speed: 1 }, grab: { action: 'grab', actionK: 0.9 }, hurt: { hurt: true } } },
   // THE SWARM. Not a creature — one InstancedMesh of tiny roaches — but the
   // bench is where a model gets judged, and "the single biggest performance
   // risk in this addition" is not something to first look at in a fight. The
@@ -176,10 +260,13 @@ export function startViewer() {
       holder.add(built.group);
       creature = { model: built, states: c.states };
       currentClip = Object.keys(c.states)[0];
-      clipBar.style.display = 'flex';
+      clipBar.style.display = '';
       // frame the creature: a 5 m serpent and a 0.5 m rabbit cannot share one
       // camera distance, so measure the built bounds rather than guessing
-      const box = new THREE.Box3().setFromObject(built.body);
+      // `body` is the shikigami models' inner group (the thing that rises out
+      // of the shadow pool); the transfigured humans and the curses have no
+      // such split and measure their whole group instead.
+      const box = new THREE.Box3().setFromObject(built.body ?? built.group);
       const size = box.getSize(new THREE.Vector3());
       camDist = Math.max(2.2, Math.max(size.x, size.y, size.z) * 1.5 + 1.0);
       camHeight = Math.max(0.35, (box.min.y + box.max.y) / 2);
@@ -195,13 +282,23 @@ export function startViewer() {
       clipBar.style.display = 'none';
       return;
     }
-    clipBar.style.display = 'flex';
+    clipBar.style.display = '';
     model = BUILDERS[id]();
     holder.add(model.group);
     // a variant shares its base character's clip set — 'yuji:modulo' is still
     // Yuji as far as animation is concerned, which is the whole point of
     // authoring variants as meshes over a shared rig
     player = new AnimPlayer(model.bones, makeClips(id.split(':')[0]));
+    // ---- THE FINISHER SET ------------------------------------------------
+    // Installed onto the bench's player exactly as finishers/index.js installs
+    // it onto a fighter, through the same retargeter — so what plays here is
+    // what plays in the cinematic, including the stance fallback and the
+    // per-body scaling of the metre-valued Hips track. `installClips` wants a
+    // fighter; a bench model is a `{anim, model}` shim away from being one.
+    const shim = { anim: player, model };
+    installClips(shim, FIGHT_HUMAN, { authoredH: 1.8 });
+    installClips(shim, FIGHT_GIANT, { authoredH: 3.6 });
+    installClips(shim, SIGNATURE_CLIPS, { authoredH: 1.8 });
     playClip(currentClip);
     if (boneToggle.checked) {
       skelHelper = new THREE.SkeletonHelper(model.group);
@@ -221,31 +318,51 @@ export function startViewer() {
     if (!player.has(name)) name = 'idle';
     currentClip = name;
     player.play(name, { fade: 0.15, restart: true });
+    // PROP ROUTING MATCHES ON THE BARE NAME. Finisher clips are installed under
+    // a `fin_` prefix, and every rule below was written against the unprefixed
+    // one — so `fin_higurumaExecute` would have been inspected with the
+    // briefcase in his hand instead of the Executioner's Sword.
+    const name0 = name.replace(new RegExp('^' + FIN_PREFIX), '');
+    // TOJI'S ARSENAL. Four tools on one model, exactly one ever in hand, and
+    // which one is the whole point of the character — the finisher swaps from
+    // the Playful Cloud to the Inverted Spear mid-scene, so the bench has to
+    // be able to show either.
+    if (model.props.has('inverted_spear')) {
+      const tool = /Spear|tojiSpear/.test(name0) ? 'inverted_spear'
+        : /Cloud/.test(name0) ? 'playful_cloud'
+          : /Soul/.test(name0) ? 'split_soul'
+            : /Chain/.test(name0) ? 'chain'
+              : /^(arsenal|assassinate|taunt)$/.test(name0) ? 'playful_cloud' : null;
+      for (const k of ['inverted_spear', 'playful_cloud', 'split_soul', 'chain']) {
+        model.attachProp(k, k === tool ? 'hand' : 'away');
+      }
+      if (model.props.has('curse')) model.attachProp('curse', /^(arsenal|draw)/.test(name0) ? 'hand' : 'away');
+    }
     // katana/blade props follow the clip family
-    if (model.props.has('katana')) model.attachProp('katana', /ct|domain|sword|ult/.test(name) ? 'hand' : 'away');
-    if (model.props.has('blade')) model.attachProp('blade', /ct1|ult|victory|heavy/.test(name) ? 'hand' : 'back');
-    if (model.props.has('tool')) model.attachProp('tool', /punch|heavy|summon|domain|victory|wheel/.test(name) ? 'hand' : 'back');
+    if (model.props.has('katana')) model.attachProp('katana', /ct|domain|sword|ult/.test(name0) ? 'hand' : 'away');
+    if (model.props.has('blade')) model.attachProp('blade', /ct1|ult|victory|heavy|yutaRikaCut/.test(name0) ? 'hand' : 'back');
+    if (model.props.has('tool')) model.attachProp('tool', /punch|heavy|summon|domain|victory|wheel/.test(name0) ? 'hand' : 'back');
     // NOBARA. Her three props follow the clip family exactly as the fighter's
     // `_props` routes them in a match — the bench has to mirror it or half her
     // set is inspected with the wrong things in her hands, which is precisely
     // how the doll would end up visible during the idle without anyone seeing.
     if (model.props.has('hammer')) {
       // stowed entirely for the two clips where both hands hold something else
-      model.attachProp('hammer', /^(ct2|ult)/.test(name) ? 'away'
-        : /^(punch|heavy|bfStrike|bfImpact|victory)/.test(name) ? 'hand' : 'shoulder');
+      model.attachProp('hammer', /^(ct2|ult)/.test(name0) ? 'away'
+        : /^(punch|heavy|bfStrike|bfImpact|victory|nobaraResonance)/.test(name0) ? 'hand' : 'shoulder');
     }
     if (model.props.has('nail')) {
       model.attachProp('nail',
-        /^(ct2|ult)/.test(name) ? 'drive' : /^(ct1|detonate)/.test(name) ? 'hand' : 'away');
+        /^(ct2|ult|nobaraResonance|nobaraGrin)/.test(name0) ? 'drive' : /^(ct1|detonate)/.test(name0) ? 'hand' : 'away');
     }
     if (model.props.has('doll')) {
-      model.attachProp('doll', /^(ct2|ult)/.test(name) ? 'hand' : 'away');
+      model.attachProp('doll', /^(ct2|ult|nobaraResonance|nobaraGrin)/.test(name0) ? 'hand' : 'away');
     }
     // Higuruma carries the case by default and swaps to the sword for every
     // sword/exec clip — the viewer has to mirror that or half his set is
     // inspected with the wrong object in his hand.
     if (model.props.has('sword')) {
-      const armed = /^(sword|exec)/.test(name);
+      const armed = /^(sword|exec|higurumaExecute)/.test(name0);
       model.attachProp('sword', armed ? 'hand' : 'away');
       model.attachProp('case', armed ? 'away' : 'hand');
     }
@@ -267,6 +384,14 @@ export function startViewer() {
       <div class="v-sec">
         <div class="v-sec-head">ANIMATION</div>
         <div class="v-clips" id="clipBar"></div>
+      </div>
+      <div class="v-sec" id="finSec">
+        <div class="v-sec-head">FINISHER · SIGNATURE<i id="finCount"></i></div>
+        <div class="v-clips" id="finBar"></div>
+      </div>
+      <div class="v-sec" id="libSec">
+        <div class="v-sec-head">FINISHER · FIGHT SET<i id="libCount"></i></div>
+        <div class="v-clips" id="libBar"></div>
       </div>
       <div class="v-sec">
         <div class="v-sec-head">DISPLAY</div>
@@ -328,6 +453,22 @@ export function startViewer() {
     charBar.appendChild(wrap);
   }
   const clipBar = document.getElementById('clipBar');
+  const libSec = document.getElementById('libSec');
+  const finBar = document.getElementById('finBar');
+  const finSec = document.getElementById('finSec');
+  const finCount = document.getElementById('finCount');
+  const libBar = document.getElementById('libBar');
+  const libCount = document.getElementById('libCount');
+  // Which signature clips belong to the character on the bench. The set is
+  // named after its owner (`tojiSpear`, `jogoMeteor`), so the owner is
+  // recoverable from the name — and a character's own two or three clips
+  // buried in eighty-seven shared ones is the same as not listing them.
+  const SIG_NAMES = Object.keys(SIGNATURE_CLIPS);
+  function ownSignatures(id) {
+    const base = id.split(':')[0].toLowerCase();
+    const stem = base.slice(0, 4);
+    return new Set(SIG_NAMES.filter(n => n.toLowerCase().startsWith(stem)));
+  }
   function refreshCharButtons() {
     // match on the DATA ID, not on the label — the label is now formatted for
     // reading ("SUKUNA · MEGUMI") and no longer equals the id
@@ -352,13 +493,30 @@ export function startViewer() {
       return;
     }
     if (!player) return;
+    // THE CHARACTER'S OWN SET and THE FINISHER SET are listed separately. Both
+    // live in the same clip map — the finisher ones under a `fin_` prefix —
+    // and mixing seventy buttons into one wall was how the finisher clips
+    // stayed invisible on the bench in the first place.
+    finBar.innerHTML = '';
+    libBar.innerHTML = '';
+    const own = ownSignatures(currentChar);
+    let fin = 0, lib = 0;
     for (const name of player.clips.keys()) {
+      const isFin = name.startsWith(FIN_PREFIX);
+      const bare = isFin ? name.slice(FIN_PREFIX.length) : name;
       const b = document.createElement('button');
-      b.textContent = name;
-      b.className = 'v-btn v-btn-sm' + (name === currentClip ? ' active' : '');
+      b.textContent = bare;
+      b.className = 'v-btn v-btn-sm' + (name === currentClip ? ' active' : '') + (isFin ? ' v-btn-var' : '');
       b.onclick = () => playClip(name);
-      clipBar.appendChild(b);
+      if (!isFin) { clipBar.appendChild(b); continue; }
+      if (own.has(bare)) { finBar.appendChild(b); fin++; } else { libBar.appendChild(b); lib++; }
     }
+    finCount.textContent = fin;
+    libCount.textContent = lib;
+    // a character with no signature clip of its own says so by absence rather
+    // than by an empty box
+    finSec.style.display = fin ? '' : 'none';
+    libSec.style.display = lib ? '' : 'none';
   }
   const boneToggle = document.getElementById('tgBones');
   document.getElementById('tgTurn').onchange = e => turntable = e.target.checked;

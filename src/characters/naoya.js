@@ -86,7 +86,10 @@ export const NAOYA = withDefaults({
   // afterimage at each — so what the opponent sees is six stationary Naoyas in
   // a line and the real one standing behind them.
   ct1: {
-    name: 'Projection Rush', jpName: '投射呪法', cost: 18,
+    // PROJECTION CASCADE — he never touches them. Six positions on a 24 fps
+    // grid, a gold afterimage plate left standing in each, and the damage is
+    // the projection frame passing through the space their body is in.
+    name: 'Projection Cascade', jpName: '投射呪法', cost: 18,
     startup: 8, active: 15, recovery: 5,          // 28f total — very fast
     effect: 'naoya_rush', clip: 'rush',
     steps: 6, dmgPerHit: 3.4, hitstun: 10, kb: 0.5, stepDist: 1.55,
@@ -107,10 +110,16 @@ export const NAOYA = withDefaults({
   // the game still needs one move a good opponent can beat on reaction, or the
   // matchup has no texture in it.
   ct2: {
-    name: 'Frame Kick', jpName: '投射呪法・蹴撃', cost: 22,
+    // FRAME 24 — the same kick delivered as a REEL: six frozen gold frames
+    // laid down a line (stick-steered), one popping per 1/24 s. The first
+    // frame that connects delivers the whole kick's enormous knockback and
+    // burns the rest of the reel. The 26-frame chambered tell is unchanged
+    // and is still the whole negotiation.
+    name: 'Frame 24', jpName: '投射呪法・蹴撃', cost: 22,
     startup: 26, active: 5, recovery: 12,         // 43f = the clip's 0.72 s
     effect: 'naoya_framekick', clip: 'framekick',
-    dmg: 17, reach: 2.85, kb: 13.0, kbY: 1.6, hitstun: 34, type: 'knockdown',
+    dmg: 17, frames: 6, spacing: 1.15, radius: 1.15,
+    kb: 13.0, kbY: 1.6, hitstun: 34, type: 'knockdown',
     step: 3.2,
     // it throws them through walls
     destruct: 46
@@ -242,5 +251,5 @@ export const NAOYA = withDefaults({
   // the worst idea in this file. The Rush is the recognisable thing, it is an
   // attack (which is what Copy holds), and it is safely mediocre in somebody
   // else's hands.
-  copyEffect: { effect: 'naoya_rush', dmg: 3.0, name: 'Copied: Projection Rush' }
+  copyEffect: { effect: 'naoya_rush', dmg: 3.0, name: 'Copied: Projection Cascade' }
 });

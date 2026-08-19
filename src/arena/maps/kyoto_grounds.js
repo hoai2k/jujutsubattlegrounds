@@ -175,12 +175,14 @@ export function build(quality) {
   const BY = 3.6;
   b.floor(18, -28, 52, 28, BY, { mat: M.grass, id: 'bench' });
   b.slope(BX, -11, 18, 11, 0, BY, 'x', { mat: M.rock, depth: 0.7 });
-  // the visible bank face, split around the slope so it does not wall it off
-  for (const [z0, z1] of [[-28, -11], [11, 28]]) {
-    const g = new THREE.BoxGeometry(1.0, BY + 0.5, z1 - z0);
-    g.translate(17.7, BY / 2 - 0.25, (z0 + z1) / 2);
-    b.static_(g, M.rock);
-  }
+  // The visible bank face, split around the slope so it does not wall it off.
+  // `bankFace` rather than bare geometry: the face stands 0.8 m proud of the
+  // bench floor it edges, and drawn on its own that overhang was grass you
+  // could see, walk onto and drop 3.6 m through. It carries the deck out to
+  // its own edge now, and it is solid, so the bench cannot be walked into from
+  // the clearing either.
+  for (const [z0, z1] of [[-28, -11], [11, 28]])
+    b.bankFace(17.2, z0, 18.2, z1, BY, -0.5, { mat: M.rock });
   // and a second slope round the north end so it is not a single choke
   b.slope(26, 28, 38, 38, BY, 0, 'z', { mat: M.grass, depth: 0.9 });
 
@@ -190,16 +192,12 @@ export function build(quality) {
   const LY = 7.4;
   b.floor(34, -9, 48, 9, LY, { mat: M.rock, id: 'lookout' });
   b.slope(28, -5, 34, 5, BY, LY, 'x', { mat: M.rock, depth: 1.0 });
-  for (const [z0, z1] of [[-9.4, -5.2], [5.2, 9.4]]) {
-    const g = new THREE.BoxGeometry(14.6, LY - BY + 0.6, z1 - z0);
-    g.translate(41, (LY + BY) / 2 - 0.3, (z0 + z1) / 2);
-    b.static_(g, M.rock);
-  }
-  {
-    const g = new THREE.BoxGeometry(1.2, LY - BY + 0.6, 19);
-    g.translate(33.7, (LY + BY) / 2 - 0.3, 0);
-    b.static_(g, M.rock);
-  }
+  for (const [z0, z1] of [[-9.4, -5.2], [5.2, 9.4]])
+    b.bankFace(33.7, z0, 48.3, z1, LY, BY - 0.3, { mat: M.rock });
+  // split around the slope mouth, like every other face here: a lip laid across
+  // the top of a flight buries it, and the fighter surfaces through solid rock
+  for (const [z0, z1] of [[-9.5, -5.2], [5.2, 9.5]])
+    b.bankFace(33.1, z0, 34.3, z1, LY, BY - 0.3, { mat: M.rock });
 
   // ---- ROCK PLATEAU (west) — the high ground, two steps up ----------------
   const PY = 8.0, UY = 11.6;
@@ -210,30 +208,18 @@ export function build(quality) {
   // at the foot of a cliff you could not get onto.
   b.slope(-BX, -8, -20, 8, 0, PY, 'x', { mat: M.rock, depth: 1.8 });
   // the cliff face, split around the slope
-  for (const [z0, z1] of [[-20, -8.2], [8.2, 20]]) {
-    const g = new THREE.BoxGeometry(1.3, PY + 0.7, z1 - z0);
-    g.translate(-19.6, PY / 2 - 0.35, (z0 + z1) / 2);
-    b.static_(g, M.rock);
-  }
-  for (const z of [-19.6, 19.6]) {
-    const g = new THREE.BoxGeometry(32, PY + 0.7, 1.3);
-    g.translate(-36, PY / 2 - 0.35, z);
-    b.static_(g, M.rock);
-  }
+  for (const [z0, z1] of [[-20, -8.2], [8.2, 20]])
+    b.bankFace(-20.25, z0, -18.95, z1, PY, -0.7, { mat: M.rock });
+  for (const z of [-19.6, 19.6])
+    b.bankFace(-52, z - 0.65, -20, z + 0.65, PY, -0.7, { mat: M.rock });
   // THE CRAG on top. Same inversion trap again: the crag is at x <= -30, so the
   // second step up has to be high at -30, not at -24.
   b.floor(-46, -9, -30, 9, UY, { mat: M.rock, id: 'crag' });
   b.slope(-24, -5, -30, 5, PY, UY, 'x', { mat: M.rock, depth: 0.9 });
-  for (const [z0, z1] of [[-9.5, -5.2], [5.2, 9.5]]) {
-    const g = new THREE.BoxGeometry(16, UY - PY + 0.6, z1 - z0);
-    g.translate(-38, (UY + PY) / 2 - 0.3, (z0 + z1) / 2);
-    b.static_(g, M.rock);
-  }
-  {
-    const g = new THREE.BoxGeometry(1.3, UY - PY + 0.6, 19);
-    g.translate(-29.6, (UY + PY) / 2 - 0.3, 0);
-    b.static_(g, M.rock);
-  }
+  for (const [z0, z1] of [[-9.5, -5.2], [5.2, 9.5]])
+    b.bankFace(-46, z0, -30, z1, UY, PY - 0.3, { mat: M.rock });
+  for (const [z0, z1] of [[-9.5, -5.2], [5.2, 9.5]])
+    b.bankFace(-30.25, z0, -28.95, z1, UY, PY - 0.3, { mat: M.rock });
 
   // scattered outcrops — cover, and they double as low platforms
   const outcrops = [[-14, -26], [13, -34], [28, 16], [-9, 36], [40, -18], [-26, 32],
@@ -248,10 +234,21 @@ export function build(quality) {
   // Dense at the edges, thinning toward the clearing. The near ring is
   // breakable (a launched body genuinely takes trees down); the far ring is
   // instanced scenery and never breaks.
+  // THE SPAWN CLEARANCE. The scatter is random and the spawns are inside its
+  // radius, so a cedar can land on top of one — and a tree carries a collider,
+  // so the fighter starts the round standing inside it and is shoved out of it
+  // on the first frame. It showed up as an intermittent map-check failure
+  // (spawn 1 "inside a wall" on maybe one build in three), which is exactly
+  // what a random placement fault looks like. Anything within 4 m of a spawn
+  // is dropped, here rather than in the tree helper: the spawns are this map's
+  // to know about.
+  const SPAWNS = [[-15, -16], [15, 16], [15, -16], [-15, 16]];
+  const nearSpawn = (x, z) => SPAWNS.some(([sx, sz]) => Math.hypot(x - sx, z - sz) < 4);
   const near = [], far = [];
   for (let i = 0; i < 230; i++) {
     const a = rand(0, Math.PI * 2), r = rand(13, 56);
     const x = Math.sin(a) * r, z = Math.cos(a) * r;
+    if (nearSpawn(x, z)) continue;                           // keep the spawns clear
     if (Math.abs(x) < BX + 2.5) continue;                    // keep the river clear
     if (x > 17 && x < 53 && Math.abs(z) < 29) { if (Math.random() < 0.62) continue; }
     if (x > 33 && x < 49 && Math.abs(z) < 10) continue;      // keep the lookout clear
@@ -304,6 +301,6 @@ export function build(quality) {
   // Off the z axis and off the banks on purpose: the strip from x -20 to +18 at
   // z = 0 is river, bank slope or the foot of the plateau, so a spawn pair on
   // that line drops both fighters onto a 40 degree bank.
-  b.bounds.spawns = [v3(-15, 0, -16), v3(15, 0, 16), v3(15, 0, -16), v3(-15, 0, 16)];
+  b.bounds.spawns = SPAWNS.map(([x, z]) => v3(x, 0, z));
   return b;
 }

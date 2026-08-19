@@ -58,6 +58,11 @@ import { buildHanami } from '../art/models/hanami.js';
 import { buildMahito } from '../art/models/mahito.js';
 import { buildKurourushi } from '../art/models/kurourushi.js';
 import { buildGapingMaw, buildTendrilWisp } from '../art/models/lowcurses.js';
+import {
+  buildCentipede, buildDecoyEye, buildFleshEater, buildKoGuy,
+  buildFungusHead, buildDaruma, buildPillarCurse,
+  buildMantaRay, buildRainbowDragon, buildHookworm
+} from '../art/models/getocurses.js';
 // The canonical table, imported so a BORROWED curse (Yuta's Copy) can be built
 // without its owner having a `curses` block in their config — the same trick
 // combat/shikigami.js uses for the copied Divine Dog.
@@ -109,10 +114,29 @@ const BUILDERS = {
   hanami: () => riggedBody(buildHanami, 'hanami', 2.15),
   mahito: () => riggedBody(buildMahito, 'mahito', 1.76),
   kurourushi: () => riggedBody(buildKurourushi, 'kurourushi', 2.30),
-  // THE TWO ORIGINALS.
+  // THE ORIGINAL BODIES. Two were already here; the ten below are new, and all
+  // of them are curses Geto or Kenjaku is actually drawn using — see the
+  // reference sheet at the top of art/models/getocurses.js for the quote each
+  // one is built from.
   lowMaw: () => buildGapingMaw(),
-  lowWisp: () => buildTendrilWisp()
+  lowWisp: () => buildTendrilWisp(),
+  lowCentipede: () => buildCentipede(),
+  lowEye: () => buildDecoyEye(),
+  lowEater: () => buildFleshEater(),
+  midKoGuy: () => buildKoGuy(),
+  midFungus: () => buildFungusHead(),
+  midDaruma: () => buildDaruma(),
+  midPillar: () => buildPillarCurse(),
+  spManta: () => buildMantaRay(),
+  spDragon: () => buildRainbowDragon(),
+  spHookworm: () => buildHookworm()
 };
+
+// Heights, so the health bar and the strike origin sit where they should. The
+// reused playable curses declare theirs in `riggedBody`; the original bodies
+// carry their own `height`, and this is only the fallback for anything that
+// does not.
+function bodyHeightFallback(def) { return def.specialGrade ? 2.4 : 1.0; }
 
 // ---------------------------------------------------------------------------
 // ONE CURSE ON THE FIELD
@@ -143,6 +167,13 @@ class Curse {
     this.smokeT = 0;
     this.blockT = rand(1.5, 3.5);
     this.blocking = false;
+    // per-role scratch, kept off `anim` because the models never read it
+    this.latched = null;        // FLESH-EATER: who it is attached to
+    this.latchT = 0;
+    this.swallowT = 0;          // HOOKWORM: how long it is holding them for
+    this.eruptT = rand(2, 5);   // HOOKWORM: when it next submerges and relocates
+    this.carryT = rand(3, 6);   // MANTA: when it next offers Geto a ride
+    this.flyY = 0;              // MANTA / DRAGON: current altitude
 
     // floating health bar, same language Mahito's minion and Megumi's
     // shikigami already use, in Geto's violet so three summon systems on one
@@ -154,6 +185,7 @@ class Curse {
       new THREE.MeshBasicMaterial({ color: VIOLET_HI, transparent: true, opacity: 0.95, depthWrite: false }));
     fill.position.z = 0.002;
     barG.add(back, fill);
+    barG.userData.billboard = true;   // camera-facing, aimed per eye in core/stage.js
     barG.position.y = this.body.height + 0.38;
     this.body.group.add(barG);
     this.barG = barG;
@@ -170,6 +202,12 @@ class Curse {
 
   hurt(dmg, attacker, opts = {}) {
     if (this.dead || this.state === 'emerge') return;
+    // ARMOUR. Only the Rainbow Dragon has it, and it is the one thing the
+    // reference says about the creature — "the HARDEST SKIN out of all of
+    // Geto's cursed spirits". A flat multiplier rather than extra health,
+    // because health makes a body last longer and armour makes it feel
+    // different to hit, and the second is what the description is describing.
+    if (this.def.armour) dmg *= this.def.armour;
     this.hp -= dmg;
     this.hurtT = 0.26;
     if (attacker) {
@@ -304,8 +342,26 @@ class Curse {
     const bounds = m.arena.bounds;
     if (bounds) bounds.clampXZ(this.pos, 0.4);
 
+    // ---- FLIGHT --------------------------------------------------------------
+    // The manta and the Rainbow Dragon are the two curses in the stable that
+    // fly, and both are described that way in the reference. Altitude is eased
+    // rather than snapped so a dive genuinely reads as a descent, and it drops
+    // to nothing while the manta is carrying Geto (it has to come down to pick
+    // him up).
+    if (this.def.flyHeight != null) {
+      const want = this.carrying > 0 ? 1.2
+        : (this.state === 'act' ? this.def.flyHeight * 0.25 : this.def.flyHeight);
+      this.pos.y += (want - this.pos.y) * Math.min(1, dt * 2.6);
+    }
+
     g.position.set(this.pos.x, this.pos.y, this.pos.z);
     g.rotation.y = this.facing;
+    // same outline LOD the shikigami take — see art/builders/bake.js
+    this._lodT = (this._lodT ?? 0) - dt;
+    if (this._lodT <= 0 && this.body.setLOD) {
+      this._lodT = 0.2;
+      this.body.setLOD(this.pos.distanceTo(m.stage.camera.position));
+    }
     this.anim.speed = this.speed;
     this.anim.hurt = this.hurtT > 0;
     // REUSED BODIES DRIVE THEMSELVES OFF THEIR OWN CLIP SET. This is the whole
@@ -320,7 +376,6 @@ class Curse {
     }
     this.body.tick(dt, this.anim);
 
-    this.barG.quaternion.copy(m.stage.camera.quaternion);
     this.barFill.scale.x = Math.max(0.02, this.hp / this.maxHp);
     this.barFill.material.color.setHex(this.hp < this.maxHp * 0.35 ? 0xd85a4a : VIOLET_HI);
     return true;
@@ -412,12 +467,170 @@ class Curse {
     actor.hurt(dmg, this.owner, { kb: 0.4 });
   }
 
+  // ---- ROLE BEHAVIOURS -----------------------------------------------------
+  // "No two summons in the stable should play the same. Give each a single
+  // clear role — chase, zone, block, grab, harass, burst — legible within two
+  // seconds of it hitting the field."
+  //
+  // Most of a role is expressed in the DEF (preferRange, blockChance, speed,
+  // swingEvery) and in the one signature move. What needs code is the handful
+  // of behaviours that are not "walk somewhere and hit something": the ones
+  // below run BEFORE the shared chase logic and can take the frame entirely.
+  //
+  // Every one of them is the canon description of that specific curse, not a
+  // generic archetype — the flesh-eaters "work together to suck a person's
+  // flesh apart", the manta "has enough size to support Suguru and one other
+  // person", the hookworm "always appears suddenly from the ground".
+  _roleTick(dt, tgt) {
+    const def = this.def, m = this.match;
+
+    // ---- FLESH-EATER: LATCHED ON -------------------------------------------
+    // Once it lands it stops being a fighter and becomes a condition. It rides
+    // the target, drains, and slows them, until the timer runs out or it dies.
+    if (this.latched) {
+      const v = this.latched;
+      this.latchT -= dt;
+      if (!v.alive || this.latchT <= 0) { this.latched = null; this.state = 'recover'; this.t = 0.6; return false; }
+      // it is ON them, so it moves with them
+      this.pos.set(v.pos.x, 0, v.pos.z).addScaledVector(v3(Math.sin(this.facing), 0, Math.cos(this.facing)), -0.55);
+      this.pos.y = 0.9;
+      this.speed = 0;
+      this.anim.action = 'bite';
+      this.anim.actionK = 0.5 + Math.sin(this.latchT * 9) * 0.5;
+      this.drainT = (this.drainT ?? 0) - dt;
+      if (this.drainT <= 0) {
+        this.drainT = 0.25;
+        this._strike(v, { dmg: def.latch.dps * 0.25, kb: 0, hitstun: 2, type: 'light' });
+        v.vel.multiplyScalar(1 - def.latch.slow);
+        m.fx._spawn(this.pos.clone().add(v3(0, 0.3, 0)), {
+          color: 0x8e3a48, size: rand(0.08, 0.18), life: 0.3,
+          vel: v3(rand(-1.5, 1.5), rand(0.5, 2), rand(-1.5, 1.5)), gravity: 5
+        });
+      }
+      return true;
+    }
+
+    // ---- HOOKWORM: SWALLOWING ----------------------------------------------
+    // It does not knock them away, it holds them inside itself. Canon ate Toji
+    // whole and canon also had him cut his way out from the inside, so the hold
+    // is short and it is damage-over-time rather than a kill.
+    if (this.swallowT > 0) {
+      const v = tgt.kind === 'fighter' ? tgt.actor : null;
+      this.swallowT -= dt;
+      this.speed = 0;
+      this.anim.action = 'grab';
+      this.anim.actionK = 0.6 + Math.sin(this.swallowT * 7) * 0.4;
+      if (v?.alive) {
+        v.pos.x += (this.pos.x - v.pos.x) * Math.min(1, dt * 9);
+        v.pos.z += (this.pos.z - v.pos.z) * Math.min(1, dt * 9);
+        v.vel.set(0, 0, 0);
+        v.rootT = Math.max(v.rootT, 0.15);
+        this.drainT = (this.drainT ?? 0) - dt;
+        if (this.drainT <= 0) {
+          this.drainT = 0.3;
+          this._strike(v, { dmg: def.swallow.dps * 0.3, kb: 0, hitstun: 4, type: 'light' });
+        }
+      }
+      if (this.swallowT <= 0) { this.state = 'recover'; this.t = 0.9; }
+      return true;
+    }
+
+    // ---- HOOKWORM: ERUPTION ------------------------------------------------
+    // "It always appears suddenly FROM THE GROUND." It is far too slow to walk
+    // anywhere (0.9 m/s), so it does not: it submerges and comes up somewhere
+    // useful. That is its mobility and it is also its telegraph.
+    if (def.erupt && this.state === 'chase') {
+      this.eruptT -= dt;
+      const d = flatDist(this.pos, tgt.actor.pos);
+      if (this.eruptT <= 0 && d > def.reach + 1.5 && d < def.erupt.range) {
+        this.eruptT = def.erupt.every * rand(0.85, 1.2);
+        const at = tgt.actor.pos.clone().setY(0)
+          .addScaledVector(v3(this.pos.x - tgt.actor.pos.x, 0, this.pos.z - tgt.actor.pos.z).normalize(), 1.8);
+        m.arena.bounds?.clampXZ(at, 0.6);
+        // it goes down here...
+        m.fx._ring(this.pos.clone().setY(0.05), 0x6a4a4e, { size: 0.8, growRate: -2.4, life: 0.35 });
+        for (let i = 0; i < 12; i++) {
+          m.fx._spawn(this.pos.clone().add(v3(rand(-0.7, 0.7), 0.1, rand(-0.7, 0.7))), {
+            color: i % 2 ? 0x6a4a4e : 0x2a1a1e, size: rand(0.2, 0.5), life: 0.4,
+            vel: v3(rand(-1.5, 1.5), rand(1, 3), rand(-1.5, 1.5)), gravity: 8
+          });
+        }
+        // ...and comes up there
+        this.pos.copy(at);
+        this.reveal = 0.15;
+        this.body.setReveal(0.15);
+        m.fx._ring(at.clone().setY(0.05), 0xa0606a, { size: 0.6, growRate: 14, life: 0.5 });
+        m.arena.destruct?.damageAt(at, 2.2, 16);
+        m.cam.shake(0.3);
+        m.sfx.curseSummon?.('hookworm');
+        return true;
+      }
+    }
+
+    // ---- MANTA: THE CARRY --------------------------------------------------
+    // The only summon in the game that moves its OWNER. Canon: it has "enough
+    // size to support Suguru and one other person", and he escapes on it. Here
+    // it periodically swoops to Geto and hauls him a long way, fast — an
+    // escape he does not have to spend stamina on and cannot be hit out of.
+    if (def.carry) {
+      this.carryT -= dt;
+      if (this.carrying > 0) {
+        this.carrying -= dt;
+        const o = this.owner;
+        const away = v3(o.pos.x - tgt.actor.pos.x, 0, o.pos.z - tgt.actor.pos.z).normalize();
+        o.pos.addScaledVector(away, def.carry.speed * dt);
+        o.pos.y = Math.max(o.pos.y, Math.sin((1 - this.carrying / def.carry.dur) * Math.PI) * def.carry.height);
+        o.vel.set(0, 0, 0);
+        o.iFrames = Math.max(o.iFrames ?? 0, 2);
+        m.arena.bounds?.clampXZ(o.pos, 0.6);
+        this.pos.set(o.pos.x, 0, o.pos.z);
+        this.flyY = o.pos.y + 1.2;
+        this.anim.carry = 1;
+        this.speed = def.carry.speed;
+        if (this.carrying <= 0) { o.pos.y = 0; this.anim.carry = 0; }
+        return true;
+      }
+      if (this.carryT <= 0 && flatDist(this.owner.pos, tgt.actor.pos) < 6.0 && this.owner.res.hp < this.owner.cfg.stats.hp * 0.7) {
+        this.carryT = def.carry.every * rand(0.9, 1.2);
+        this.carrying = def.carry.dur;
+        m.hud.toast(this.owner, '飛行呪霊 — CARRIED');
+        m.sfx.curseSummon?.('manta');
+        return true;
+      }
+    }
+
+    // ---- DECOY EYE: PULLING AGGRO -------------------------------------------
+    // Its whole job. Every hostile summon inside its radius is redirected onto
+    // it, so Geto's real bodies get to keep working. Implemented by writing a
+    // flag the other systems' targeting already reads, rather than by editing
+    // their files.
+    if (def.decoy) {
+      this.decoyPulse = (this.decoyPulse ?? 0) - dt;
+      if (this.decoyPulse <= 0) {
+        this.decoyPulse = 0.4;
+        for (const s of (m.shikigami?.list ?? [])) {
+          if (!s.targetable || s.owner === this.owner) continue;
+          if (flatDist(s.pos, this.pos) < def.decoy.radius) s._decoyLure = this;
+        }
+        for (const mn of (m.minions?.list ?? [])) {
+          if (!mn.alive || mn.owner === this.owner) continue;
+          if (flatDist(mn.pos, this.pos) < def.decoy.radius) mn._decoyLure = this;
+        }
+        m.fx._ring(this.pos.clone().add(v3(0, this.body.height * 0.6, 0)), 0xc8a020,
+          { size: 0.3, growRate: 5, life: 0.4, flat: false });
+      }
+    }
+    return false;
+  }
+
   // ---- per-curse AI --------------------------------------------------------
   // Each special grade gets ONE signature move off its playable kit, not the
   // whole thing. That is the brief and it is also what keeps them legible: a
   // summoned Jogo does one recognisable thing, so you learn what a summoned
   // Jogo means the first time you see one.
   _behave(dt, tgt) {
+    // the role behaviours run first and can own the whole frame
+    if (this._roleTick(dt, tgt)) return;
     if (this.state === 'hit') {
       this.t -= dt;
       if (this.t <= 0) this.state = 'chase';
@@ -570,8 +783,191 @@ class Curse {
         break;
       }
 
-      // THE LOW GRADES — a bite and a lash. Almost no damage; the value is
-      // that they are in the way and they will not stop.
+      // ---- FLESH-EATER — IT ATTACHES ---------------------------------------
+      // "Work together to SUCK A PERSON'S FLESH APART." It does not knock you
+      // back, it gets on you. Landing the hit starts the latch; from then on
+      // it is a status the player has to shake by killing it.
+      case 'fleshEater': {
+        if (isFighter) {
+          const r = this._strike(tgt.actor, { dmg: def.dmg, kb: 0, hitstun: def.hitstun, type: 'light' });
+          if (r === 'hit' || r === 'otg') {
+            this.latched = tgt.actor;
+            this.latchT = def.latch.duration;
+            m.hud.toast(tgt.actor, 'LATCHED');
+            m.sfx.curseAttack?.('fleshEater');
+          }
+        } else this._strikeSummon(tgt.actor, def.dmg * 1.6);
+        break;
+      }
+
+      // ---- KO-GUY — BLACK MUCUS ---------------------------------------------
+      // Canon: "he can SHOOT BLACK MUCUS from his mouth". A ranged spit that
+      // slows, so a grasshopper that is otherwise a pure melee body has a
+      // reason to exist at range and a reason to be annoying.
+      case 'koguy': {
+        const d = flatDist(this.pos, at);
+        this.spitT = (this.spitT ?? 0) - 0;
+        if (isFighter && d > def.reach && d < def.spit.range) {
+          m.sfx.embers?.();
+          const from = this.pos.clone().add(v3(0, this.body.height * 0.85, 0));
+          for (let i = 0; i < 14; i++) {
+            const k = i / 13;
+            m.fx._spawn(from.clone().lerp(at.clone().setY(1.0), k).add(v3(rand(-0.25, 0.25), rand(-0.2, 0.3), rand(-0.25, 0.25))), {
+              color: i % 4 === 0 ? 0x6f8f34 : 0x171a10, size: rand(0.10, 0.30), life: rand(0.25, 0.5),
+              vel: at.clone().sub(from).normalize().multiplyScalar(rand(7, 14)), gravity: 5
+            });
+          }
+          m.fx._ring(at.clone().setY(0.06), 0x171a10, { size: 0.4, growRate: 7, life: 0.5 });
+          const r = this._strike(tgt.actor, { dmg: def.spit.dmg, kb: 0.4, hitstun: def.hitstun, type: 'light' });
+          if (r === 'hit' || r === 'otg') {
+            tgt.actor.vel.multiplyScalar(1 - def.spit.slow);
+            m.hud.toast(tgt.actor, 'FOULED');
+          }
+        } else if (isFighter) {
+          this._strike(tgt.actor, { dmg: def.dmg, kb: def.kb, hitstun: def.hitstun, type: 'light' });
+        } else this._strikeSummon(tgt.actor, def.dmg * 1.4);
+        break;
+      }
+
+      // ---- FUNGUS HEADS — CAPTURE, THEN THE KISS -----------------------------
+      // "Capable of CAPTURING Suguru's targets. Upon doing so the LARGEST HEAD
+      // will attempt to KISS whoever is captive." The capture is the value: it
+      // roots them, which is the only reliable setup Geto has.
+      case 'fungus': {
+        m.sfx.roots?.();
+        if (isFighter) {
+          const r = this._strike(tgt.actor, { dmg: def.dmg, kb: 0, hitstun: def.hitstun, type: 'heavy' });
+          if (r === 'hit' || r === 'otg') {
+            tgt.actor.vel.set(0, 0, 0);
+            tgt.actor.rootT = Math.max(tgt.actor.rootT, def.hold);
+            if (!['knockdown', 'launched', 'getup', 'ko'].includes(tgt.actor.state)) {
+              tgt.actor.setState('rooted', { clip: 'stunned' });
+            }
+            m.hud.toast(tgt.actor, 'CAPTURED');
+            // the kiss: a wet violet bloom at head height
+            const head = tgt.actor.pos.clone().add(v3(0, 1.5, 0));
+            m.fx._ring(head, 0xa8506a, { size: 0.3, growRate: 7, life: 0.4, flat: false });
+            for (let i = 0; i < 12; i++) {
+              m.fx._spawn(head, {
+                color: i % 2 ? 0xa8506a : 0x7a4a68, size: rand(0.1, 0.26), life: 0.35,
+                vel: v3(rand(-3, 3), rand(-1, 3), rand(-3, 3))
+              });
+            }
+          }
+        } else this._strikeSummon(tgt.actor, def.dmg * 1.3);
+        break;
+      }
+
+      // ---- DARUMA — THE CRUSH ------------------------------------------------
+      // "Summoned by Suguru to CRUSH Shigeru Sonoda to death." It rears and
+      // drops its whole mass. Slow, obvious, and it hurts — but the reason it
+      // is in the stable is the 92% block chance on the def, not this.
+      case 'daruma': {
+        m.cam.shake(0.5);
+        m.sfx.rootBurst?.();
+        m.fx._ring(this.pos.clone().setY(0.06), 0x42639f, { size: 0.6, growRate: 16, life: 0.45 });
+        for (let i = 0; i < 18; i++) {
+          const a = (i / 18) * Math.PI * 2;
+          m.fx._spawn(this.pos.clone().add(v3(Math.cos(a) * 0.9, 0.1, Math.sin(a) * 0.9)), {
+            color: i % 3 === 0 ? 0x6f8fd0 : 0x1c3260, size: rand(0.18, 0.44), life: rand(0.3, 0.6),
+            vel: v3(Math.cos(a) * 5, rand(1, 4), Math.sin(a) * 5), gravity: 9
+          });
+        }
+        m.arena.destruct?.damageAt(this.pos, 2.4, 22);
+        for (const f of m.activeFighters) {
+          if (f === this.owner || !f.alive) continue;
+          if (flatDist(f.pos, this.pos) > def.reach + 0.6) continue;
+          this._strike(f, { dmg: def.dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun, type: 'knockdown' });
+        }
+        this.sys.hurtOtherSummonsAt(this.pos, def.reach + 0.6, def.dmg * 0.8, this.owner);
+        break;
+      }
+
+      // ---- PILLAR CURSE — LIGHT FROM ABOVE -----------------------------------
+      // "Fire DESTRUCTIVE PILLARS OF LIGHT down on a target by pointing its
+      // index and middle finger on either hand upwards." Delayed and marked,
+      // like Hanami's roots, but from FOURTEEN METRES — it is the only thing in
+      // the stable that threatens the far side of the arena.
+      case 'pillar': {
+        m.sfx.embers?.();
+        m.fx._ring(at.clone().setY(0.05), 0xdfe8ff, { size: 0.4, growRate: 4, life: def.delay });
+        this.sys.pending.push({
+          t: def.delay, at, radius: def.radius, owner: this.owner, curse: this,
+          dmg: def.dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun, kind: 'pillar'
+        });
+        break;
+      }
+
+      // ---- MANTA — THE DIVE --------------------------------------------------
+      // Between carries it is a dive-bomber: it drops out of the sky along its
+      // own line and hits everything under it.
+      case 'manta': {
+        m.sfx.nueDive?.();
+        m.cam.shake(0.4);
+        const from = this.pos.clone().setY(this.body.height);
+        for (let i = 0; i < 22; i++) {
+          const k = i / 21;
+          m.fx._spawn(from.clone().lerp(at.clone().setY(0.6), k).add(v3(rand(-0.6, 0.6), 0, rand(-0.6, 0.6))), {
+            color: i % 3 === 0 ? 0x8a4ad0 : 0x3c4a5e, size: rand(0.16, 0.42), life: rand(0.2, 0.4),
+            vel: at.clone().sub(from).normalize().multiplyScalar(rand(6, 13))
+          });
+        }
+        m.fx._ring(at.clone().setY(0.06), 0x8a4ad0, { size: 0.6, growRate: 15, life: 0.4 });
+        if (isFighter) {
+          this._strike(tgt.actor, { dmg: def.dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun, type: 'heavy' });
+        } else this._strikeSummon(tgt.actor, def.dmg * 1.3);
+        break;
+      }
+
+      // ---- RAINBOW DRAGON — THE SMASH ----------------------------------------
+      // "Able to SMASH INTO AND DESTROY STONE STRUCTURES." The biggest single
+      // hit in the stable, and it takes the level with it.
+      case 'dragon': {
+        m.sfx.uzumaki?.();
+        m.cam.shake(0.9);
+        m.cam.fovKick(8);
+        m.stage.flash(0.18);
+        const from = this.pos.clone().add(v3(0, this.body.height * 0.7, 0));
+        for (let i = 0; i < 30; i++) {
+          const k = i / 29;
+          m.fx._spawn(from.clone().lerp(at.clone().setY(0.8), k).add(v3(rand(-0.8, 0.8), rand(-0.4, 0.6), rand(-0.8, 0.8))), {
+            color: i % 4 === 0 ? 0xc060d0 : 0xe6e2d8, size: rand(0.2, 0.55), life: rand(0.25, 0.5),
+            vel: at.clone().sub(from).normalize().multiplyScalar(rand(8, 16)), gravity: 4
+          });
+        }
+        m.fx._ring(at.clone().setY(0.06), 0xe6e2d8, { size: 0.8, growRate: 20, life: 0.5 });
+        m.arena.destruct?.damageAt(at, 3.4, def.destruct ?? 45);
+        for (const f of m.activeFighters) {
+          if (f === this.owner || !f.alive) continue;
+          if (flatDist(f.pos, at) > def.reach) continue;
+          this._strike(f, { dmg: def.dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun, type: 'knockdown' });
+        }
+        this.sys.hurtOtherSummonsAt(at, def.reach, def.dmg * 0.7, this.owner);
+        break;
+      }
+
+      // ---- HOOKWORM — SWALLOW ------------------------------------------------
+      // "Innards large enough to CAPTURE AND SWALLOW." Landing it starts the
+      // hold; `_roleTick` runs it from there.
+      case 'hookworm': {
+        m.cam.shake(0.5);
+        m.sfx.toadGrab?.();
+        if (isFighter && flatDist(this.pos, at) < def.swallow.range) {
+          const r = this._strike(tgt.actor, { dmg: def.dmg, kb: 0, hitstun: def.hitstun, type: 'heavy' });
+          if (r === 'hit' || r === 'otg') {
+            this.swallowT = def.swallow.hold;
+            tgt.actor.rootT = Math.max(tgt.actor.rootT, def.swallow.hold);
+            if (!['knockdown', 'launched', 'getup', 'ko'].includes(tgt.actor.state)) {
+              tgt.actor.setState('rooted', { clip: 'stunned' });
+            }
+            m.hud.toast(tgt.actor, 'SWALLOWED');
+          }
+        } else if (!isFighter) this._strikeSummon(tgt.actor, def.dmg * 1.5);
+        break;
+      }
+
+      // THE REMAINING LOW GRADES — a bite and a lash. Almost no damage; the
+      // value is that they are in the way and they will not stop.
       default: {
         if (isFighter) {
           this._strike(tgt.actor, { dmg: def.dmg, kb: def.kb, hitstun: def.hitstun, type: 'light' });
@@ -613,6 +1009,10 @@ export class CurseSystem {
   stableOf(owner) { return owner.cfg.curses?.stable || []; }
   specialOrder(owner) { return owner.cfg.curses?.specialOrder || []; }
   lowOrder(owner) { return owner.cfg.curses?.lowOrder || []; }
+  midOrder(owner) { return owner.cfg.curses?.midOrder || []; }
+  // WHAT THE WHEEL OFFERS: mid grades and special grades together. Falls back
+  // to the special list so any other config using this system is unaffected.
+  wheelOrder(owner) { return owner.cfg.curses?.wheelOrder || this.specialOrder(owner); }
 
   isLost(owner, key) { return this.stateFor(owner).lost.has(key); }
 
@@ -635,7 +1035,7 @@ export class CurseSystem {
     const s = this.stateFor(owner);
     s.lost.add(key);
     if (s.sel !== key) return;
-    const next = this.specialOrder(owner).find(k => !s.lost.has(k));
+    const next = this.wheelOrder(owner).find(k => !s.lost.has(k));
     if (!next) return;
     s.sel = next;
     this.match.hud?.toast(owner, 'RT · ' + (this.defsFor(owner)[next]?.short ?? next));
@@ -796,10 +1196,26 @@ export class CurseSystem {
   // The projected damage, live, for the HUD. Same function the effect
   // dispatcher calls when it actually fires, so the number on the bar is not
   // an estimate of the number in the fight — it IS the number in the fight.
+  // THE FORMULA, and it changed shape when the stable doubled.
+  //
+  //     raw = baseDmg + dmgPerWeight * weight ^ weightExp
+  //
+  // It used to be linear, which was correct for an eight-curse stable
+  // (weight 20) and catastrophic for a sixteen-curse one (weight 41): the old
+  // numbers would have delivered 369 against a 235-point health bar, i.e. an
+  // unanswerable instant kill for pressing one button. The exponent is tuned
+  // so a FULL stable still lands on the 189 delivered that was already the
+  // right number, while a half stable is worth proportionally more than it was
+  // — which matters now that there are enough curses for "kill four of them"
+  // to be a cheap answer. The full derivation is in characters/geto.js.
+  //
+  // `weightExp` defaults to 1 so any other config using this system keeps the
+  // old linear behaviour untouched.
   uzumakiDamage(owner) {
     const u = owner.cfg.ultimate;
     const { weight } = this.uzumakiCount(owner);
-    return (u.baseDmg ?? 18) + weight * (u.dmgPerWeight ?? 8);
+    const e = u.weightExp ?? 1;
+    return (u.baseDmg ?? 18) + (u.dmgPerWeight ?? 8) * Math.pow(weight, e);
   }
 
   // WHAT THE HUD ACTUALLY PRINTS, and it is not the number above.

@@ -88,13 +88,17 @@ const STANCES = {
       reach: 1.95, kb: 6.0, kbY: 0, hitstun: 30, step: 2.5,
       staminaCost: 20, armorFrames: 6, ceGain: 1.6, clip: 'heavy', src: 'panda_core'
     },
-    // NO PROJECTILE, per the brief. CT1 is a close shockwave off a two-paw
-    // slam — mid-range control without ever leaving the ground game.
+    // STILL NO PROJECTILE — the QUAKE PALM never leaves the ground: the palm
+    // goes into the FLOOR and the floor carries it, a rupture front of
+    // thrown turf running 6.5 m down the lane (stick-steered) that pops
+    // whoever it reaches into the air. Ground-game ranged control, which is
+    // the only kind the brief allows him.
     ct1: {
-      name: 'Cursed Palm', jpName: '呪掌', cost: 18,
+      name: 'Quake Palm', jpName: '震掌', cost: 18,
       startup: 14, active: 4, recovery: 22,
       effect: 'panda_palm', clip: 'ct1',
-      dmg: 13, radius: 2.45, kb: 4.5, kbY: 0.8, hitstun: 24, src: 'panda_core'
+      dmg: 13, range: 6.5, speed: 12, radius: 1.5,
+      kb: 3.5, kbY: 6.5, hitstun: 26, src: 'panda_core'
     },
     // A forward roll that ends in a body press. His gap closer and his only
     // real mobility outside the dash — and it is deliberately mediocre,
@@ -269,14 +273,17 @@ export const PANDA = withDefaults({
   jpName: '呪骸',
 
   stats: {
-    // `hp` HERE IS THE BALANCED CORE'S POOL, not his total. Everything that
-    // reads `cfg.stats.hp` outside the health system is a THRESHOLD test —
-    // the CPU's "am I hurt" checks, mostly — and those want to compare the
-    // exposed pool against the exposed pool's size. His total is 182 (see
-    // `cores` below), read through `combat/cores.js totalHP` where it is
-    // actually wanted. Both numbers are scaled by the global HP dial; see the
-    // paths added to HEALTH_DENOMINATED in combat/balance.js.
-    hp: 68,
+    // `hp` IS HIS WHOLE HEALTH BAR — one pool shared by all three cores (see
+    // `cores.shared` below and the note in combat/cores.js). It used to be the
+    // balanced core's pool alone, one of three, for a base total of 182
+    // against a roster norm of 100; that was three lives and it was the single
+    // most overtuned thing in the game.
+    //
+    // 112 leaves him the second-toughest fighter in the roster behind Hanami's
+    // 145, which is the right place for an Abrupt-Mutation Cursed Corpse: he
+    // is a big durable body, not three of them. Scaled by the global HP dial
+    // like everyone else's.
+    hp: 112,
     // Movement, damage and dash drain are ALL overridden per stance (see
     // STANCES above) and read through `Fighter.stats`. These are the balanced
     // core's values, kept here so that anything reading the config directly
@@ -308,6 +315,14 @@ export const PANDA = withDefaults({
   // HEALTH_DENOMINATED there.
   cores: {
     order: ['panda', 'gorilla', 'trike'],
+    // ONE HEALTH BAR BEHIND THREE STANCES. The cores are organs, not lives —
+    // which is the ruling this file already made for the instant-KO effects,
+    // now applied to ordinary damage as well. Every core reads `stats.hp`
+    // above, so damage in any stance is damage to him, and when it empties he
+    // dies once like everybody else. All three stances stay available for the
+    // whole round: the character is the rotation, and the rotation is what
+    // survived the nerf.
+    shared: true,
     // THE SWAP WINDOW. 26 frames (0.43 s) with no armour, no invulnerability
     // and no cancel — long enough that swapping in someone's face is a real
     // risk and short enough that swapping on a knockdown is free. Compare

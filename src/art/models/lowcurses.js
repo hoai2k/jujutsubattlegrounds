@@ -35,14 +35,34 @@
 // borrowed shikigami through one code path.
 // =========================================================================
 import * as THREE from 'three';
-import { toonMaterial } from '../shaders/toon.js';
 import { tGeo, roundBox } from '../builders/geo.js';
 import { rand } from '../../core/mathutil.js';
+import { dermis, boneMat, fleshTex, maskTex, energyTex, CURSE_RIM } from '../textures/creature.js';
+import { bakeStatic, collectOutlines, applyLOD } from '../builders/bake.js';
 
 const VIOLET = 0x6b2fa0;
 
-function mat(color, rim = 0x9f7fd0) {
-  return toonMaterial({ vertexColors: false, color, steps: [64, 148, 255], rim: 0.42, rimColor: rim });
+// ---- RETEXTURED INTO THE STABLE'S FAMILY ----------------------------------
+// These two shipped as flat toon colours. Now that Geto's stable is fifteen
+// curses rather than six they have to belong to a set, so they carry the same
+// procedural cursed-flesh surface everything else in art/models/getocurses.js
+// does — mottled, veined, faintly seamed, with the shared violet rim. The
+// PALETTES are unchanged (grey-green maw, mauve wisp, violet tendril tips):
+// this is a surface pass, not a redesign, because their silhouettes were never
+// the problem.
+function mat(hexColor, opts = {}) {
+  const css = '#' + hexColor.toString(16).padStart(6, '0');
+  const shift = (d) => {
+    const n = hexColor;
+    const clamp = v => Math.max(0, Math.min(255, v));
+    return '#' + ((clamp(((n >> 16) & 255) + d) << 16)
+      | (clamp(((n >> 8) & 255) + d) << 8)
+      | clamp((n & 255) + d)).toString(16).padStart(6, '0');
+  };
+  return dermis(fleshTex('low' + hexColor, {
+    base: css, blotchA: shift(-34), blotchB: shift(26), seam: '#4a2c34',
+    seams: opts.seams ?? 2, veins: opts.veins ?? 12, bloom: opts.bloom ?? null
+  }), { rimColor: CURSE_RIM, rim: 0.42, rimStart: 0.60, gloss: opts.gloss ?? 0.3 });
 }
 
 // Shared reveal helper: the family tell is that a curse does not fade in, it
@@ -61,10 +81,10 @@ function revealer(group) {
 // ---------------------------------------------------------------------------
 export function buildGapingMaw() {
   const g = new THREE.Group();
-  const flesh = mat(0x6c7a63);
-  const fleshDk = mat(0x515c4a);
-  const gum = mat(0x7a3a44, 0xc07a86);
-  const tooth = mat(0xddd6c4, 0xffffff);
+  const flesh = mat(0x6c7a63, { seams: 3 });
+  const fleshDk = mat(0x515c4a, { seams: 2 });
+  const gum = mat(0x7a3a44, { veins: 22, gloss: 0.5 });
+  const tooth = boneMat(maskTex('mawTooth', { base: '#ddd6c4', crack: '#a89f8c', stain: '#c2b8a2' }));
 
   const H = 0.82;
   // BODY: a lumpy ovoid, wider than tall, leaning forward over the legs
@@ -152,6 +172,9 @@ export function buildGapingMaw() {
       else body.rotation.z *= 0.85;
     }
   };
+  bakeStatic(g);
+  model.hulls = collectOutlines(g);
+  model.setLOD = (dist) => applyLOD(model.hulls, dist);
   model.setReveal(0);
   return model;
 }
@@ -161,8 +184,8 @@ export function buildGapingMaw() {
 // ---------------------------------------------------------------------------
 export function buildTendrilWisp() {
   const g = new THREE.Group();
-  const flesh = mat(0x7a7288);
-  const fleshDk = mat(0x574f66);
+  const flesh = mat(0x7a7288, { seams: 3, bloom: '#6b2fa0' });
+  const fleshDk = mat(0x574f66, { seams: 2, bloom: '#6b2fa0' });
 
   const H = 0.94;
   // BULB: a teardrop, point up. Floats at about half its height off the floor.
@@ -243,6 +266,9 @@ export function buildTendrilWisp() {
       else bulb.position.x *= 0.8;
     }
   };
+  bakeStatic(g);
+  model.hulls = collectOutlines(g);
+  model.setLOD = (dist) => applyLOD(model.hulls, dist);
   model.setReveal(0);
   return model;
 }

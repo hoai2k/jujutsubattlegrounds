@@ -338,16 +338,23 @@ export class HUD {
           .map(t => `<i style="left:${(t * 100).toFixed(1)}%"></i>`).join('');
       }
       // ---- PANDA: THE THREE CORES ------------------------------------------
-      // Three segments in place of one health bar. Built once, and the segment
-      // WIDTHS are proportional to each core's maximum so a glance reads the
-      // real distribution rather than three equal thirds — his Panda core is
-      // genuinely the biggest and the HUD should say so.
+      // A STANCE STRIP, not three health bars. The cores share one pool now
+      // (see combat/cores.js), so the ordinary `bar-hp` above already tells
+      // the whole health story and three segments draining in lockstep would
+      // say the same thing three times. What the strip is for is the thing the
+      // bar cannot show: WHICH of his three fighters is on the field, which is
+      // what both players actually need to read off him.
+      //
+      // Equal thirds, because the pools are no longer different sizes. The
+      // pre-shared build weighted the widths by each core's maximum; that is
+      // kept below for any config that still declares separate pools.
       const coreRow = plate.querySelector('.core-row');
       coreRow.style.display = f.cores ? '' : 'none';
       if (f.cores) {
+        const shared = !!f.cfg.cores?.shared;
         const total = f.cores.reduce((a, c) => a + c.max, 0);
         coreRow.querySelector('.core-segs').innerHTML = f.cores.map(c =>
-          `<div class="core-seg" data-k="${c.key}" style="flex:${(c.max / total).toFixed(4)}">
+          `<div class="core-seg" data-k="${c.key}" style="flex:${shared ? '1' : (c.max / total).toFixed(4)}">
              <div class="cs-fill"></div><b>${c.short}</b>
            </div>`).join('');
       }
@@ -469,11 +476,20 @@ export class HUD {
     const key = snapshot.length + ':' + fighter.cfg.id;
     if (this._wheelKey !== key) {
       this._wheelKey = key;
+      // THE RING GREW. Megumi went from six entries to thirteen, so the radius
+      // is scaled by count — thirteen sectors at the six-entry radius overlap
+      // into an unreadable smear. Fusions get a marker class so they read as a
+      // different KIND of entry before anything is selected.
+      const R = snapshot.length > 8 ? 41 : 37;
       ring.innerHTML = snapshot.map((s, i) => {
         const a = (i / snapshot.length) * Math.PI * 2;
-        const x = 50 + Math.sin(a) * 37, y = 50 - Math.cos(a) * 37;
-        return `<div class="sw-opt" style="left:${x}%;top:${y}%">
-          <b>${s.def.short}</b><i>${s.def.jp}</i><u>${s.def.cost}</u></div>`;
+        const x = 50 + Math.sin(a) * R, y = 50 - Math.cos(a) * R;
+        const cls = 'sw-opt'
+          + (s.fusion ? ' fusion' : '')
+          + (s.ritualOnly ? ' ritual' : '')
+          + (snapshot.length > 8 ? ' dense' : '');
+        return `<div class="${cls}" style="left:${x}%;top:${y}%">
+          <b>${s.def.short}</b><i>${s.def.jp}</i><u>${s.ritualOnly ? '儀' : s.def.cost}</u></div>`;
       }).join('');
     }
     const opts = [...ring.querySelectorAll('.sw-opt')];
@@ -482,15 +498,23 @@ export class HUD {
       if (!o) return;
       o.classList.toggle('focus', i === wheel.sel);
       o.classList.toggle('lost', s.lost);
-      o.classList.toggle('cool', !s.lost && s.cd > 0);
-      o.classList.toggle('broke', !s.lost && s.cd <= 0 && !s.affordable);
+      // BLOCKED is its own state, distinct from LOST: a fusion whose components
+      // are dead is not itself destroyed, it is unreachable, and the two want
+      // different treatment because only one of them can come back.
+      o.classList.toggle('blocked', !!s.blocked && !s.lost);
+      o.classList.toggle('cool', !s.lost && !s.blocked && s.cd > 0);
+      o.classList.toggle('broke', !s.lost && !s.blocked && s.cd <= 0 && !s.affordable);
       o.classList.toggle('b1', s.bound === 'ct1');
       o.classList.toggle('b2', s.bound === 'ct2');
       // GETO: no slots to bind to, so the "currently selected" mark reuses the
       // slot-2 highlight rather than inventing a third visual language
       if (s.selected) o.classList.add('b2');
     });
-    const sel = snapshot[wheel.sel];
+    // A defensive clamp, because `wheel.sel` is an index into the fighter's own
+    // order and this widget serves four different radials. Cheaper than a
+    // crash, and it fails to the first entry rather than to an exception.
+    const sel = snapshot[wheel.sel] ?? snapshot[0];
+    if (!sel) { el.classList.remove('on'); return; }
     // The wheel serves both summoners. A curse snapshot carries `selected`
     // where a shikigami snapshot carries `bound`, and that is the only thing
     // the widget needs to tell them apart: Megumi is choosing WHICH SLOT, Geto
@@ -499,8 +523,43 @@ export class HUD {
     el.querySelector('.sw-center b').textContent = curseWheel
       ? 'RT · SPECIAL GRADE'
       : (wheel.slot === 'ct1' ? 'RB · SLOT I' : 'RT · SLOT II');
-    el.querySelector('.sw-center small').textContent =
-      sel.lost ? sel.def.name + ' — DESTROYED' : sel.def.name + ' · ' + sel.def.desc;
+    // ---- THE FUSION READOUT -------------------------------------------------
+    // "HUD must make the tradeoff legible: show which components are alive and
+    // what fusing will cost, BEFORE the player commits." The centre of the
+    // wheel is where that has to live, because it is the one place the player
+    // is already looking while choosing. Three cases:
+    //   READY + CONSUMES   name every component that is about to be spent
+    //   READY, FREE        say so — Totality after the Dogs died, and the Abyss
+    //   NOT READY          name the components that are missing
+    let line;
+    if (sel.ritualOnly) line = sel.def.name + ' — SUMMONED BY RITUAL ONLY';
+    else if (sel.lost) line = sel.def.name + ' — DESTROYED';
+    else if (sel.fusion && !sel.fusion.ready) {
+      line = sel.def.name + ' — NEEDS ' + sel.fusion.missing.map(p => p.short).join(' + ');
+    } else if (sel.fusion && sel.fusion.consumes.length) {
+      line = sel.def.name + ' — CONSUMES ' + sel.fusion.consumes.join(' + ') + ' FOR THE MATCH';
+    } else if (sel.fusion) {
+      line = sel.def.name + ' — ' + (sel.fusion.unlocked ? 'INHERITED · COSTS NOTHING MORE' : sel.def.desc);
+    } else line = sel.def.name + ' · ' + sel.def.desc;
+    el.querySelector('.sw-center small').textContent = line;
+
+    // and the component strip: one chip per part, lit if alive, struck if not,
+    // so "which of the four do I still have" is answered without reading a
+    // sentence. Built fresh only when the selection changes.
+    let strip = el.querySelector('.sw-parts');
+    if (!strip) {
+      strip = document.createElement('div');
+      strip.className = 'sw-parts';
+      el.querySelector('.sw-center').append(strip);
+    }
+    const wantParts = sel.fusion ? sel.fusion.parts.map(p => p.short + (p.lost ? '!' : '')).join(',') : '';
+    if (strip.dataset.v !== wantParts) {
+      strip.dataset.v = wantParts;
+      strip.innerHTML = sel.fusion
+        ? sel.fusion.parts.map(p => `<i class="${p.lost ? 'gone' : 'live'}">${p.short}</i>`).join('')
+        : '';
+    }
+    el.classList.toggle('fusing', !!sel.fusion);
     el.classList.toggle('slot2', curseWheel || wheel.slot === 'ct2');
   }
 
@@ -695,13 +754,17 @@ export class HUD {
       // already carries, and for the same reason: the opponent needs to see
       // which of his three characters they have already killed.
       if (f.cores) {
+        const shared = !!f.cfg.cores?.shared;
         const segs = plate.querySelectorAll('.core-row .core-seg');
         for (let k = 0; k < f.cores.length; k++) {
           const c = f.cores[k], el = segs[k];
           if (!el) continue;
-          el.querySelector('.cs-fill').style.width =
-            Math.max(0, Math.min(100, c.hp / c.max * 100)) + '%';
-          el.classList.toggle('dead', !c.alive);
+          // shared pool: the segment fills to show WHICH core is standing, and
+          // no core is ever struck through because none of them can die alone
+          el.querySelector('.cs-fill').style.width = shared
+            ? (k === f.coreIndex ? 100 : 0) + '%'
+            : Math.max(0, Math.min(100, c.hp / c.max * 100)) + '%';
+          el.classList.toggle('dead', !shared && !c.alive);
           el.classList.toggle('active', k === f.coreIndex && c.alive);
         }
       }
@@ -919,9 +982,12 @@ export class HUD {
         const count = this.curses.uzumakiCount(f);
         // the bar is scaled against a FULL stable, so "how much of my ultimate
         // is left" is the length of the bar and needs no arithmetic
+        // the same sublinear curve the system itself uses, so the bar's FULL
+        // reference point and the number printed next to it cannot drift
+        const fullWeight = f.cfg.curses.stable.reduce((a, k) =>
+          a + (f.cfg.curses.defs[k].uzumakiWeight ?? 1), 0);
         const fullRaw = (f.cfg.ultimate.baseDmg ?? 18)
-          + (f.cfg.curses.stable.reduce((a, k) =>
-            a + (f.cfg.curses.defs[k].uzumakiWeight ?? 1), 0)) * (f.cfg.ultimate.dmgPerWeight ?? 8);
+          + (f.cfg.ultimate.dmgPerWeight ?? 8) * Math.pow(fullWeight, f.cfg.ultimate.weightExp ?? 1);
         const full = fullRaw * (f.cfg.stats.damageScale ?? 1);
         uzRow.querySelector('.bar-uz .fill').style.width =
           Math.min(100, dmg / (full * 1.3) * 100) + '%';

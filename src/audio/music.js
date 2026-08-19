@@ -43,10 +43,10 @@ export class Music {
     // A second Music (hot reload, a double boot, a stray startGame) would
     // stack a whole extra soundtrack on top of the first. Retire the old one.
     if (typeof window !== 'undefined') {
-      if (window.__cursedArenaMusic && window.__cursedArenaMusic !== this) {
-        try { window.__cursedArenaMusic.dispose(); } catch (e) { /* ignore */ }
+      if (window.__jjbgMusic && window.__jjbgMusic !== this) {
+        try { window.__jjbgMusic.dispose(); } catch (e) { /* ignore */ }
       }
-      window.__cursedArenaMusic = this;
+      window.__jjbgMusic = this;
     }
 
     this.volume = 0.55;         // master music level
@@ -358,8 +358,8 @@ export class Music {
     document.removeEventListener('visibilitychange', this._vis);
     for (const [, t] of this.tracks) { try { t.el.src = ''; } catch (e) { /* ignore */ } }
     this.tracks.clear();
-    if (typeof window !== 'undefined' && window.__cursedArenaMusic === this) {
-      window.__cursedArenaMusic = null;
+    if (typeof window !== 'undefined' && window.__jjbgMusic === this) {
+      window.__jjbgMusic = null;
     }
   }
 }

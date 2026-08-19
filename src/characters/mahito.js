@@ -37,17 +37,21 @@ export const MAHITO = withDefaults({
     // swings. Committed, high damage, long reach. The variant (geometry AND
     // animation) rotates so it never repeats twice in a row — see
     // fighter.startCT clip-variant support + the model's showBodyWeapon.
-    name: 'Body Weapon', cost: 20, startup: 20, active: 5, recovery: 30,
-    effect: 'mahito_bodyweapon', dmg: 16, reach: 2.6, arc: 1.9,
+    name: 'Body Lance', cost: 20, startup: 20, active: 5, recovery: 30,
+    effect: 'mahito_bodyweapon', dmg: 16, reach: 6.5,
+    extendTime: 0.22, holdTime: 0.1,
     kb: 5, kbY: 2, hitstun: 30,
     clips: ['bwBlade', 'bwHammer', 'bwSpikes'], clip: 'bwBlade'
   },
-  // SPECIAL — SUMMON TRANSFIGURED HUMAN (B): one weak independent
-  // AI ally. Fragile, low damage; its value is pressure. Only ONE may exist —
-  // re-summoning while one lives does nothing (no cost is paid). Each summon's
+  // SPECIAL — SUMMON TRANSFIGURED HUMAN (B): a weak independent AI ally.
+  // Fragile, low damage; its value is pressure, and the pressure is meant to
+  // stack. UP TO THREE may stand at once, and nothing else gates the summon:
+  // if he has the cursed energy and the cooldown is up, he gets another one.
+  // At the cap the button does nothing and costs nothing. Each summon's
   // proportions, limb count and mass are randomized (see combat/minion.js).
   special: {
     key: 'mahito_summon', name: 'SUMMON', cost: 25, cooldown: 12,
+    maxMinions: 3,
     castFrames: 30, clip: 'summon',
     minion: {
       hp: 18, dmg: 3, hitstun: 14, kb: 1.4,

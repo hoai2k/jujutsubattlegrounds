@@ -1,7 +1,7 @@
 // Fighter: state machine, movement physics, resources (the MAX_CE/CURRENT_CE
 // system), combo/juggle bookkeeping, animation driving.
 import * as THREE from 'three';
-import { clamp, damp, angleDamp, yawBetween, v3, rand } from '../core/mathutil.js';
+import { clamp, damp, angleDamp, yawBetween, v3, rand, mulberry32 } from '../core/mathutil.js';
 import { AnimPlayer } from '../art/anim/player.js';
 import { BURN, tickBurn } from './burn.js';
 import { Adaptation } from './adaptation.js';
@@ -20,6 +20,40 @@ import {
 import { buildCores, resetCores, coresAlive, nextCore, coreIndexOf } from './cores.js';
 
 const GRAVITY = 26;
+
+// ---------------------------------------------------------------------------
+// THE DASH BURST
+// ---------------------------------------------------------------------------
+// A dash used to be a speed: hold the button with a direction and the velocity
+// eased toward `dashSpeed`, which took about a fifth of a second to arrive and
+// covered a metre in the process. That is a jog, and a jog does not beat a
+// startup — every attack in the game closes 1.5-2.2 m and the ones worth
+// dodging are active within a quarter of a second, so the dash could never
+// actually take you out of one.
+//
+// So the first beat of a dash is now an IMPULSE. Velocity is set outright to
+// `speed` x the character's own dash speed, held for `time`, and then eased
+// back into the ordinary dash. That is ~2.9 m of ground for a typical fighter
+// in 0.17 s, against a punch that reaches 1.6 m: the dodge is real, and it is
+// real for everyone rather than only for Toji, whose i-frames are untouched
+// and remain his own thing.
+//
+// IT COSTS MORE THAN RUNNING DOES, up front, which is the whole balance of it.
+// `costSeconds` is denominated in the character's OWN dash drain — 0.55 s of
+// dashing, paid on the frame it fires — so it scales with a roster whose
+// stamina economies differ by a factor of three, and so a fighter who has been
+// leaning on the dash cannot also have the dodge. Out of stamina for the
+// burst, the dash still works: it is just the jog it always was.
+//
+// A DIRECTION IS REQUIRED, and that falls out of `canDash` already needing
+// one — the dash button alone has never done anything. The heading is LOCKED
+// for the length of the burst: a dodge that curves under the stick is not a
+// dodge, and committing to the direction is what makes the read matter.
+const DASH_BURST = {
+  speed: 2.0,          // x dashSpeed, for the length of the burst
+  time: 0.17,          // seconds at full burst, then back to the dash
+  costSeconds: 0.55    // x dashDrain, spent up front
+};
 // how far above the current surface a fighter may step without jumping — kerbs,
 // stair lips, the first bleacher row
 const STEP_TOL = 0.55;
@@ -75,6 +109,19 @@ export class Fighter {
 
     const s = config.stats;
     this.res = { hp: s.hp, maxCE: s.startMaxCE, curCE: s.startMaxCE, stamina: s.stamina };
+
+    // ---- THE FIGHTER'S OWN RANDOM STREAM ------------------------------------
+    // A private, seeded PRNG per fighter. Online, every client simulates every
+    // fighter off the same replicated inputs, so a stream that is only ever
+    // advanced by ONE fighter's own logic stays in step across machines without
+    // anyone having to order the calls globally — which is what makes a crit or
+    // a jackpot tier come out the same on all four screens.
+    //
+    // Offline the seed is random and nothing about it is observable. Only the
+    // gameplay-DECIDING rolls use it; particles and debris stay on Math.random,
+    // because two clients seeing different sparks is not a different game.
+    this.seed = ((Math.random() * 0x7fffffff) | 0) ^ (index * 0x9e3779b1);
+    this.rng = mulberry32(this.seed);
 
     // ---- PANDA: THE THREE CORES 呪骸核 --------------------------------------
     // `res.hp` becomes an ACCESSOR onto the active core's pool, and that one
@@ -174,6 +221,11 @@ export class Fighter {
     this.wheel = null;           // {sel, slot, t} while the shikigami wheel is held
     this.submerged = 0;          // 0..1 sunk into the shadow (untargetable at 1)
     this.shadowDash = false;     // dashing THROUGH the shadow rather than over it
+
+    // ---- the dash burst (see DASH_BURST) ----
+    this.dashBurstT = 0;         // seconds of impulse left
+    this.dashBurstDir = v3();    // the heading it committed to
+    this.dashBurst = null;       // the tunable it fired with
 
     // ---- naoya: PROJECTION SORCERY ----
     // `frozenT` is on EVERY fighter, not just Naoya, because any of them can
@@ -472,6 +524,11 @@ export class Fighter {
   // Wipe everything round-scoped back to opening state, keeping the life
   // count. Called between stocks so nothing (buffs, juggle, copies, backlash)
   // leaks across rounds.
+  // Online: the match hands every client the same seed table, so each
+  // fighter's private stream is the same stream on every machine. Offline
+  // nothing calls this and the constructor's random seed stands.
+  reseed(seed) { this.seed = seed >>> 0; this.rng = mulberry32(this.seed); }
+
   resetForRound(startPos, facing) {
     const s = this.cfg.stats;
     this.res.hp = s.hp;
@@ -569,6 +626,7 @@ export class Fighter {
     this.wheel = null;
     this.submerged = 0;
     this.shadowDash = false;
+    this.dashBurstT = 0;
     this.model.setSubmerged?.(0);
     // PROJECTION SORCERY — every piece of it is round-scoped, including the
     // freeze. FreezeSystem.clear() restores the victim's materials on the same
@@ -924,6 +982,11 @@ export class Fighter {
 
   // ---- state helpers ------------------------------------------------------
   setState(state, opts = {}) {
+    // A BURST ENDS WITH THE DASH. Anything else taking the fighter over — a
+    // hit landing on him, a block, an attack he threw out of it, a launch —
+    // ends the impulse then and there; without this the leftover timer would
+    // be spent by whatever dash came next, in whatever direction that one was.
+    if (state !== 'dash') this.dashBurstT = 0;
     this.state = state;
     this.f = 0;
     if (opts.move !== undefined) this.move = opts.move;
@@ -1423,10 +1486,19 @@ export class Fighter {
     const def = sys.defsFor(this)[key];
     if (!this.spendCE(def.cost)) { this.emit('noCE'); return false; }
     const base = this._def(slot);
+    // A MID GRADE IS NOT A SPECIAL GRADE AND MUST NOT COST 44 FRAMES OF
+    // STARTUP. CT2's frame data is written for the monsters — a long, exposed,
+    // arms-open cast that advertises what it is paying for — and applying it to
+    // a 20-CE grasshopper would make the four new medium bodies unusable. A def
+    // may override the frames; the special grades do not, so the exposure that
+    // is the price of a monster is unchanged.
     const move = {
       name: def.name, kind: 'ct', slot, isCT: true, effect: base.effect,
-      curse: key, startup: base.startup, active: base.active,
-      recovery: base.recovery, clip: base.clip
+      curse: key,
+      startup: def.frames?.startup ?? base.startup,
+      active: def.frames?.active ?? base.active,
+      recovery: def.frames?.recovery ?? base.recovery,
+      clip: def.frames?.clip ?? base.clip
     };
     this._applyGrowth(move);
     this.setState('ct', { move });
@@ -1698,9 +1770,14 @@ export class Fighter {
         // nothing — but only if it is still alive. A binding pointing at a dead
         // shikigami must not be the thing a tap re-commits.
         const cur = sys.bindingOf(this, 'ct1');
+        // `selectable` is a superset of "not lost": it also excludes the
+        // ritual-only Mahoraga entry (which the wheel now SHOWS, greyed, so the
+        // technique reads as complete) and any fusion whose components have
+        // been destroyed. Both are holes in the ring rather than options that
+        // refuse at release.
         this._openWheel({
           sel: order.indexOf(cur), slot: 'ct1', t: 0, changed: false,
-          order, avail: order.filter(k => !sys.isLost(this, k))
+          order, avail: sys.selectable(this)
         }, sp);
         return true;
       }
@@ -1742,7 +1819,11 @@ export class Fighter {
         }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         // open on whatever is currently selected, so a mis-tap changes nothing
-        const order = this.cfg.curses.specialOrder;
+        // MID GRADES AND SPECIAL GRADES BOTH. The stable grew from eight to
+        // sixteen and the four new medium bodies need a home; putting them on
+        // the wheel keeps the pad mapping at three buttons (chaff / chosen /
+        // choose) instead of adding a fourth.
+        const order = this.cfg.curses.wheelOrder ?? this.cfg.curses.specialOrder;
         this._openWheel({
           sel: order.indexOf(sys.selected(this)), slot: 'ct2', t: 0, changed: false,
           order, avail: order.filter(k => !sys.isLost(this, k))
@@ -1883,9 +1964,13 @@ export class Fighter {
       }
 
       case 'mahito_summon': {
-        // only ONE transfigured human may exist: re-summoning while one lives
-        // does nothing and costs nothing
-        if (ctx.match.minions?.aliveFor(this)) { this.emit('minionAlive'); return false; }
+        // He may field up to `maxMinions` at once. Nothing else stands in the
+        // way: with the energy and the cooldown, the summon goes out — the cap
+        // is the only limit, and at the cap the press does nothing and costs
+        // nothing.
+        const cap = sp.maxMinions ?? 3;
+        const out = ctx.match.minions?.countFor(this) ?? 0;
+        if (out >= cap) { this.emit('minionAlive', { out, cap }); return false; }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         const move = {
@@ -3566,7 +3651,9 @@ export class Fighter {
         const sp = this.cfg.special;
         const curses = this.cfg.curses;
         const cmds = this.cfg.commands;
-        const order = cmds ? cmds.order : curses ? curses.specialOrder : this.cfg.shikigami.order;
+        const order = cmds ? cmds.order
+          : curses ? (curses.wheelOrder ?? curses.specialOrder)
+            : this.cfg.shikigami.order;
         const w = this.wheel;
         if (!w) { this.setState('idle', { clip: 'idle' }); break; }
         w.t += dt;
@@ -3602,34 +3689,36 @@ export class Fighter {
           // `avail` was filtered at open time and the stick can only land on a
           // live sector, so this cannot be a corpse. Kept as a guard because a
           // shikigami can die DURING the hold.
-          // A COMMAND CANNOT DIE, but it can become unaffordable DURING the
-          // hold — the gauge is still recovering (or he was hit and paid an
-          // interruption penalty) while the ring is open. So the same guard
-          // that catches a shikigami dying mid-hold catches that.
-          const dead = cmds
-            ? !affordable(this, cmds.defs[key])
-            : curses
-              ? ctx.match.curses.isLost(this, key)
-              : ctx.match.shikigami.isLost(this, key);
-          if (dead && cmds) {
-            this.emit('throatTooHigh', { cmd: cmds.defs[key] });
-            this._setSpecialCD(sp.cooldown);
-            this.wheel = null;
-            this.setState('special', { clip: 'idle' });
-            break;
-          }
+          // For Megumi this is now the FULL gate rather than just the loss
+          // ledger, because a fusion can also become unavailable during the
+          // hold — its components can die while the radial is open.
+          //
+          // INUMAKI takes the whole branch early: a COMMAND cannot die, but it
+          // can become UNAFFORDABLE during the hold (the gauge is still
+          // recovering, or he was hit and paid an interruption penalty while
+          // the ring was open), which is the same class of problem and gets the
+          // same guard. Handled before the summoner gate rather than inside it
+          // because neither `curses` nor `shikigami` exists on his config and
+          // both branches below would throw.
           if (cmds) {
-            bindCommand(this, w.slot, key);
-            this.emit('wheelConfirm', { key, slot: w.slot, command: true, tapped: !w.open });
+            if (!affordable(this, cmds.defs[key])) {
+              this.emit('throatTooHigh', { cmd: cmds.defs[key] });
+            } else {
+              bindCommand(this, w.slot, key);
+              this.emit('wheelConfirm', { key, slot: w.slot, command: true, tapped: !w.open });
+            }
             this._setSpecialCD(sp.cooldown);
             this.wheel = null;
             this.setState('special', { clip: 'idle' });
             break;
           }
-          if (dead) {
-            this.emit('curseBlocked', {
-              text: (curses ? this.cfg.curses.defs[key].short : key.toUpperCase()) + ' IS GONE'
-            });
+          const blockText = curses
+            ? (ctx.match.curses.isLost(this, key) ? this.cfg.curses.defs[key].short + ' IS GONE' : null)
+            : (ctx.match.shikigami.selectable(this).includes(key)
+              ? null
+              : (ctx.match.shikigami.blockReason(this, key) ?? key.toUpperCase() + ' IS GONE'));
+          if (blockText) {
+            this.emit('curseBlocked', { text: blockText });
           } else if (curses) {
             ctx.match.curses.select(this, key);
             this.emit('wheelConfirm', { key, slot: 'ct2', curse: true, tapped: !w.open });
@@ -3814,6 +3903,29 @@ export class Fighter {
     return v3(sin * fwd - cos * strafe, 0, cos * fwd + sin * strafe);
   }
 
+  // THE FIRST BEAT OF A DASH (see DASH_BURST). Fires on the frame the dash
+  // starts and only then — holding the button re-enters nothing, so the cost is
+  // paid once per dash rather than once per frame. Refuses quietly when the
+  // stamina is not there, which leaves the plain dash behind it.
+  _startDashBurst(dir, mag, stats) {
+    // `dashBurst: false` on a character (or a stance) opts out of it entirely;
+    // an object overrides the defaults field by field.
+    const t = this._tune('dashBurst');
+    if (t === false) return;
+    const b = { ...DASH_BURST, ...(t || {}) };
+    if (mag < 0.1) return;                             // no heading, no dodge
+    const cost = (stats.dashDrain ?? 0) * b.costSeconds;
+    if (cost > 0 && this.res.stamina < cost) return;   // spent: the jog is what is left
+    this.res.stamina = Math.max(0, this.res.stamina - cost);
+    this.dashBurst = b;
+    this.dashBurstT = b.time;
+    this.dashBurstDir.set(dir.x / mag, 0, dir.z / mag);
+    const bs = stats.dashSpeed * b.speed * this.speedMult;
+    this.vel.x = this.dashBurstDir.x * bs;
+    this.vel.z = this.dashBurstDir.z * bs;
+    this.emit('dashBurst');
+  }
+
   _locomote(move, dashHeld, ctx, dt) {
     // `this.stats` — see the getter. Identical to `cfg.stats` for everyone
     // except Panda, whose three cores each carry their own movement numbers.
@@ -3829,6 +3941,10 @@ export class Fighter {
     const trav = ctx.domains.shadowTravel?.(this);
     this.shadowDash = !!(trav && canDash);
     if (this.shadowDash) {
+      // the submerge takes the dash over, burst included: he is under the
+      // shadow now, and an impulse still steering him would surface him
+      // somewhere he did not choose
+      this.dashBurstT = 0;
       const t = trav.travel;
       this.res.stamina = Math.max(0, this.res.stamina - t.drain * dt);
       this.vel.x = damp(this.vel.x, m.x * t.speed, 16, dt);
@@ -3840,12 +3956,27 @@ export class Fighter {
     // input entirely — there is no dash on him to fall back to.
     const hc = this.cfg.heavyCharge;
     if (hc && dashHeld && this.grounded && this.chargeCD <= 0 && mag > 0.1) {
+      this.dashBurstT = 0;                    // the charge owns him now
       this.chargeDir = this._moveVec(move, ctx.camYaw).normalize();
       this.armorFrames = Math.max(this.armorFrames, hc.armorFrames ?? 0);
       this.setState('charge', { clip: 'dash' });
       this.emit('charge');
       return;
     }
+    // A BURST ALREADY IN THE AIR OWNS THE FIGHTER. It carries its own heading
+    // and its own speed, it ignores the stick, and it does not care whether the
+    // button is still held: it was paid for on the frame it started. Letting go
+    // mid-dodge cancelling it would make the dodge unreliable in exactly the
+    // moment it is being used.
+    if (this.dashBurstT > 0) {
+      this.dashBurstT -= dt;
+      const bs = stats.dashSpeed * this.dashBurst.speed * this.speedMult;
+      this.vel.x = this.dashBurstDir.x * bs;
+      this.vel.z = this.dashBurstDir.z * bs;
+      this.res.stamina = Math.max(0, this.res.stamina - stats.dashDrain * dt);
+      return;
+    }
+
     let speed = 0, next = 'idle';
     if (canDash) {
       speed = stats.dashSpeed; next = 'dash';
@@ -3865,6 +3996,7 @@ export class Fighter {
         const inv = this._tune('dashIFrames') ?? 0;
         if (inv > 0) this.iFrames = Math.max(this.iFrames, inv);
         this.emit('dash');
+        this._startDashBurst(m, mag, stats);
       }
     } else if (['idle', 'walk', 'run'].includes(next)) {
       // keep the loop running (no restart)
@@ -3896,6 +4028,9 @@ export class Fighter {
     if (!this.grounded) this.vel.y -= GRAVITY * dt;
     const wasFast = Math.hypot(this.vel.x, this.vel.z);
     const before = this.bounds ? { x: this.pos.x, z: this.pos.z } : null;
+    // Where the feet started this tick. The floor test below needs it: the
+    // fighter can cross a whole platform inside one step.
+    const yBefore = this.pos.y;
     this.pos.addScaledVector(this.vel, dt);
 
     const b = this.bounds;
@@ -3917,7 +4052,18 @@ export class Fighter {
       // FLOOR: the highest walkable surface at or below us. While rising we
       // ignore anything overhead so a jump passes through a mezzanine edge
       // rather than snapping onto it.
-      const ceil = this.vel.y > 0 ? this.pos.y - 0.05 : this.pos.y + STEP_TOL;
+      //
+      // FALLING, THE TEST IS SWEPT — the ceiling is where the feet were at the
+      // START of the tick, not where they ended it. Asking about the position
+      // after the step means a platform the fighter passed THROUGH during the
+      // step is already overhead and gets discarded, and they carry on down to
+      // whatever is under it: the long-drop fall-through. STEP_TOL alone hid
+      // it, because a 60 Hz tick only outruns 0.55 m of slack past about
+      // 33 m/s — which is a rooftop fall on the tall maps, a spike, or any
+      // downward knockback, and exactly the cases where it was reported.
+      const ceil = this.vel.y > 0
+        ? this.pos.y - 0.05
+        : Math.max(yBefore, this.pos.y) + STEP_TOL;
       const g = b.floorAt(this.pos.x, this.pos.z, this.grounded ? this.groundY + STEP_TOL : ceil);
       this.groundY = g;
       if (this.pos.y <= g + 1e-4 && this.vel.y <= 0) {

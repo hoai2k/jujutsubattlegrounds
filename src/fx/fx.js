@@ -4,6 +4,11 @@ import * as THREE from 'three';
 import { makeGlowMat } from '../arena/arena.js';
 import { buildRika } from '../art/models/rika.js';
 import { rand, v3 } from '../core/mathutil.js';
+import {
+  buildRootClump, buildCEBloom, buildManji, buildFilmFrame, buildProjectionPlate,
+  buildPachinkoBall, buildSpear, buildChainRope, buildSoulBlade, buildPlayfulCloud,
+  buildNullifySeal, buildStoneSlab
+} from './props.js';
 
 function shadowTexture() {
   // white radial with alpha falloff; tinted black by the material so the
@@ -21,17 +26,41 @@ function shadowTexture() {
 }
 
 export class FXSystem {
-  constructor(scene, camera) {
+  // NO CAMERA. Nothing in here may aim itself at one: the scene is drawn once
+  // per eye and anything oriented during the update can only be right for a
+  // single view. Camera-facing nodes are marked (see `_bb`) and aimed per eye
+  // in core/stage.js.
+  constructor(scene) {
     this.scene = scene;
-    this.camera = camera;
     this.parts = [];         // {mesh, vel, life, maxLife, grow, fade, spin}
     this.rings = [];         // {mesh, life, maxLife, growRate}
     this.shadows = [];       // {mesh, fighter}
     this.auras = [];         // {mesh, fighter, t, color}
     this.beams = [];
+    this.props = [];         // procedural technique geometry — see fx/props.js
     this.rika = null;        // lazy spectral Rika
     this.rikaTimer = 0;
     this._shadowTex = shadowTexture();
+  }
+
+  // ---- PROCEDURAL PROPS ---------------------------------------------------
+  // A technique's actual geometry — roots, a thrown 卍, a pachinko ball, a
+  // spear — handed over with a lifetime and a per-frame driver. `onUpdate`
+  // receives (node, k, dt) with k running 0 -> 1 across `life`, so the move
+  // that owns the hitbox also owns the animation and the two cannot drift.
+  prop(node, life, onUpdate) {
+    this.scene.add(node);
+    this.props.push({ node, t: 0, life, onUpdate });
+    return node;
+  }
+  dropProp(node) {
+    const i = this.props.findIndex(p => p.node === node);
+    if (i >= 0) this.props.splice(i, 1);
+    this._disposeNode(node);
+  }
+  _disposeNode(node) {
+    this.scene.remove(node);
+    node.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
 
   attachShadow(fighter) {
@@ -43,10 +72,26 @@ export class FXSystem {
     this.shadows.push({ mesh, fighter });
   }
 
+  // ---- BILLBOARDS ---------------------------------------------------------
+  // Mark a node as camera-facing, with an optional fixed roll about its own
+  // view axis. NOTHING here writes a camera quaternion: the scene is drawn
+  // once per eye and a quad aimed while the world updates can only face one of
+  // them, which in split-screen leaves every other seat looking at it edge-on
+  // — invisible. The aim happens per eye in core/stage.js, immediately before
+  // that eye draws, off exactly these two userData flags.
+  _bb(obj, roll = 0) {
+    obj.userData.billboard = true;
+    obj.userData.bbRoll = roll;
+    return obj;
+  }
+
   _spawn(pos, opts = {}) {
     const size = opts.size ?? 0.3;
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size * (opts.aspect ?? 1)), makeGlowMat(opts.color ?? 0xffffff, opts.opacity ?? 1));
     mesh.position.copy(pos);
+    // every particle is a camera-facing card unless the caller lays it out in
+    // world space itself (`userData.billboard = false`)
+    this._bb(mesh);
     this.scene.add(mesh);
     const p = {
       mesh,
@@ -62,7 +107,7 @@ export class FXSystem {
     const mesh = new THREE.Mesh(new THREE.TorusGeometry(size, size * 0.14, 6, 26), makeGlowMat(color, 0.9));
     mesh.position.copy(pos);
     if (flat) mesh.rotation.x = -Math.PI / 2;
-    else mesh.quaternion.copy(this.camera.quaternion);
+    else this._bb(mesh);
     this.scene.add(mesh);
     this.rings.push({ mesh, life, maxLife: life, growRate });
   }
@@ -85,11 +130,9 @@ export class FXSystem {
   ratioMark(pos) {
     // 7:3 line flash — Nanami's signature
     const bar = this._spawn(pos, { color: 0xffd98f, size: 1.4, aspect: 0.06, life: 0.3, vel: v3(), spin: 0 });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
-    bar.mesh.rotateZ(0.4);
+    this._bb(bar.mesh, 0.4);
     const notch = this._spawn(pos.clone().add(v3(0.28, 0.12, 0)), { color: 0xffffff, size: 0.34, aspect: 0.12, life: 0.3, vel: v3() });
-    notch.mesh.quaternion.copy(this.camera.quaternion);
-    notch.mesh.rotateZ(-1.1);
+    this._bb(notch.mesh, -1.1);
   }
 
   guardSpark(pos) {
@@ -118,6 +161,31 @@ export class FXSystem {
         color: fighter.model.palette.energy ?? 0x9fd0ff, size: rand(0.2, 0.45), life: 0.25,
         vel: fighter.forward().multiplyScalar(-rand(2, 4)).add(v3(rand(-1, 1), rand(0, 1), rand(-1, 1)))
       });
+    }
+  }
+
+  // THE DASH BURST — the impulse at the front of a dash. Louder than the trail
+  // that follows it and thrown BACKWARD along the heading, so the read is "he
+  // left from here" rather than "he is moving fast": a scuff ring on the floor
+  // at the push-off, a fan of dust behind it, and a pair of camera-facing
+  // streaks for the snap.
+  dashBurst(fighter, dir) {
+    const at = fighter.pos.clone();
+    const back = dir.clone().multiplyScalar(-1);
+    const col = fighter.model.palette.energy ?? 0x9fd0ff;
+    this._ring(at.clone().setY(0.06), col, { size: 0.35, growRate: 9, life: 0.26 });
+    for (let i = 0; i < 10; i++) {
+      this._spawn(at.clone().add(v3(rand(-0.3, 0.3), rand(0.1, 1.4), rand(-0.3, 0.3))), {
+        color: i % 3 ? 0xb8c0d8 : col, size: rand(0.14, 0.32), life: rand(0.18, 0.34),
+        vel: back.clone().multiplyScalar(rand(3, 7)).add(v3(rand(-1, 1), rand(0.2, 1.6), rand(-1, 1))),
+        gravity: 5
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      const bar = this._spawn(at.clone().add(v3(0, 0.8 + i * 0.5, 0)).addScaledVector(back, 0.35), {
+        color: col, size: 1.5, aspect: 0.09, life: 0.16, vel: back.clone().multiplyScalar(2)
+      });
+      this._bb(bar.mesh, rand(-0.35, 0.35));
     }
   }
 
@@ -152,7 +220,7 @@ export class FXSystem {
   redBlast(caster, range) {
     const origin = caster.pos.clone().add(v3(0, 1.35, 0)).addScaledVector(caster.forward(), 0.7);
     const core = this._spawn(origin, { color: 0xff5a4a, size: 0.9, life: 0.35, vel: v3(), grow: 9 });
-    core.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(core.mesh);
     this._ring(origin, 0xff8a6a, { size: 0.5, growRate: 16, life: 0.35, flat: false });
     // rush of particles down range
     const fw = caster.forward();
@@ -182,7 +250,7 @@ export class FXSystem {
       const c = this._spawn(base.clone().add(v3(0, 0.3 + i * 0.28, 0)), {
         color: 0xff7a2f, size: rand(0.5, 1.0) * (1 - i * 0.08), life: 0.35, vel: v3(0, 5, 0), grow: 2
       });
-      c.mesh.quaternion.copy(this.camera.quaternion);
+      this._bb(c.mesh);
     }
   }
 
@@ -206,7 +274,7 @@ export class FXSystem {
         size: rand(0.5, 1.0), aspect: 0.22, life: rand(0.34, 0.58),
         vel: v3(0, rand(9, 15), 0), gravity: 22
       });
-      sp.mesh.quaternion.copy(this.camera.quaternion);
+      this._bb(sp.mesh);
     }
     for (let i = 0; i < 14; i++) {
       const a = rand(0, Math.PI * 2);
@@ -356,8 +424,7 @@ export class FXSystem {
   cleaveArc(caster, big = false) {
     const p = caster.pos.clone().add(v3(0, 1.3, 0)).addScaledVector(caster.forward(), 1.2);
     const arc = this._spawn(p, { color: big ? 0xffc25e : 0xffe2b0, size: big ? 2.6 : 1.9, aspect: 0.16, life: 0.22, vel: v3() });
-    arc.mesh.quaternion.copy(this.camera.quaternion);
-    arc.mesh.rotateZ(rand(-0.6, 0.2));
+    this._bb(arc.mesh, rand(-0.6, 0.2));
     for (let i = 0; i < 8; i++) {
       this._spawn(p, { color: 0xffd98f, size: rand(0.1, 0.2), life: 0.25, vel: v3(rand(-4, 4), rand(-1, 3), rand(-4, 4)) });
     }
@@ -401,8 +468,7 @@ export class FXSystem {
       const c = p.clone().add(v3(0, 1.1, 0));
       this._ring(c, color, { size: 0.5, growRate: 9, life: 0.28, flat: false });
       const bar = this._spawn(c, { color, size: 0.55, aspect: 3.2, life: 0.24, vel: v3() });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh);
       for (let i = 0; i < 8; i++) {
         const ang = rand(0, Math.PI * 2);
         this._spawn(c, {
@@ -418,20 +484,14 @@ export class FXSystem {
   ratioStrike(pos, level = 2) {
     const gold = 0xffd98f;
     const bar = this._spawn(pos, { color: gold, size: level === 2 ? 2.4 : 1.6, aspect: 0.07, life: 0.4, vel: v3() });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
-    bar.mesh.rotateZ(0.4);
-    bar.mesh.userData.keepQuat = true;
+    this._bb(bar.mesh, 0.4);
     const notch = this._spawn(pos.clone().add(v3(0.3, 0.2, 0)), { color: 0xffffff, size: 0.5, aspect: 0.1, life: 0.4, vel: v3() });
-    notch.mesh.quaternion.copy(this.camera.quaternion);
-    notch.mesh.rotateZ(-1.1);
-    notch.mesh.userData.keepQuat = true;
+    this._bb(notch.mesh, -1.1);
     if (level === 2) {
       // screen-crack read: hard white shards radiating from the point
       for (const rot of [0.2, 1.1, 2.0, 2.8]) {
         const shard = this._spawn(pos, { color: 0xffffff, size: rand(1.2, 1.9), aspect: 0.03, life: 0.3, vel: v3() });
-        shard.mesh.quaternion.copy(this.camera.quaternion);
-        shard.mesh.rotateZ(rot + rand(-0.15, 0.15));
-        shard.mesh.userData.keepQuat = true;
+        this._bb(shard.mesh, rot + rand(-0.15, 0.15));
       }
     }
     for (let i = 0; i < (level === 2 ? 16 : 8); i++) {
@@ -474,9 +534,7 @@ export class FXSystem {
         color: i % 3 === 0 ? 0xfff0c8 : 0xc6ac72, size: 1.5, aspect: 0.10,
         life: 0.26 + i * 0.008, vel: v3()
       });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(-a * 0.7 + 0.2);
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, -a * 0.7 + 0.2);
     }
     for (let i = 0; i < 20; i++) {
       const a = rand(-1.3, 1.3);
@@ -785,9 +843,7 @@ export class FXSystem {
         color: rot > 0 ? 0xff2f45 : 0xfff2f4, size: 2.3 * k, aspect: 0.07,
         life: 0.24 + depth * 0.12, vel: v3()
       });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(rot);
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, rot);
     }
     const n = Math.round(10 + depth * 22);
     for (let i = 0; i < n; i++) {
@@ -873,9 +929,7 @@ export class FXSystem {
       color: hot ? 0xff2f45 : 0x6e0c18, size: rand(1.6, 3.4) * scale, aspect: 0.05,
       life: rand(0.16, 0.30), opacity: hot ? 1 : 0.75, vel: v3()
     });
-    bar.mesh.quaternion.copy(this.camera.quaternion);
-    bar.mesh.rotateZ(rot);
-    bar.mesh.userData.keepQuat = true;
+    this._bb(bar.mesh, rot);
     if (hot) {
       for (let i = 0; i < 5; i++) {
         const a = rand(0, Math.PI * 2);
@@ -908,9 +962,7 @@ export class FXSystem {
     if (scale > 0.8) {
       // the distortion bar: the space itself denting, camera-aligned
       const bar = this._spawn(at, { color: 0x14090c, size: 2.6, aspect: 0.10, life: 0.20, vel: v3() });
-      bar.mesh.quaternion.copy(this.camera.quaternion);
-      bar.mesh.rotateZ(rand(-1.2, 1.2));
-      bar.mesh.userData.keepQuat = true;
+      this._bb(bar.mesh, rand(-1.2, 1.2));
     }
   }
 
@@ -930,8 +982,7 @@ export class FXSystem {
     const blade = this._spawn(pos.clone(), {
       color: 0xc4142c, size: 0.55, aspect: 0.22, life: 0.16, vel: v3()
     });
-    blade.mesh.quaternion.copy(this.camera.quaternion);
-    blade.mesh.rotateZ(Math.atan2(dir.y, Math.hypot(dir.x, dir.z)) + 0.25);
+    this._bb(blade.mesh, Math.atan2(dir.y, Math.hypot(dir.x, dir.z)) + 0.25);
     for (let i = 0; i < 2; i++) {
       this._spawn(pos.clone(), {
         color: 0x8e1020, size: rand(0.05, 0.12), life: rand(0.25, 0.45),
@@ -944,8 +995,7 @@ export class FXSystem {
   bloodEdgeCast(caster) {
     const p = caster.pos.clone().add(v3(0, 1.30, 0)).addScaledVector(caster.forward(), 0.6);
     const arc = this._spawn(p, { color: 0xc4142c, size: 1.05, aspect: 0.26, life: 0.20, vel: v3() });
-    arc.mesh.quaternion.copy(this.camera.quaternion);
-    arc.mesh.rotateZ(-0.55);
+    this._bb(arc.mesh, -0.55);
     for (let i = 0; i < 7; i++) {
       this._spawn(p, {
         color: i % 3 ? 0x8e1020 : 0xff4a5a, size: rand(0.08, 0.2), life: rand(0.2, 0.4),
@@ -1019,11 +1069,11 @@ export class FXSystem {
     const core = this._spawn(pos.clone(), {
       color: 0x5a0a14, size: 0.75 + k * 0.35, life: 0.10, vel: v3()
     });
-    core.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(core.mesh);
     const rim = this._spawn(pos.clone(), {
       color: 0xc4142c, size: 0.95 + k * 0.45, life: 0.09, vel: v3(), opacity: 0.55
     });
-    rim.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(rim.mesh);
     if (Math.random() < 0.7) {
       this._spawn(pos.clone(), {
         color: 0x8e1020, size: rand(0.08, 0.2), life: rand(0.3, 0.6),
@@ -1043,7 +1093,7 @@ export class FXSystem {
     this._ring(c, 0x8e1020, { size: radius * 0.16, growRate: radius * 4.0, life: 0.6, flat: false });
     this._ring(c.clone().setY(0.08), 0x8e1020, { size: radius * 0.35, growRate: radius * 4.5, life: 0.5 });
     const flash = this._spawn(c, { color: 0xff4a5a, size: radius * 0.5, life: 0.16, vel: v3(), grow: radius * 3 });
-    flash.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(flash.mesh);
     // the pellets themselves: a real sphere of directions, not a disc
     for (let i = 0; i < pellets; i++) {
       const u = (i + 0.5) / pellets;
@@ -1097,7 +1147,7 @@ export class FXSystem {
     const spike = this._spawn(pos.clone().add(v3(0, 0.18, 0)), {
       color: 0x2a2c34, size: 0.30, aspect: 0.22, life: 0.20, vel: v3()
     });
-    spike.mesh.quaternion.copy(this.camera.quaternion);
+    this._bb(spike.mesh);
     this._spawn(pos.clone().add(v3(0, 0.30, 0)), {
       color: 0xc9a24a, size: 0.10, life: 0.24, vel: v3(0, 0.4, 0), opacity: 0.8
     });
@@ -1113,9 +1163,7 @@ export class FXSystem {
         life: rand(0.22, 0.4),
         vel: v3(Math.cos(a) * rand(5, 11), rand(0.5, 4), Math.sin(a) * rand(5, 11)), gravity: 10
       });
-      p.mesh.quaternion.copy(this.camera.quaternion);
-      p.mesh.rotateZ(a);
-      p.mesh.userData.keepQuat = true;
+      this._bb(p.mesh, a);
     }
   }
 
@@ -1150,9 +1198,7 @@ export class FXSystem {
         color: i % 4 === 0 ? 0xc9a24a : 0x2a2c34, size: 0.34 + power * 0.5, aspect: 0.16,
         life: 0.30 + power * 0.2, vel: d.clone().multiplyScalar(1.6 + power * 3)
       });
-      p.mesh.quaternion.copy(this.camera.quaternion);
-      p.mesh.rotateZ(Math.atan2(d.y, d.x) - Math.PI / 2);
-      p.mesh.userData.keepQuat = true;
+      this._bb(p.mesh, Math.atan2(d.y, d.x) - Math.PI / 2);
     }
     this._ring(pos.clone(), 0xf0e2b8, { size: 0.25, growRate: 5 + power * 12, life: 0.32, flat: false });
     for (let i = 0; i < 8 + power * 14; i++) {
@@ -1201,6 +1247,630 @@ export class FXSystem {
     this._ring(pos.clone().setY(0.1), 0xffe8c0, { size: 0.6, growRate: 18, life: 0.5 });
   }
 
+  // =========================================================================
+  // FINISHER-GRADE EFFECTS
+  // -------------------------------------------------------------------------
+  // A finisher holds on one technique for a second and a half with the camera
+  // a metre away from it, which is a completely different exposure from the
+  // same technique going off in a fight at four metres and 60 frames a second.
+  // The gameplay effects above are tuned for the second case and read as thin
+  // when a cinematic sits on them; these are built for the first — layered,
+  // longer-lived, and expensive enough that nothing should fire one per frame.
+  //
+  // All of them are composed from the same two primitives as everything else
+  // in this file (`_spawn` and `_ring`), so they cost what a normal effect
+  // costs, and they inherit the pooled update for free.
+  // =========================================================================
+
+  // A BODY ON FIRE. Flames licking UP the silhouette rather than a fireball
+  // in front of it: the particles are seeded along the body's own height, they
+  // rise, and they narrow as they go, which is what separates "burning" from
+  // "standing in an explosion". Jogo does not knock people down — he cooks
+  // them, and until this existed there was no way to show it.
+  bodyBurn(fighter, k = 1, opts = {}) {
+    const g = fighter.model.group;
+    const H = (fighter.model.H ?? 1.8) * (g.scale.y || 1);
+    const n = Math.round(10 * k);
+    for (let i = 0; i < n; i++) {
+      const u = rand(0.05, 0.95);                     // where up the body
+      const r = (0.16 + 0.12 * (1 - u)) * H;          // wider at the feet
+      const a = rand(0, Math.PI * 2);
+      this._spawn(v3(g.position.x + Math.cos(a) * r, g.position.y + u * H, g.position.z + Math.sin(a) * r), {
+        color: u > 0.7 ? 0xffd98f : (i % 3 ? 0xff7a2f : 0xff4a1f),
+        size: rand(0.14, 0.34) * (1.2 - u * 0.5) * H / 1.8,
+        life: rand(0.35, 0.8),
+        vel: v3(rand(-0.4, 0.4), rand(1.6, 3.6), rand(-0.4, 0.4)),
+        gravity: -1.6,                                 // fire ACCELERATES upward
+        grow: -0.25
+      });
+    }
+    // embers that outlive the flame and fall
+    for (let i = 0; i < Math.round(4 * k); i++) {
+      this._spawn(v3(g.position.x + rand(-0.4, 0.4), g.position.y + rand(0.3, 1.4) * H / 1.8, g.position.z + rand(-0.4, 0.4)), {
+        color: 0xffb03c, size: rand(0.05, 0.12), life: rand(0.7, 1.4),
+        vel: v3(rand(-1.2, 1.2), rand(1, 3), rand(-1.2, 1.2)), gravity: 5
+      });
+    }
+    if (opts.ground !== false) {
+      this._ring(v3(g.position.x, 0.05, g.position.z), 0xff5a1f,
+        { size: 0.5 * k, growRate: 1.6, life: 0.5 });
+    }
+  }
+
+  // THE GROUND REMEMBERS IT. A scorch left where something enormous landed:
+  // a dark scar, a hot rim, and smoke coming off it. Draws once and lingers.
+  scorch(pos, radius = 2, color = 0xff5a1f) {
+    const at = pos.clone().setY(0.05);
+    this._ring(at, 0x140a06, { size: radius * 0.6, growRate: 0.5, life: 1.6 });
+    this._ring(at, color, { size: radius * 0.42, growRate: 1.4, life: 1.1 });
+    for (let i = 0; i < 14; i++) {
+      const a = rand(0, Math.PI * 2), d = rand(0.2, radius);
+      this._spawn(v3(at.x + Math.cos(a) * d, 0.1, at.z + Math.sin(a) * d), {
+        color: i % 3 ? 0x3a3a44 : 0x6a5a4a, size: rand(0.3, 0.8), life: rand(0.9, 1.8),
+        vel: v3(rand(-0.3, 0.3), rand(0.4, 1.2), rand(-0.3, 0.3)), gravity: -0.4, grow: 0.7
+      });
+    }
+  }
+
+  // THE HIT THAT ENDS IT. Three rings on three different clocks plus a shard
+  // burst — one ring reads as a spark, three read as an event. Every finisher
+  // used to hand-roll its own stack of `_ring` calls with slightly different
+  // numbers; this is that stack, authored once, in the finisher's own colour.
+  impactBloom(pos, color, k = 1) {
+    this._ring(pos, 0xffffff, { size: 0.12 * k, growRate: 34 * k, life: 0.22, flat: false });
+    this._ring(pos, color, { size: 0.30 * k, growRate: 20 * k, life: 0.45, flat: false });
+    this._ring(pos, 0x0a0a10, { size: 0.55 * k, growRate: 12 * k, life: 0.55, flat: false });
+    const flash = this._spawn(pos, { color: 0xffffff, size: 0.7 * k, life: 0.12, vel: v3(), grow: 6 * k });
+    this._bb(flash.mesh);
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + rand(-0.2, 0.2);
+      this._spawn(pos, {
+        color: i % 4 ? color : 0xffffff, size: rand(0.1, 0.3) * k, aspect: 0.35,
+        life: rand(0.25, 0.6),
+        vel: v3(Math.cos(a) * rand(4, 11) * k, rand(-2, 6), Math.sin(a) * rand(4, 11) * k),
+        gravity: 7
+      });
+    }
+  }
+
+  // CHARGE. Energy pulled INWARD to a point — the opposite of every other
+  // effect in this file, and the reason a wind-up reads as a wind-up. The
+  // particles are spawned out at the radius and given a velocity aimed back at
+  // the centre, so they converge and arrive together.
+  techCharge(at, color, k = 1) {
+    for (let i = 0; i < Math.round(16 * k); i++) {
+      const a = rand(0, Math.PI * 2), e = rand(-0.7, 0.9), d = rand(1.1, 2.6) * k;
+      const p = v3(at.x + Math.cos(a) * d, at.y + e * d * 0.7, at.z + Math.sin(a) * d);
+      const life = rand(0.25, 0.5);
+      this._spawn(p, {
+        color, size: rand(0.08, 0.2), life,
+        vel: v3((at.x - p.x) / life, (at.y - p.y) / life, (at.z - p.z) / life)
+      });
+    }
+    this._ring(at, color, { size: 1.5 * k, growRate: -2.6 * k, life: 0.5, flat: false });
+  }
+
+  // FLOOR COMING UP. Chunks thrown off the deck by something that landed on
+  // it — the cheap, universal way to say "that had weight".
+  debris(pos, n = 12, color = 0x6b6f78) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2);
+      this._spawn(v3(pos.x + Math.cos(a) * rand(0.2, 1.2), 0.15, pos.z + Math.sin(a) * rand(0.2, 1.2)), {
+        color, size: rand(0.12, 0.4), life: rand(0.5, 1.1),
+        vel: v3(Math.cos(a) * rand(1.5, 5), rand(3, 8), Math.sin(a) * rand(1.5, 5)),
+        gravity: 14, spin: rand(-6, 6)
+      });
+    }
+  }
+
+  // ===========================================================================
+  // TECHNIQUE OVERHAUL BUILDERS. Everything below serves the redesigned CT
+  // moves — travelling waves, constructs and swarms, all drawn per tick by the
+  // entity that owns the mechanic, so the visual can never desync from the
+  // hitbox: they read the same position.
+  // ===========================================================================
+
+  // TODO — RESONANT CLAP. A wall of pink concussion in flight: stacked
+  // vertical rings around the wavefront plus a snap bar, in his accent color.
+  clapWaveTick(pos, dir, width) {
+    const c = 0xff5fc8;
+    for (let k = 0; k < 2; k++) {
+      this._ring(pos.clone().add(v3(0, 0.55 + k * 0.85, 0)), k ? c : 0xffd0ec,
+        { size: width * (0.32 + k * 0.14), growRate: 2.2, life: 0.16, flat: false });
+    }
+    const bar = this._spawn(pos, { color: c, size: width * 0.8, aspect: 0.10, life: 0.14, vel: v3() });
+    this._bb(bar.mesh);
+    for (let i = 0; i < 3; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.5, 0.5) * width * 0.4, rand(0.2, 1.7), rand(-0.5, 0.5) * width * 0.4)), {
+        color: i ? c : 0xffffff, size: rand(0.10, 0.24), life: 0.22,
+        vel: dir.clone().multiplyScalar(-rand(2, 5)).add(v3(rand(-1, 1), rand(0, 2), rand(-1, 1)))
+      });
+    }
+  }
+
+  // YUJI — the Divergent ghost fist: cursed energy in the SHAPE of the punch,
+  // arriving late. Trail while it flies, a knuckled burst when it lands.
+  ghostFistTrail(pos, dir) {
+    const fist = this._spawn(pos, { color: 0xff3b30, size: 0.62, aspect: 0.72, life: 0.12, vel: dir.clone().multiplyScalar(2) });
+    fist.mesh.material.opacity = 0.85;
+    for (let i = 0; i < 2; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.25, 0.25), rand(-0.25, 0.25), rand(-0.25, 0.25))), {
+        color: i ? 0x300810 : 0xff8a70, size: rand(0.12, 0.3), life: 0.2,
+        vel: dir.clone().multiplyScalar(-rand(3, 6))
+      });
+    }
+  }
+  ghostFistBurst(pos, dir) {
+    this._ring(pos, 0xff3b30, { size: 0.4, growRate: 12, life: 0.3, flat: false });
+    // four knuckle shards punched THROUGH the point of impact
+    for (let i = 0; i < 4; i++) {
+      const off = v3(rand(-0.3, 0.3), rand(-0.2, 0.35), rand(-0.3, 0.3));
+      this._spawn(pos.clone().add(off), {
+        color: 0xffb09a, size: rand(0.4, 0.7), aspect: 0.22, life: 0.26,
+        vel: dir.clone().multiplyScalar(rand(6, 11)).add(v3(rand(-1, 1), rand(-0.5, 1.5), rand(-1, 1)))
+      });
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = rand(0, Math.PI * 2);
+      this._spawn(pos, {
+        color: i % 3 ? 0xff3b30 : 0x1c060a, size: rand(0.12, 0.3), life: rand(0.2, 0.4),
+        vel: v3(Math.cos(a) * rand(2, 6), rand(0, 4), Math.sin(a) * rand(2, 6)), gravity: 7
+      });
+    }
+  }
+
+  // YUJI — the 卍 crescent: two crossed spinning bars riding the wavefront.
+  crescentTick(pos, dir, color = 0xffa04a) {
+    const spin = performance.now() * 0.02;
+    for (let k = 0; k < 2; k++) {
+      const bar = this._spawn(pos, { color: k ? color : 0xffe0c0, size: 1.35, aspect: 0.12, life: 0.12, vel: dir.clone().multiplyScalar(1) });
+      this._bb(bar.mesh, spin + k * Math.PI / 2);
+    }
+    this._spawn(pos, {
+      color, size: rand(0.1, 0.2), life: 0.22,
+      vel: dir.clone().multiplyScalar(-rand(2, 4)).add(v3(rand(-1, 1), rand(-0.5, 1), rand(-1, 1)))
+    });
+  }
+
+  // NAOYA — one frozen FILM FRAME of the kick: a hollow gold rectangle drawn
+  // from four thin bars, popped at the strike point and left to burn out.
+  frameFlash(pos, idx = 0) {
+    const gold = idx % 2 ? 0xe8c85a : 0xfff0c0;
+    const w = 1.35, h = 1.9, life = 0.34;
+    const edges = [
+      { off: v3(0, h / 2, 0), size: w, aspect: 0.05, rz: 0 },
+      { off: v3(0, -h / 2, 0), size: w, aspect: 0.05, rz: 0 },
+      { off: v3(-w / 2, 0, 0), size: h, aspect: 0.04, rz: Math.PI / 2 },
+      { off: v3(w / 2, 0, 0), size: h, aspect: 0.04, rz: Math.PI / 2 }
+    ];
+    for (const e of edges) {
+      const bar = this._spawn(pos.clone().add(e.off), { color: gold, size: e.size, aspect: e.aspect, life, vel: v3() });
+      this._bb(bar.mesh, e.rz);
+    }
+    // the kick inside the frame: a hard diagonal slash bar
+    const cut = this._spawn(pos, { color: 0xffffff, size: 1.6, aspect: 0.07, life: life * 0.7, vel: v3() });
+    this._bb(cut.mesh, -0.7 + idx * 0.12);
+  }
+
+  // NANAMI — the Ratio Wave in flight: a wide blunt-gold blade bar with the
+  // white 7:3 division line riding at seventy percent of its width.
+  ratioWaveTick(pos, dir, width, sweet = false) {
+    const gold = sweet ? 0xffe9b8 : 0xffd98f;
+    const bar = this._spawn(pos, { color: gold, size: width, aspect: 0.16, life: 0.13, vel: dir.clone().multiplyScalar(1.5) });
+    this._bb(bar.mesh);
+    // the 7:3 line, offset to the seventy-percent point of the blade
+    const notch = this._spawn(pos.clone().add(v3(dir.z, 0, -dir.x).multiplyScalar(width * 0.2)), {
+      color: 0xffffff, size: 0.55, aspect: 0.07, life: 0.13, vel: dir.clone().multiplyScalar(1.5)
+    });
+    this._bb(notch.mesh, Math.PI / 2);
+    if (sweet) {
+      this._spawn(pos.clone().add(v3(0, rand(0, 0.6), 0)), {
+        color: 0xffffff, size: rand(0.1, 0.2), life: 0.25,
+        vel: v3(rand(-2, 2), rand(1, 3), rand(-2, 2))
+      });
+    }
+  }
+
+  // HIGURUMA — the Verdict gavel itself, an oversized cursed-energy construct
+  // hanging over the marked ground. Returned as a node; the entity drops it.
+  gavelConstruct(radius) {
+    const g = new THREE.Group();
+    const wood = new THREE.MeshBasicMaterial({ color: 0x2c2436 });
+    const trim = makeGlowMat(0xd8c78a, 0.9);
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.34, radius * 0.34, radius * 0.9, 12), wood);
+    head.rotation.z = Math.PI / 2;
+    g.add(head);
+    for (const s of [-1, 1]) {
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.37, radius * 0.37, radius * 0.1, 12), trim);
+      band.rotation.z = Math.PI / 2;
+      band.position.x = s * radius * 0.38;
+      g.add(band);
+    }
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.07, radius * 0.09, radius * 1.5, 8), wood);
+    handle.position.y = radius * 0.75;
+    g.add(handle);
+    g.userData.spinAxis = rand(0, Math.PI * 2);
+    this.scene.add(g);
+    return g;
+  }
+  // the court seal stamped where it lands: gold rings plus a bench of upright
+  // bars around the rim, like the rail of a courtroom dock.
+  gavelVerdict(pos, radius) {
+    const base = pos.clone().setY(0.07);
+    this._ring(base, 0xd8c78a, { size: radius * 0.45, growRate: 15, life: 0.4 });
+    this._ring(base, 0xfff2cc, { size: radius * 0.3, growRate: 9, life: 0.5 });
+    const n = 12;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const bar = this._spawn(base.clone().add(v3(Math.cos(a) * radius * 0.85, 0.5, Math.sin(a) * radius * 0.85)), {
+        color: i % 3 ? 0xd8c78a : 0xffffff, size: rand(0.7, 1.1), aspect: 0.12, life: rand(0.3, 0.5),
+        vel: v3(0, rand(2, 4), 0), gravity: 10
+      });
+      this._bb(bar.mesh);
+    }
+    this.debris(base, 10, 0x4a4258);
+  }
+
+  // MAHITO — the Body Lance mid-extension: segments of pale reshaped flesh
+  // shrinking toward a blade tip, plus the grey soul-ripple it drags.
+  bodyLanceTick(from, tip, dir) {
+    const len = from.distanceTo(tip);
+    const segs = Math.max(2, Math.round(len * 1.6));
+    for (let i = 0; i < segs; i++) {
+      const k = i / segs;
+      if (Math.random() > 0.5) continue;   // stochastic redraw — reads as writhing
+      const p = from.clone().lerp(tip, k);
+      this._spawn(p, {
+        color: i % 3 ? 0x8b9bab : 0xb8c6d4, size: 0.5 * (1 - k * 0.6), life: 0.13,
+        vel: v3(rand(-0.4, 0.4), rand(-0.4, 0.4), rand(-0.4, 0.4))
+      });
+    }
+    const blade = this._spawn(tip, { color: 0xdfe8f0, size: 0.8, aspect: 0.3, life: 0.1, vel: dir.clone().multiplyScalar(3) });
+    this._bb(blade.mesh);
+  }
+  // the soul yanked visible: a grey silhouette burst rising off the body
+  soulRip(pos) {
+    for (let i = 0; i < 3; i++) {
+      const bar = this._spawn(pos.clone().add(v3(rand(-0.2, 0.2), 0.2 + i * 0.4, rand(-0.2, 0.2))), {
+        color: 0x8b9bab, size: 0.9 - i * 0.18, aspect: 1.6, life: 0.5,
+        vel: v3(0, 1.6, 0)
+      });
+      bar.mesh.material.opacity = 0.5;
+    }
+    this._ring(pos.clone().add(v3(0, 1.1, 0)), 0x8b9bab, { size: 0.4, growRate: 5, life: 0.45, flat: false });
+  }
+
+  // HAKARI — one pachinko ball in flight: a hot neon bead with a falling
+  // spark, gold when it is the jackpot ball.
+  pachinkoTrail(pos, hot = false) {
+    this._spawn(pos, { color: hot ? 0xffc93c : 0x69f0ae, size: hot ? 0.34 : 0.26, life: 0.1, vel: v3() });
+    if (Math.random() < 0.6) {
+      this._spawn(pos, {
+        color: hot ? 0xfff3c4 : 0xb9f6ca, size: rand(0.06, 0.14), life: 0.24,
+        vel: v3(rand(-1, 1), rand(-2, -0.5), rand(-1, 1))
+      });
+    }
+  }
+
+  // PANDA — the Quake Palm rupture front: turf and stone shoved up out of the
+  // ground at the wavefront, one burst per tick.
+  quakeTick(pos, radius) {
+    const base = pos.clone().setY(0.08);
+    this._ring(base, 0xdfe4ee, { size: radius * 0.4, growRate: 9, life: 0.22 });
+    for (let i = 0; i < 5; i++) {
+      const a = rand(0, Math.PI * 2), r = rand(0.1, radius * 0.8);
+      const sp = this._spawn(base.clone().add(v3(Math.cos(a) * r, 0.05, Math.sin(a) * r)), {
+        color: i % 2 ? 0x6b6f78 : 0x8a8fa0, size: rand(0.3, 0.62), aspect: 0.3,
+        life: rand(0.22, 0.4), vel: v3(rand(-1, 1), rand(5, 10), rand(-1, 1)), gravity: 22, spin: rand(-5, 5)
+      });
+      this._bb(sp.mesh);
+    }
+  }
+
+  // TOJI — Playful Cloud whirling at full extension: a bar of staff-light
+  // swept around the orbit angle, plus the wind it kicks loose.
+  staffSpinTick(caster, radius, ang) {
+    const p = caster.pos.clone().add(v3(Math.sin(ang) * radius * 0.7, 1.2, Math.cos(ang) * radius * 0.7));
+    const bar = this._spawn(p, { color: 0xd8d2c4, size: radius * 0.9, aspect: 0.07, life: 0.11, vel: v3() });
+    this._bb(bar.mesh, ang);
+    this._spawn(p, {
+      color: 0xf2ead8, size: rand(0.08, 0.18), life: 0.2,
+      vel: v3(Math.cos(ang) * 3, rand(0, 1.5), -Math.sin(ang) * 3)
+    });
+  }
+
+  // TOJI — PLAYFUL CLOUD overhead: the staff bar coming down plus a crack
+  // line of thrown deck driven forward from the point of impact.
+  staffSlamCrack(caster, dir, reach) {
+    const at = caster.pos.clone().addScaledVector(dir, reach * 0.6);
+    const bar = this._spawn(at.clone().setY(1.6), { color: 0xd8d2c4, size: 2.4, aspect: 0.09, life: 0.2, vel: v3(0, -6, 0) });
+    this._bb(bar.mesh, 1.35);
+    this._ring(at.clone().setY(0.07), 0xd8d2c4, { size: 0.5, growRate: 12, life: 0.35 });
+    // the crack: hard flat bars stepped down the line with the debris they threw
+    for (let i = 0; i < 4; i++) {
+      const p = caster.pos.clone().addScaledVector(dir, 1.0 + i * 0.9).setY(0.1);
+      const c = this._spawn(p, { color: i % 2 ? 0x8a8fa0 : 0xf2ead8, size: 0.9, aspect: 0.14, life: 0.24 + i * 0.05, vel: v3() });
+      c.mesh.rotation.x = -Math.PI / 2;
+      c.mesh.rotation.z = Math.atan2(dir.x, dir.z) + rand(-0.15, 0.15);
+      c.mesh.userData.billboard = false;
+      this.debris(p, 3, 0x6b6f78);
+    }
+  }
+
+  // TOJI — SPLIT SOUL KATANA: the cut that ignores the body. Desaturated
+  // soul-blue phantom slashes, and on the Soul Cut the target's soul flashed
+  // out of register for a beat.
+  soulSlashArc(caster, big = false) {
+    const p = caster.pos.clone().add(v3(0, 1.3, 0)).addScaledVector(caster.forward(), 1.3);
+    for (let k = 0; k < (big ? 3 : 2); k++) {
+      const arc = this._spawn(p, {
+        color: k === 0 ? 0xbfd4e8 : 0x8b9bab, size: big ? 2.5 : 2.0, aspect: 0.09,
+        life: 0.2 + k * 0.04, vel: v3()
+      });
+      this._bb(arc.mesh, -0.5 + k * 0.55 + rand(-0.1, 0.1));
+    }
+    for (let i = 0; i < 7; i++) {
+      this._spawn(p, {
+        color: i % 2 ? 0xbfd4e8 : 0xffffff, size: rand(0.08, 0.18), life: 0.28,
+        vel: v3(rand(-3, 3), rand(-1, 3), rand(-3, 3))
+      });
+    }
+  }
+
+  // TOJI — CHAIN OF A THOUSAND MILES: the actual chain, drawn as a run of
+  // link motes from hand to target point with a crack at the tip.
+  chainLinks(from, to) {
+    const n = Math.max(6, Math.round(from.distanceTo(to) * 2.2));
+    for (let i = 0; i <= n; i++) {
+      const k = i / n;
+      const p = from.clone().lerp(to, k);
+      p.y += Math.sin(k * Math.PI) * -0.25;      // slight sag
+      this._spawn(p, {
+        color: i % 3 === 0 ? 0xf2ead8 : 0x9aa0ae, size: i % 3 === 0 ? 0.16 : 0.11,
+        life: 0.2 + k * 0.08, vel: v3(rand(-0.3, 0.3), rand(-0.3, 0.3), rand(-0.3, 0.3))
+      });
+    }
+    this._ring(to, 0x9aa0ae, { size: 0.3, growRate: 7, life: 0.22, flat: false });
+  }
+
+  // TOJI — the Inverted Spear's nullify landing: the technique being TURNED
+  // OFF, drawn as a collapsing green seal around the victim.
+  nullifySeal(pos) {
+    this._ring(pos.clone().add(v3(0, 1.15, 0)), 0x6ea88a, { size: 1.5, growRate: -3.2, life: 0.4, flat: false });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const bar = this._spawn(pos.clone().add(v3(Math.cos(a) * 0.9, 0.5 + (i % 3) * 0.45, Math.sin(a) * 0.9)), {
+        color: i % 2 ? 0x6ea88a : 0xd9ffe8, size: 0.5, aspect: 0.12, life: 0.4,
+        vel: v3(-Math.cos(a) * 1.6, 0, -Math.sin(a) * 1.6)
+      });
+      this._bb(bar.mesh, a);
+    }
+  }
+
+  // TOJI — the spear thrust as a vacuum lance: a thin hard line of white
+  // driven down the whole length in one frame.
+  spearLance(origin, dir, range) {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.05, range, 6, 1, true), makeGlowMat(0xf4f8ff, 0.95));
+    mesh.position.copy(origin).addScaledVector(dir, range / 2);
+    mesh.quaternion.setFromUnitVectors(v3(0, 1, 0), dir);
+    this.scene.add(mesh);
+    this.beams.push({ mesh, life: 0.22, maxLife: 0.22 });
+    for (let i = 0; i < 8; i++) {
+      const p = origin.clone().addScaledVector(dir, rand(0.5, range));
+      this._spawn(p, {
+        color: i % 2 ? 0xf4f8ff : 0x8fb6d8, size: rand(0.08, 0.2), life: 0.2,
+        vel: v3(rand(-2, 2), rand(-1, 2), rand(-2, 2))
+      });
+    }
+  }
+
+  // GOJO — RED in flight: a core of repulsion with matter shoved off it,
+  // and the burst when the stored push lets go all at once.
+  redOrbTick(pos, dir) {
+    this._spawn(pos, { color: 0xff5a4a, size: 0.55, life: 0.1, vel: v3() });
+    this._spawn(pos, { color: 0xffc0a8, size: 0.28, life: 0.08, vel: v3() });
+    for (let i = 0; i < 2; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.3, 0.3), rand(-0.3, 0.3), rand(-0.3, 0.3))), {
+        color: i ? 0xff6a4a : 0xffffff, size: rand(0.1, 0.22), life: 0.22,
+        vel: dir.clone().multiplyScalar(-rand(3, 7)).add(v3(rand(-1.5, 1.5), rand(-1, 1.5), rand(-1.5, 1.5)))
+      });
+    }
+    if (Math.random() < 0.25) this._ring(pos, 0xff8a6a, { size: 0.3, growRate: 4, life: 0.14, flat: false });
+  }
+  redOrbBurst(pos) {
+    const core = this._spawn(pos, { color: 0xff5a4a, size: 1.0, life: 0.35, vel: v3(), grow: 11 });
+    this._bb(core.mesh);
+    this._ring(pos, 0xff8a6a, { size: 0.5, growRate: 18, life: 0.4, flat: false });
+    this._ring(pos.clone().setY(0.07), 0xff5a4a, { size: 0.5, growRate: 14, life: 0.35 });
+    for (let i = 0; i < 20; i++) {
+      const a = rand(0, Math.PI * 2), b = rand(-0.5, 1);
+      this._spawn(pos, {
+        color: i % 3 ? 0xff6a4a : 0xffc0a8, size: rand(0.15, 0.4), life: rand(0.25, 0.5),
+        vel: v3(Math.cos(a) * rand(6, 14), b * 6, Math.sin(a) * rand(6, 14))
+      });
+    }
+  }
+
+  // SUKUNA — one tick of the Dismantle wavefront: a hard red X and the thin
+  // line of the cut racing ahead of it.
+  dismantleTick(pos, dir, width) {
+    for (const rz of [0.7, -0.7]) {
+      const bar = this._spawn(pos, { color: Math.random() < 0.3 ? 0xffffff : 0xff2f45, size: width * 1.3, aspect: 0.06, life: 0.13, vel: dir.clone().multiplyScalar(2) });
+      this._bb(bar.mesh, rz + rand(-0.12, 0.12));
+    }
+    this._spawn(pos.clone().add(v3(rand(-0.4, 0.4), rand(-0.3, 0.5), rand(-0.4, 0.4))), {
+      color: 0xff2f45, size: rand(0.08, 0.2), life: 0.2,
+      vel: v3(rand(-2, 2), rand(-1, 2), rand(-2, 2))
+    });
+  }
+
+  // YUTA — Rika's arm, manifested: an oversized spectral hand built from
+  // boxes, palm open, flown by the rikaHand entity. Returned as a node.
+  rikaHandNode() {
+    const g = new THREE.Group();
+    const mat = makeGlowMat(0x9ff5c9, 0.55);
+    const dark = makeGlowMat(0x1a3a30, 0.7);
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.0, 0.35), mat);
+    g.add(palm);
+    for (let i = 0; i < 4; i++) {
+      const fing = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.75, 0.22), i % 2 ? mat : dark);
+      fing.position.set(-0.33 + i * 0.22, 0.82, 0);
+      fing.rotation.x = -0.25;
+      g.add(fing);
+    }
+    const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.55, 0.22), dark);
+    thumb.position.set(0.55, 0.15, 0);
+    thumb.rotation.z = -0.7;
+    g.add(thumb);
+    this.scene.add(g);
+    return g;
+  }
+
+  // ===========================================================================
+  // PROCEDURAL TECHNIQUE GEOMETRY. The builders live in fx/props.js; these
+  // wrappers give each prop its motion. Self-animating ones (roots, blooms,
+  // frames, slabs, seals) are fire-and-forget; the entity-driven ones return a
+  // bare node the owning mechanic moves itself, the way woodenBall already did.
+  // ===========================================================================
+
+  // HANAMI — a clump of roots surging out of the deck and sinking back. Overshoots
+  // its height on the way up and leans as it goes, so a run of them along a line
+  // reads as one thing travelling underground rather than five separate props.
+  rootSurge(pos, { len = 2.2, natural = false, lean = null, life = 1.1 } = {}) {
+    const node = buildRootClump(len, natural);
+    node.position.copy(pos);
+    node.rotation.y = rand(0, Math.PI * 2);
+    if (lean) {
+      // tip the whole clump along the direction of travel — gently, so the
+      // run of them rakes forward without lying down
+      node.rotation.x = lean.z * 0.16;
+      node.rotation.z = -lean.x * 0.16;
+    }
+    node.scale.set(1, 0.02, 1);
+    this.prop(node, life, (n, k) => {
+      // 0 -> 0.25 burst up with overshoot, hold, then withdraw
+      const up = k < 0.25 ? k / 0.25 : 1;
+      const grow = up < 1 ? 1.18 * Math.sin(up * Math.PI * 0.5) : 1;
+      const sink = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
+      n.scale.set(1, Math.max(0.02, grow * sink), 1);
+      n.rotation.y += 0.012;
+    });
+    this.debris(pos, 5, natural ? 0x4e7a3a : 0x6a4f34);
+    return node;
+  }
+
+  // YUJI — the cursed-energy bloom: forced up out of the ground, holds, and
+  // is gone. The effect detonates it on its own clock; this is just the object.
+  ceBloomAt(pos, radius = 1.3, life = 0.6) {
+    const node = buildCEBloom(radius);
+    node.position.copy(pos);
+    node.scale.setScalar(0.05);
+    this.prop(node, life, (n, k) => {
+      const s = k < 0.3 ? (k / 0.3) : 1 + Math.sin((k - 0.3) * 8) * 0.06;
+      n.scale.setScalar(Math.max(0.05, s * (k > 0.8 ? 1 - (k - 0.8) / 0.2 : 1)));
+      n.rotation.y += 0.05;
+      n.rotation.x += 0.02;
+    });
+    return node;
+  }
+
+  // NAOYA — one film frame popping into existence and shattering. The pane
+  // flashes out first, then the frame falls apart.
+  filmFrameAt(pos, facing = 0, idx = 0) {
+    const node = buildFilmFrame();
+    node.position.copy(pos);
+    node.rotation.y = facing + rand(-0.2, 0.2);
+    node.scale.setScalar(0.2);
+    this.prop(node, 0.4, (n, k) => {
+      n.scale.setScalar(k < 0.18 ? 0.2 + (k / 0.18) * 0.8 : 1 + k * 0.25);
+      const pane = n.userData.pane;
+      if (pane) pane.material.opacity = Math.max(0, 0.16 * (1 - k * 3));
+      n.traverse(o => { if (o.material && o !== pane) o.material.opacity = 1 - k * k; });
+      n.position.y += 0.6 * (k > 0.5 ? 0.02 : 0);
+    });
+    for (let i = 0; i < 6; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.6, 0.6), rand(-0.8, 0.8), rand(-0.3, 0.3))), {
+        color: idx % 2 ? 0xe8c85a : 0xfff0c0, size: rand(0.1, 0.22), aspect: 0.35,
+        life: rand(0.15, 0.3), vel: v3(rand(-2, 2), rand(-1, 3), rand(-2, 2))
+      });
+    }
+    return node;
+  }
+
+  // NAOYA — the afterimage he leaves standing in a position he has already left.
+  projectionPlateAt(pos, facing) {
+    const node = buildProjectionPlate();
+    node.position.copy(pos);
+    node.rotation.y = facing;
+    this.prop(node, 0.35, (n, k) => {
+      n.traverse(o => { if (o.material) o.material.opacity = (o.material.opacity ?? 1) * (1 - k * 0.14); });
+      n.scale.x = 1 + k * 0.3;
+    });
+    return node;
+  }
+
+  // SHARED — a slab of the deck driven up out of the floor, then crumbling.
+  stoneSlabAt(pos, { w = 1.1, h = 1.8, color = 0x6b6f78, life = 0.9 } = {}) {
+    const node = buildStoneSlab(w, h, color);
+    node.position.copy(pos);
+    node.scale.set(1, 0.05, 1);
+    this.prop(node, life, (n, k) => {
+      const up = Math.min(1, k / 0.18);
+      const fall = k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1;
+      n.scale.set(1, Math.max(0.05, up * fall), 1);
+    });
+    this.debris(pos, 6, color);
+    return node;
+  }
+
+  // TOJI — the seal the Inverted Spear stamps when it turns a technique off.
+  nullifySealAt(pos, radius = 1.4) {
+    const node = buildNullifySeal(radius);
+    node.position.copy(pos).add(v3(0, 1.1, 0));
+    this._bb(node);
+    this.prop(node, 0.5, (n, k) => {
+      n.scale.setScalar(1 - k * 0.55);
+      // the spin rides in the billboard roll, not in rotation.z — the per-eye
+      // aim rewrites the quaternion outright, so a roll written here would be
+      // thrown away before it ever drew
+      n.userData.bbRoll += 0.09;
+      n.traverse(o => { if (o.material) o.material.opacity = 1 - k; });
+    });
+    return node;
+  }
+
+  // ---- entity-driven nodes: the mechanic owns the motion ------------------
+  manjiNode(size = 1.1) { const n = buildManji(size); this.scene.add(n); return n; }
+  ballNode(r = 0.9, gold = false) { const n = buildPachinkoBall(r, gold); this.scene.add(n); return n; }
+  spearNode(len = 3.2) { const n = buildSpear(len); this.scene.add(n); return n; }
+  soulBladeNode(len = 3.0, big = false) { const n = buildSoulBlade(len, big); this.scene.add(n); return n; }
+  staffNode(len = 2.6) { const n = buildPlayfulCloud(len); this.scene.add(n); return n; }
+  chainNode(links = 14) { const n = buildChainRope(links); this.scene.add(n); return n; }
+
+  // lay a chain node between two world points: one position, one quaternion,
+  // one stretch along its own +Z
+  layChain(node, from, to) {
+    if (!node) return;
+    const d = to.clone().sub(from);
+    const len = Math.max(0.001, d.length());
+    node.position.copy(from);
+    node.quaternion.setFromUnitVectors(v3(0, 0, 1), d.clone().normalize());
+    node.scale.z = len / (node.userData.length || 1);
+  }
+
+  // drop an entity-driven node with a small burst so it never just vanishes
+  popProp(node, color = 0xffffff) {
+    if (!node) return;
+    for (let i = 0; i < 8; i++) {
+      const a = rand(0, Math.PI * 2);
+      this._spawn(node.position.clone(), {
+        color, size: rand(0.1, 0.26), life: rand(0.15, 0.3),
+        vel: v3(Math.cos(a) * rand(2, 6), rand(-1, 3), Math.sin(a) * rand(2, 6))
+      });
+    }
+    this._disposeNode(node);
+  }
+
   update(dt) {
     for (let i = this.parts.length - 1; i >= 0; i--) {
       const p = this.parts[i];
@@ -1211,7 +1881,6 @@ export class FXSystem {
       if (p.grow) p.mesh.scale.addScalar(p.grow * dt);
       const a = p.life / p.maxLife;
       p.mesh.material.opacity = a;
-      if (!p.mesh.userData.keepQuat) p.mesh.quaternion.copy(this.camera.quaternion);
     }
     for (let i = this.rings.length - 1; i >= 0; i--) {
       const r = this.rings[i];
@@ -1225,6 +1894,13 @@ export class FXSystem {
       b.life -= dt;
       if (b.life <= 0) { this.scene.remove(b.mesh); this.beams.splice(i, 1); continue; }
       b.mesh.material.opacity = b.life / b.maxLife;
+    }
+    for (let i = this.props.length - 1; i >= 0; i--) {
+      const p = this.props[i];
+      p.t += dt;
+      const k = p.life > 0 ? Math.min(1, p.t / p.life) : 1;
+      if (p.onUpdate) p.onUpdate(p.node, k, dt);
+      if (p.t >= p.life) { this._disposeNode(p.node); this.props.splice(i, 1); }
     }
     // the shutter rides its owner's facing and rolls up over its first beat
     if (this.shutters) {
@@ -1267,10 +1943,8 @@ export class FXSystem {
         this.rika.setOpacity(0);
       }
     }
-    // billboard + spin decorations
-    this.scene.traverse(o => {
-      if (o.userData.billboard) o.quaternion.copy(this.camera.quaternion);
-      if (o.userData.spin) o.rotation.y += dt * 5;
-    });
+    // Billboards and spin decorations are driven in core/stage.js: billboards
+    // because they have to be aimed once per eye, spin because it rides along
+    // in the same pass and there is no reason to walk the scene twice.
   }
 }

@@ -97,6 +97,9 @@ export class Sfx {
   }
   armor() { this.ensure(); this._osc('square', 140, { to: 100, dur: 0.14, gain: 0.25 }); }
   dash() { this.ensure(); this._noise({ dur: 0.22, gain: 0.16, freq: 600, slideTo: 2600, q: 0.5 }); }
+  // the impulse at the front of a dash: shorter, harder and lower than the
+  // dash it opens, so the two layer into one push-off rather than two whooshes
+  dashBurst() { this.ensure(); this._noise({ dur: 0.13, gain: 0.22, freq: 320, slideTo: 1500, q: 1.1 }); }
   jump() { this.ensure(); this._noise({ dur: 0.14, gain: 0.1, freq: 500, slideTo: 1500, q: 0.6 }); }
   land() { this.ensure(); this._noise({ dur: 0.1, gain: 0.18, freq: 300, q: 0.5, type: 'lowpass' }); }
 
