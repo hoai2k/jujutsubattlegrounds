@@ -9,6 +9,14 @@ import { hitMult, SPECIAL } from './balance.js';
 import { isContact } from './freeze.js';
 import { pickTaunt, TAUNT_COOLDOWN, TAUNT_GRANTS_METER, TAUNT_METER_BONUS } from './taunts.js';
 import { tickCharge, spendCharge, chargeDmg, chargeSize, chargeSpeed, chargeFrac } from './charge.js';
+// CURSED SPEECH — the throat gauge, the tiers, resistance, the resolver and
+// the forced-state driver. Every helper it exports is a no-op for a fighter
+// without `cfg.throat`, which is the entire rest of the roster, so the calls
+// below are unconditional and there is no branch to forget.
+import {
+  tickThroat, checkUtterance, tickForced, isSilenced,
+  canSpeak, affordable, boundCommand, boundKey, bindCommand
+} from './speech.js';
 import { buildCores, resetCores, coresAlive, nextCore, coreIndexOf } from './cores.js';
 
 const GRAVITY = 26;
@@ -192,6 +200,26 @@ export class Fighter {
     this.amberT = 0;             // seconds of MYTHICAL BEAST AMBER left
     this.arcChain = 0;           // Arc Dash passes used in the current chain
     this.arcWindow = 0;          // seconds left to keep the chain alive
+
+    // ---- inumaki: CURSED SPEECH 呪言 ----
+    // Six fields, and like `charge` and `frozenT` they live on EVERY fighter
+    // rather than only on him. Four of them are his cost and two of them are
+    // what the WORD does to somebody else — and the somebody else can be
+    // anybody in the roster, so `forced`, `sleepT` and `twisted` have to exist
+    // on all of them. `cfg.throat` and `cfg.commands` are what decide whether
+    // any of it does anything; see combat/speech.js, where every helper
+    // returns a no-op for a config without them.
+    this.throat = 0;             // 0..cfg.throat.max — the strain gauge
+    this.throatTier = 0;         // 0 CLEAR / 1 STRAINED / 2 RAW / 3 SILENCED
+    this.throatRest = 0;         // seconds before recovery is allowed to start
+    this.voiceSpent = false;     // the ultimate's latch: SILENCED for the round
+    this.utter = null;           // {key, fired} while a command is being spoken
+    this.cmdBind = null;         // {ct1, ct2} — set on first read, see boundKey
+    // ...and the receiving end, on every fighter:
+    this.forced = null;          // {mode:'flee'|'pull', t, speed, from}
+    this.sleepT = 0;             // seconds of SLEEP's slow left
+    this.sleepMult = 1;          // how slow — read by `speedMult`
+    this.twisted = null;         // {t, mult} — GET TWISTED's output cut
 
     // ---- geto: THE CURSE STABLE ----
     // The wheel object above is shared (both summoners hold a radial), but the
@@ -510,6 +538,25 @@ export class Fighter {
     this.instantKO = null;
     this.lastCT = null;
     this.rootT = 0;
+    // CURSED SPEECH — every piece of it is round-scoped, INCLUDING the
+    // `voiceSpent` latch. That is the whole meaning of "he spends his voice
+    // for the rest of the round": a new round is a new throat, and the blood
+    // on his collar is washed off with it (`clearStrain`).
+    this.throat = 0;
+    this.throatTier = 0;
+    this.throatRest = 0;
+    this.voiceSpent = false;
+    this.utter = null;
+    this.model.clearStrain?.();
+    this.model.setCollar?.(0);
+    this.model.setMarks?.(false);
+    // the bindings deliberately SURVIVE the round, exactly as Toji's equipped
+    // weapon and Megumi's shikigami slots do: they are a loadout the player
+    // chose, not a resource they spent
+    this.forced = null;
+    this.sleepT = 0;
+    this.sleepMult = 1;
+    this.twisted = null;
     this.aimLag = 0;
     this.aimOverride = null;
     // lockOn deliberately survives the round: it is a control preference, not
@@ -780,6 +827,11 @@ export class Fighter {
     // can do with that, and it is what makes the field a wall rather than a
     // decoration.
     if (this.floraSlow !== 1) m *= this.floraSlow;
+    // SLEEP 眠れ. NOT a stun — they keep every input, they are just wading.
+    // Deliberately on `speedMult` rather than on a state, because that is the
+    // difference between Inumaki's soft lock and Naoya's freeze: one of them
+    // takes your speed and the other one takes your body.
+    if (this.sleepT > 0) m *= this.sleepMult;
     return m;
   }
   // multiplier on damage TAKEN: Soul Wound (Mahito CT1) and max burn stacks
@@ -822,6 +874,11 @@ export class Fighter {
     // whatever it hit. On dmgMult rather than on incomingMult on purpose — it
     // makes them weaker, it does not make them softer.
     if (this.soulCut && this.soulCut.t > 0) m *= this.soulCut.mult;
+    // GET TWISTED 捻れ. Same shape as Soul Cut above and for the same reason:
+    // the word disfigures the arm they punch with, so it makes them WEAKER,
+    // not softer. It is on `dmgMult` so it covers their whole kit rather than
+    // one button, and it cannot be forgotten at a damage site.
+    if (this.twisted && this.twisted.t > 0) m *= this.twisted.mult;
     return m;
   }
   get busy() {
@@ -903,6 +960,15 @@ export class Fighter {
     if (this.cfg.charge && this.chargeTier >= 2) {
       const swap = { idle: 'idleCharged', run: 'runCharged' }[name];
       if (swap && this.anim.clips.has(swap)) return swap;
+    }
+    // INUMAKI: ONE IDLE PER THROAT TIER. Same mechanism Kashimo's coiled
+    // cycles use two blocks up, and for the same reason: the OPPONENT has to
+    // be able to read his gauge off his posture from across the arena. At
+    // SILENCED the idle is not a fighting stance at all — he is folded over
+    // his own throat — and that is the tell that says "come and collect".
+    if (this.cfg.throat && name === 'idle') {
+      const swap = ['idle', 'idleStrained', 'idleRaw', 'idleSilenced'][this.throatTier] ?? 'idle';
+      if (swap !== 'idle' && this.anim.clips.has(swap)) return swap;
     }
     // PANDA: THE WHOLE ANIMATION SET IS PER-STANCE. Built by string from the
     // core's `clipSuffix` (''/Gor/Tri), exactly the way Toji's per-weapon idles
@@ -1029,6 +1095,44 @@ export class Fighter {
       this.setState('ct', { move: det });
       this._syncMoveAnim(det, det.clip);
       this.emit('ctStart', { move: det });
+      return true;
+    }
+
+    // ---- INUMAKI: RB AND RT ARE WHATEVER IS BOUND TO THEM ----------------
+    // Neither slot has frame data of its own — see the note in
+    // characters/inumaki.js. Every number comes from the COMMAND currently
+    // bound to the button, so the wheel is a real decision and not a skin, and
+    // so retuning a command retunes it everywhere at once.
+    //
+    // Two refusals, both BEFORE anything is spent and both with their own
+    // line, because "nothing happened" is the worst thing a button can report:
+    //   SILENCED   he physically cannot. This is the crisis state and it has
+    //              to be legible from the button as well as from the HUD.
+    //   TOO DEAR   the word would cost more throat than he has left before
+    //              SILENCED. That is what makes BLAST AWAY a decision rather
+    //              than a habit: at 60% strain it is simply not available.
+    if (def.command) {
+      const cmd = boundCommand(this, slot);
+      if (!cmd) return false;
+      if (!canSpeak(this)) { this.emit('silenced'); return false; }
+      if (!affordable(this, cmd)) { this.emit('throatTooHigh', { cmd }); return false; }
+      const move = {
+        ...def, kind: 'ct', slot, isCT: true,
+        name: cmd.name, jpName: cmd.jp,
+        // THE UTTERANCE WINDOW *IS* THE STARTUP. The effect fires on the last
+        // frame of it (see the `ct` case), so anything that takes his state
+        // before then cancels the command for free — which is the whole
+        // counterplay and the reason it is structural rather than a check.
+        startup: cmd.utter, active: 2, recovery: def.recovery,
+        effect: 'inumaki_command', commandKey: cmd.key,
+        clip: cmd.clip, dmg: cmd.dmg, range: cmd.range
+      };
+      // `utter` is non-null for exactly as long as the cast is live and has
+      // not fired. Same contract `this.taunt` keeps — see `checkUtterance`.
+      this.utter = { key: cmd.key, fired: false };
+      this.setState('ct', { move });
+      this._syncMoveAnim(move, move.clip);
+      this.emit('utterStart', { cmd, slot });
       return true;
     }
 
@@ -1642,6 +1746,36 @@ export class Fighter {
         this._openWheel({
           sel: order.indexOf(sys.selected(this)), slot: 'ct2', t: 0, changed: false,
           order, avail: order.filter(k => !sys.isLost(this, k))
+        }, sp);
+        return true;
+      }
+
+      // ---- INUMAKI: THE COMMAND WHEEL 呪言 ---------------------------------
+      // THE FIFTH RADIAL, and it reuses `_openWheel` / `_wheelPick` and the
+      // shared `wheel` STATE wholesale rather than growing a fifth near
+      // duplicate. What differs is only what the sectors are and what
+      // confirming does, and both are read off `cfg.commands`.
+      //
+      // `avail` excludes any command his throat cannot currently pay for,
+      // which is the one thing that is genuinely new here: the ring is also
+      // the readout of what he is still allowed to say. A greyed sector is not
+      // selectable, the stick rolls past it, and the default falls through to
+      // the first word he can still afford — so the wheel can never land on a
+      // command that would be refused at release.
+      //
+      // It costs NO cursed energy and NO throat. Choosing a word is not saying
+      // one, and charging for the choice would make experimenting with the
+      // kit expensive in the only resource that matters.
+      case 'inumaki_wheel': {
+        const c = this.cfg.commands;
+        const avail = c.order.filter(k => affordable(this, c.defs[k]));
+        if (!canSpeak(this)) { this.emit('silenced'); return false; }
+        // It opens on ct2 — the heavy slot, which is the one a player is
+        // usually choosing for. RB/RT switch it while the ring is held,
+        // exactly as they do on Megumi's.
+        this._openWheel({
+          sel: c.order.indexOf(boundKey(this, 'ct2')), slot: 'ct2', t: 0, changed: false,
+          order: c.order, avail, commands: true
         }, sp);
         return true;
       }
@@ -2656,6 +2790,28 @@ export class Fighter {
       this.arcWindow -= dt;
       if (this.arcWindow <= 0) this.arcChain = 0;   // the chain lapsed
     }
+    // ---- CURSED SPEECH: THE THROAT, AND THE TWO DEBUFFS IT LEAVES --------
+    // The gauge is ticked for every fighter (it returns immediately for the
+    // twenty-one who have no voice) and the model is told EVERY frame rather
+    // than only on a change, because the tier drives a continuous read too —
+    // the throat glow pulses harder as the fill climbs inside a tier.
+    if (this.cfg.throat) {
+      const t = tickThroat(this, dt);
+      this.model.setStrain?.(this.throatTier, this.throat / this.cfg.throat.max);
+      if (t !== null) this.emit('throatTier', { tier: this.throatTier, silenced: isSilenced(this) });
+    }
+    // SLEEP and GET TWISTED are plain second counters on the VICTIM, like
+    // every other debuff in this file, so the Inverted Spear's buff strip, the
+    // round reset and the KO path already know what to do with them.
+    if (this.sleepT > 0) {
+      this.sleepT -= dt;
+      if (this.sleepT <= 0) { this.sleepMult = 1; this.emit('sleepEnds'); }
+    }
+    if (this.twisted) {
+      this.twisted.t -= dt;
+      if (this.twisted.t <= 0) { this.twisted = null; this.emit('twistEnds'); }
+    }
+
     if (this.cfg.charge) {
       const changed = tickCharge(this, dt);
       // The model is told EVERY frame rather than only on a change, because
@@ -2738,6 +2894,11 @@ export class Fighter {
     // all this tick — a hit, a domain, a KO — drops its bubble on the same
     // frame the pose is interrupted rather than a frame later.
     this._tauntCheck();
+    // ...and immediately after that, for exactly the same reason: an utterance
+    // is alive only while its own `ct` state is, so ANYTHING that took his
+    // state this tick has already cancelled the command, and this is where he
+    // is charged for it. See `checkUtterance` in combat/speech.js.
+    checkUtterance(this);
     this._physics(dt);
     this._faceOpponent(ctx, dt);
     this._props(ctx);
@@ -2889,6 +3050,14 @@ export class Fighter {
     // this gate for every state in the game because it is a control preference
     // and not a move. That is correct: being unable to move should not also
     // mean being unable to look.
+    // `commanded` is NOT on this list, but it is handled by its own case below
+    // and that case reads no input either — so for the length of the carry it
+    // behaves like one of these. That is stated plainly rather than dressed
+    // up: forced movement IS an input lock, and the honest defence of it is
+    // that it is SHORT (1.1 s and 0.55 s before resistance and blocking take
+    // their cuts, against Naoya's flat one second), that it deals no damage,
+    // and that it hands the body back standing and neutral rather than in
+    // hitstun. See the honesty note in the delivery report.
     if (['voided', 'simpleDomain', 'barrierBreak', 'castDomain', 'rooted', 'transfigured',
       'sentenced', 'executing', 'devoured', 'frozen'].includes(S)) return;
     if (S === 'ko' || S === 'victory' || S === 'intro') return;
@@ -3144,12 +3313,61 @@ export class Fighter {
         // CHOSO — the PIERCING BLOOD load. One announcement on frame one; the
         // animation does the rest by simply not moving.
         if (m.effect === 'choso_piercing_blood' && this.f === 1) this.emit('piercingLoad');
+        // ---- INUMAKI: THE UTTERANCE ---------------------------------------
+        // The third long tell, and the loudest. It runs EVERY frame of the
+        // startup rather than firing once, because the whole balance of the
+        // character is that the opponent can see a command coming: the collar
+        // pulls down, the cursed energy gathers at his throat, the markings
+        // light, and the air in front of his mouth distorts, continuously,
+        // for as long as he is speaking. `k` is how far through the word he
+        // is, so the gather is a progress bar the opponent can read.
+        if (m.commandKey && this.f <= m.startup) {
+          const cmd = this.cfg.commands.defs[m.commandKey];
+          ctx.match.speechfx?.utterance(this, this.f / Math.max(1, m.startup), cmd.color, cmd.weight);
+        }
         if (this.f === m.startup) ctx.effects.fire(this, m, ctx);
         // multi-hit ults re-fire during active frames
         if (m.hits && this.f > m.startup && this.f < m.startup + m.active && (this.f - m.startup) % 14 === 0) {
           ctx.effects.fire(this, m, ctx, true);
         }
         if (this.f >= m.startup + m.active + m.recovery) { this.setState('idle', { clip: 'idle' }); this.move = null; }
+        break;
+      }
+
+      // ---- COMMANDED — RUN AWAY 逃げろ / COME HERE 来い ---------------------
+      // The only state in this project where a fighter's feet are moved by
+      // somebody else's decision, and it is written to be as small as the
+      // mechanic allows.
+      //
+      // WHAT IT DOES: writes `vel` and nothing else. The ordinary physics,
+      // collision and arena-bounds pass in `update` resolves the result
+      // exactly as it does for walking, which is what guarantees that forced
+      // movement can never put anybody inside geometry or off a ledge that
+      // walking could not — a promise a version that wrote `pos` could not
+      // have made on any of the ten maps.
+      //
+      // WHAT IT DOES NOT DO: damage, hitstun, knockdown, or take the camera.
+      // They come out of it standing, neutral, and able to act on the very
+      // next frame. It is a repositioning, not a combo starter.
+      //
+      // IT DOES TAKE THEIR INPUT for its length, and there is no way around
+      // that: a fighter who could keep walking would simply walk back and the
+      // command would not exist. What keeps it fair is that it is SHORT and
+      // that both cuts apply — a full-meter opponent loses 62% of it, and
+      // holding guard when the word lands loses another 45%. A blocking Gojo
+      // at MAX_CE 100 is carried for 0.23 s, which is a stumble.
+      //
+      // HOW IT ENDS: `tickForced` returns false — either the clock ran out, or
+      // (for a pull) they arrived. And, like everything else here, it also
+      // ends because SOMETHING ELSE TOOK THE STATE, for free.
+      case 'commanded': {
+        // the lock-on is deliberately released: they are facing the way the
+        // word is taking them, not the way they would choose to look
+        if (!tickForced(this, dt)) {
+          this.vel.x *= 0.4; this.vel.z *= 0.4;
+          this.setState('idle', { clip: 'idle' });
+          this.emit('commandEnds');
+        }
         break;
       }
 
@@ -3340,10 +3558,15 @@ export class Fighter {
       // id: `cfg.curses` means the sectors are his four special grades and
       // release SELECTS one, `cfg.shikigami` means the sectors are the six
       // shikigami and release BINDS one to a slot.
+      // INUMAKI shares it too, on the same contract, and his is the closest to
+      // Megumi's of the three: both hold TWO bindings and both use RB/RT to
+      // choose which one the pick lands in. The only difference is that his
+      // sectors go grey when his throat cannot afford them.
       case 'wheel': {
         const sp = this.cfg.special;
         const curses = this.cfg.curses;
-        const order = curses ? curses.specialOrder : this.cfg.shikigami.order;
+        const cmds = this.cfg.commands;
+        const order = cmds ? cmds.order : curses ? curses.specialOrder : this.cfg.shikigami.order;
         const w = this.wheel;
         if (!w) { this.setState('idle', { clip: 'idle' }); break; }
         w.t += dt;
@@ -3362,8 +3585,9 @@ export class Fighter {
           // angle zero.
           const idx = this._wheelPick(w, input?.move ?? { x: 0, z: 0 });
           if (idx !== w.sel) { w.sel = idx; w.changed = true; this.emit('wheelMove'); }
-          // slot picking is MEGUMI ONLY: he holds two bindings, Geto holds one
-          // selection, so for Geto these presses would be noise
+          // slot picking is for the fighters who hold TWO bindings — Megumi and
+          // Inumaki. Geto holds one selection, so for him these presses would
+          // be noise.
           if (!curses) {
             if (input?.ct1P && w.slot !== 'ct1') { w.slot = 'ct1'; this.emit('wheelMove'); }
             if (input?.ct2P && w.slot !== 'ct2') { w.slot = 'ct2'; this.emit('wheelMove'); }
@@ -3378,9 +3602,30 @@ export class Fighter {
           // `avail` was filtered at open time and the stick can only land on a
           // live sector, so this cannot be a corpse. Kept as a guard because a
           // shikigami can die DURING the hold.
-          const dead = curses
-            ? ctx.match.curses.isLost(this, key)
-            : ctx.match.shikigami.isLost(this, key);
+          // A COMMAND CANNOT DIE, but it can become unaffordable DURING the
+          // hold — the gauge is still recovering (or he was hit and paid an
+          // interruption penalty) while the ring is open. So the same guard
+          // that catches a shikigami dying mid-hold catches that.
+          const dead = cmds
+            ? !affordable(this, cmds.defs[key])
+            : curses
+              ? ctx.match.curses.isLost(this, key)
+              : ctx.match.shikigami.isLost(this, key);
+          if (dead && cmds) {
+            this.emit('throatTooHigh', { cmd: cmds.defs[key] });
+            this._setSpecialCD(sp.cooldown);
+            this.wheel = null;
+            this.setState('special', { clip: 'idle' });
+            break;
+          }
+          if (cmds) {
+            bindCommand(this, w.slot, key);
+            this.emit('wheelConfirm', { key, slot: w.slot, command: true, tapped: !w.open });
+            this._setSpecialCD(sp.cooldown);
+            this.wheel = null;
+            this.setState('special', { clip: 'idle' });
+            break;
+          }
           if (dead) {
             this.emit('curseBlocked', {
               text: (curses ? this.cfg.curses.defs[key].short : key.toUpperCase()) + ' IS GONE'

@@ -1981,3 +1981,160 @@ html.filters-on #ui-root::after {
 .core-row .core-seg.dead .cs-fill { background: #24242a; }
 .core-row .core-seg.dead b { color: rgba(190,190,190,0.65); text-decoration: line-through; }
 .plate.p2 .core-row { flex-direction: row-reverse; }
+
+/* ===========================================================================
+   INUMAKI — CURSED SPEECH
+   ===========================================================================
+   Two pieces: the THROAT row on his plate, and the COMMAND CARD that slams
+   across the screen when he speaks. Both are keyed off the four strain tiers,
+   so the HUD and the overlay degrade together and a player reads his gauge
+   from either one. */
+
+/* ---- THE THROAT GAUGE --------------------------------------------------- */
+.thr-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.thr-row .thr-key {
+  font-size: 8px; letter-spacing: 1px; color: #d7b2b2; min-width: 20px;
+  text-shadow: 0 0 8px rgba(0,0,0,0.8);
+}
+.thr-row .bar-thr {
+  position: relative; flex: 1; height: 7px; background: rgba(0,0,0,0.66);
+  border: 1px solid rgba(215,178,178,0.32); overflow: hidden;
+}
+.thr-row .bar-thr .fill {
+  position: absolute; inset: 0 auto 0 0; transition: width 0.1s linear;
+  background: linear-gradient(180deg, #f0d8d8, #c98a8a 58%, #5c2c2c);
+}
+.thr-row[data-tier="1"] .bar-thr .fill { background: linear-gradient(180deg, #f2c4a4, #d08a5a 58%, #5e3418); }
+.thr-row[data-tier="2"] .bar-thr .fill { background: linear-gradient(180deg, #ff9a9a, #c02f2f 58%, #4a0d0d); }
+.thr-row[data-tier="3"] .bar-thr .fill { background: linear-gradient(180deg, #6a6a72, #3a3a42 58%, #17171c); }
+/* the tier ticks: the player has to see how close SILENCED is without
+   arithmetic, exactly as Kashimo's charge ticks and Kurourushi's growth
+   thresholds do */
+.thr-row .thr-ticks { position: absolute; inset: 0; pointer-events: none; }
+.thr-row .thr-ticks i {
+  position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.42);
+}
+.thr-row .thr-ticks i.passed { background: #ffd0d0; box-shadow: 0 0 7px rgba(255,160,160,0.95); }
+/* the SILENCED line is drawn heavier than the other two — it is the one that
+   matters and the one a player is watching approach */
+.thr-row .thr-ticks i.crit { width: 2px; background: #ff5a5a; box-shadow: 0 0 8px rgba(255,90,90,0.9); }
+.thr-row .thr-tier {
+  font-size: 8px; font-weight: 900; letter-spacing: 1px; min-width: 56px;
+  text-align: right; color: #d7b2b2;
+}
+.thr-row[data-tier="1"] .thr-tier { color: #ffb98a; }
+.thr-row[data-tier="2"] .thr-tier { color: #ff7a7a; text-shadow: 0 0 8px rgba(255,60,60,0.7); }
+.thr-row[data-tier="3"] .thr-tier,
+.thr-row[data-tier="3"] .thr-key { color: #ffffff; text-shadow: 0 0 12px rgba(255,40,40,1); }
+.thr-row[data-tier="3"] .bar-thr {
+  border-color: #ff5a5a; box-shadow: 0 0 12px rgba(255,50,50,0.65);
+  animation: thrAlarm 0.9s steps(2, end) infinite;
+}
+@keyframes thrAlarm { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.plate.p2 .thr-row { flex-direction: row-reverse; }
+.plate.p2 .thr-row .thr-tier { text-align: left; }
+
+/* ---- COMMAND RESISTANCE, ON THE TARGET'S PLATE -------------------------- */
+/* Shown on the plate of whoever Inumaki is pointed at, because resistance is
+   the number that decides what the next word is worth and BOTH players need
+   it. Hidden entirely when nobody in the match has a voice. */
+.res-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.res-row .rs-key {
+  font-size: 8px; letter-spacing: 1px; color: #9fb6d8; min-width: 20px;
+  text-shadow: 0 0 8px rgba(0,0,0,0.8);
+}
+.res-row .rs-pips { display: flex; gap: 3px; flex: 1; }
+.res-row .rs-pips i {
+  flex: 1; height: 5px; background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(159,182,216,0.3);
+}
+.res-row .rs-pips i.on { background: linear-gradient(180deg, #cfe2ff, #6f9fd8 60%, #24384f); }
+.res-row .rs-band { font-size: 8px; font-weight: 900; letter-spacing: 1px; color: #9fb6d8; min-width: 62px; text-align: right; }
+.res-row[data-band="3"] .rs-band { color: #ffffff; text-shadow: 0 0 8px rgba(140,190,255,0.9); }
+.plate.p2 .res-row { flex-direction: row-reverse; }
+.plate.p2 .res-row .rs-band { text-align: left; }
+
+/* ---- THE COMMAND CARD ---------------------------------------------------- */
+/* Upper third only, never across the fighters. pointer-events: none, always. */
+.cmd-card {
+  position: absolute; left: 0; right: 0; top: 14%;
+  display: flex; flex-direction: column; align-items: center;
+  pointer-events: none; opacity: 0; visibility: hidden;
+  --cc: #ffffff;
+}
+.cmd-card.on { visibility: visible; animation: ccLife 0.55s ease-out forwards; }
+.cmd-card[data-weight="heavy"].on { animation-duration: 0.68s; }
+@keyframes ccLife {
+  0%   { opacity: 0; }
+  10%  { opacity: 1; }
+  72%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.cmd-card .cc-jp {
+  font-size: clamp(38px, 9vw, 128px); font-weight: 900; line-height: 0.94;
+  letter-spacing: 0.06em; color: #fff;
+  /* the HARD offset drop shadow — no blur, this is print, not glow */
+  text-shadow:
+    6px 7px 0 var(--cc),
+    10px 12px 0 rgba(0,0,0,0.92),
+    0 0 34px color-mix(in srgb, var(--cc) 70%, transparent);
+  transform: skewX(-7deg);
+  animation: ccSlam 0.30s cubic-bezier(0.16, 1.4, 0.3, 1) both;
+}
+@keyframes ccSlam {
+  0%   { transform: skewX(-7deg) scale(2.4) translateY(-14px); opacity: 0; letter-spacing: 0.5em; }
+  55%  { transform: skewX(-7deg) scale(0.94); opacity: 1; letter-spacing: 0.03em; }
+  100% { transform: skewX(-7deg) scale(1); opacity: 1; letter-spacing: 0.06em; }
+}
+.cmd-card .cc-en {
+  margin-top: 4px; font-size: clamp(12px, 2.1vw, 26px); font-weight: 900;
+  letter-spacing: 0.30em; color: var(--cc);
+  text-shadow: 2px 3px 0 rgba(0,0,0,0.95);
+  animation: ccWipe 0.34s 0.06s ease-out both;
+}
+.cmd-card .cc-romaji {
+  margin-top: 1px; font-size: clamp(8px, 1.1vw, 13px); font-weight: 700;
+  letter-spacing: 0.42em; color: rgba(255,255,255,0.72);
+  text-shadow: 1px 2px 0 rgba(0,0,0,0.9);
+  animation: ccWipe 0.34s 0.11s ease-out both;
+}
+@keyframes ccWipe {
+  0%   { clip-path: inset(0 100% 0 0); transform: translateX(-16px); }
+  100% { clip-path: inset(0 0 0 0); transform: translateX(0); }
+}
+/* speed lines: a fan of hard bars radiating from behind the kanji */
+.cmd-card .cc-lines {
+  position: absolute; top: 40px; left: 50%; width: 0; height: 0;
+  animation: ccFan 0.42s ease-out both;
+}
+.cmd-card .cc-lines i {
+  position: absolute; top: 0; left: 0; height: 2px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--cc) 85%, transparent), transparent);
+}
+@keyframes ccFan {
+  0%   { transform: scale(0.25); opacity: 0.95; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+/* the one-frame white flash on the impact beat */
+.cmd-card .cc-flash {
+  position: fixed; inset: 0; background: #fff; opacity: 0;
+  animation: ccFlash 0.16s ease-out both;
+}
+@keyframes ccFlash { 0% { opacity: 0.62; } 100% { opacity: 0; } }
+/* TIER DEGRADATION. STRAINED thins the shadow; RAW makes the type ragged and
+   kills the flash outright. He is losing his voice and the card is losing it
+   with him. */
+.cmd-card[data-tier="1"] .cc-jp { text-shadow: 4px 5px 0 var(--cc), 7px 9px 0 rgba(0,0,0,0.9); }
+.cmd-card[data-tier="1"] .cc-flash { animation-name: ccFlashWeak; }
+.cmd-card[data-tier="2"] .cc-jp {
+  text-shadow: 3px 4px 0 var(--cc), 5px 6px 0 rgba(0,0,0,0.85);
+  filter: blur(0.4px) contrast(1.3);
+  animation: ccSlam 0.30s cubic-bezier(0.16, 1.4, 0.3, 1) both, ccRasp 0.09s steps(2, end) 5;
+}
+.cmd-card[data-tier="2"] .cc-flash { animation: none; opacity: 0; }
+.cmd-card[data-tier="2"] .cc-lines { opacity: 0.5; }
+@keyframes ccFlashWeak { 0% { opacity: 0.3; } 100% { opacity: 0; } }
+@keyframes ccRasp {
+  0%, 100% { transform: skewX(-7deg) translateX(0); }
+  50% { transform: skewX(-7deg) translateX(3px); }
+}

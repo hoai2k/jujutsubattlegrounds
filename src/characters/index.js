@@ -20,6 +20,7 @@ import { GETO } from './geto.js';
 import { NAOYA } from './naoya.js';
 import { KASHIMO } from './kashimo.js';
 import { PANDA } from './panda.js';
+import { INUMAKI } from './inumaki.js';
 import { buildGojo } from '../art/models/gojo.js';
 import { buildYuta } from '../art/models/yuta.js';
 import { buildNanami } from '../art/models/nanami.js';
@@ -41,6 +42,7 @@ import { buildGeto } from '../art/models/geto.js';
 import { buildNaoya } from '../art/models/naoya.js';
 import { buildKashimo } from '../art/models/kashimo.js';
 import { buildPanda } from '../art/models/panda.js';
+import { buildInumaki } from '../art/models/inumaki.js';
 import { makeClips } from '../art/anim/index.js';
 import {
   variantsOf, hasVariants, variantEntry, resolveVariant, splitPick, joinPick,
@@ -120,7 +122,16 @@ export const ROSTER = {
   // you are picking" (Jogo, Mahito, Hanami, Kurourushi), and a cursed CORPSE
   // built by a headmaster is a different thing — the same ruling Choso and
   // Geto already get, for the same reason. He is a student.
-  panda: { config: PANDA, buildModel: buildPanda, jp: '呪骸', accent: 0xf2f0e8, role: 'THREE CORES · STANCE SWITCH' }
+  panda: { config: PANDA, buildModel: buildPanda, jp: '呪骸', accent: 0xf2f0e8, role: 'THREE CORES · STANCE SWITCH' },
+  // THE COMMANDER, and the first fighter in the project who wins by taking
+  // somebody else's body away from them rather than by hitting it. Also
+  // canon-correct with no Domain Expansion. What is new about him is the
+  // THROAT gauge next to the cursed-energy bar — the only resource in the game
+  // that is spent by SPEAKING, that costs no cursed energy at all, and whose
+  // empty state (SILENCED) removes his entire kit rather than weakening it.
+  //
+  // Not badged `spirit`: he is a second-year student at Jujutsu High.
+  inumaki: { config: INUMAKI, buildModel: buildInumaki, jp: '狗巻棘', accent: 0x9fd8c8, role: 'CURSED SPEECH · COMMANDER' }
 };
 
 export const hex = n => '#' + n.toString(16).padStart(6, '0');
@@ -133,7 +144,7 @@ export const hex = n => '#' + n.toString(16).padStart(6, '0');
 // distinction between "fastest" and "never stops" reads on a select screen.
 // Panda sits next to Todo — the two heavyweights, and the two whose answer to
 // pressure is to stand in it.
-export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'naoya', 'kashimo', 'yuta', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'todo', 'jogo', 'mahito', 'hanami', 'kurourushi'];
+export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'naoya', 'kashimo', 'yuta', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'todo', 'jogo', 'mahito', 'hanami', 'kurourushi'];
 
 // `pick` is 'gojo' (the base) or 'gojo:shinjuku'. A bare character id still
 // works everywhere it used to, which is why nothing outside the select screen

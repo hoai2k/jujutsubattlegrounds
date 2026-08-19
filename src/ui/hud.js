@@ -8,6 +8,13 @@
 // frame. The tier table is imported rather than duplicated so the bar, the
 // model and the frame data can never disagree about what tier he is in.
 import { TIERS as CHARGE_TIERS, TIER_AT as CHARGE_TIER_AT } from '../combat/charge.js';
+// INUMAKI'S THROAT. Same discipline as the charge tiers above: the table is
+// imported rather than duplicated, so the bar, the model, the frame data and
+// the animation set can never disagree about which tier he is in.
+import {
+  TIERS as THROAT_TIERS, TIER_AT as THROAT_TIER_AT,
+  resistBand, RESIST_BANDS
+} from '../combat/speech.js';
 
 export class HUD {
   constructor(root) {
@@ -238,6 +245,16 @@ export class HUD {
           <span class="core-key">呪骸核</span>
           <div class="core-segs"></div>
         </div>
+        <div class="thr-row">
+          <span class="thr-key">喉</span>
+          <div class="bar bar-thr"><div class="fill"></div><div class="thr-ticks"></div></div>
+          <span class="thr-tier"></span>
+        </div>
+        <div class="res-row">
+          <span class="rs-key">抗</span>
+          <div class="rs-pips"><i></i><i></i><i></i><i></i></div>
+          <span class="rs-band"></span>
+        </div>
         <div class="glut-row">
           <span class="gl-key">暴食</span>
           <div class="bar bar-gl"><div class="fill"></div><div class="gl-ticks"></div></div>
@@ -334,6 +351,29 @@ export class HUD {
              <div class="cs-fill"></div><b>${c.short}</b>
            </div>`).join('');
       }
+      // ---- INUMAKI: THE THROAT --------------------------------------------
+      // Built ONCE here like the charge ticks and the stable strip, and only
+      // widths and classes touched per frame. The tick marks matter more on
+      // this bar than on any other in the game: SILENCED is a crisis, and a
+      // player has to be able to see how close it is without arithmetic. The
+      // last tick is drawn heavier (`crit`) because it is the only one that
+      // removes his kit rather than weakening it.
+      const thrRow = plate.querySelector('.thr-row');
+      thrRow.style.display = f.cfg.throat ? '' : 'none';
+      if (f.cfg.throat) {
+        thrRow.querySelector('.thr-ticks').innerHTML = THROAT_TIER_AT.slice(1)
+          .map((t, i) => `<i class="${i === THROAT_TIER_AT.length - 2 ? 'crit' : ''}" style="left:${(t * 100).toFixed(1)}%"></i>`)
+          .join('');
+      }
+      // ---- COMMAND RESISTANCE ---------------------------------------------
+      // Shown on EVERYBODY's plate, and it is the target's number rather than
+      // their owner's: it says how well THIS fighter shrugs off cursed speech.
+      // Hidden unless somebody in the match actually has a voice — a
+      // resistance readout in a fight with no Inumaki in it is noise.
+      // Deliberately visible to both players, for the same reason Geto's
+      // Uzumaki projection is: the opponent's meter growth is the counterplay,
+      // and a counterplay you cannot see is not one.
+      plate.querySelector('.res-row').style.display = 'none';
       // TERRAIN, for the one character whose strength depends on it. Visible
       // to BOTH players: the opponent needs to know when Hanami is standing on
       // something that is healing him, because moving him off it is the whole
@@ -599,6 +639,42 @@ export class HUD {
         row.classList.toggle('full', f.blood >= f.cfg.blood.max - 0.5);
       }
       // ---- CHARGE (Kashimo) ------------------------------------------------
+      // ---- THE THROAT, PER FRAME ------------------------------------------
+      if (f.cfg.throat) {
+        const row = plate.querySelector('.thr-row');
+        const pct = Math.max(0, Math.min(100, f.throat / f.cfg.throat.max * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        const td = THROAT_TIERS[f.throatTier] || THROAT_TIERS[0];
+        row.dataset.tier = f.throatTier;
+        // `voiceSpent` is the ultimate's latch and it is a DIFFERENT sentence
+        // from "the gauge is full": one of them recovers and the other does
+        // not, and a player watching a bar that is going down while his voice
+        // stays gone deserves to be told which they are looking at.
+        row.querySelector('.thr-tier').textContent =
+          f.voiceSpent ? '失声 SPENT' : td.jp + ' ' + td.name;
+        row.classList.toggle('spent', !!f.voiceSpent);
+        const ticks = row.querySelectorAll('.thr-ticks i');
+        for (let k = 0; k < ticks.length; k++) {
+          ticks[k].classList.toggle('passed', f.throatTier > k);
+        }
+      }
+      // ---- COMMAND RESISTANCE, PER FRAME ----------------------------------
+      // The row appears on every plate the moment anybody in the match has a
+      // voice, and reports THIS fighter's resistance — which climbs as their
+      // own MAX_CE does, so a player watching their bar fill is also watching
+      // themselves become harder to command.
+      {
+        const anyVoice = this.fighters.some(x => x?.cfg?.throat);
+        const rrow = plate.querySelector('.res-row');
+        rrow.style.display = (anyVoice && !f.cfg.throat) ? '' : 'none';
+        if (anyVoice && !f.cfg.throat) {
+          const band = resistBand(f);
+          rrow.dataset.band = band;
+          const pips = rrow.querySelectorAll('.rs-pips i');
+          for (let k = 0; k < pips.length; k++) pips[k].classList.toggle('on', k <= band);
+          rrow.querySelector('.rs-band').textContent = RESIST_BANDS[band];
+        }
+      }
       if (f.cfg.charge) {
         const row = plate.querySelector('.chg-row');
         const pct = Math.max(0, Math.min(100, f.charge / f.cfg.charge.max * 100));

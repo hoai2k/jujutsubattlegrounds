@@ -20,6 +20,13 @@ import { CurseSystem } from '../combat/curses.js';
 import { FreezeSystem } from '../combat/freeze.js';
 import { DomainFX } from '../fx/domainfx.js';
 import { FXSystem } from '../fx/fx.js';
+// CURSED SPEECH — the extruded-kanji layer and the title-card overlay. Both
+// are Inumaki's, both are inert when nobody in the match has a voice, and both
+// are built unconditionally for the same reason every other system here is:
+// a seat can change character between rounds.
+import { SpeechFX } from '../fx/speechfx.js';
+import { CommandCard } from '../ui/commandcard.js';
+import { wheelSnapshot as commandWheelSnapshot } from '../combat/speech.js';
 import { BubbleSystem } from '../fx/bubble.js';
 import { tauntWeight, pickTaunt } from '../combat/taunts.js';
 import { buildMap, applyMapLighting, registerMapGrade, currentQuality, MAP_IDS } from '../arena/index.js';
@@ -113,6 +120,9 @@ export class Match {
     this.bubbles = new BubbleSystem(this.root, stage.camera);
     for (const f of this.fighters) this.fx.attachShadow(f);
     this.domainfx = new DomainFX(stage.scene, this.arena, this.fx);
+    // On the MATCH ROOT rather than the scene, like the bubbles above, so a
+    // round teardown takes every glyph still in the air with it.
+    this.speechfx = new SpeechFX(this.root, stage.camera, this.fx);
     this.effects = new Effects(this);
     this.domains = new DomainSystem(this);
     this.minions = new Minions(this);          // Mahito's transfigured humans
@@ -164,6 +174,11 @@ export class Match {
     this.ritual = new Ritual(this, uiRoot);
 
     this.hud = new HUD(uiRoot);
+    // The title card lives on the HUD's own root so `hud.setHidden` takes it
+    // with everything else — a finisher cinematic must show nothing but the
+    // scene, and a command card left up over one would be the exception that
+    // proves the switch does not work.
+    this.commandCard = new CommandCard(this.hud.el);
     // FINISHERS. Like the ritual above: its own clock, camera and overlay, and
     // while it runs no logic tick happens at all. It is offered the match-
     // ending KO in _koFlow and declines silently if the winner has no finisher
@@ -384,6 +399,21 @@ export class Match {
         for (const b of live) if (a !== b) resolveMelee(this, a, b);
       }
       this.effects.update(1 / 60);
+      // CURSED SPEECH ON THE LOGIC TICK, NOT THE RENDER TICK. This was in
+      // `render` beside fx.update and domainfx.update, where every other
+      // visual system lives, and it was WRONG — a command's payload fires from
+      // the SpeechFX arrival callback, so putting the glyph flight on the
+      // render clock made a gameplay effect depend on frame rate. The bug it
+      // actually produced in testing: with the tab hidden and rAF throttled,
+      // commands were spoken, the throat was charged, and nothing ever
+      // resolved. The same hole is reachable in a shipped build during a
+      // ritual or a finisher, both of which keep rendering while the logic
+      // tick is suspended — a word in flight would have arrived mid-cinematic.
+      //
+      // On the fixed 1/60 step the flight time, the constrict half-beat and
+      // the payload are all frame-rate independent, like every other timed
+      // entity in the game.
+      this.speechfx.update(1 / 60);
       this.minions.update(1 / 60);
       this.judgemen.update(1 / 60);
       this.shikigami.update(1 / 60);
@@ -500,6 +530,12 @@ export class Match {
         // does nothing here.
         case 'tauntBreak':
           if (!e.completed) this.bubbles.cut(f);
+          // INUMAKI: the collar goes back up whether the taunt finished or was
+          // cut in half, and the queued drop is cancelled so a taunt punished
+          // on frame two cannot open his collar a beat later on a body that is
+          // by then on the floor.
+          this._pendingCollar = null;
+          if (f.cfg.throat) { f.model.setCollar?.(0); f.model.setMarks?.(false); }
           break;
         case 'tauntCancel': this.bubbles.cut(f); break;
         case 'minionAlive': this.hud.toast(f, 'ONE IS ENOUGH'); this.sfx.noCE(); break;
@@ -870,7 +906,12 @@ export class Match {
         case 'wheelConfirm':
           this.sfx.uiOk();
           this.hud.setWheel(f, null, null);
-          if (e.curse) {
+          if (e.command) {
+            this.hud.toast(f, (e.slot === 'ct1' ? 'RB · ' : 'RT · ')
+              + f.cfg.commands.defs[e.key].short);
+            this.fx._ring(f.pos.clone().setY(0.06), f.cfg.commands.defs[e.key].color,
+              { size: 0.5, growRate: 7, life: 0.35 });
+          } else if (e.curse) {
             this.hud.toast(f, 'RT · ' + f.cfg.curses.defs[e.key].short);
             this.fx._ring(f.pos.clone().setY(0.06), 0x6b2fa0, { size: 0.5, growRate: 7, life: 0.35 });
           } else {
@@ -882,6 +923,53 @@ export class Match {
         case 'shikiBlocked':
           this.hud.toast(f, e.text);
           this.sfx.noCE();
+          break;
+        // ---- inumaki: CURSED SPEECH ---------------------------------------
+        // The utterance itself needs no case: it is driven every frame from
+        // the `ct` state (see combat/fighter.js) so that the gather is a
+        // continuous read rather than a one-shot. What IS here is everything
+        // that happens at the EDGES of one.
+        case 'utterStart':
+          // The reaction cue, and it is deliberately loud. The whole balance
+          // of the character is that a command can be seen and heard coming.
+          this.sfx.utterStart?.(e.cmd.weight, f.throatTier);
+          break;
+        case 'utterBroken':
+          // INTERRUPTED. The gather collapses, the collar snaps back, and he
+          // is charged the penalty (combat/speech.js does the charging; this
+          // is only the picture). A player who has just rushed him down needs
+          // to see that it worked.
+          this.sfx.utterBreak?.();
+          this.commandCard.hide();
+          this.hud.toast(f, '呪言 CUT OFF');
+          this.fx._ring(f.pos.clone().setY(f.pos.y + 1.45),
+            e.cmd?.color ?? 0xffffff, { size: 0.4, growRate: 3, life: 0.3, flat: false });
+          break;
+        case 'silenced':
+          this.hud.toast(f, '失声 — NO VOICE');
+          this.sfx.noCE();
+          break;
+        case 'throatTooHigh':
+          this.hud.toast(f, e.cmd.short + ' — THROAT TOO RAW');
+          this.sfx.noCE();
+          break;
+        case 'throatTier':
+          // Every tier change is announced, because his gauge is information
+          // the OPPONENT needs at least as much as he does — SILENCED in
+          // particular is the moment to walk in, and it should not be
+          // something you have to be watching a bar to notice.
+          if (e.silenced) {
+            this.hud.message('失声 SILENCED', 1.1);
+            this.sfx.silenced?.();
+          } else {
+            this.hud.toast(f, ['清明 CLEAR', '嗄れ STRAINED', '血声 RAW', '失声 SILENCED'][e.tier]);
+          }
+          break;
+        case 'commandEnds':
+        case 'sleepEnds':
+        case 'twistEnds':
+          // nothing to announce: the mark on the body has already faded and
+          // the fighter is simply theirs again
           break;
         // ---- geto ---------------------------------------------------------
         case 'curseBlocked':
@@ -1160,6 +1248,22 @@ export class Match {
   // rather than in the clips because both are model/FX calls, and both are
   // optional-chained so a body that does not have them is simply a body that
   // does not have them.
+  // The queued collar drop, ticked on the game clock next to `_pendingPuff`.
+  _tickPendingCollar(dt) {
+    const p = this._pendingCollar;
+    if (!p) return;
+    p.t -= dt;
+    if (p.t > 0) return;
+    this._pendingCollar = null;
+    // Only if he is STILL taunting. A taunt that was interrupted in the
+    // meantime must not drop his collar a beat later on a body that has since
+    // been knocked down.
+    if (p.f.alive && p.f.state === 'taunt') {
+      p.f.model.setCollar?.(1);
+      p.f.model.setMarks?.(true);
+    }
+  }
+
   _tauntFlourish(f, def) {
     // MAHORAGA: the wheel actually turns. `spinWheel` is the same call the
     // adaptation uses, at a fraction of the power — a lazy idle revolution
@@ -1171,12 +1275,23 @@ export class Match {
     // reason the win-pose bubble is — a wall-clock timer would put a shadow at
     // his feet through a pause, and 0.62 s late if the frame hitched.
     if (f.cfg.shikigami) this._pendingPuff = { f, t: 0.62 };
+    // INUMAKI: THE COLLAR ACTUALLY COMES DOWN. He is genuinely opening it to
+    // say a word — the word is just "salmon". Driven from here rather than
+    // from fx/speechfx.js because a taunt has no utterance for the dial to
+    // ride, and queued on the GAME clock for the same reason the shadow puff
+    // above is: a wall-clock timer would drop his collar through a pause.
+    //
+    // `tauntBreak` puts it back, so a taunt cut in half by a punch leaves him
+    // with his collar hanging open for exactly as long as the model's own
+    // 0.35 s settle takes — which is the correct picture.
+    if (f.cfg.throat) this._pendingCollar = { f, t: 0.55 };
   }
 
   // Drained from the update, beside the taunt bubble. One line each, but they
   // are the two places this feature reaches out of the animation and into the
   // world, so they share a clock with it.
   _tickFlourish(dt) {
+    this._tickPendingCollar(dt);
     const p = this._pendingPuff;
     if (!p) return;
     p.t -= dt;
@@ -1280,6 +1395,11 @@ export class Match {
   // to them (CT1 takes the first available), so putting them on the wheel
   // would be four sectors that do nothing.
   _wheelSnapshot(f) {
+    // INUMAKI: THE COMMAND RADIAL REUSES THE SHIKIGAMI WIDGET, like Panda's
+    // cores do. The mapping is natural and the one interesting part is that
+    // `affordable` here means "his throat can still pay for this word", so the
+    // ring greys out exactly what he is no longer allowed to say.
+    if (f.cfg.commands) return commandWheelSnapshot(f);
     if (f.cfg.curses) return this.curses.snapshot(f).filter(s => s.def.specialGrade);
     // PANDA: THE CORE RADIAL REUSES THE SHIKIGAMI WIDGET rather than getting a
     // fourth one. All the widget needs is this shape, and the mapping is
@@ -1310,6 +1430,10 @@ export class Match {
     this.effects.clear();
     this.minions.clear();
     this.judgemen.clear();
+    // ...and so is every kanji still in the air, every cage still standing
+    // round a body, and any command card mid-slam
+    this.speechfx.clear();
+    this.commandCard.hide();
     // shikigami losses are round-scoped, like every other resource here
     this.shikigami.resetRound();
     // ...and so are root fields, cursed buds, swarms and Gluttony
@@ -1385,11 +1509,15 @@ export class Match {
     });
     this.arena.update(frameDt, this.stage.camera);
     this.fx.update(frameDt);
+    // the title card is pure UI and stays on real frame time; the glyphs are
+    // not, and are ticked from the logic step in `update`
+    this.commandCard.update(frameDt);
     this.domainfx.update(frameDt, this.domains.state);
   }
 
   destroy() {
     clearXrayFocus();
+    this.speechfx.clear();
     this.ritual.abort();
     this.finishers.abort();
     this.minions.clear();

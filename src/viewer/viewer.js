@@ -23,6 +23,7 @@ import { buildGeto } from '../art/models/geto.js';
 import { buildNaoya } from '../art/models/naoya.js';
 import { buildKashimo } from '../art/models/kashimo.js';
 import { buildPanda } from '../art/models/panda.js';
+import { buildInumaki } from '../art/models/inumaki.js';
 import { buildGapingMaw, buildTendrilWisp } from '../art/models/lowcurses.js';
 import { RoachSwarm } from '../art/models/roach.js';
 import {
@@ -41,6 +42,7 @@ import { AnimPlayer } from '../art/anim/player.js';
 const BUILDERS = { gojo: buildGojo, yuta: buildYuta, megumi: buildMegumi, nanami: buildNanami, yuji: buildYuji, todo: buildTodo, jogo: buildJogo, mahito: buildMahito, mahoraga: buildMahoraga, higuruma: buildHiguruma, hakari: buildHakari, sukuna: buildSukuna, toji: buildToji,
   hanami: buildHanami, kurourushi: buildKurourushi, choso: buildChoso, nobara: buildNobara,
   geto: buildGeto, naoya: buildNaoya, kashimo: buildKashimo, panda: buildPanda,
+  inumaki: buildInumaki,
   // VARIANTS. They are separate models with their own geometry, so they get
   // their own viewer entries — a variant you cannot load on the bench is a
   // variant nobody iterates on, which is how a palette swap ships.

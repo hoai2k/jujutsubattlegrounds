@@ -46,6 +46,30 @@ export const TOJI = withDefaults({
   // THE FLAG. Everything above keys off this one boolean.
   noCursedEnergy: true,
 
+  // ---- CURSED SPEECH RESISTANCE -------------------------------------------
+  // Inumaki's commands scale their duration off the target's MAX_CE (see
+  // combat/speech.js). Toji does not have one, so he declares a flat value
+  // here instead, and the number is a judgement call worth writing down.
+  //
+  // The canon reading argues for ZERO: resistance is a function of the
+  // target's own cursed energy output, and he has none. It is also
+  // unplayable — it would make the most mobile character in the game a free
+  // two-second root on command, from twelve metres, forever.
+  //
+  // The fantasy argues for ONE — Heavenly Restriction as immunity — and that
+  // is worse, because it deletes the matchup from the other side: Inumaki's
+  // answer to a man he cannot command is a punch string that does 2.6 damage.
+  //
+  // 0.45 is the honest middle, and it says something true: cursed speech WORKS
+  // on Toji, because the cursed energy is in the WORD and not in the listener,
+  // and what Heavenly Restriction buys him is a body that shakes it off faster
+  // than most. His real answer to the matchup is the one nobody else in the
+  // roster owns — the INVERTED SPEAR nullifies a technique outright, and an
+  // utterance is a fat, visible, interruptible target for it.
+  //
+  // This value is inert for every system except cursed speech.
+  speechResist: 0.45,
+
   stats: {
     // ABOVE-AVERAGE HEALTH: over the sorcerers, under the heavyweights.
     // (Yuta 92 · Gojo 95 · Yuji 105 · Nanami 108 · TOJI 112 · Sukuna 118 ·

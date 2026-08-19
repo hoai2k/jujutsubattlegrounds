@@ -3,6 +3,9 @@
 import { emptyFrame } from '../input/input.js';
 import { rand, flatDist, yawBetween } from '../core/mathutil.js';
 import { tauntWeight } from './taunts.js';
+// Cursed speech, for the one profile that has to decide what a button IS
+// before it decides whether to press it. Both helpers are pure reads.
+import { affordable as speechAffordable, boundKey as speechBoundKey } from './speech.js';
 
 export class CPU {
   constructor(fighter, opponent, match) {
@@ -19,6 +22,39 @@ export class CPU {
     this._tauntWeight = tauntWeight(fighter.pick || fighter.cfg.id);
     this._tauntGrace = 6;        // never in the opening seconds of a round
     this._tauntRoll = 2;
+    this._cmdSwap = null;        // inumaki: the command wheel, held across frames
+  }
+
+  // ---- INUMAKI: THE THROAT BUDGET ----------------------------------------
+  // The single line that separates a bot that plays this character from a bot
+  // that says two words and then spends ninety seconds silent.
+  //
+  // The rule: a command is only worth saying if, AFTER saying it, he could
+  // still afford his cheapest word. That is exactly the calculation a human
+  // makes — "if I spend Blast Away here, am I mute?" — and it means the bot
+  // naturally paces itself into the speak / disengage / recover rhythm the
+  // character is built around, without a single timer anywhere.
+  //
+  // The one exception is being about to lose: below a quarter health it stops
+  // budgeting and says whatever it can, because a silent Inumaki at 20 health
+  // is a dead one either way.
+  //   RESERVE is the second half, and it is what the first version got wrong.
+  //   Budgeting only against the CHEAPEST word made the bot spam DON'T MOVE
+  //   forever: measured over sixty seconds it said it twenty-seven times and
+  //   said GET CRUSHED twice, and sat pinned at RAW the whole match. It was
+  //   technically managing the gauge and it was playing one button.
+  //
+  //   So an OPENER has to leave room for the word it is opening FOR. Pass the
+  //   heavy binding's cost as `reserve` and a cheap command is only thrown
+  //   when the payoff still fits behind it — which produces the intended
+  //   rhythm on its own: open, follow up, disengage, breathe.
+  _throatBudget(me, cmd, reserve = 0) {
+    if (!cmd) return false;
+    if (me.res.hp < me.cfg.stats.hp * 0.25) return true;
+    const defs = me.cfg.commands.defs;
+    const cheapest = Math.min(...Object.values(defs).map(d => d.throat));
+    const cap = me.cfg.throat.max * 0.90;         // the SILENCED threshold
+    return me.throat + cmd.throat + Math.max(cheapest, reserve) <= cap;
   }
 
   // A seat's fighter was replaced mid-round (Megumi -> Mahoraga, and back
@@ -1145,6 +1181,125 @@ export class CPU {
       }
     }
 
+    // =======================================================================
+    // INUMAKI — THE COMMANDER
+    // =======================================================================
+    // The only profile in this file whose primary resource is not cursed
+    // energy, and the only one that has to decide WHICH MOVE A BUTTON IS
+    // before it decides whether to press it.
+    //
+    // FIVE RULES, and they are the whole profile:
+    //
+    //  1. KEEP DISTANCE. He is a support-grade sorcerer with 2.6-damage
+    //     normals; the punch string exists to grow MAX_CE and for nothing
+    //     else. The plan set below gives him the zoner's spacing game.
+    //  2. OPEN WITH DON'T MOVE. It is cheap, it is fast, and everything else
+    //     in the kit is a follow-up to it. The bot deliberately does NOT lead
+    //     with a heavy word: an unset-up Blast Away is a 44-frame utterance
+    //     thrown at somebody who is free to walk into it and interrupt.
+    //  3. FOLLOW WITH A HEAVY COMMAND while they are rooted. That is the
+    //     combo, and it is the only sequence the bot actually plays.
+    //  4. RUN AWAY TO ESCAPE PRESSURE, not to open. It is the panic button
+    //     and it is checked before everything else, because by the time the
+    //     bot is deciding what to say it may already be in a string.
+    //  5. MANAGE THE THROAT rather than burning it. `_throatBudget` below is
+    //     the one line that makes the difference between a bot that plays the
+    //     character and a bot that says two words and spends the rest of the
+    //     round silent — it refuses a heavy command that would leave him with
+    //     no cheap one, which is exactly the decision a human is making.
+    if (me.cfg.commands && !me.busy && me.grounded) {
+      const C = me.cfg.commands.defs;
+      const canSay = (k, reserve = 0) => speechAffordable(me, C[k]) && this._throatBudget(me, C[k], reserve);
+      const inRange = k => dist <= C[k].range - 0.6;   // margin: they move
+      const bound = sl => speechBoundKey(me, sl);
+
+      // ---- 4. THE PANIC BUTTON, checked first ---------------------------
+      // Being inside two and a half metres of anybody is a losing position for
+      // him, and RUN AWAY is the answer whether or not it is currently bound —
+      // if it is not, the wheel gets it (see the binding block below).
+      const pressured = dist < 2.8 && (foe.state === 'attack' || foe.state === 'ct'
+        || foe.state === 'run' || foe.state === 'dash');
+      if (pressured && bound('ct1') === 'run_away' && canSay('run_away')
+        && inRange('run_away') && Math.random() < 0.45) {
+        f.ct1 = true;
+        { this._edges(f); return f; }
+      }
+
+      // ---- 3. THE FOLLOW-UP ---------------------------------------------
+      // They are rooted, frozen, knocked down or wading. This is the window
+      // the whole character is built to create, and the bot spends its most
+      // expensive word in it — which is the correct read, because a heavy
+      // utterance is only safe when the opponent cannot reach him.
+      const helpless = ['rooted', 'frozen', 'knockdown', 'launched', 'getup'].includes(foe.state)
+        || foe.sleepT > 0;
+      const heavyKey = bound('ct2');
+      if (helpless && canSay(heavyKey) && inRange(heavyKey) && Math.random() < 0.7) {
+        f.ct2 = true;
+        { this._edges(f); return f; }
+      }
+
+      // ---- 2. THE OPENER -------------------------------------------------
+      // Mid range, they are coming, and nothing is happening yet.
+      const lightKey = bound('ct1');
+      if (!helpless && dist > 3.0 && canSay(lightKey, C[heavyKey].throat) && inRange(lightKey)
+        && Math.random() < 0.20) {
+        f.ct1 = true;
+        { this._edges(f); return f; }
+      }
+
+      // ---- 1b. THE BINDINGS ----------------------------------------------
+      // A TAP of B commits the wheel's default, which is whatever is already
+      // bound — so the bot cannot use a tap to change anything. It holds the
+      // ring instead, and it only does so when it genuinely wants a different
+      // word, which is: it is under pressure and does not have RUN AWAY on
+      // RB, or its heavy slot holds something it can no longer afford.
+      //
+      // `_cmdSwap` runs the hold across several frames the way a human does.
+      if (this._cmdSwap) {
+        this._cmdSwap.t -= dt;
+        f.copy = true;                       // keep the ring open
+        // the stick picks the sector; `_wheelPick` reads it as an angle
+        const n = me.cfg.commands.order.length;
+        const a = (this._cmdSwap.idx / n) * Math.PI * 2;
+        f.move.x = Math.sin(a); f.move.z = -Math.cos(a);
+        if (this._cmdSwap.slot === 'ct1') f.ct1 = true; else f.ct2 = true;
+        if (this._cmdSwap.t <= 0) this._cmdSwap = null;   // release confirms
+        { this._edges(f); return f; }
+      }
+      if (me.specialCD <= 0 && this.thinkT <= 0) {
+        let want = null;
+        const defaults = me.cfg.commands.defaults;
+        if (pressured && bound('ct1') !== 'run_away' && speechAffordable(me, C.run_away)) {
+          want = { key: 'run_away', slot: 'ct1' };
+        } else if (bound('ct2') !== defaults.ct2 && speechAffordable(me, C[defaults.ct2])) {
+          // ...and put the payoff back when it can afford it again.
+          want = { key: defaults.ct2, slot: 'ct2' };
+        } else if (bound('ct1') !== defaults.ct1 && !pressured && speechAffordable(me, C[defaults.ct1])) {
+          want = { key: defaults.ct1, slot: 'ct1' };
+        }
+        // THE BOT DOES NOT DOWNGRADE ITS HEAVY SLOT, and that is a deliberate
+        // deletion rather than an omission. The first version rebound ct2 to
+        // "the most expensive word I can still afford" whenever the real one
+        // went out of reach — which sounds like throat management and is a
+        // trap, because `_openWheel` filters `avail` by affordability and
+        // `_wheelPick` snaps to the nearest AVAILABLE sector. At RAW the only
+        // available sectors are the cheap ones, so the wheel handed it DON'T
+        // MOVE, its heavy slot became its light slot, the reserve calculation
+        // collapsed, and it spammed one word for the rest of the match.
+        // Measured: 24 DON'T MOVEs to 3 GET CRUSHEDs, and 24 of 60 seconds at
+        // RAW. Waiting for the throat is the correct answer and it is free.
+        if (want && Math.random() < 0.5) {
+          this._cmdSwap = {
+            idx: me.cfg.commands.order.indexOf(want.key),
+            slot: want.slot,
+            t: rand(0.30, 0.45)              // comfortably past TAP_MAX
+          };
+          f.copy = true;
+          { this._edges(f); return f; }
+        }
+      }
+    }
+
     // ---- planning -----------------------------------------------------------
     if (this.thinkT <= 0) {
       this.thinkT = rand(0.14, 0.3);
@@ -1168,6 +1323,14 @@ export class CPU {
       // roster because his win condition is not in the fight — it is forty
       // seconds away, and every exchange he ducks is one he did not lose.
       const attorney = me.cfg.special?.key === 'higuruma_judgeman';
+      // INUMAKI: the commander. He gets the ZONER's plan set outright rather
+      // than a near-duplicate — hold range, never chase, leave the instant
+      // anybody closes — because that IS his game, and the difference between
+      // him and Jogo is entirely in the block above rather than in how he
+      // walks. The one thing he does that Jogo does not is go and PUNCH when
+      // his throat is spent, because MAX_CE is the only path back to his
+      // ultimate and his fists are the only thing that grows it.
+      const commander = !!me.cfg.commands;
       // ultimate when charged (domain casters look for space first)
       if (me.charged && this.planT <= 0) {
         // ---- GETO: THE ONE ULTIMATE GATE THAT IS NOT ABOUT METER -----------
@@ -1190,7 +1353,20 @@ export class CPU {
         else if (!me.cfg.domain || dist > 2.5) this.plan = 'ultimate';
       } else if (this.planT <= 0) {
         const r = Math.random();
-        if (zoner) {
+        if (commander) {
+          // SILENCED, or close to it: the character is temporarily not the
+          // character. He has a punch string and nothing else, so the bot
+          // stops playing keep-away and goes to earn meter — which is also
+          // the most honest thing it can do, because standing at range doing
+          // nothing while his gauge recovers is not a fight.
+          const mute = me.throatTier >= 2 || me.voiceSpent;
+          if (mute) {
+            this.plan = dist > 3.0 ? 'approach' : r < 0.62 ? 'punch' : 'block';
+          } else if (dist > 8.0) this.plan = r < 0.55 ? 'strafe' : 'approach';
+          else if (dist > 3.2) this.plan = r < 0.45 ? 'strafe' : r < 0.75 ? 'backoff' : 'approach';
+          else this.plan = r < 0.55 ? 'backoff' : r < 0.8 ? 'strafe' : 'punch';
+          this.planT = rand(0.4, 1.0);
+        } else if (zoner) {
           // jogo plays the opposite game: hold range, throw fire, and leave
           // whenever anyone gets close. Punching is his last resort — but his
           // techniques cost real CE, so with an empty tank he has to go earn

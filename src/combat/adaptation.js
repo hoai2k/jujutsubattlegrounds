@@ -95,7 +95,36 @@ export const CATEGORIES = {
   toji_cloud: { label: 'PLAYFUL CLOUD', jp: '游雲' },
   toji_spear: { label: 'INVERTED SPEAR', jp: '天逆鉾' },
   toji_soul: { label: 'SPLIT SOUL KATANA', jp: '釈魂刀' },
-  toji_chain: { label: 'CHAIN', jp: '万里ノ鎖' }
+  toji_chain: { label: 'CHAIN', jp: '万里ノ鎖' },
+  // ---- INUMAKI'S CURSED SPEECH --------------------------------------------
+  // SEVEN SEPARATE CATEGORIES, one per WORD. Same test as Toji's four tools
+  // and Panda's three cores, and it comes out the same way: "don't move" and
+  // "blast away" are not one substance arriving in two shapes, they are two
+  // different instructions, and a body that has learned to refuse one has
+  // learned nothing about the other. So the matchup is a WORD ROTATION PUZZLE
+  // — Inumaki stays ahead of the wheel by changing what he says, and Mahoraga
+  // wins by forcing him onto one command his throat can still afford.
+  //
+  // THE ONE THING THAT IS DIFFERENT ABOUT THESE, and it is worth stating
+  // because nothing else in this table works like it: for the four commands
+  // that deal damage the reduction is an ordinary damage cut, applied by the
+  // hit pipeline like every other entry here. For the three that deal NONE —
+  // DON'T MOVE, RUN AWAY, COME HERE — the same percentage is read by
+  // `durationFor` in combat/speech.js and cuts the length of the forced state
+  // instead. Without that, half of Inumaki's kit would be unadaptable, and
+  // "Mahoraga cannot learn to stop being told what to do" is the wrong answer
+  // to the most interesting matchup this character has.
+  //
+  // (Contrast the Naoya ruling: his freeze is NOT in this table, because a
+  // freeze is not a technique aimed at the victim — it is a trap the victim
+  // walked into. A command is aimed.)
+  cmd_dont_move: { label: "COMMAND: DON'T MOVE", jp: '呪言・動くな' },
+  cmd_come_here: { label: 'COMMAND: COME HERE', jp: '呪言・来い' },
+  cmd_run_away: { label: 'COMMAND: RUN AWAY', jp: '呪言・逃げろ' },
+  cmd_sleep: { label: 'COMMAND: SLEEP', jp: '呪言・眠れ' },
+  cmd_twist: { label: 'COMMAND: GET TWISTED', jp: '呪言・捻れ' },
+  cmd_crush: { label: 'COMMAND: GET CRUSHED', jp: '呪言・潰れろ' },
+  cmd_blast_away: { label: 'COMMAND: BLAST AWAY', jp: '呪言・吹き飛べ' }
 };
 
 export const CATEGORY_KEYS = Object.keys(CATEGORIES);

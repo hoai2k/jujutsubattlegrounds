@@ -103,6 +103,46 @@ export const TAUNTS = {
     cue: 'geto', ref: 'His word for non-sorcerers, and the cursed-spirit ball he is famous for swallowing'
   }],
 
+  // ---- THE FUNNIEST TAUNT IN THE GAME, AND NOTHING HAPPENS ----------------
+  // Inumaki speaks only in ONIGIRI INGREDIENTS so that he cannot curse anybody
+  // by accident. Salmon means yes, bonito flakes means no, kelp is a greeting.
+  // So his taunt is that: in the middle of a fight, he goes through the whole
+  // preparation of a command — he stops, squares up, the collar comes down,
+  // there is a beat of total stillness — and then he says "salmon", deadpan,
+  // and puts his hand back in his pocket.
+  //
+  // FOUR ENTRIES, and `TAUNT_INPUT` is 'cycle', so pressing D-pad Left four
+  // times walks the whole menu. That is the joke landing four different ways
+  // rather than the same joke four times, and it costs nothing but this array.
+  //
+  // NO CURSED ENERGY AND NO THROAT COST. Deliberately, and enforced
+  // structurally rather than by a check: the taunt path in Fighter never
+  // touches the throat gauge, because the gauge is only ever written by
+  // combat/speech.js `spend`, and nothing in the taunt flow calls it.
+  //
+  // The collar drop is real (see the note in art/anim/inumaki.js) — the
+  // taunt handler in core/match.js drives `model.setCollar` on the bubble
+  // beat. He is genuinely opening his collar to say a word. The word is just
+  // "salmon".
+  inumaki: [
+    {
+      clip: 'taunt', dur: 3.3, say: 'Salmon.', at: 1.62, hold: 1.2,
+      cue: 'inumaki', ref: 'Shake — salmon. His word for "yes", and the first thing anybody learns about him'
+    },
+    {
+      clip: 'taunt', dur: 3.3, say: 'Bonito flakes.', at: 1.62, hold: 1.2,
+      cue: 'inumaki', ref: 'Okaka — bonito flakes. His word for "no", delivered to somebody who did not ask a question'
+    },
+    {
+      clip: 'taunt', dur: 3.3, say: 'Tuna mayo.', at: 1.62, hold: 1.2,
+      cue: 'inumaki', ref: 'Tsuna mayo. Used for emphasis, roughly, and nobody has ever been sure'
+    },
+    {
+      clip: 'taunt', dur: 3.3, say: 'Kelp.', at: 1.62, hold: 1.2,
+      cue: 'inumaki', ref: 'Konbu — kelp. It is a greeting. He is saying hello to somebody he is fighting'
+    }
+  ],
+
   nanami: [{
     clip: 'taunt', dur: 3.4, say: "I'd rather be at the bakery.", at: 1.5, hold: 1.6,
     cue: 'nanami', ref: 'The watch, the overtime, and a man who genuinely would rather be buying bread'
@@ -216,7 +256,10 @@ export const TAUNT_WEIGHT = {
   todo: 1.0, naoya: 1.0, kashimo: 0.9, hakari: 0.85, sukuna: 0.8, gojo: 0.75, nobara: 0.7,
   mahito: 0.65, geto: 0.5, jogo: 0.5, yuji: 0.45, choso: 0.4, kurourushi: 0.35,
   toji: 0.3, hanami: 0.3, panda: 0.75, megumi: 0.25, yuta: 0.2, mahoraga: 0.2,
-  nanami: 0.1, higuruma: 0.1
+  nanami: 0.1, higuruma: 0.1,
+  // Rare on purpose. The joke does not survive repetition, and a CPU that
+  // said "salmon" every ten seconds would kill the one gag this character has.
+  inumaki: 0.3
 };
 export const DEFAULT_TAUNT_WEIGHT = 0.4;
 

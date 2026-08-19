@@ -5,6 +5,10 @@ import { computeDamage, inArc, hitFeedback, openBlackFlash } from './hits.js';
 import { applyBurn } from './burn.js';
 import { gainEvidence } from './judgeman.js';
 import { gainCharge, spendCharge, chargeSize } from './charge.js';
+import {
+  spend as spendThroat, spendVoice, durationFor, damageFor, resistOf,
+  beginForced, inCommandRange, tierDef as throatTierDef, adaptKey
+} from './speech.js';
 import { ARTIFICIAL } from '../arena/terrain.js';
 
 const TODO_ACCENT = 0xff5fc8; // Boogie Woogie's signature snap color
@@ -75,6 +79,14 @@ export const EFFECT_SRC = {
   // because the melee path reads `def.src`). See the note in adaptation.js for
   // why this is one bucket and Toji's tools are four. The ultimate is a STATE
   // with no hitbox, so like every other state in this table it is null.
+  // INUMAKI — the CAST is not adaptable (it produces nothing on its own; the
+  // WORD does), and each command declares its own category at the damage site
+  // instead, because only the payload knows which word it is. See `adaptKey`
+  // in combat/speech.js and the seven `cmd_*` entries in adaptation.js.
+  //
+  // EXPLODE sits with the ultimates, exactly as Uzumaki and Collapse do — an
+  // ultimate is an ultimate whatever shape it arrives in.
+  inumaki_command: null, inumaki_explode: 'ultimate',
   kashimo_bolt: 'electric', kashimo_discharge: 'electric',
   kashimo_arcpass: 'electric', kashimo_amber: null,
   // PANDA — ONE CATEGORY PER STANCE, which is the recommendation in the brief
@@ -327,6 +339,203 @@ export class Effects {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // INUMAKI — WHAT A WORD DOES WHEN IT ARRIVES
+  // ---------------------------------------------------------------------------
+  // Called from the SpeechFX arrival callback, one constrict-beat after the
+  // glyphs reach the body. Everything about a command's consequence is in here
+  // and nowhere else, so the timing of "the word has them, and THEN the thing
+  // happens" is a property of the system rather than of seven call sites.
+  //
+  // THE THREE STATES A TARGET CAN BE IN THAT CHANGE THE ANSWER:
+  //   BLOCKING      duration is cut (see BLOCK_DUR_MULT). Damage is NOT — a
+  //                 command is not blockable in the conventional sense; guard
+  //                 buys you your feet back sooner and nothing else.
+  //   ALREADY DOWN  knockdown / launched / getup / ko. The three commands that
+  //                 impose a POSTURE (root, flee, pull) are refused, exactly as
+  //                 Yuta's domain root already refuses them, because taking a
+  //                 body that is on the floor and standing it up to be marched
+  //                 around is worse than doing nothing. The damaging commands
+  //                 still land.
+  //   RESISTING     the MAX_CE curve, applied inside `durationFor`.
+  _speechLand(caster, t, cmd, { mult = 1, sure = false } = {}) {
+    const m = this.match;
+    if (!t?.alive) return;
+    const blocked = t.state === 'block' || t.state === 'blockstun' || t.state === 'simpleDomain';
+    const down = ['knockdown', 'launched', 'getup', 'ko', 'victory'].includes(t.state);
+    // ---- ARMOR RESISTS BEING TOLD WHAT TO DO -----------------------------
+    // The ruling, and it is one rule applied in one place:
+    //
+    //   ARMOR REFUSES THE THREE POSTURE COMMANDS (root, flee, pull) AND
+    //   NOTHING ELSE.
+    //
+    // Armor in this game means "I do not flinch" — it is what carries Todo
+    // through a jab, what Yuji's RESOLVE grants for one hit, what Panda's
+    // Gorilla stance and Hanami's first swing are built on. Being rooted, or
+    // marched across the arena, is flinching in the most literal sense
+    // available, so a body that is currently refusing to flinch refuses it.
+    //
+    // The four DAMAGING commands land in full. Armor has never stopped damage
+    // in this project — it stops the REACTION — and a version where Todo's
+    // super-armor also made him immune to being crushed would be armor doing
+    // something it does nowhere else.
+    //
+    // The consequence is a real and legible counterplay: the answer to being
+    // commanded is to be mid-armor when the word arrives, which means timing a
+    // committed move into an utterance rather than waiting it out. That is the
+    // same answer those characters already give to everything else.
+    const armored = (t.armorFrames > 0 || t.resolveArmor);
+    // `src` is the command's own adaptation category — one per word.
+    const hitOpts = {
+      attacker: caster, isCT: true, sureHit: sure, otgOk: sure,
+      dir: caster.forward(), src: adaptKey(cmd)
+    };
+    const dur = durationFor(caster, t, cmd, { blocked });
+    const chestOf = f => f.pos.clone().setY(f.pos.y + (f.hurtBox?.center ?? 1.15));
+
+    // THE SHAKE AND THE FLASH, scaled by the command's weight — DON'T MOVE is
+    // a ripple, BLAST AWAY moves the whole frame.
+    const heavy = cmd.weight === 'heavy';
+    m.cam.shake(heavy ? 1.25 : 0.35);
+    if (heavy) m.cam.fovKick(9);
+    m.stage.flash(heavy ? 0.34 : 0.12);
+
+    switch (cmd.effect) {
+      // ---- DON'T MOVE 動くな ------------------------------------------------
+      // No damage. The `rooted` state and the `rootT` clock are the ones that
+      // have been in this project since Yuta's domain — REUSED, not
+      // reimplemented, exactly as the brief asked. What is new is only the
+      // number going into them: Yuta's rolls a flat duration, Inumaki's is
+      // resistance-scaled. Nothing about Yuta's path is touched.
+      case 'speech_root': {
+        if (down) { m.hud.toast(t, 'ALREADY DOWN'); break; }
+        if (armored) { m.hud.toast(t, 'ARMOR HOLDS'); m.sfx.armor(); break; }
+        m.sfx.root();
+        t.rootT = Math.max(t.rootT, dur);
+        t.setState('rooted', { clip: 'stunned' });
+        t.vel.x = t.vel.z = 0;
+        m.speechfx?.cage(t, cmd, dur);
+        m.hud.toast(t, 'ROOTED  ' + dur.toFixed(1) + 's');
+        break;
+      }
+
+      // ---- COME HERE 来い ---------------------------------------------------
+      // His only closer. Drags them along the line between the two bodies and
+      // STOPS SHORT (see PULL_STOP), so it delivers them to punching range
+      // rather than through him — which is also what makes it safe next to
+      // every piece of level geometry on every map, because it never asks for
+      // a destination that cannot be reached by walking.
+      case 'speech_pull': {
+        if (down) { m.hud.toast(t, 'ALREADY DOWN'); break; }
+        if (armored) { m.hud.toast(t, 'ARMOR HOLDS'); m.sfx.armor(); break; }
+        m.sfx.commandPull?.();
+        m.speechfx?.arrow(t, cmd, caster.pos, false, dur);
+        beginForced(t, 'pull', dur, 11.5, caster.pos);
+        m.hud.toast(t, 'PULLED');
+        break;
+      }
+
+      // ---- RUN AWAY 逃げろ --------------------------------------------------
+      // No damage at all, and it is the most useful thing in his kit against
+      // the characters he cannot survive standing next to.
+      case 'speech_flee': {
+        if (down) { m.hud.toast(t, 'ALREADY DOWN'); break; }
+        if (armored) { m.hud.toast(t, 'ARMOR HOLDS'); m.sfx.armor(); break; }
+        m.sfx.commandFlee?.();
+        m.speechfx?.arrow(t, cmd, caster.pos, true, dur);
+        // 6.8 m/s, not 9.0. Measured in a live match, the first pass carried
+        // Gojo from 1.3 m to 9.9 m — nearly ten metres of travel, further than
+        // his own dash, and it read less like "he made them back off" and more
+        // like the opponent had been deleted and re-spawned across the arena.
+        // At 6.8 over the shortened duration it is about six metres at zero
+        // resistance and under four against a full meter, which is a
+        // disengage rather than a relocation.
+        beginForced(t, 'flee', dur, 6.8, caster.pos);
+        m.hud.toast(t, 'FLEEING');
+        break;
+      }
+
+      // ---- SLEEP 眠れ -------------------------------------------------------
+      // A short stagger and then a long SLOW. Deliberately not a stun and
+      // deliberately not Naoya's freeze: they keep every input for the whole
+      // duration, they are simply wading. `sleepMult` is on `speedMult`, so it
+      // slows their walk, their run and their dash together.
+      case 'speech_sleep': {
+        const dmg = damageFor(caster, cmd) * mult;
+        const r = t.applyHit({
+          ...hitOpts, dmg, kb: 0.4, kbY: 0, hitstun: cmd.staggerFrames ?? 20, type: 'light'
+        }, m.ctxFor(caster));
+        hitFeedback(m, caster, t, r, {});
+        m.sfx.commandSleep?.();
+        t.sleepT = Math.max(t.sleepT, dur);
+        t.sleepMult = Math.min(t.sleepMult, cmd.slowMult ?? 0.55);
+        m.speechfx?.brand(t, cmd, dur);
+        m.hud.toast(t, 'SLOWED  ' + dur.toFixed(1) + 's');
+        break;
+      }
+
+      // ---- GET TWISTED 捻れ -------------------------------------------------
+      // The command the brief missed, and the only DISARM in the game that
+      // leaves the victim fully mobile. It twists the arm they hit with: real
+      // damage, and then a third off everything they throw for four seconds.
+      // On `dmgMult` (see combat/fighter.js) so it covers their whole kit.
+      case 'speech_twist': {
+        const dmg = damageFor(caster, cmd) * mult;
+        const r = t.applyHit({
+          ...hitOpts, dmg, kb: 1.0, kbY: 0, hitstun: 24, type: 'heavy'
+        }, m.ctxFor(caster));
+        hitFeedback(m, caster, t, r, { heavy: true });
+        m.sfx.commandTwist?.();
+        t.twisted = { t: dur, mult: cmd.dmgDebuff ?? 0.68 };
+        m.speechfx?.brand(t, cmd, dur);
+        m.hud.toast(t, 'TWISTED  -' + Math.round((1 - (cmd.dmgDebuff ?? 0.68)) * 100) + '% DMG');
+        break;
+      }
+
+      // ---- GET CRUSHED 潰れろ -----------------------------------------------
+      // A field of gravity that drives them into the ground — so the glyph
+      // comes down ON them from above, and the knockback is almost nothing
+      // because they are not going anywhere except down.
+      case 'speech_crush': {
+        m.speechfx?.slam(t, cmd);
+        m.sfx.commandCrush?.();
+        m.hitstop(12);
+        const { dmg: d2, crit } = computeDamage(caster, damageFor(caster, cmd) * mult);
+        const r = t.applyHit({
+          ...hitOpts, dmg: d2, kb: cmd.kb ?? 1.2, kbY: cmd.kbY ?? 0,
+          hitstun: cmd.hitstun ?? 40, type: 'knockdown'
+        }, m.ctxFor(caster));
+        hitFeedback(m, caster, t, r, { crit, heavy: true, knockdown: true });
+        m.fx._ring(t.pos.clone().setY(0.06), cmd.color, { size: 0.5, growRate: 12, life: 0.45 });
+        m.arena?.destruct?.damageAt(t.pos.clone().setY(0.4), 1.8, 30);
+        break;
+      }
+
+      // ---- BLAST AWAY 吹き飛べ ----------------------------------------------
+      // His hardest word: the biggest single number he has and the largest
+      // knockback in his kit by a factor of ten. The word DETONATES outward
+      // through the body rather than shattering, which is the visual
+      // difference between this and everything else he says.
+      case 'speech_blast': {
+        m.speechfx?.detonate(t, cmd, 3.2);
+        m.sfx.commandBlast?.();
+        m.hitstop(16);
+        m.cam.fovKick(14);
+        const dir = t.pos.clone().sub(caster.pos).setY(0);
+        if (dir.lengthSq() < 1e-4) dir.copy(caster.forward());
+        dir.normalize();
+        const { dmg: d2, crit } = computeDamage(caster, damageFor(caster, cmd) * mult);
+        const r = t.applyHit({
+          ...hitOpts, dmg: d2, kb: cmd.kb ?? 14, kbY: cmd.kbY ?? 5.2,
+          hitstun: cmd.hitstun ?? 46, type: 'knockdown', dir
+        }, m.ctxFor(caster));
+        hitFeedback(m, caster, t, r, { crit, heavy: true, knockdown: true });
+        m.arena?.destruct?.damageAt(chestOf(t), 2.6, cmd.destruct ?? 40);
+        break;
+      }
+    }
+  }
+
   // direct application of a technique by key — used by CT casts, Yuta's Copy,
   // domain sword grabs, and the AML sure-hit (with sureHit: true).
   applyTechnique(caster, key, opts = {}) {
@@ -340,6 +549,138 @@ export class Effects {
     const hitOpts = { attacker: caster, isCT: true, sureHit: sure, otgOk: sure, dir: caster.forward(), src };
 
     switch (key) {
+      // =====================================================================
+      // INUMAKI — CURSED SPEECH 呪言
+      // =====================================================================
+      // ONE cast key for all seven commands, and one resolver for all seven
+      // payloads. Adding a command is an entry in the table in
+      // characters/inumaki.js plus a case in `_speechPayload` — nothing here
+      // knows any command by name.
+      //
+      // THE ORDER OF OPERATIONS MATTERS AND IS THE WHOLE MOVE:
+      //
+      //   1. This case runs on the LAST FRAME OF THE UTTERANCE. Reaching it at
+      //      all means he was not interrupted, so this is where the throat is
+      //      charged and where `utter.fired` is set (which is what tells
+      //      `checkUtterance` not to charge him the interruption penalty on
+      //      top).
+      //   2. The overlay and the audio fire IMMEDIATELY — the word has been
+      //      said, whatever happens to it afterwards.
+      //   3. The glyphs are launched, and the PAYLOAD IS A CALLBACK. It does
+      //      not run here. It runs when the kanji arrive and finish
+      //      constricting around the target, roughly a sixth of a second
+      //      later, which is the half-beat of "the word has them" the whole
+      //      effect is built around.
+      //   4. If nobody is in range the word still flies, and dissipates. It
+      //      cost him the same throat. A command is not free to whiff.
+      case 'inumaki_command': {
+        const cmd = caster.cfg.commands.defs[opts.commandKey ?? caster.utter?.key];
+        if (!cmd) break;
+        // 1 — the price, paid on the frame the word actually leaves his mouth
+        if (caster.utter) caster.utter.fired = true;
+        spendThroat(caster, cmd.throat);
+        const tier = caster.throatTier;
+        // 2 — the card and the voice
+        m.commandCard?.show(cmd, tier);
+        m.sfx.command?.(cmd.weight, tier);
+        m.cam.shake(cmd.weight === 'heavy' ? 0.55 : 0.22);
+        // the directional shockwave along the command's path: a ring pushed
+        // out of his mouth in the direction he is speaking
+        const fw = caster.forward();
+        m.fx._ring(
+          caster.pos.clone().setY(caster.pos.y + 1.45).addScaledVector(fw, 0.45),
+          cmd.color, { size: 0.3, growRate: cmd.weight === 'heavy' ? 16 : 9, life: 0.3, flat: false });
+
+        // 3 — who it is aimed at, and whether it reaches
+        const reached = t && inCommandRange(caster, t, cmd);
+        if (!reached) {
+          // THE WHIFF. The glyphs fly out to the limit of his range and come
+          // apart on nothing. Deliberately given the full flight and shatter
+          // rather than being swallowed: a player has to be able to SEE that
+          // the word went out and found nobody, or a mistimed command reads as
+          // a dropped input.
+          m.speechfx?.speakInto(caster, cmd, cmd.range);
+          m.hud.toast(caster, cmd.short + ' — OUT OF RANGE');
+          break;
+        }
+        // the target is TOLD a word is coming, on their own plate, at the
+        // instant it is said — this is the reaction window and it has to be
+        // readable from the HUD as well as from his body
+        m.hud.toast(t, cmd.jp + '  ' + cmd.short);
+        m.speechfx?.speak(caster, t, cmd, {
+          scale: cmd.weight === 'heavy' ? 1.05 : 0.78,
+          onArrive: () => this._speechLand(caster, t, cmd, { mult, sure })
+        });
+        break;
+      }
+
+      // ---- D-pad Right — EXPLODE 爆ぜろ -------------------------------------
+      // The strongest word he is shown using, and it is its own confirmed
+      // command rather than a bigger Blast Away. Three things happen that no
+      // other command does:
+      //
+      //   · it is a RADIUS, not a target. Everyone inside `radius` of the
+      //     victim is caught, which is the only AoE in his kit and the reason
+      //     it is worth a full bar in a free-for-all.
+      //   · the forced state that follows is applied at FULL LENGTH, ignoring
+      //     the strain tier — he is not saying this word carefully.
+      //     Resistance still applies, because resistance is the opponent and
+      //     not him.
+      //   · HE SPENDS HIS VOICE. `spendVoice` sets the round-long latch. There
+      //     is no recovery from it and no second one.
+      case 'inumaki_explode': {
+        const u = caster.cfg.ultimate;
+        const cmd = {
+          key: 'explode', short: 'EXPLODE', name: 'EXPLODE', jp: u.jpName,
+          romaji: 'HAZERO', kanji: u.kanji, color: u.color, weight: 'heavy',
+          range: 16, dur: u.dur
+        };
+        // the price, and it is the whole voice
+        if (caster.utter) caster.utter.fired = true;
+        m.commandCard?.show(cmd, 0);
+        m.sfx.explodeCommand?.();
+        m.stage.flash(0.9);
+        m.cam.shake(1.6); m.cam.fovKick(16);
+        m.hud.cutin(caster, 'CURSED SPEECH', u.jpName + '  ' + u.name);
+        const centre = t ?? caster;
+        m.speechfx?.speak(caster, centre, cmd, {
+          scale: 1.15,
+          onArrive: () => {
+            m.stage.flash(1.0);
+            m.cam.shake(2.2); m.cam.fovKick(22);
+            m.hitstop(16);
+            m.speechfx?.detonate(centre, cmd, u.radius);
+            m.arena?.destruct?.damageAt(centre.pos.clone().setY(1.0), u.radius, u.destruct ?? 90);
+            for (const f of m.activeFighters) {
+              if (f === caster || !f.alive) continue;
+              if (flatDist(f.pos, centre.pos) > u.radius + (f.hurtBox?.radius ?? 0.62)) continue;
+              const dir = f.pos.clone().sub(centre.pos).setY(0);
+              if (dir.lengthSq() < 1e-4) dir.copy(caster.forward());
+              dir.normalize();
+              const { dmg, crit } = computeDamage(caster, u.dmg * mult);
+              const r = f.applyHit({
+                ...hitOpts, dmg, kb: u.kb, kbY: u.kbY, hitstun: u.hitstun,
+                type: 'knockdown', dir, src: 'ultimate'
+              }, m.ctxFor(caster));
+              hitFeedback(m, caster, f, r, { crit, heavy: true, knockdown: true });
+              // ...and whatever is left of them is rooted where they land.
+              // NOT tier-scaled: he is not being careful with this one.
+              if (r === 'hit' || r === 'otg' || r === 'block') {
+                const d = (u.dur ?? 2.2) * (1 - resistOf(f));
+                f.rootT = Math.max(f.rootT, d);
+              }
+            }
+          }
+        });
+        // the latch, set on the CAST frame rather than on arrival, so an
+        // Explode that is somehow interrupted between the two still costs him
+        // the voice. He said it; that is the part that ruins a throat.
+        spendVoice(caster);
+        caster.model.setStrain?.(3, 1);
+        m.hud.toast(caster, '失声 — VOICE SPENT');
+        break;
+      }
+
       // =====================================================================
       // GETO — CURSED SPIRIT MANIPULATION
       // =====================================================================

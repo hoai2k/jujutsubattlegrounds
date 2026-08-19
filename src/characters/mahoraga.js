@@ -89,6 +89,20 @@ export const MAHORAGA = withDefaults({
     damageScale: 1.0
   },
 
+  // ---- CURSED SPEECH RESISTANCE -------------------------------------------
+  // He has no MAX_CE either, so like Toji he declares a flat base — see
+  // combat/speech.js. 0.40, a touch under Toji's, and the reason is that
+  // unlike Toji this number is only the STARTING point: each of Inumaki's
+  // seven commands is its own adaptation category (combat/adaptation.js), so
+  // the wheel over his head answers cursed speech the same way it answers
+  // everything else. Adapting to DON'T MOVE teaches him nothing about BLAST
+  // AWAY, and the matchup becomes a word-rotation puzzle — which is the most
+  // interesting version of it and the one the brief recommended.
+  //
+  // The adaptation is read by `durationFor` for the three commands that deal
+  // no damage, and by the ordinary hit pipeline for the four that do.
+  speechResist: 0.40,
+
   // ---- X · THE CLAW STRING -------------------------------------------------
   // Slow, enormous, three hits. Reach 3.3-3.8 m against the roster's 1.35-1.7:
   // he is hitting people who think they are safely outside his range.

@@ -1371,6 +1371,12 @@ export class Sfx {
         this._noise({ dur: 0.14, gain: 0.24, freq: 3600, q: 3.0 });
         setTimeout(() => this._noise({ dur: 0.5, gain: 0.15, freq: 5000, slideTo: 2600, q: 0.5 }), 150);
         break;
+      case 'inumaki':                      // "salmon." Two flat syllables and
+        // nothing else happens — which is the joke. Deliberately the SMALLEST
+        // cue in the table: no reverb, no sweep, no impact. A taunt that
+        // sounded like a technique would ruin it.
+        two(392, 349, 0.12, { type: 'triangle', dur: 0.15, gain: 0.11 });
+        break;
       case 'mahoraga':                     // the wheel: one turn, one clunk
         this._noise({ dur: 0.5, gain: 0.14, freq: 800, slideTo: 300, q: 1.1 });
         setTimeout(() => this._osc('square', 130, { to: 44, dur: 0.24, gain: 0.3 }), 480);
@@ -1378,5 +1384,211 @@ export class Sfx {
       default:
         two(440, 587, 0.1, { type: 'triangle', dur: 0.16, gain: 0.14 });
     }
+  }
+
+  // =========================================================================
+  // CURSED SPEECH 呪言 — THE VOICE
+  // =========================================================================
+  // ORIGINAL PROCEDURAL AUDIO ONLY. Nothing here is sampled from anything, and
+  // there is no voice recording in the project — a cursed-speech command is
+  // synthesized from three layers stacked at runtime:
+  //
+  //   1. THE FORMANTS. Two detuned sawtooth oscillators through a pair of
+  //      resonant bandpass filters parked at ~700 Hz and ~1150 Hz, which are
+  //      roughly where the first two vowel formants of a human "ah" sit. That
+  //      is what makes it read as a MOUTH rather than as a synth: the ear
+  //      hears formants and infers a throat.
+  //   2. THE INHUMAN LAYER. The same pitch again an octave down as a square
+  //      wave, and a ring-modulating sine a fifth off it. Neither is anything
+  //      a person could produce, and together they are the "it is not really
+  //      him talking" that the whole technique needs.
+  //   3. THE SHOCKWAVE. A sub-bass sine sweeping down under all of it, plus a
+  //      noise burst — the physical event the word causes, arriving underneath
+  //      the word itself.
+  //
+  // AND THEN IT DEGRADES. `tier` is his throat strain, 0..3, and every layer
+  // answers to it:
+  //   CLEAR      full gain, clean formants, the sub lands hard.
+  //   STRAINED   the formant Q drops (the vowel loses definition), and a thin
+  //              breath-noise layer comes in over the top.
+  //   RAW        the pitch is dragged around by a fast wobble, the fundamental
+  //              drops, the breath layer is louder than the voice, and a short
+  //              CRACK — a stepped pitch break — fires halfway through.
+  //   SILENCED   he does not get here: `canSpeak` refuses the command before
+  //              the audio is reached. The row exists so that if one ever leaks
+  //              through it is a rasp and nothing else.
+  //
+  // The result is that a player can tell his gauge state with their eyes shut,
+  // which is the brief for this and the reason it is not four gain values.
+  _voice(freq, dur, gain, tier) {
+    if (!this.ctx) return;
+    const t = this._now();
+    const rough = [0, 0.25, 0.62, 0.9][Math.max(0, Math.min(3, tier))];
+    const out = this.ctx.createGain();
+    out.gain.setValueAtTime(0, t);
+    out.gain.linearRampToValueAtTime(gain * (1 - rough * 0.42), t + 0.012);
+    out.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    out.connect(this.master);
+
+    // 1 — the two formants
+    for (const [fHz, q, lvl] of [[700, 9 - rough * 6, 1.0], [1150, 7 - rough * 4.5, 0.7]]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      const base = freq * (1 - rough * 0.18);
+      o.frequency.setValueAtTime(base, t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(40, base * 0.72), t + dur);
+      // RAW drags the pitch around — this is the wobble that reads as a voice
+      // that has stopped obeying its owner
+      if (rough > 0.5) {
+        const lfo = this.ctx.createOscillator();
+        const lg = this.ctx.createGain();
+        lfo.type = 'sine';
+        lfo.frequency.value = 17 + rough * 22;
+        lg.gain.value = base * 0.09 * rough;
+        lfo.connect(lg); lg.connect(o.frequency);
+        lfo.start(t); lfo.stop(t + dur);
+      }
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = fHz;
+      bp.Q.value = Math.max(0.8, q);
+      const g = this.ctx.createGain();
+      g.gain.value = lvl;
+      o.connect(bp); bp.connect(g); g.connect(out);
+      o.start(t); o.stop(t + dur + 0.04);
+    }
+
+    // 2 — the inhuman layer: an octave down, and a ring-modulating fifth
+    const sub = this.ctx.createOscillator();
+    sub.type = 'square';
+    sub.frequency.setValueAtTime(freq * 0.5, t);
+    sub.frequency.exponentialRampToValueAtTime(Math.max(30, freq * 0.34), t + dur);
+    const subG = this.ctx.createGain();
+    subG.gain.value = 0.30;
+    sub.connect(subG); subG.connect(out);
+    sub.start(t); sub.stop(t + dur + 0.04);
+
+    const ring = this.ctx.createOscillator();
+    ring.type = 'sine';
+    ring.frequency.value = freq * 1.5;
+    const ringG = this.ctx.createGain();
+    ringG.gain.value = 0.0;                       // modulated, not heard alone
+    const ringDepth = this.ctx.createGain();
+    ringDepth.gain.value = 0.18 + rough * 0.16;
+    ring.connect(ringDepth); ringDepth.connect(ringG.gain);
+    subG.connect(ringG); ringG.connect(out);
+    ring.start(t); ring.stop(t + dur + 0.04);
+
+    // the breath layer — barely there when he is clear, most of the sound
+    // when he is raw
+    if (rough > 0.1) {
+      this._noise({
+        dur, gain: gain * rough * 0.55, freq: 1800 - rough * 700,
+        slideTo: 600, q: 0.7, a: 0.01
+      });
+    }
+    // ...and the crack, halfway through, once he is RAW
+    if (rough > 0.5) {
+      setTimeout(() => {
+        this._noise({ dur: 0.09, gain: 0.22, freq: 2600, q: 2.2 });
+        this._osc('square', freq * 1.9, { to: freq * 0.6, dur: 0.07, gain: 0.10 });
+      }, dur * 480);
+    }
+  }
+
+  // THE COMMAND ITSELF. `weight` picks the register (a light word is higher
+  // and shorter), `tier` degrades it.
+  command(weight = 'light', tier = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const heavy = weight === 'heavy';
+    this.theme?.duck(heavy ? 0.42 : 0.62, heavy ? 0.30 : 0.16);
+    this._voice(heavy ? 132 : 188, heavy ? 0.52 : 0.34, heavy ? 0.40 : 0.30, tier);
+    // 3 — THE SHOCKWAVE, underneath the word. This is the physical event, and
+    // it is what makes a command land like an impact rather than like a line
+    // of dialogue.
+    this._osc('sine', heavy ? 92 : 140, { to: heavy ? 32 : 54, dur: heavy ? 0.44 : 0.24, gain: heavy ? 0.55 : 0.30 });
+    this._noise({ dur: heavy ? 0.34 : 0.18, gain: heavy ? 0.30 : 0.16, freq: heavy ? 520 : 900, slideTo: 180, q: 0.6 });
+  }
+
+  // The windup — the gather at his throat. A rising resonant hum, so the
+  // opponent hears the command coming before they see the glyphs.
+  utterStart(weight = 'light', tier = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const heavy = weight === 'heavy';
+    this._osc('sine', heavy ? 150 : 220, { to: heavy ? 300 : 400, dur: heavy ? 0.50 : 0.24, gain: 0.13, curve: 'exp' });
+    this._noise({ dur: heavy ? 0.52 : 0.26, gain: 0.10 + tier * 0.03, freq: 300, slideTo: 1700, q: 1.9, a: 0.06 });
+  }
+
+  // The gather collapsing when somebody hits him. A swallowed, cut-off vowel.
+  utterBreak() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sawtooth', 210, { to: 70, dur: 0.11, gain: 0.20 });
+    this._noise({ dur: 0.13, gain: 0.20, freq: 1500, slideTo: 300, q: 1.4 });
+  }
+
+  // SILENCED. Not a sting — an ABSENCE. A wet, airless rasp with no pitch in
+  // it at all, which is the correct sound for a throat that has stopped
+  // working, and the only cue in his set that is deliberately unpleasant.
+  silenced() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.62, gain: 0.26, freq: 900, slideTo: 240, q: 0.8, a: 0.02 });
+    this._noise({ dur: 0.30, gain: 0.16, freq: 2800, slideTo: 900, q: 1.2 });
+    this._osc('sine', 70, { to: 40, dur: 0.5, gain: 0.14 });
+  }
+
+  // ---- ONE CUE PER COMMAND, layered UNDER `command` above ------------------
+  // Each is the physical consequence rather than the word: they fire on
+  // ARRIVAL, a beat after the voice, so a command reads as two events.
+  commandPull() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sine', 70, { to: 220, dur: 0.30, gain: 0.30 });        // rising: toward him
+    this._noise({ dur: 0.28, gain: 0.18, freq: 300, slideTo: 1400, q: 1.1 });
+  }
+  commandFlee() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sine', 240, { to: 70, dur: 0.30, gain: 0.26 });        // falling: away
+    this._noise({ dur: 0.30, gain: 0.16, freq: 1500, slideTo: 320, q: 1.0 });
+  }
+  commandSleep() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sine', 300, { to: 84, dur: 0.75, gain: 0.20 });
+    this._osc('triangle', 150, { to: 46, dur: 0.85, gain: 0.14 });
+    this._noise({ dur: 0.7, gain: 0.09, freq: 500, slideTo: 160, q: 0.7, a: 0.09 });
+  }
+  commandTwist() {
+    this.ensure(); if (!this.ctx) return;
+    // a wrench: two detuned tones sliding PAST each other
+    this._osc('sawtooth', 180, { to: 320, dur: 0.26, gain: 0.20 });
+    this._osc('sawtooth', 300, { to: 150, dur: 0.26, gain: 0.18 });
+    this._noise({ dur: 0.20, gain: 0.24, freq: 2200, slideTo: 700, q: 2.6 });
+  }
+  commandCrush() {
+    this.ensure(); if (!this.ctx) return;
+    this.theme?.duck(0.42, 0.24);
+    this._osc('sine', 110, { to: 26, dur: 0.42, gain: 0.62 });
+    this._noise({ dur: 0.30, gain: 0.42, freq: 260, q: 0.5, type: 'lowpass' });
+  }
+  commandBlast() {
+    this.ensure(); if (!this.ctx) return;
+    this.theme?.duck(0.34, 0.30);
+    this._osc('sine', 150, { to: 30, dur: 0.52, gain: 0.66 });
+    this._noise({ dur: 0.46, gain: 0.46, freq: 1400, slideTo: 200, q: 0.5 });
+    this._noise({ dur: 0.16, gain: 0.30, freq: 5200, q: 1.0 });
+  }
+
+  // EXPLODE 爆ぜろ — the ultimate. The voice at its lowest and longest, the
+  // crack of a throat giving out at the end of it, and a detonation under
+  // everything. The one cue in his set that is allowed to be enormous.
+  explodeCommand() {
+    this.ensure(); if (!this.ctx) return;
+    this.theme?.duck(0.22, 0.9);
+    this._voice(96, 0.80, 0.48, 1);
+    this._osc('sine', 62, { to: 20, dur: 0.95, gain: 0.72 });
+    this._noise({ dur: 0.85, gain: 0.44, freq: 900, slideTo: 120, q: 0.5 });
+    setTimeout(() => {
+      // the throat going, half a second in
+      this._noise({ dur: 0.34, gain: 0.30, freq: 2400, slideTo: 700, q: 2.0 });
+      this._osc('square', 190, { to: 48, dur: 0.22, gain: 0.16 });
+    }, 520);
   }
 }

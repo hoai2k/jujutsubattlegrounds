@@ -1,6 +1,15 @@
 // Debug overlay (F3): state names, frame data, all three resources, domain
 // state, barrier integrity, frame timing, hitbox spheres + skeletons.
 import * as THREE from 'three';
+// CURSED SPEECH. The brief asks that every command's range be visible in the
+// debug overlay, and the resistance curve alongside it — both are numbers a
+// player cannot infer from watching, and both decide whether a word was worth
+// saying. `SPEECH-ON-ME` prints on EVERY fighter, not just Inumaki, because
+// the interesting number is the one on the person being commanded.
+import {
+  tierDef as throatTier, boundKey as cmdKey, affordable,
+  resistOf, resistBand, RESIST_BANDS
+} from '../combat/speech.js';
 
 export class DebugOverlay {
   constructor(root, scene) {
@@ -49,7 +58,14 @@ export class DebugOverlay {
   CORES: ${f.cores.map(c => `${c.short}${c.key === f.stance ? '*' : ' '}${c.alive ? Math.round(c.hp) + '/' + Math.round(c.max) : 'DEAD'}`).join('  ')}  stance=${f.stance}  total=${Math.round(f.cores.reduce((a2, c) => a2 + Math.max(0, c.hp), 0))}${f.allCoresT > 0 ? `  ULT ${f.allCoresT.toFixed(1)}s x${f.allCoresMult.toFixed(2)}` : ''}` : ''}${f.cfg.charge ? `
   CHARGE: ${f.charge.toFixed(1)}/${f.cfg.charge.max} tier=${f.chargeTier} dmg=x${(f.dmgMult / f.stats.damageScale).toFixed(2)} arc=${f.arcChain}/${f.amberT > 0 ? (f.cfg.ultimate.chain ?? 6) : (f.cfg.special.chain ?? 3)} win=${f.arcWindow.toFixed(2)}${f.amberT > 0 ? `  AMBER ${f.amberT.toFixed(1)}s` : ''}` : ''}${f.cfg.gluttony ? `
   GLUT: ${f.gluttony.toFixed(1)}/${f.cfg.gluttony.max} stage=${f.growthStage}/${f.cfg.gluttony.thresholds.length} scale=${f.growthScale.toFixed(3)} reach=x${f.reachScale.toFixed(2)} hp+${f.growthHpBonus}` : ''}${f.cfg.flora ? `
-  FLORA: terrain=${f.terrain ?? '—'} regen=${(f.floraRate ?? 0).toFixed(2)}/s slow=${f.floraSlow.toFixed(2)} fireVuln=x${f.fireMult}` : ''}${f.melt ? `
+  FLORA: terrain=${f.terrain ?? '—'} regen=${(f.floraRate ?? 0).toFixed(2)}/s slow=${f.floraSlow.toFixed(2)} fireVuln=x${f.fireMult}` : ''}${f.cfg.throat ? `
+  THROAT: ${f.throat.toFixed(1)}/${f.cfg.throat.max} tier=${f.throatTier}(${throatTier(f.throatTier).name}) rest=${f.throatRest.toFixed(2)}${f.voiceSpent ? ' SPENT' : ''} durX=${throatTier(f.throatTier).dur.toFixed(2)} dmgX=${throatTier(f.throatTier).dmg.toFixed(2)}
+  BOUND: RB=${cmdKey(f, 'ct1')} RT=${cmdKey(f, 'ct2')}${f.utter ? '  SAYING=' + f.utter.key : ''}
+  RANGES: ${f.cfg.commands.order.map(k => {
+    const c = f.cfg.commands.defs[k];
+    return `${c.short}=${c.range.toFixed(1)}m/${c.throat}${affordable(f, c) ? '' : 'x'}`;
+  }).join('  ')}` : ''}${f.cfg.throat || f.forced || f.sleepT > 0 || f.twisted || f.rootT > 0 ? `
+  SPEECH-ON-ME: resist=${(resistOf(f) * 100).toFixed(0)}% (${RESIST_BANDS[resistBand(f)]}) root=${f.rootT.toFixed(2)} sleep=${f.sleepT.toFixed(2)}x${f.sleepMult.toFixed(2)} twist=${f.twisted ? f.twisted.t.toFixed(2) + 'x' + f.twisted.mult : '—'} forced=${f.forced ? f.forced.mode + ' ' + f.forced.t.toFixed(2) : '—'}` : ''}${f.melt ? `
   MELT: ${f.melt.t.toFixed(1)}s chip x${f.melt.chip} stam x${f.melt.stamina}` : ''}
   ${f.copySlot ? 'copy=' + f.copySlot.name : ''}${f.ratioMark ? ' MARK' : ''}${f.buffs.overtime > 0 ? ' OT' : ''}${f.buffs.voidDebuff > 0 ? ' VOIDDBF' : ''}${f.buffs.sukuna > 0 ? ' SUKUNA=' + f.buffs.sukuna.toFixed(1) : ''}${f.buffs.resolve > 0 ? ' RESOLVE' : ''}${f.cfg.special ? `
   SP: ${f.cfg.special.key} cd=${Math.max(0, f.specialCD).toFixed(1)}/${f.specialCDMax.toFixed(1)}${f.cfg.special.key === 'nanami_ratio' ? ` sweep=${f.ratioSweep == null ? '—' : f.ratioSweep.toFixed(3)} red=${f.cfg.special.mark} win=±${f.cfg.special.hitWindow} primed=${f.ratioPrimed} (F7 forces)` : ''}` : ''}${f.cfg.blackFlash ? `
