@@ -233,14 +233,15 @@ export class FreezeSystem {
     for (let i = 0; i < FREEZE_FPS; i++) {
       const a = (i / FREEZE_FPS) * Math.PI * 2 - Math.PI / 2;
       const tick = new THREE.Mesh(geo, mat);
-      // laid out in the ring's own plane, then the whole group is billboarded
-      // to the camera each tick so all 24 are always countable
+      // laid out in the ring's own plane; the whole group is billboarded to
+      // each eye as it draws, so all 24 are always countable from every seat
       tick.position.set(Math.cos(a) * 0.46, h + Math.sin(a) * 0.46, 0);
       tick.rotation.z = -a + Math.PI / 2;
       tick.renderOrder = 5;
       group.add(tick);
       ticks.push(tick);
     }
+    group.userData.billboard = true;   // camera-facing, aimed per eye in core/stage.js
     victim.model.group.add(group);
     return { group, ticks, geo, mat };
   }
@@ -260,7 +261,6 @@ export class FreezeSystem {
       if (e.ring) {
         const spent = Math.floor((1 - e.t / e.dur) * FREEZE_FPS);
         for (let k = 0; k < e.ring.ticks.length; k++) e.ring.ticks[k].visible = k >= spent;
-        e.ring.group.quaternion.copy(this.match.stage.camera.quaternion);
       }
       // a gold mote every 1/24 s, on the grid, so the freeze audibly and
       // visibly ticks rather than just sitting there

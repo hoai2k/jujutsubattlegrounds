@@ -493,12 +493,16 @@ export class CPU {
           this._edges(f);
           return f;
         }
-        // 2. the seed — and it is thrown at a target who does not already
-        //    have one, because re-planting only refreshes it
+        // 2. THE ROOT SWARM. Sent at a target who does not already carry the
+        //    bud (a second one only refreshes it) and only from inside its
+        //    own range — it is a line that travels, so it wants them roughly
+        //    in front rather than merely nearby. The CPU aims it by walking
+        //    into them, which is exactly how the stick-steering reads.
         this._budT = (this._budT ?? 0) - dt;
-        if (this._budT <= 0 && dist < (me.cfg.ct2.range ?? 7) && !fl?.budOn(foe)
+        if (this._budT <= 0 && dist < (me.cfg.ct2.range ?? 11) - 1.5 && !fl?.budOn(foe)
           && me.res.curCE >= me.cfg.ct2.cost + 8) {
           f.ct2 = true;
+          f.move.z = 1;                 // lean into the swarm's direction
           this._budT = rand(1.4, 2.4);
           this._edges(f);
           return f;
@@ -852,23 +856,52 @@ export class CPU {
       const sys = this.match.shikigami;
       const snap = sys.snapshot(me);
       const by = Object.fromEntries(snap.map(s => [s.key, s]));
-      const bind = k => (by[k] && !by[k].lost && by[k].cd <= 0 && by[k].affordable);
+      // `blocked` covers the two states that are new to the roster: the
+      // ritual-only Mahoraga entry, and a fusion whose components have been
+      // destroyed. Without it the CPU would happily bind a slot to a button
+      // that can never fire.
+      const bind = k => (by[k] && !by[k].lost && !by[k].blocked && by[k].cd <= 0 && by[k].affordable);
       const onField = sys.aliveFor(me).length;
       const hurt = me.res.hp < me.cfg.stats.hp * 0.35;
       const pressured = dist < 2.4 && (foe.state === 'attack' || foe.state === 'ct' || foe.state === 'run');
+      const deerOut = sys.aliveFor(me).some(s => s.key === 'roundDeer');
 
       // 1) PANIC — Rabbit Escape when it is being run down on low health
       if (!me.busy && hurt && pressured && bind('rabbits') && !this.wheelT) {
         this._wantBind = { key: 'rabbits', slot: 'ct1' };
       }
-      // 2) PUNISH — Max Elephant into a knockdown, where it cannot be answered
+      // 2) SUSTAIN — Round Deer when it is hurt and NOT being run down. The
+      //    ordering against the panic button matters: the deer is fragile and
+      //    summoning it with somebody in his face just feeds them a kill.
+      else if (!me.busy && hurt && !pressured && !deerOut && bind('roundDeer')) {
+        this._wantBind = { key: 'roundDeer', slot: 'ct1' };
+      }
+      // 3) THE FUSION — Merged Beast Agito. Gated hard, because it costs four
+      //    shikigami: only with a healthy bar, only when the fight is close
+      //    enough to spend it on, and never twice in a row.
+      else if (!me.busy && bind('agito') && me.res.curCE > 60 && dist < 11 && Math.random() < 0.04) {
+        this._wantBind = { key: 'agito', slot: 'ct2' };
+      }
+      // 4) THE RUNWAY — Piercing Ox specifically when there IS runway. Summoned
+      //    in a corridor it is a shove; summoned across an open street it is the
+      //    biggest hit Megumi has, and the CPU should know the difference.
+      else if (!me.busy && dist > 8 && bind('piercingOx') && Math.random() < 0.03) {
+        this._wantBind = { key: 'piercingOx', slot: 'ct2' };
+      }
+      // 5) PUNISH — Max Elephant into a knockdown, where it cannot be answered
       else if (!me.busy && (foe.state === 'knockdown' || foe.state === 'getup')
         && bind('elephant') && dist < 9) {
         this._wantBind = { key: 'elephant', slot: 'ct2' };
       }
-      // 3) CONTROL — Toad + Serpent when the opponent wants to sit at range
+      // 6) CONTROL — Toad + Serpent when the opponent wants to sit at range
       else if (!me.busy && dist > 6 && bind('serpent') && Math.random() < 0.02) {
         this._wantBind = { key: 'serpent', slot: 'ct2' };
+      }
+      // 7) DEFAULT — Tiger Funeral, the all-rounder, when nothing else applies
+      //    and the field is empty. It is the pick with no read behind it, which
+      //    is exactly what a CPU with no read should take.
+      else if (!me.busy && !onField && bind('tigerFuneral') && Math.random() < 0.02) {
+        this._wantBind = { key: 'tigerFuneral', slot: 'ct1' };
       }
 
       // drive the wheel: hold B, steer to the wanted sector, release
@@ -895,8 +928,8 @@ export class CPU {
         const wantMore = onField < 2 || !!this.match.domains.isShadowGarden(me);
         if (wantMore && this.summonT <= 0) {
           const s1 = by[sys.bindingOf(me, 'ct1')], s2 = by[sys.bindingOf(me, 'ct2')];
-          const ok1 = s1 && !s1.lost && s1.cd <= 0 && s1.affordable;
-          const ok2 = s2 && !s2.lost && s2.cd <= 0 && s2.affordable;
+          const ok1 = s1 && !s1.lost && !s1.blocked && s1.cd <= 0 && s1.affordable;
+          const ok2 = s2 && !s2.lost && !s2.blocked && s2.cd <= 0 && s2.affordable;
           if (ok1 && (!ok2 || Math.random() < 0.55)) { f.ct1 = true; this.summonT = rand(0.7, 1.4); }
           else if (ok2) { f.ct2 = true; this.summonT = rand(0.7, 1.4); }
         }
@@ -961,7 +994,7 @@ export class CPU {
           }
         }
       } else if (me.state === 'wheel' && this._wantCurse) {
-        const order = me.cfg.curses.specialOrder;
+        const order = me.cfg.curses.wheelOrder ?? me.cfg.curses.specialOrder;
         const want = order.indexOf(this._wantCurse);
         const cur = me.wheel?.sel ?? 0;
         if (want !== cur) {

@@ -16,13 +16,22 @@ export const YUTA = withDefaults({
     reach: 2.1, kb: 5.4, hitstun: 32, step: 2.2, staminaCost: 22, armorFrames: 16
   },
   ct1: {
-    name: 'Rika: Cleave', cost: 18, startup: 26, active: 6, recovery: 30,
-    effect: 'yuta_rika_swing', dmg: 14, reach: 2.7, arc: 2.4, kb: 5, kbY: 1.5,
-    armorFrames: 26, clip: 'ct1'
+    // RIKA'S GRASP — her oversized spectral hand flown down the lane
+    // (stick-steered). What it catches it BRINGS BACK, deposited at arm's
+    // reach in front of Yuta with the combo already his: the payoff moved
+    // from knockback to position, which is the scarier gift.
+    name: 'Rika: Grasp', cost: 18, startup: 26, active: 6, recovery: 30,
+    effect: 'yuta_rika_swing', dmg: 14, range: 6.0, speed: 17, dragGap: 1.6,
+    hitstun: 26, armorFrames: 26, clip: 'ct1'
   },
   ct2: {
-    name: 'Rika: Lunge', cost: 12, startup: 12, active: 9, recovery: 16,
-    effect: 'yuta_lunge', dmg: 8, lungeSpeed: 14, reach: 1.6, kb: 1.2, hitstun: 18, clip: 'ct2'
+    // RIKA'S TEETH — she does it, not him: a spectral maw driven out ahead
+    // of him that closes on whatever it reaches. He is still dragged in
+    // behind it (this slot is his approach), but the hitbox is hers and it
+    // is out in front rather than on his shoulder.
+    name: 'Rika: Teeth', cost: 12, startup: 12, active: 9, recovery: 16,
+    effect: 'yuta_lunge', dmg: 8, speed: 15, range: 4.5,
+    lungeSpeed: 14, kb: 1.2, hitstun: 18, clip: 'ct2'
   },
   // Passive: after being hit by an opponent CT, B mimics a weaker copy once.
   // Passive COPY. Two ways to load the slot: land a punch on someone

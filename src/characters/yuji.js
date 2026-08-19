@@ -37,16 +37,26 @@ export const YUJI = withDefaults({
     ceRefund: 25, maxSpike: 8, reach: 2.4
   },
   ct1: {
-    // straight hit now, shockwave a beat later — the delayed launch catches
-    // anyone acting right after the block/hit. Both impacts are BF eligible.
-    name: 'Divergent Fist', cost: 10, startup: 14, active: 4, recovery: 18,
+    // DIVERGENT BLOOM — no fist anywhere in it. He puts his cursed energy
+    // into the deck and it comes back up under them as a crimson CE crystal,
+    // which then DIVERGES: a second, bigger detonation out of the same bloom
+    // a beat later, and that one launches. The delayed second impact was
+    // always the identity of the technique; now it is the whole move.
+    // Stick-aimed, neutral drops it on their feet. Both hits open Black Flash.
+    name: 'Divergent Bloom', jpName: '硬着発散', cost: 10,
+    startup: 14, active: 4, recovery: 18,
     effect: 'yuji_divergent', dmg: 7, dmg2: 10, delay: 0.45,
-    reach: 1.9, arc: 1.6, kb: 2, hitstun: 18, clip: 'ct1'
+    reach: 3.2, radius: 2.1, clip: 'ct1'
   },
   ct2: {
-    // committed spinning kick: gap-closer, combo ender, domain-cast punish
-    name: 'Manji Kick', cost: 8, staminaCost: 22, startup: 15, active: 9, recovery: 24,
-    effect: 'yuji_manji', dmg: 11, lungeSpeed: 13.5, kb: 7, kbY: 2, hitstun: 24, clip: 'ct2'
+    // MANJI SLASH — the 卍 thrown rather than kicked: a spinning four-armed
+    // wheel of cursed energy (real geometry) that flies out and comes back,
+    // cutting on both passes. The return leg is 60% damage and catches
+    // anyone who stepped in to punish the throw.
+    name: 'Manji Slash', jpName: '卍斬', cost: 8, staminaCost: 22,
+    startup: 15, active: 9, recovery: 24,
+    effect: 'yuji_manji', dmg: 11, speed: 17, range: 8.5, size: 1.15,
+    kb: 4.5, kbY: 1.5, hitstun: 24, clip: 'ct2'
   },
   // SPECIAL — BLACK FLASH: B pressed inside the window a landed
   // technique opens (see blackFlash above). No CE cost — landing one REFUNDS
@@ -72,5 +82,5 @@ export const YUJI = withDefaults({
   domain: null, // canon-correct: no innate technique, no domain
   simpleDomainDrain: 16,
   barrierBreak: { ceDrain: 28, chip: 30 },
-  copyEffect: { effect: 'yuji_divergent', dmg: 8, name: 'Copied: Divergent Fist' }
+  copyEffect: { effect: 'yuji_divergent', dmg: 8, name: 'Copied: Divergent Bloom' }
 });

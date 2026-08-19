@@ -26,9 +26,17 @@
 //   SUNK          a platform below the map's fallback ground with no `pit`
 //                 under it. `floorAt` returns groundY, so the room is visible,
 //                 lit, furnished and unenterable.
-//   WALL-LIP      a wall whose top is level with a floor beside it. resolveWalls
-//                 skips only when `y > w.y1`, so equality collides and standing
-//                 on that roof edge shoves you off it.
+//   WALL-LIP      a wall whose top is level with a floor beside it. The engine
+//                 forgives the exact tie now (bounds.LIP_EPS), so this is a
+//                 style warning: build to that line and the next edit falls off
+//                 the other side of it.
+//   PHANTOM       a floor you can SEE with no collider under it. The one fault
+//                 the other checks are blind to — they all start from the
+//                 colliders, and here the collider is what is missing — and the
+//                 one that reads as "I fell through the level".
+//   UNCAPPED      a solid block with a flat top and no walkable surface on it:
+//                 land on it and you sink into the collider and get shoved off
+//                 sideways. Advisory; some blocks are meant to be obstacles.
 //   SPAWN         a spawn point inside a wall, or over a hole.
 //
 // The reachability key is (i, j, HEIGHT BUCKET). Keying on (i, j) alone marks a
@@ -36,7 +44,7 @@
 // floor above it — on maps that are three levels deep that is most of the map.
 import * as THREE from 'three';
 import { MAPS, MAP_IDS, DEFAULT_QUALITY } from './index.js';
-import { STEP_UP } from './bounds.js';
+import { STEP_UP, LIP_EPS } from './bounds.js';
 
 const STEP = 0.25;          // flood-fill grid, metres
 // HEIGHT BUCKET for the visited key. Must be FINE. A 1 m bucket looks generous
@@ -120,6 +128,16 @@ function touched(bd, p, R) {
   return false;
 }
 
+// Is (x,z) inside a live ramp's footprint? Ramps carry their own collider and
+// their terrain rect deliberately does not follow their surface.
+function onRamp(bd, x, z) {
+  for (const p of bd.platforms) {
+    if (!p.live || !p.ramp) continue;
+    if (x >= p.x0 && x <= p.x1 && z >= p.z0 && z <= p.z1) return true;
+  }
+  return false;
+}
+
 function rampYOf(p, x, z) {
   const r = p.ramp;
   const t = r.axis === 'x'
@@ -152,7 +170,7 @@ export function check(id, quality = DEFAULT_QUALITY) {
   // Unnamed decorative ledges are not worth the false positives.
   const byId = new Map();
   for (const p of bd.platforms) {
-    if (!p.id) continue;
+    if (!p.id || p.prop) continue;      // a prop top is a surface, not a route
     if (!byId.has(p.id)) byId.set(p.id, []);
     byId.get(p.id).push(p);
   }
@@ -237,19 +255,107 @@ export function check(id, quality = DEFAULT_QUALITY) {
     ];
     for (const [x, z] of probes) {
       if (!bd.contains(x, z, 0)) continue;
+      // Exact ties only. `LIP_EPS` in resolveWalls now forgives a floor level
+      // with a wall top, so this no longer costs the player anything at run
+      // time — it stays because a wall built to exactly the height of the deck
+      // beside it is still a mistake worth naming, and because the forgiveness
+      // is one tie-break wide: anything that drifts a few centimetres off this
+      // line lands back in the wall. Widening the window past the tie was
+      // tried and is not worth it — the random prop heights (a tree is
+      // `rand(1.1, 1.9)` tall) put a handful of trunks within 10 cm of some
+      // floor on every build, and a check that cries wolf once a build is a
+      // check nobody reads.
       const f = bd.floorAt(x, z, w.y1 + STEP_UP);
-      if (f > w.y1 - 0.005 && f <= w.y1 + 0.005) {
+      if (Math.abs(f - w.y1) <= 0.005) {
         const k = (w.id || '') + Math.round(w.y1 * 100);
         if (seenLip.has(k)) break;
         seenLip.add(k);
         out.push({
           sev: 2, kind: 'WALL-LIP', id: w.id,
           msg: `wall ${w.id ? '"' + w.id + '" ' : ''}${fmt(w)} tops out at y=${w.y1.toFixed(3)}, exactly the ` +
-            `floor beside it — stop it ~0.12 m short or standing on that edge pushes you off`
+            `floor beside it — stop it ~0.12 m short; the engine forgives the tie, the next edit may not`
         });
         break;
       }
     }
+  }
+
+  // ---- PHANTOM ------------------------------------------------------------
+  // A DRAWN FLOOR WITH NOTHING UNDER IT. Every floor the kit lays down also
+  // records a terrain rect (kit.floor -> _terrainFor), whether or not it asked
+  // for a collider — so a terrain rect sitting well above the surface the
+  // collision system actually reports at that spot is a piece of floor you can
+  // see, walk onto, and drop straight through. This is the fault that reads as
+  // "I fell through the level" rather than as "this room is unreachable", and
+  // it is the one thing none of the checks above could see: they all start from
+  // the colliders, and the whole failure here is that the collider is missing.
+  //
+  // Sampled at the centre and a little inside each corner, because a rect can
+  // be partly covered — half a mezzanine floor with a collider and half without
+  // is a real way to author this wrong, and the centre alone would pass it.
+  // The drop has to be worth calling a hole. Anything inside a step-up is a
+  // kerb: the fighter walks down it without noticing, and half the maps have
+  // pavements drawn 0.22 m proud of the road they meet.
+  const PH_TOL = STEP_UP;
+  for (const t of bd.terrains) {
+    if (!t.live) continue;
+    const w = t.x1 - t.x0, d = t.z1 - t.z0;
+    if (w < 0.6 || d < 0.6) continue;                 // trim, kerbs, thresholds
+    const inx = Math.min(0.4, w * 0.25), inz = Math.min(0.4, d * 0.25);
+    const probes = [
+      [(t.x0 + t.x1) / 2, (t.z0 + t.z1) / 2],
+      [t.x0 + inx, t.z0 + inz], [t.x1 - inx, t.z0 + inz],
+      [t.x0 + inx, t.z1 - inz], [t.x1 - inx, t.z1 - inz]
+    ];
+    let worst = null;
+    for (const [x, z] of probes) {
+      if (!bd.contains(x, z, 0)) continue;
+      // A FLIGHT'S terrain rect is registered at its LOW end over its whole
+      // footprint (kit.stairs), so at the top of the flight the rect sits
+      // metres under the surface by design. The ramp collider IS the floor
+      // there; skip the probe rather than report the stairs on every map.
+      if (onRamp(bd, x, z)) continue;
+      const f = bd.floorAt(x, z, t.y + STEP_UP);
+      if (t.y - f > PH_TOL && (worst === null || f < worst.f)) worst = { f, x, z };
+    }
+    if (worst) {
+      out.push({
+        sev: 0, kind: 'PHANTOM', 
+        msg: `floor drawn at y=${t.y.toFixed(2)} over ${fmt(t)} has no collider — the surface at ` +
+          `(${worst.x.toFixed(1)}, ${worst.z.toFixed(1)}) is y=${worst.f.toFixed(2)}, so a fighter ` +
+          `standing on it falls ${(t.y - worst.f).toFixed(2)} m through it`
+      });
+    }
+  }
+
+  // ---- UNCAPPED -----------------------------------------------------------
+  // A SOLID BLOCK WITH NO TOP. A wall is a horizontal blocker between two
+  // heights and nothing else, so a fighter who lands on one sinks into the band
+  // and is shoved out sideways: the object is solid to walk into and thin air
+  // to stand on. Nobody notices on a fence or a kerb. On something with a
+  // metre-plus footprint and a flat top within landing distance of the floor
+  // beside it — a car, a train, a crate stack — it reads as falling through the
+  // thing you just landed on, and the fix is a platform at the drawn top with
+  // the wall stopped just under it (see `kit.car`).
+  //
+  // Advisory, not a fault: some blocks are meant to be pure obstacles. It is
+  // here so the list is short, known, and deliberate rather than discovered by
+  // a player mid-round.
+  for (const w of bd.walls) {
+    if (!w.live) continue;
+    const wx = w.x1 - w.x0, wz = w.z1 - w.z0;
+    if (Math.min(wx, wz) < 1.2) continue;              // fences, posts, kerbs
+    if (w.y1 - w.y0 < 0.8) continue;                   // kerbs and lips
+    const cx = (w.x0 + w.x1) / 2, cz = (w.z0 + w.z1) / 2;
+    const top = bd.floorAt(cx, cz, w.y1 + STEP_UP);
+    if (top > w.y1 - STEP_UP) continue;                // already capped
+    const under = bd.floorAt(cx, cz, w.y0 + STEP_UP);
+    if (w.y1 - under > 2.4) continue;                  // out of reach: scenery
+    out.push({
+      sev: 2, kind: 'UNCAPPED', id: w.id,
+      msg: `block ${w.id ? '"' + w.id + '" ' : ''}${fmt(w)} is solid from y=${w.y0.toFixed(2)} to ` +
+        `y=${w.y1.toFixed(2)} with no walkable top — a fighter who lands on it is pushed off sideways`
+    });
   }
 
   // ---- SPAWNS -------------------------------------------------------------

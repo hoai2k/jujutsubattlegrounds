@@ -215,6 +215,20 @@ export class MapBuilder {
     this.destructReg = [];        // deferred until the Destructibles exists
     this.instanced = [];
     this._statics = new Map();    // material -> geometry[] awaiting merge
+    // ---- COLLAPSIBLE FLOORS ------------------------------------------------
+    // A floor that a destructible can DROP has to be drawable on its own, or
+    // the collapse takes the collider away and leaves the slab hanging there in
+    // full view: the fighter falls through a roof that is still drawn. Every
+    // `drops: [id]` in the maps shipped that way, because a floor goes into the
+    // merged static batch where nothing can hide it again.
+    //
+    // So floors with an id are held back here instead of being merged on the
+    // spot. `finish()` knows by then which ids something drops, draws exactly
+    // those as their own meshes, and hands them to the destructible as
+    // `dropMeshes` — the field the collapse path has always read and nobody
+    // ever filled. Everything else still merges.
+    this._idFloors = [];          // {id, geo, mat, zone} awaiting the verdict
+    this.meshById = new Map();    // id -> [Mesh] drawn solo for exactly this
   }
 
   add(obj) { this.group.add(obj); return obj; }
@@ -283,10 +297,15 @@ export class MapBuilder {
       const m = new THREE.Mesh(g, mat);
       this.add(m);
       if (opts.zone) this._zoneAdd(opts.zone, m);
+      if (opts.id) this._regMesh(opts.id, m);
       if (opts.walk !== false) this.bounds.platform(x0, z0, x1, z1, y, { id: opts.id });
       return m;
     }
-    this.static_(g, mat, opts.zone);
+    // A NAMED floor is held back until finish() knows whether anything drops
+    // it (see `_idFloors`); an anonymous one can never be dropped and merges
+    // straight away.
+    if (opts.id) this._idFloors.push({ id: opts.id, geo: g, mat, zone: opts.zone });
+    else this.static_(g, mat, opts.zone);
     if (opts.walk !== false) this.bounds.platform(x0, z0, x1, z1, y, { id: opts.id });
     return null;
   }
@@ -785,10 +804,21 @@ export class MapBuilder {
     g.position.set(x, y, z);
     g.rotation.y = ry;
     this.add(g);
-    this.bounds.wall(x - 1.1, z - 2.2, x + 1.1, z + 2.2, y, y + 1.6, { id: 'car' + x + z });
+    // A CAR YOU CAN STAND ON. It used to be one 1.6 m wall and nothing else,
+    // so a fighter who landed on the roof sank into the band and was squirted
+    // out sideways — the body is solid to walk into and was thin air to land
+    // on. Now it collides the way it is drawn: the bonnet and boot are a floor
+    // at their own height, the cabin is a low block standing on it, and both
+    // carry the car's id so destroying it takes the whole lot with it. The
+    // wall under the deck stops 0.06 m short of it for the usual reason — a
+    // wall topping out level with a floor collides with anyone standing there.
+    const cid = 'car' + x + z;
+    this.bounds.wall(x - 1.1, z - 2.2, x + 1.1, z + 2.2, y, y + 1.02, { id: cid });
+    this.bounds.platform(x - 1.1, z - 2.2, x + 1.1, z + 2.2, y + 1.08, { id: cid, prop: true });
+    this.bounds.wall(x - 0.86, z - 1.2, x + 0.86, z + 0.9, y + 1.08, y + 1.71, { id: cid });
     return this.breakable(g, {
       hp: 90, kind: 'metal', center: v3(x, y + 0.8, z), radius: 2.2, height: 1.7, baseY: y,
-      colliderIds: ['car' + x + z], debrisScale: 1.3
+      colliderIds: [cid], debrisScale: 1.3
     });
   }
 
@@ -824,8 +854,13 @@ export class MapBuilder {
     }
     g.position.set(x, y, z);
     this.add(g);
-    this.bounds.wall(x - 1.1 * scale, z - 1.1 * scale, x + 1.1 * scale, z + 1.1 * scale, y, y + 1.6 * scale, { id: 'rock' + x + z });
-    this.bounds.platform(x - 0.9 * scale, z - 0.9 * scale, x + 0.9 * scale, z + 0.9 * scale, y + 1.5 * scale);
+    // THE BLOCKER STOPS UNDER THE TOP. It used to run 0.1 m HIGHER than the
+    // deck laid on it, so a fighter standing on the boulder was standing inside
+    // the wall band and got shoved off the rock they had just climbed.
+    this.bounds.wall(x - 1.1 * scale, z - 1.1 * scale, x + 1.1 * scale, z + 1.1 * scale,
+      y, y + 1.5 * scale - 0.12, { id: 'rock' + x + z });
+    this.bounds.platform(x - 0.9 * scale, z - 0.9 * scale, x + 0.9 * scale, z + 0.9 * scale,
+      y + 1.5 * scale, { id: 'rock' + x + z, prop: true });
     // standing on a boulder is standing on stone, whatever is under it
     this.bounds.terrain(x - 0.9 * scale, z - 0.9 * scale, x + 0.9 * scale, z + 0.9 * scale,
       y + 1.5 * scale, NATURAL);
@@ -1075,8 +1110,42 @@ export class MapBuilder {
     return pts;
   }
 
+  _regMesh(id, mesh) {
+    let list = this.meshById.get(id);
+    if (!list) this.meshById.set(id, list = []);
+    list.push(mesh);
+    return mesh;
+  }
+
+  // Every mesh drawn for a named floor. Maps that build a destructible by hand
+  // (rather than through `pillar`) use this to fill in `dropMeshes`.
+  meshesFor(id) { return this.meshById.get(id) || []; }
+
   // ---- finish --------------------------------------------------------------
   finish(ctx) {
+    // WHAT COLLAPSES. Anything a destructible can drop is drawn on its own so
+    // the collapse can hide it; everything else merges as usual.
+    const dropped = new Set();
+    for (const e of this.destructReg) for (const id of e.dropPlatformIds || []) dropped.add(id);
+    for (const f of this._idFloors) {
+      if (dropped.has(f.id)) {
+        const m = new THREE.Mesh(f.geo, f.mat);
+        m.name = 'floor:' + f.id;
+        this.add(m);
+        if (f.zone) this._zoneAdd(f.zone, m);
+        this._regMesh(f.id, m);
+      } else {
+        this.static_(f.geo, f.mat, f.zone);
+      }
+    }
+    this._idFloors.length = 0;
+    // and hand each destructible the meshes for the floors it brings down
+    for (const e of this.destructReg) {
+      if (!e.dropPlatformIds?.length) continue;
+      const meshes = new Set(e.dropMeshes || []);
+      for (const id of e.dropPlatformIds) for (const m of this.meshesFor(id)) meshes.add(m);
+      e.dropMeshes = [...meshes];
+    }
     this._flushStatics();
     const destruct = new Destructibles(this.group, {
       ...ctx, bounds: this.bounds, quality: ctx.quality
@@ -1131,27 +1200,37 @@ export class MapBuilder {
         }
         return null;
       },
+      // `camera` may be a single camera or the whole list of eyes. It has to be
+      // the whole list in split screen: culling is a property of the SCENE, not
+      // of a view, so anything one eye needs has to stay switched on for all of
+      // them. Culling on eye 0 alone deleted the interior out from under the
+      // other seats — walls and floor gone, the fighter apparently standing on
+      // nothing — while player 1's screen looked perfect.
       update(dt, camera) {
         t += dt;
         for (const fn of tickers) fn(dt);
         destruct.update(dt);
+        const cams = Array.isArray(camera) ? camera : camera ? [camera] : [];
         // ZONE CULLING: an interior does not pay for the exterior and vice
-        // versa. A zone is active when any camera is inside it or near it.
-        if (camera) {
-          const p = camera.position;
+        // versa. A zone is active when ANY eye is inside it or near it.
+        if (cams.length) {
           for (const z of zones) {
             const b = z.box;
-            const inside = p.x > b.x0 - 8 && p.x < b.x1 + 8 && p.z > b.z0 - 8 && p.z < b.z1 + 8
-              && p.y > b.y0 - 6 && p.y < b.y1 + 10;
+            const inside = cams.some(c => {
+              const p = c.position;
+              return p.x > b.x0 - 8 && p.x < b.x1 + 8 && p.z > b.z0 - 8 && p.z < b.z1 + 8
+                && p.y > b.y0 - 6 && p.y < b.y1 + 10;
+            });
             const want = z.interior ? inside : !inside || true;
             if (want !== z.active) {
               z.active = want;
               for (const o of z.objects) o.visible = want;
             }
           }
-          // DETAIL LOD: small props switch off past their range
+          // DETAIL LOD: small props switch off past their range — from EVERY
+          // eye, for the same reason.
           for (const d of detail) {
-            const vis = p.distanceToSquared(d.pos) < d.dist * d.dist;
+            const vis = cams.some(c => c.position.distanceToSquared(d.pos) < d.dist * d.dist);
             if (vis !== d.obj.visible) d.obj.visible = vis;
           }
         }

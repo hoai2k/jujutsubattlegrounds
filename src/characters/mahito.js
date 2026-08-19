@@ -37,8 +37,9 @@ export const MAHITO = withDefaults({
     // swings. Committed, high damage, long reach. The variant (geometry AND
     // animation) rotates so it never repeats twice in a row — see
     // fighter.startCT clip-variant support + the model's showBodyWeapon.
-    name: 'Body Weapon', cost: 20, startup: 20, active: 5, recovery: 30,
-    effect: 'mahito_bodyweapon', dmg: 16, reach: 2.6, arc: 1.9,
+    name: 'Body Lance', cost: 20, startup: 20, active: 5, recovery: 30,
+    effect: 'mahito_bodyweapon', dmg: 16, reach: 6.5,
+    extendTime: 0.22, holdTime: 0.1,
     kb: 5, kbY: 2, hitstun: 30,
     clips: ['bwBlade', 'bwHammer', 'bwSpikes'], clip: 'bwBlade'
   },

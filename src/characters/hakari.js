@@ -43,20 +43,29 @@ export const HAKARI = withDefaults({
   blockChipMult: 0.7,
   blockStaminaMult: 0.72,
   ct1: {
-    // CURSED ENERGY SMASH — a slow committed overhead with a shockwave on
-    // impact. Type `knockdown` and OTG-capable: this is his wake-up tool and
-    // the single hardest hit in the base kit.
-    name: 'Cursed Energy Smash', cost: 20, startup: 24, active: 5, recovery: 30,
-    effect: 'hakari_smash', dmg: 17, reach: 2.2, arc: 1.5, radius: 2.7,
+    // PACHINKO VOLLEY — he pulls an invisible lever and the machine PAYS: a
+    // stick-steered fan of neon balls bouncing down the lane with loose
+    // homing. The LAST ball is gold and knocks down (OTG-capable, so the
+    // volley keeps the old overhead's wake-up job). Total damage of a full
+    // rack ≈ the old single hit, arriving in coins instead of a bar.
+    name: 'Pachinko Volley', jpName: '大当りの玉', cost: 20,
+    startup: 24, active: 5, recovery: 30,
+    effect: 'hakari_smash', dmg: 17, count: 6, dmg2: 3.2, goldDmg: 6,
+    speed: 14, homing: 1.6, lifetime: 1.3,
     kb: 5.0, kbY: 1.4, hitstun: 32, armorFrames: 10, clip: 'ct1'
   },
   ct2: {
-    // RUSH BLOW — a fast advancing straight. Cheap, closes distance, and
-    // `chainPunch` lets it cancel straight into the punch string on recovery,
-    // which is the whole approach: rush in, string, launcher.
-    name: 'Rush Blow', cost: 12, startup: 11, active: 8, recovery: 18,
-    effect: 'hakari_rush', dmg: 9, lungeSpeed: 13.5, reach: 1.7,
-    kb: 2.2, kbY: 0, hitstun: 20, chainPunch: true, clip: 'ct2'
+    // BALL DROP 大玉 — he pulls the lever and the machine delivers: a
+    // person-sized pachinko ball (real geometry) dropped on the deck that
+    // then ROLLS twelve metres down a stick-steered lane, ploughing through
+    // whoever is in it. Still his approach — he walks in behind it — but the
+    // thing doing the hitting is the machine, not his knuckles. `chainPunch`
+    // is kept: catching up to his own ball and cancelling into the string is
+    // the loop the slot exists for.
+    name: 'Ball Drop', jpName: '大玉', cost: 12,
+    startup: 11, active: 8, recovery: 18,
+    effect: 'hakari_rush', dmg: 9, ballRadius: 0.85, speed: 11, range: 12,
+    kb: 4.5, kbY: 1.2, hitstun: 24, chainPunch: true, clip: 'ct2'
   },
   // SPECIAL — SHUTTER (B): a rolling shutter door hauled up in front
   // of him. Projectiles do not get through it at all; the first melee hit
@@ -169,5 +178,5 @@ export const HAKARI = withDefaults({
   barrierBreak: { ceDrain: 30, chip: 24 },
   // Yuta stores the technique, never the gamble: Rush Blow is the only thing
   // about Hakari that is a technique in the ordinary sense.
-  copyEffect: { effect: 'hakari_rush', dmg: 7, name: 'Copied: Rush Blow' }
+  copyEffect: { effect: 'hakari_rush', dmg: 7, name: 'Copied: Ball Drop' }
 });

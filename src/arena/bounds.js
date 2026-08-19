@@ -24,6 +24,14 @@ import { ARTIFICIAL } from './terrain.js';
 
 const CELL = 5;                 // spatial hash cell size, metres
 export const STEP_UP = 0.55;    // how high a fighter can walk up without jumping
+// TIE-BREAK for standing exactly on a wall's top edge. A wall blocks between
+// y0 and y1, and the test used to be a strict `y > y1`, so a floor level with a
+// wall top — a parapet flush with the roof it edges, a tree whose collider
+// happens to end at the height of the terrace beside it — collided with anyone
+// standing on it and shoved them off. Maps work around it by stopping walls
+// 0.12 m short of the floor they carry, but a random prop height cannot be
+// authored around, so ties are forgiven here as well.
+export const LIP_EPS = 0.02;
 
 export class Bounds {
   constructor({ minX = -20, maxX = 20, minZ = -20, maxZ = 20, groundY = 0, terrain = ARTIFICIAL } = {}) {
@@ -79,7 +87,13 @@ export class Bounds {
     const p = {
       x0: Math.min(x0, x1), x1: Math.max(x0, x1),
       z0: Math.min(z0, z1), z1: Math.max(z0, z1),
-      y, id: opts.id, ramp: null, live: true
+      y, id: opts.id, ramp: null, live: true,
+      // PROP TOP. A surface that belongs to an object rather than to the
+      // level: a car roof, a train roof. It has an id (so destroying the thing
+      // takes its top away too) but it is not a ROUTE, and the map validator's
+      // reachability pass would otherwise report every one of them as a
+      // platform nobody can walk to.
+      prop: !!opts.prop
     };
     this.platforms.push(p);
     this._insert(this._pGrid, p);
@@ -205,7 +219,7 @@ export class Bounds {
     const y = pos.y;
     for (const w of this._query(this._wGrid, pos.x, pos.z)) {
       if (!w.live) continue;
-      if (y + 1.55 < w.y0 || y > w.y1) continue;      // over it, or under it
+      if (y + 1.55 < w.y0 || y > w.y1 - LIP_EPS) continue;   // over it, or under it
       const px = w.x0 - radius, qx = w.x1 + radius;
       const pz = w.z0 - radius, qz = w.z1 + radius;
       if (pos.x <= px || pos.x >= qx || pos.z <= pz || pos.z >= qz) continue;

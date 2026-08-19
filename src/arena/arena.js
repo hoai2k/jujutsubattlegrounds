@@ -246,9 +246,6 @@ export function buildArena() {
   }));
   group.add(motes);
 
-  const billboards = [];
-  group.traverse(o => { if (o.userData.billboard) billboards.push(o); });
-
   let t = 0;
   return {
     group,
@@ -262,7 +259,8 @@ export function buildArena() {
         pos.array[i * 3] += Math.cos(t * 0.4 + i * 2.1) * 0.0012;
       }
       pos.needsUpdate = true;
-      for (const b of billboards) b.quaternion.copy(camera.quaternion);
+      // `userData.billboard` nodes are aimed per eye in core/stage.js — a
+      // quaternion written here could only ever face one of the views.
     }
   };
 }

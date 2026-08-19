@@ -55,12 +55,15 @@ export const HIGURUMA = withDefaults({
     reach: 1.75, kb: 5.0, hitstun: 30, step: 2.0, staminaCost: 20, clip: 'heavy'
   },
   ct1: {
-    // GAVEL STRIKE — a cursed-energy gavel raised overhead and brought down.
-    // Slow enough to see coming, decent damage, a small shockwave on impact.
-    // His only real damage tool, and the only reason to respect him at all.
-    name: 'Gavel Strike', cost: 20, startup: 26, active: 5, recovery: 32,
-    effect: 'higuruma_gavel', dmg: 15, reach: 2.0, arc: 1.5, radius: 2.4,
-    kb: 4.2, kbY: 1.2, hitstun: 30, clip: 'ct1'
+    // VERDICT — the gavel is no longer swung, it is PASSED DOWN: an
+    // oversized cursed-energy gavel condenses over a marked patch of ground
+    // (stick-aimed, like the roster's two eruptions; neutral leads their
+    // feet) and falls, stamping a court seal. Landing it files the blow as
+    // evidence — his damage button now feeds his economy directly.
+    name: 'Verdict', jpName: '判決', cost: 20,
+    startup: 26, active: 5, recovery: 32,
+    effect: 'higuruma_gavel', dmg: 15, delay: 0.6, radius: 2.5, aimRange: 7,
+    evidence: 5, kb: 4.2, kbY: 1.2, hitstun: 30, clip: 'ct1'
   },
   ct2: {
     // CONFISCATION — short range, NO DAMAGE. On hit it seizes one of the

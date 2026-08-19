@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#   CURSED ARENA - localhost launcher (macOS / Linux)
+#   JUJUTSU BATTLEGROUNDS - localhost launcher (macOS / Linux)
 #   Run:  ./play.sh      (chmod +x play.sh the first time)
 #   Installs dependencies on first run, starts the dev server
 #   on http://localhost:5173 and opens your browser.
@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 
 echo
 echo "  =========================================="
-echo "    CURSED ARENA"
+echo "    JUJUTSU BATTLEGROUNDS"
 echo "    http://localhost:5173"
 echo "  =========================================="
 echo

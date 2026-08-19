@@ -1,7 +1,7 @@
 // Fighter: state machine, movement physics, resources (the MAX_CE/CURRENT_CE
 // system), combo/juggle bookkeeping, animation driving.
 import * as THREE from 'three';
-import { clamp, damp, angleDamp, yawBetween, v3, rand } from '../core/mathutil.js';
+import { clamp, damp, angleDamp, yawBetween, v3, rand, mulberry32 } from '../core/mathutil.js';
 import { AnimPlayer } from '../art/anim/player.js';
 import { BURN, tickBurn } from './burn.js';
 import { Adaptation } from './adaptation.js';
@@ -67,6 +67,19 @@ export class Fighter {
 
     const s = config.stats;
     this.res = { hp: s.hp, maxCE: s.startMaxCE, curCE: s.startMaxCE, stamina: s.stamina };
+
+    // ---- THE FIGHTER'S OWN RANDOM STREAM ------------------------------------
+    // A private, seeded PRNG per fighter. Online, every client simulates every
+    // fighter off the same replicated inputs, so a stream that is only ever
+    // advanced by ONE fighter's own logic stays in step across machines without
+    // anyone having to order the calls globally — which is what makes a crit or
+    // a jackpot tier come out the same on all four screens.
+    //
+    // Offline the seed is random and nothing about it is observable. Only the
+    // gameplay-DECIDING rolls use it; particles and debris stay on Math.random,
+    // because two clients seeing different sparks is not a different game.
+    this.seed = ((Math.random() * 0x7fffffff) | 0) ^ (index * 0x9e3779b1);
+    this.rng = mulberry32(this.seed);
 
     // ---- PANDA: THE THREE CORES 呪骸核 --------------------------------------
     // `res.hp` becomes an ACCESSOR onto the active core's pool, and that one
@@ -444,6 +457,11 @@ export class Fighter {
   // Wipe everything round-scoped back to opening state, keeping the life
   // count. Called between stocks so nothing (buffs, juggle, copies, backlash)
   // leaks across rounds.
+  // Online: the match hands every client the same seed table, so each
+  // fighter's private stream is the same stream on every machine. Offline
+  // nothing calls this and the constructor's random seed stands.
+  reseed(seed) { this.seed = seed >>> 0; this.rng = mulberry32(this.seed); }
+
   resetForRound(startPos, facing) {
     const s = this.cfg.stats;
     this.res.hp = s.hp;
@@ -1319,10 +1337,19 @@ export class Fighter {
     const def = sys.defsFor(this)[key];
     if (!this.spendCE(def.cost)) { this.emit('noCE'); return false; }
     const base = this._def(slot);
+    // A MID GRADE IS NOT A SPECIAL GRADE AND MUST NOT COST 44 FRAMES OF
+    // STARTUP. CT2's frame data is written for the monsters — a long, exposed,
+    // arms-open cast that advertises what it is paying for — and applying it to
+    // a 20-CE grasshopper would make the four new medium bodies unusable. A def
+    // may override the frames; the special grades do not, so the exposure that
+    // is the price of a monster is unchanged.
     const move = {
       name: def.name, kind: 'ct', slot, isCT: true, effect: base.effect,
-      curse: key, startup: base.startup, active: base.active,
-      recovery: base.recovery, clip: base.clip
+      curse: key,
+      startup: def.frames?.startup ?? base.startup,
+      active: def.frames?.active ?? base.active,
+      recovery: def.frames?.recovery ?? base.recovery,
+      clip: def.frames?.clip ?? base.clip
     };
     this._applyGrowth(move);
     this.setState('ct', { move });
@@ -1594,9 +1621,14 @@ export class Fighter {
         // nothing — but only if it is still alive. A binding pointing at a dead
         // shikigami must not be the thing a tap re-commits.
         const cur = sys.bindingOf(this, 'ct1');
+        // `selectable` is a superset of "not lost": it also excludes the
+        // ritual-only Mahoraga entry (which the wheel now SHOWS, greyed, so the
+        // technique reads as complete) and any fusion whose components have
+        // been destroyed. Both are holes in the ring rather than options that
+        // refuse at release.
         this._openWheel({
           sel: order.indexOf(cur), slot: 'ct1', t: 0, changed: false,
-          order, avail: order.filter(k => !sys.isLost(this, k))
+          order, avail: sys.selectable(this)
         }, sp);
         return true;
       }
@@ -1638,7 +1670,11 @@ export class Fighter {
         }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         // open on whatever is currently selected, so a mis-tap changes nothing
-        const order = this.cfg.curses.specialOrder;
+        // MID GRADES AND SPECIAL GRADES BOTH. The stable grew from eight to
+        // sixteen and the four new medium bodies need a home; putting them on
+        // the wheel keeps the pad mapping at three buttons (chaff / chosen /
+        // choose) instead of adding a fourth.
+        const order = this.cfg.curses.wheelOrder ?? this.cfg.curses.specialOrder;
         this._openWheel({
           sel: order.indexOf(sys.selected(this)), slot: 'ct2', t: 0, changed: false,
           order, avail: order.filter(k => !sys.isLost(this, k))
@@ -3343,7 +3379,7 @@ export class Fighter {
       case 'wheel': {
         const sp = this.cfg.special;
         const curses = this.cfg.curses;
-        const order = curses ? curses.specialOrder : this.cfg.shikigami.order;
+        const order = curses ? (curses.wheelOrder ?? curses.specialOrder) : this.cfg.shikigami.order;
         const w = this.wheel;
         if (!w) { this.setState('idle', { clip: 'idle' }); break; }
         w.t += dt;
@@ -3378,13 +3414,16 @@ export class Fighter {
           // `avail` was filtered at open time and the stick can only land on a
           // live sector, so this cannot be a corpse. Kept as a guard because a
           // shikigami can die DURING the hold.
-          const dead = curses
-            ? ctx.match.curses.isLost(this, key)
-            : ctx.match.shikigami.isLost(this, key);
-          if (dead) {
-            this.emit('curseBlocked', {
-              text: (curses ? this.cfg.curses.defs[key].short : key.toUpperCase()) + ' IS GONE'
-            });
+          // For Megumi this is now the FULL gate rather than just the loss
+          // ledger, because a fusion can also become unavailable during the
+          // hold — its components can die while the radial is open.
+          const blockText = curses
+            ? (ctx.match.curses.isLost(this, key) ? this.cfg.curses.defs[key].short + ' IS GONE' : null)
+            : (ctx.match.shikigami.selectable(this).includes(key)
+              ? null
+              : (ctx.match.shikigami.blockReason(this, key) ?? key.toUpperCase() + ' IS GONE'));
+          if (blockText) {
+            this.emit('curseBlocked', { text: blockText });
           } else if (curses) {
             ctx.match.curses.select(this, key);
             this.emit('wheelConfirm', { key, slot: 'ct2', curse: true, tapped: !w.open });
@@ -3651,6 +3690,9 @@ export class Fighter {
     if (!this.grounded) this.vel.y -= GRAVITY * dt;
     const wasFast = Math.hypot(this.vel.x, this.vel.z);
     const before = this.bounds ? { x: this.pos.x, z: this.pos.z } : null;
+    // Where the feet started this tick. The floor test below needs it: the
+    // fighter can cross a whole platform inside one step.
+    const yBefore = this.pos.y;
     this.pos.addScaledVector(this.vel, dt);
 
     const b = this.bounds;
@@ -3672,7 +3714,18 @@ export class Fighter {
       // FLOOR: the highest walkable surface at or below us. While rising we
       // ignore anything overhead so a jump passes through a mezzanine edge
       // rather than snapping onto it.
-      const ceil = this.vel.y > 0 ? this.pos.y - 0.05 : this.pos.y + STEP_TOL;
+      //
+      // FALLING, THE TEST IS SWEPT — the ceiling is where the feet were at the
+      // START of the tick, not where they ended it. Asking about the position
+      // after the step means a platform the fighter passed THROUGH during the
+      // step is already overhead and gets discarded, and they carry on down to
+      // whatever is under it: the long-drop fall-through. STEP_TOL alone hid
+      // it, because a 60 Hz tick only outruns 0.55 m of slack past about
+      // 33 m/s — which is a rooftop fall on the tall maps, a spike, or any
+      // downward knockback, and exactly the cases where it was reported.
+      const ceil = this.vel.y > 0
+        ? this.pos.y - 0.05
+        : Math.max(yBefore, this.pos.y) + STEP_TOL;
       const g = b.floorAt(this.pos.x, this.pos.z, this.grounded ? this.groundY + STEP_TOL : ceil);
       this.groundY = g;
       if (this.pos.y <= g + 1e-4 && this.vel.y <= 0) {

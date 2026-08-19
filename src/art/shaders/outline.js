@@ -25,7 +25,25 @@ const FRAG = /* glsl */ `
 uniform vec3 uColor;
 void main() { gl_FragColor = vec4( uColor, 1.0 ); }`;
 
+// CACHED BY (colour, thickness). Every call used to mint a fresh
+// ShaderMaterial, which meant no two outline hulls in the game could ever share
+// a material and therefore none of them could ever be batched or baked
+// together — a hundred summoned hulls were a hundred materials. The creatures
+// use a small handful of (colour, thickness) pairs between them, so caching
+// collapses that to a handful of instances and lets builders/bake.js merge the
+// hulls on a joint into one mesh. Nothing mutates an outline material after
+// construction, so sharing is safe.
+const _cache = new Map();
 export function outlineMaterial({ color = 0x06070c, thickness = 0.0135 } = {}) {
+  const key = color + ':' + thickness;
+  const hit = _cache.get(key);
+  if (hit) return hit;
+  const mat = makeOutlineMaterial(color, thickness);
+  _cache.set(key, mat);
+  return mat;
+}
+
+function makeOutlineMaterial(color, thickness) {
   return new THREE.ShaderMaterial({
     vertexShader: VERT,
     fragmentShader: FRAG,

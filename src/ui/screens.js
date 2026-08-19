@@ -29,13 +29,32 @@ export class ResultScreen {
     this.shown = true;
     this._refresh();
   }
+  // ONLINE: what happens next is the host's call — three people cannot each
+  // decide whether this is a rematch. A guest's buttons go dead and the screen
+  // says who it is waiting for, rather than pretending the press did nothing.
+  setLocked(on, text = 'WAITING FOR THE HOST') {
+    this.locked = !!on;
+    this.el.classList.toggle('locked', this.locked);
+    let n = this.el.querySelector('.r-wait');
+    if (!n) {
+      n = document.createElement('div');
+      n.className = 'r-wait';
+      this.el.appendChild(n);
+    }
+    n.textContent = this.locked ? text : '';
+    n.classList.toggle('on', this.locked);
+  }
   _refresh() { this.buttons.forEach((b, i) => b.classList.toggle('focus', i === this.focus)); }
   _pick(i) {
+    if (this.locked) return;
     this.sfx.uiOk();
     this._resolve(i === 0 ? 'rematch' : 'select');
   }
   update(inputFrame) {
     if (!this.shown) return;
+    // A locked screen still replays the taunt — that costs nobody anything
+    // and it is the one thing there is to do while waiting.
+    if (this.locked) { if (inputFrame.tauntP) this.onTaunt(); return; }
     // TAUNT is read FIRST and swallows the frame's `leftP`. D-pad Left is both
     // the taunt button and a menu-left on this screen, and the menu here is two
     // buttons on one axis — so left and right would otherwise both toggle the
@@ -124,6 +143,16 @@ export class SystemBar {
     b.classList.toggle('off', !on);
   }
   destroy() { this.el.remove(); }
+}
+
+// Enter (never leave). Called from the title screen's PRESS START, which is
+// the one moment the game has a genuine user gesture to spend — the browser
+// rejects the request without one, and a gamepad poll is not one. Failure is
+// silent on purpose: not being fullscreen is not an error.
+export function enterFullscreen() {
+  if (document.fullscreenElement) return;
+  const el = document.getElementById('app') || document.documentElement;
+  try { el.requestFullscreen?.()?.catch?.(() => { }); } catch { }
 }
 
 export function toggleFullscreen() {

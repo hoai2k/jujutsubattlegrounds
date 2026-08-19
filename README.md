@@ -1,4 +1,4 @@
-# CURSED ARENA
+# JUJUTSU BATTLEGROUNDS
 
 A 3D anime arena brawler in the browser — a Jujutsu Kaisen: Cursed Clash-style
 1v1 fighter. **Every visual and sound effect is procedural**: models, rigs,
@@ -36,6 +36,14 @@ default mode**; VS CPU is the second option. (`npm run dev` is the same server
 without the browser auto-open.)
 
 Model viewer (turntable + clip switching): **http://localhost:5173/#viewer**
+
+Workbench (look at one system without playing to it):
+**http://localhost:5173/workbench/?edit=finishers** — pick a winner, a loser, a
+location and, if you want a specific one, the finisher itself; press **SHOW
+FINISHER** and the cutscene plays full screen and hands the page back when it
+is done. **Esc** returns early. It runs the shipped director against a real
+match on a real map, so what you see there is what the game plays. `?edit=`
+selects the bench; `finishers` is the default and currently the only one.
 
 Production build / preview:
 
@@ -905,8 +913,9 @@ screen. The life pips sit next to each name plate; spent stocks go hollow.
 
 ## Music
 
-Streamed tracks live in `public/music/` and are the only non-procedural assets
-in the project:
+Streamed tracks live in `public/music/`. Along with the site icons in
+`public/brand/`, they are the only non-procedural assets in the project —
+everything the game itself draws is built in code:
 
 | File | Plays during |
 | --- | --- |
@@ -981,9 +990,21 @@ domain can absolutely win: Yuta beats Gojo outright if Gojo eats the exchange.
 
 ```
 index.html
-vite.config.js            dev server + /__shot screenshot sink (dev only)
+workbench/index.html      second page: the developer workbench (/workbench/)
+vite.config.js            dev server + /__shot screenshot sink (dev only),
+                          and the two-page build input list
+public/                   copied to the build root verbatim
+  music/                  the four streamed tracks (see Music)
+  brand/                  favicon set + web manifest, linked from both pages.
+                          Referenced as /brand/... so Vite rewrites them
+                          relative to each page for the sub-path deploy
 src/
   main.js                 entry: #viewer -> model viewer, else game
+  workbench/
+    main.js               bench router: ?edit=<bench>, defaults to finishers
+    finishers.js          the finisher bench: winner / loser / map / entry
+    run.js                builds a real match, wins it on frame zero, plays the
+                          finisher full screen, tears it all down again
   core/
     loop.js               fixed 60Hz logic, interpolated render
     stage.js              renderer, bloom/vignette/grade post stack, lights

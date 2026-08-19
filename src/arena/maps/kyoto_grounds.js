@@ -248,10 +248,21 @@ export function build(quality) {
   // Dense at the edges, thinning toward the clearing. The near ring is
   // breakable (a launched body genuinely takes trees down); the far ring is
   // instanced scenery and never breaks.
+  // THE SPAWN CLEARANCE. The scatter is random and the spawns are inside its
+  // radius, so a cedar can land on top of one — and a tree carries a collider,
+  // so the fighter starts the round standing inside it and is shoved out of it
+  // on the first frame. It showed up as an intermittent map-check failure
+  // (spawn 1 "inside a wall" on maybe one build in three), which is exactly
+  // what a random placement fault looks like. Anything within 4 m of a spawn
+  // is dropped, here rather than in the tree helper: the spawns are this map's
+  // to know about.
+  const SPAWNS = [[-15, -16], [15, 16], [15, -16], [-15, 16]];
+  const nearSpawn = (x, z) => SPAWNS.some(([sx, sz]) => Math.hypot(x - sx, z - sz) < 4);
   const near = [], far = [];
   for (let i = 0; i < 230; i++) {
     const a = rand(0, Math.PI * 2), r = rand(13, 56);
     const x = Math.sin(a) * r, z = Math.cos(a) * r;
+    if (nearSpawn(x, z)) continue;                           // keep the spawns clear
     if (Math.abs(x) < BX + 2.5) continue;                    // keep the river clear
     if (x > 17 && x < 53 && Math.abs(z) < 29) { if (Math.random() < 0.62) continue; }
     if (x > 33 && x < 49 && Math.abs(z) < 10) continue;      // keep the lookout clear
@@ -304,6 +315,6 @@ export function build(quality) {
   // Off the z axis and off the banks on purpose: the strip from x -20 to +18 at
   // z = 0 is river, bank slope or the foot of the plateau, so a spawn pair on
   // that line drops both fighters onto a 40 degree bank.
-  b.bounds.spawns = [v3(-15, 0, -16), v3(15, 0, 16), v3(15, 0, -16), v3(-15, 0, 16)];
+  b.bounds.spawns = SPAWNS.map(([x, z]) => v3(x, 0, z));
   return b;
 }

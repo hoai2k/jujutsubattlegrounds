@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem   CURSED ARENA - localhost launcher (Windows)
+rem   JUJUTSU BATTLEGROUNDS - localhost launcher (Windows)
 rem   Double-click this file, or run  play.cmd  from a terminal.
 rem   Installs dependencies on first run, starts the dev server
 rem   on http://localhost:5173 and opens your browser.
@@ -10,7 +10,7 @@ cd /d "%~dp0"
 
 echo.
 echo   ==========================================
-echo     CURSED ARENA
+echo     JUJUTSU BATTLEGROUNDS
 echo     http://localhost:5173
 echo   ==========================================
 echo.
