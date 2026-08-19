@@ -952,11 +952,21 @@ export class MapBuilder {
         // field of dinner-plate white blobs
         uSize: { value: new THREE.Vector2(w, d) },
         uAlpha: { value: opts.opacity ?? 0.84 },
-        uCaustic: { value: opts.caustic ?? 0.34 }
+        uCaustic: { value: opts.caustic ?? 0.34 },
+        // THE GRAZING COLOUR. Water read from a low angle is mostly what is
+        // reflected in it, not what is under it — which is exactly the angle a
+        // fight camera reads it from, and exactly where this surface used to
+        // fail: flat, dark and the same value as the grass beside it, so a
+        // fighter standing knee-deep in Kyoto's river looked like a fighter
+        // sunk into the lawn. Derived from `shallow` so every pool keeps its
+        // own identity (a sewer channel must not sprout a blue sky), or set
+        // outright with `opts.sky`.
+        uSky: { value: opts.sky != null ? new THREE.Color(opts.sky)
+          : new THREE.Color(opts.shallow ?? 0x5fb4d8).lerp(new THREE.Color(0xffffff), 0.55) }
       },
       vertexShader: /* glsl */`
         uniform float uT; uniform vec3 uHits[8];
-        varying vec2 vUv; varying float vW;
+        varying vec2 vUv; varying float vW; varying vec3 vWP;
         void main(){
           vUv = uv;
           vec3 p = position;
@@ -969,19 +979,31 @@ export class MapBuilder {
           }
           p.z += w;
           vW = w;
+          vWP = (modelMatrix * vec4(p,1.0)).xyz;
           gl_Position = projectionMatrix*modelViewMatrix*vec4(p,1.0);
         }`,
       fragmentShader: /* glsl */`
-        uniform vec3 uShallow; uniform vec3 uDeep; uniform float uT;
+        uniform vec3 uShallow; uniform vec3 uDeep; uniform vec3 uSky; uniform float uT;
         uniform vec2 uSize; uniform float uAlpha; uniform float uCaustic;
-        varying vec2 vUv; varying float vW;
+        varying vec2 vUv; varying float vW; varying vec3 vWP;
         void main(){
           vec3 c = mix(uDeep, uShallow, clamp(vW*5.0+0.5, 0.0, 1.0));
           // caustics on a fixed ~0.9 m cell whatever the surface measures
           vec2 m = vUv * uSize / 0.9;
           float ca = sin(m.x + uT*1.7) * sin(m.y*0.92 - uT*1.3);
           c += vec3(0.26,0.36,0.42) * uCaustic * smoothstep(0.80, 1.0, ca);
-          gl_FragColor = vec4(c, uAlpha);
+          // FRESNEL. Look straight down and you see through it; look ALONG it
+          // and you see the sky sitting on it. Without this the surface has one
+          // colour from every angle, and the angle a fight is watched from is
+          // the shallow one — which is where a river stopped looking like a
+          // river and started looking like ground with a fighter buried in it.
+          vec3 V = normalize(cameraPosition - vWP);
+          float fres = pow(1.0 - clamp(abs(V.y), 0.0, 1.0), 3.0);
+          c = mix(c, uSky, fres * 0.86);
+          // and it turns from a window into a sheet as it goes, the way water
+          // does: the legs under it read from above, the shine reads from the side
+          float a = mix(uAlpha, min(0.94, uAlpha + 0.30), fres);
+          gl_FragColor = vec4(c, a);
         }`
     });
     const mesh = new THREE.Mesh(geo, mat);
@@ -1069,13 +1091,29 @@ export class MapBuilder {
   // A huge ground disc under everything. Without it the playable floor simply
   // ends and the background silhouettes read as cut-outs hanging in the sky —
   // which is exactly what the first outdoor pass looked like.
-  groundPlane(color, radius = 260, y = -0.15) {
+  // THE FAR FIELD: one flat disc under the whole map, so the world does not end
+  // at the edge of the level in a cliff of sky.
+  //
+  // ITS HEIGHT IS THE WHOLE PROBLEM. It defaulted to y = -0.15 — a hand's
+  // breadth under the ground — which is fine on a level that is flat and a
+  // catastrophe on one that digs. Kyoto's river bed is at -1.60 and its banks
+  // at -0.96, so the middle of the map sat UNDER a 300 m opaque green disc: a
+  // fighter in the trench was behind it, the x-ray punched a dithered hole in
+  // it to keep him visible, and the whole thing read exactly like standing
+  // inside the lawn. Sendai's pool hall, Shinjuku's sunken plaza, the tomb and
+  // the bridge's river were all under their own.
+  //
+  // So an auto-placed plane is DEFERRED to finish(), which is the first moment
+  // the map's lowest floor is known — the pits and the basements are declared
+  // long after the sky is. A map that passes its own `y` is left alone.
+  groundPlane(color, radius = 260, y = null) {
     const m = new THREE.Mesh(new THREE.CircleGeometry(radius, 40),
       new THREE.MeshBasicMaterial({ color }));
     m.rotation.x = -Math.PI / 2;
-    m.position.y = y;
+    m.position.y = y ?? -0.15;
     m.frustumCulled = false;
     this.add(m);
+    if (y == null) (this._autoGround = this._autoGround || []).push(m);
     return m;
   }
 
@@ -1176,6 +1214,17 @@ export class MapBuilder {
       e.dropMeshes = [...meshes];
     }
     this._flushStatics();
+    // THE FAR FIELD, under everything (see groundPlane). By now every pit, every
+    // basement and every sunken room has been declared, so the lowest thing a
+    // fighter can stand on is known and the disc can go below it.
+    if (this._autoGround?.length) {
+      let low = this.bounds.groundY;
+      for (const p of this.bounds.pits) low = Math.min(low, p.y);
+      for (const p of this.bounds.platforms) low = Math.min(low, p.ramp ? Math.min(p.ramp.yLow, p.ramp.yHigh) : p.y);
+      for (const m of this._autoGround) m.position.y = low - 0.4;
+      this._autoGround.length = 0;
+    }
+
     // THE OCCLUSION CUT, over the whole level in one pass. See xrayAll: the
     // per-helper wrapping this replaces was missing the props — a car, a
     // vending machine, a big screen, a torii — which are precisely the things

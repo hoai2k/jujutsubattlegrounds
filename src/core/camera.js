@@ -3,6 +3,9 @@
 import * as THREE from 'three';
 import { damp, angleDamp, clamp, yawBetween } from './mathutil.js';
 
+// scratch: the shot's anchor, rebuilt every frame (see the collision block)
+const _anchor = new THREE.Vector3();
+
 export class FightCamera {
   constructor(camera, mode = 'follow') {
     this.cam = camera;
@@ -246,16 +249,37 @@ export class FightCamera {
     // thing it would have entered; the small floor clamp stops it dropping
     // through the surface the fighter is standing on.
     if (this.bounds) {
-      const hit = this.bounds.raySweep(this.look, this.pos, 12);
+      // FLOORS COUNT, not just walls (bounds.sweepClear). Most of what a camera
+      // actually sinks into is not a wall: a river trench, a bank, the body of
+      // a plateau. Under one of those the rig is inside the world, the screen
+      // fills with the underside of the ground, and the only thing keeping the
+      // fighter visible at all is the x-ray cutting a hole in it.
+      //
+      // THE ANCHOR IS THE FIGHTER, not the look target. The look target is a
+      // framing device — with one fighter up on the plateau and one on the lawn
+      // below it, the point it aims at is inside the cliff between them, and a
+      // sweep measured from there starts inside a rock. The fighter is standing
+      // on his own floor by definition, which makes him the one point in the
+      // shot guaranteed to be in the space the camera is supposed to share.
+      _anchor.set(p1Pos.x, p1Pos.y + 1.15, p1Pos.z);
+      const hit = this.bounds.sweepClear(_anchor, this.pos, p1Pos, 14);
       if (hit < 1) {
         // The minimum pull-in scales with the subject: at 0.18 of a 9 m rig
         // the camera ends up INSIDE a 3.6 m fighter, which reads far worse
         // than clipping a wall corner. Big subject -> keep more distance and
         // let the geometry lose the argument.
         const floorFrac = Math.min(0.5, 0.18 * this.subjDist);
-        this.pos.lerpVectors(this.look, this.pos, Math.max(floorFrac, hit * 0.94));
+        this.pos.lerpVectors(_anchor, this.pos, Math.max(floorFrac, hit * 0.94));
       }
-      const floor = this.bounds.floorAt(this.pos.x, this.pos.z, this.pos.y + 0.2);
+      // AND A FLOOR UNDER THE RIG ITSELF, as a backstop. The ceiling on this
+      // query used to be the camera's OWN height, which made it blind exactly
+      // when it mattered: once the rig had dipped under a slab that slab was
+      // above the query and stopped existing, so nothing ever pushed it back
+      // out — which is how a camera ends up inside a river bank. It is measured
+      // from the fighter's own deck now: everything he could step onto counts,
+      // and a walkway well over his head does not, so a fight under one still
+      // gets a camera under it.
+      const floor = this.bounds.floorAt(this.pos.x, this.pos.z, this.deckY + 2.6);
       if (this.pos.y < floor + 0.45) this.pos.y = floor + 0.45;
     }
 

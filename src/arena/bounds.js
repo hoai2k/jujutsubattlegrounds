@@ -262,6 +262,60 @@ export class Bounds {
     return 1;
   }
 
+  // CAMERA COLLISION, FLOORS INCLUDED. `raySweep` above answers one half of the
+  // question — does this segment enter a WALL — and the chase camera used to
+  // ask only that. The other half is the one that put a camera under Kyoto's
+  // grass: a trench, a bank, a plateau, all of them are FLOORS, none of them is
+  // a wall, and a rig that drifts under one is inside the world looking at the
+  // underside of it.
+  //
+  // The rule is one sentence: THE CAMERA HAS TO BE IN THE SAME OPEN SPACE AS
+  // THE FIGHTER. A surface overhead is only allowed if the fighter is under
+  // that same surface — under a mezzanine, in a tunnel, inside a train car, the
+  // camera may and must go under it too; standing in a river with the camera
+  // inside the bank beside it, or on the lawn with the camera buried in the
+  // plateau, it may not. Stated that way it needs no notion of "outside" and
+  // handles interiors and open ground with the same test.
+  _sameSpace(x, y, z, sub) {
+    for (const p of this._query(this._pGrid, x, z)) {
+      if (!p.live) continue;
+      if (x < p.x0 || x > p.x1 || z < p.z0 || z > p.z1) continue;
+      const sy = p.ramp ? rampY(p, x, z) : p.y;
+      if (sy <= y + 0.05) continue;                  // under us: a floor, not a lid
+      // A LID. The fighter has to be under it as well, or we are in the rock.
+      // His side of it is measured at HIS OWN position, not at ours: a ramp is
+      // one platform whose surface climbs, and asking whether a fighter halfway
+      // up a slope is under "the slope" at a point six metres further up always
+      // says yes — which is how a camera ends up buried in the hill it is
+      // supposed to be looking down.
+      if (sub.x < p.x0 || sub.x > p.x1 || sub.z < p.z0 || sub.z > p.z1) return false;
+      const subY = p.ramp ? rampY(p, sub.x, sub.z) : p.y;
+      if (sub.y >= subY - 0.05) return false;
+    }
+    return true;
+  }
+
+  // Walk from the shot's anchor out to where the rig wants to be and report the
+  // first fraction at which it leaves the fighter's space — through a wall,
+  // under a floor, or off the edge of the map.
+  sweepClear(from, to, sub, steps = 14) {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const x = from.x + dx * t, y = from.y + dy * t, z = from.z + dz * t;
+      let blocked = false;
+      for (const w of this._query(this._wGrid, x, z)) {
+        if (!w.live) continue;
+        if (y < w.y0 || y > w.y1) continue;
+        if (x > w.x0 && x < w.x1 && z > w.z0 && z < w.z1) { blocked = true; break; }
+      }
+      if (!blocked && !this._sameSpace(x, y, z, sub)) blocked = true;
+      if (!blocked && !this.contains(x, z, -1.5)) blocked = true;
+      if (blocked) return Math.max(0.12, (i - 1) / steps);
+    }
+    return 1;
+  }
+
   // Spawn points: authored per map, with a ring fallback so a map that forgets
   // to declare them still works.
   spawnPoint(i, n) {
