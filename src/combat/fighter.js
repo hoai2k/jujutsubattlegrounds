@@ -52,7 +52,15 @@ const GRAVITY = 26;
 const DASH_BURST = {
   speed: 2.0,          // x dashSpeed, for the length of the burst
   time: 0.17,          // seconds at full burst, then back to the dash
-  costSeconds: 0.55    // x dashDrain, spent up front
+  costSeconds: 0.55,   // x dashDrain, spent up front
+  // THE INPUT THAT BUYS IT. Not every dash opens with a burst — only the one
+  // thrown DELIBERATELY: from a standing stick, a direction and the dash
+  // button arriving together. Holding a direction and tapping dash to sprint
+  // is not a dodge and no longer gets a dodge's distance, which is what stops
+  // the burst from being the way everyone always moves. Both edges have to
+  // land inside this window of each other, in either order, because no human
+  // presses two controls on the same frame.
+  window: 0.13
 };
 // how far above the current surface a fighter may step without jumping — kerbs,
 // stair lips, the first bleacher row
@@ -223,6 +231,10 @@ export class Fighter {
     this.shadowDash = false;     // dashing THROUGH the shadow rather than over it
 
     // ---- the dash burst (see DASH_BURST) ----
+    this._dirEdgeT = 9;          // seconds since the stick was pressed from neutral
+    this._dashEdgeT = 9;         // seconds since the dash button went down
+    this._prevMoveMag = 0;
+    this._prevDashHeld = false;
     this.dashBurstT = 0;         // seconds of impulse left
     this.dashBurstDir = v3();    // the heading it committed to
     this.dashBurst = null;       // the tunable it fired with
@@ -2662,6 +2674,12 @@ export class Fighter {
     this.prevFacing = this.facing;
     this.f++;
 
+    // THE DASH-BURST WINDOW (see DASH_BURST). Tracked HERE rather than in
+    // `_locomote`, because locomotion only runs in the walking states: press
+    // the direction during an attack's recovery and the stick edge would never
+    // be seen, so the dodge out of it would silently be a jog.
+    this._trackDashInput(input, dt);
+
     // timers
     if (this.iFrames > 0) this.iFrames--;
     if (this.armorFrames > 0) this.armorFrames--;
@@ -3903,10 +3921,35 @@ export class Fighter {
     return v3(sin * fwd - cos * strafe, 0, cos * fwd + sin * strafe);
   }
 
+  // HOW OLD THE TWO HALVES OF THE DODGE INPUT ARE. A direction counts as
+  // PRESSED when the stick crosses from standing (under 0.2) to committed
+  // (over 0.35) — a stick already leaning is not a press, however far it moves
+  // afterwards — and the dash counts as pressed on the frame the button goes
+  // down, not while it is held.
+  _trackDashInput(input, dt) {
+    const mag = input ? Math.hypot(input.move?.x ?? 0, input.move?.z ?? 0) : 0;
+    const dashHeld = !!input?.dash;
+    // THE WINDOW IS MEASURED IN TIME HE COULD HAVE ACTED ON IT. A dodge asked
+    // for during an attack's recovery or the tail of hitstun is a dodge asked
+    // for, and it should land on the first frame he is free rather than
+    // quietly becoming a jog because the animation outlasted the window. So
+    // the presses are always SEEN, and the clocks only run while he is
+    // actionable — a request made mid-move keeps until he can honour it.
+    if (!this.busy) {
+      this._dirEdgeT = (this._dirEdgeT ?? 9) + dt;
+      this._dashEdgeT = (this._dashEdgeT ?? 9) + dt;
+    }
+    if (mag > 0.35 && (this._prevMoveMag ?? 0) <= 0.2) this._dirEdgeT = 0;
+    if (dashHeld && !this._prevDashHeld) this._dashEdgeT = 0;
+    this._prevMoveMag = mag;
+    this._prevDashHeld = dashHeld;
+  }
+
   // THE FIRST BEAT OF A DASH (see DASH_BURST). Fires on the frame the dash
   // starts and only then — holding the button re-enters nothing, so the cost is
   // paid once per dash rather than once per frame. Refuses quietly when the
-  // stamina is not there, which leaves the plain dash behind it.
+  // input was not the deliberate one, or when the stamina is not there; either
+  // way the plain dash is what is left.
   _startDashBurst(dir, mag, stats) {
     // `dashBurst: false` on a character (or a stance) opts out of it entirely;
     // an object overrides the defaults field by field.
@@ -3914,6 +3957,11 @@ export class Fighter {
     if (t === false) return;
     const b = { ...DASH_BURST, ...(t || {}) };
     if (mag < 0.1) return;                             // no heading, no dodge
+    // BOTH HALVES, FRESH. A stick that was already leaning when the button went
+    // down is a sprint; a button that was already held when the stick moved is
+    // a sprint. Only the pair arriving together is a dodge.
+    const w = b.window ?? DASH_BURST.window;
+    if ((this._dirEdgeT ?? 9) > w || (this._dashEdgeT ?? 9) > w) return;
     const cost = (stats.dashDrain ?? 0) * b.costSeconds;
     if (cost > 0 && this.res.stamina < cost) return;   // spent: the jog is what is left
     this.res.stamina = Math.max(0, this.res.stamina - cost);
