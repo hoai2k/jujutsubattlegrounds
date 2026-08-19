@@ -39,11 +39,17 @@
 //                 sideways. Advisory; some blocks are meant to be obstacles.
 //   SPAWN         a spawn point inside a wall, or over a hole.
 //
+// And one more that needs the GEOMETRY rather than the colliders, so it is a
+// separate call — `rims()`, below. Everything above starts from what the map
+// registered; `rims` starts from what the map DRAWS and asks whether you can
+// stand on it. That is the difference between "this room is unreachable" and
+// "I walked to the edge of the bench and fell through the grass".
+//
 // The reachability key is (i, j, HEIGHT BUCKET). Keying on (i, j) alone marks a
 // cell visited on whichever level was reached first and hides every stacked
 // floor above it — on maps that are three levels deep that is most of the map.
 import * as THREE from 'three';
-import { MAPS, MAP_IDS, DEFAULT_QUALITY } from './index.js';
+import { MAPS, MAP_IDS, DEFAULT_QUALITY, buildMap } from './index.js';
 import { STEP_UP, LIP_EPS } from './bounds.js';
 
 const STEP = 0.25;          // flood-fill grid, metres
@@ -373,6 +379,83 @@ export function check(id, quality = DEFAULT_QUALITY) {
 }
 
 const fmt = r => `[${r.x0.toFixed(1)},${r.z0.toFixed(1)} → ${r.x1.toFixed(1)},${r.z1.toFixed(1)}]`;
+
+// ---------------------------------------------------------------------------
+// RIMS — drawn ledges with nothing under them
+// ---------------------------------------------------------------------------
+// A raised deck is edged with a visible face — a cliff, a retaining wall, a
+// rock skirt — and that face is drawn PROUD of the deck so the two do not
+// z-fight. Drawn as bare geometry it leaves a strip you can see, walk onto and
+// drop through: Kyoto's grass bench had 0.8 m of it round 56 m of edge, and the
+// plateau, the crag, the lookout and Jujutsu High's terrace all had their own.
+// `kit.bankFace` is the fix; this is how you find the next one.
+//
+// It works by raycasting straight down on a grid and comparing what was DRAWN
+// with what `floorAt` says is there. A treetop is drawn well above the floor
+// too, so a hit only counts when there is real walkable floor at that height
+// within a stride of it — which is exactly what makes a rim look standable.
+//
+// Not part of `check()`: it has to build the scene rather than just the bounds,
+// and a whole-map raycast grid is seconds per map rather than milliseconds.
+//
+//     const c = await import('/src/arena/mapcheck.js'); await c.rims();
+export async function rims(ids = MAP_IDS, { step = 0.5, minCells = 3 } = {}) {
+  const out = [];
+  for (const id of ids) {
+    const map = buildMap(id, {});
+    map.group.updateMatrixWorld(true);
+    const bd = map.bounds;
+    const rc = new THREE.Raycaster();
+    rc.far = 500;
+    const down = new THREE.Vector3(0, -1, 0);
+    const from = new THREE.Vector3();
+    const groups = new Map();
+    for (let x = bd.minX + 1; x <= bd.maxX - 1; x += step) {
+      for (let z = bd.minZ + 1; z <= bd.maxZ - 1; z += step) {
+        rc.set(from.set(x, bd.groundY + 220, z), down);
+        // the highest OPAQUE, roughly level surface — glass, glow and haze are
+        // not floor, and a wall's own side is not something you stand on
+        const hit = rc.intersectObject(map.group, true).find(h => {
+          const mt = Array.isArray(h.object.material) ? h.object.material[0] : h.object.material;
+          return mt && !mt.transparent && h.object.visible
+            && !h.object.userData.billboard && h.normal && h.normal.y > 0.85;
+        });
+        if (!hit) continue;
+        const drawn = hit.point.y;
+        if (drawn - bd.floorAt(x, z, drawn + STEP_UP) <= 0.35) continue;
+        // beside real floor at the same height? then it reads as somewhere to
+        // stand, and it is a rim rather than a roof or a treetop
+        let beside = false;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+          if (Math.abs(bd.floorAt(x + dx, z + dz, drawn + STEP_UP) - drawn) < 0.35) { beside = true; break; }
+        }
+        if (!beside) continue;
+        const k = Math.round(drawn * 2) / 2;
+        const g = groups.get(k) || { drawn: +drawn.toFixed(2), n: 0, x0: 1e9, x1: -1e9, z0: 1e9, z1: -1e9 };
+        g.n++;
+        g.x0 = Math.min(g.x0, x); g.x1 = Math.max(g.x1, x);
+        g.z0 = Math.min(g.z0, z); g.z1 = Math.max(g.z1, z);
+        groups.set(k, g);
+      }
+    }
+    const found = [...groups.values()].filter(g => g.n >= minCells).sort((a, b) => b.n - a.n);
+    out.push({ id, rims: found });
+    const head = `${id}  —  ${found.length} rim(s)`;
+    if (!found.length) console.log('%c✓ ' + head, 'color:#6ad48a');
+    else {
+      console.groupCollapsed('%c✗ ' + head, 'color:#ff8f6a');
+      for (const g of found) {
+        console.log(`  ${g.n} cell(s) of ledge drawn at y=${g.drawn} with no collider — ` +
+          `x[${g.x0.toFixed(1)}..${g.x1.toFixed(1)}] z[${g.z0.toFixed(1)}..${g.z1.toFixed(1)}] ` +
+          `(use b.bankFace for the face that draws it)`);
+      }
+      console.groupEnd();
+    }
+    map.dispose?.();
+    await new Promise(r => setTimeout(r, 0));   // let the page breathe between maps
+  }
+  return out;
+}
 
 export function checkAll(ids = MAP_IDS) {
   return ids.map(id => check(id));

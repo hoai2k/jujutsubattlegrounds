@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMaterial } from '../art/shaders/toon.js';
-import { xrayable } from '../art/shaders/xray.js';
+import { xrayable, xrayAll } from '../art/shaders/xray.js';
 import { Bounds } from './bounds.js';
 import { Destructibles } from './destruct.js';
 import { classifyMaterial, NATURAL, ARTIFICIAL } from './terrain.js';
@@ -369,6 +369,35 @@ export class MapBuilder {
     this.static_(g, mat, opts.zone);
     if (opts.collide !== false) this.bounds.wall(cx - hx, cz - hz, cx + hx, cz + hz, y0, y1, { id: opts.id });
     return null;
+  }
+
+  // ---- BANK FACE ----------------------------------------------------------
+  // The visible face under a raised deck: a cliff, a retaining wall, the rock
+  // skirt round a plateau. It is drawn PROUD of the deck it edges, so the deck
+  // does not z-fight with its own edge — and that overhang is the fault this
+  // helper exists to stop. Drawn as bare geometry it left a rim you can see and
+  // stand on with nothing under it: walk to the edge of Kyoto's grass bench and
+  // you drop 3.6 m through the lip you were standing on. Every raised deck in
+  // the set was edged that way.
+  //
+  // So a face is three things at once, and none of them is optional:
+  //   · the geometry, drawn from `base` up to `top`
+  //   · a BLOCKER, so the cliff cannot be walked into from below (pass
+  //     `collide: false` for a face that is meant to be pure decoration —
+  //     a low kerb, a skirt inside a room)
+  //   · a LIP at `top`, carrying the deck out to the drawn edge
+  // The blocker stops 0.12 m under the lip for the usual reason: a wall topping
+  // out level with the floor beside it collides with anyone standing there.
+  bankFace(x0, z0, x1, z1, top, base = 0, opts = {}) {
+    this.wall(x0, z0, x1, z1, base, opts.collide === false ? top : top - 0.12,
+      { ...opts, collide: opts.collide });
+    // The lip has to match what was DRAWN, and `wall` fattens a degenerate rect
+    // (a face authored as a line) out to `thick` — so the same expansion is
+    // applied here or the lip is a zero-area rect over a 0.5 m ledge.
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    const hx = Math.max(Math.abs(x1 - x0), opts.thick ?? 0.3) / 2;
+    const hz = Math.max(Math.abs(z1 - z0), opts.thick ?? 0.3) / 2;
+    this.bounds.platform(cx - hx, cz - hz, cx + hx, cz + hz, top, { id: opts.id, prop: true });
   }
 
   _rubblePile(x, y, z, r, mat) {
@@ -1147,6 +1176,11 @@ export class MapBuilder {
       e.dropMeshes = [...meshes];
     }
     this._flushStatics();
+    // THE OCCLUSION CUT, over the whole level in one pass. See xrayAll: the
+    // per-helper wrapping this replaces was missing the props — a car, a
+    // vending machine, a big screen, a torii — which are precisely the things
+    // that end up between the camera and the fighter and used to stay solid.
+    xrayAll(this.group);
     const destruct = new Destructibles(this.group, {
       ...ctx, bounds: this.bounds, quality: ctx.quality
     });

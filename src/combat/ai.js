@@ -1366,8 +1366,10 @@ export class CPU {
         // face is how he dies.
         if (spKey === 'higuruma_judgeman' && !this.match.judgemen?.aliveFor(me)
           && me.res.curCE >= me.cfg.special.cost && dist > 3.0) f.copy = true;
-        // mahito: summon IMMEDIATELY — he never fights alone by choice
-        if (spKey === 'mahito_summon' && !this.match.minions?.aliveFor(me)
+        // mahito: summon IMMEDIATELY — he never fights alone by choice, and he
+        // keeps summoning until he is at his cap
+        if (spKey === 'mahito_summon'
+          && (this.match.minions?.countFor(me) ?? 0) < (me.cfg.special.maxMinions ?? 3)
           && me.res.curCE >= me.cfg.special.cost && dist > 1.8 && Math.random() < 0.5) f.copy = true;
       }
       // todo: hunt the command grab on a grounded target in range

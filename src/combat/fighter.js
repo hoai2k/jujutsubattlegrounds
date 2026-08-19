@@ -1785,9 +1785,13 @@ export class Fighter {
       }
 
       case 'mahito_summon': {
-        // only ONE transfigured human may exist: re-summoning while one lives
-        // does nothing and costs nothing
-        if (ctx.match.minions?.aliveFor(this)) { this.emit('minionAlive'); return false; }
+        // He may field up to `maxMinions` at once. Nothing else stands in the
+        // way: with the energy and the cooldown, the summon goes out — the cap
+        // is the only limit, and at the cap the press does nothing and costs
+        // nothing.
+        const cap = sp.maxMinions ?? 3;
+        const out = ctx.match.minions?.countFor(this) ?? 0;
+        if (out >= cap) { this.emit('minionAlive', { out, cap }); return false; }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         const move = {

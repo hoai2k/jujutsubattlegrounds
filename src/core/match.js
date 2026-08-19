@@ -681,7 +681,10 @@ export class Match {
           if (!e.completed) this.bubbles.cut(f);
           break;
         case 'tauntCancel': this.bubbles.cut(f); break;
-        case 'minionAlive': this.hud.toast(f, 'ONE IS ENOUGH'); this.sfx.noCE(); break;
+        case 'minionAlive':
+          this.hud.toast(f, (e.cap ?? 3) + ' IS ALL HE CAN HOLD');
+          this.sfx.noCE();
+          break;
         // ---- SUKUNA -------------------------------------------------------
         case 'fingerStart':
           // the vulnerable second, announced so the opponent knows to punish it
@@ -1579,7 +1582,10 @@ export class Match {
       // dissolves rather than blocking the shot. Aimed at the chest, not the
       // feet, so the hole is centred on the body.
       _xrayAt.copy(me.pos).setY(me.pos.y + 1.0 + (me.cfg?.size?.camHeight ?? 0) * 0.6);
-      setXrayFocus(cam.cam, _xrayAt);
+      // his FEET as well as his chest: the cut protects the ground he is
+      // standing on and cuts everything else, and it can only tell them apart
+      // if it knows where his footing is (see art/shaders/xray.js).
+      setXrayFocus(cam.cam, _xrayAt, me.pos.y);
     });
     // EVERY eye, not just the first: the arena culls zones and detail props
     // against the cameras it is given, and anything culled is culled out of

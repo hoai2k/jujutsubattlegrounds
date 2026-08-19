@@ -43,12 +43,15 @@ export const MAHITO = withDefaults({
     kb: 5, kbY: 2, hitstun: 30,
     clips: ['bwBlade', 'bwHammer', 'bwSpikes'], clip: 'bwBlade'
   },
-  // SPECIAL — SUMMON TRANSFIGURED HUMAN (B): one weak independent
-  // AI ally. Fragile, low damage; its value is pressure. Only ONE may exist —
-  // re-summoning while one lives does nothing (no cost is paid). Each summon's
+  // SPECIAL — SUMMON TRANSFIGURED HUMAN (B): a weak independent AI ally.
+  // Fragile, low damage; its value is pressure, and the pressure is meant to
+  // stack. UP TO THREE may stand at once, and nothing else gates the summon:
+  // if he has the cursed energy and the cooldown is up, he gets another one.
+  // At the cap the button does nothing and costs nothing. Each summon's
   // proportions, limb count and mass are randomized (see combat/minion.js).
   special: {
     key: 'mahito_summon', name: 'SUMMON', cost: 25, cooldown: 12,
+    maxMinions: 3,
     castFrames: 30, clip: 'summon',
     minion: {
       hp: 18, dmg: 3, hitstun: 14, kb: 1.4,

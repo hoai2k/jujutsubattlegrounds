@@ -63,7 +63,8 @@ class Minion {
     this.model = buildMinionModel(variant);
     this.variant = this.model.variant;
     this.pos = owner.pos.clone().addScaledVector(owner.forward(), 1.2);
-    this.pos.y = 0;
+    // on the floor under the spot he called it out of, not on a hardcoded 0
+    this.pos.y = match.arena?.bounds?.floorAt(this.pos.x, this.pos.z, owner.pos.y + 0.55) ?? 0;
     this.facing = owner.facing;
     this.state = 'chase';       // chase | windup | recover | hit | block | dying
     this.t = 0;
@@ -277,6 +278,18 @@ class Minion {
     // Each of the five body plans owns its gait; this hands it the state and
     // gets out of the way. Nothing here knows how many arms the thing has,
     // which is exactly the point of splitting the models out.
+    // ---- the ground under it ------------------------------------------------
+    // It walks in x/z and used to be pinned to the y it was summoned at, which
+    // was a hardcoded 0: summon on a mezzanine and the thing appeared on the
+    // ground floor, and anywhere with terrain it waded through the map. It
+    // takes the floor under it, and the walls turn it, the same as a fighter —
+    // it just does not fall, because a summon has no weight to speak of.
+    const bd = m.arena?.bounds;
+    if (bd) {
+      bd.resolveWalls(this.pos, 0.36);
+      this.pos.y = bd.floorAt(this.pos.x, this.pos.z, this.pos.y + 0.55);
+    }
+
     this.animT += dt;
     const mm = this.model;
     g.position.set(this.pos.x, this.pos.y, this.pos.z);
@@ -325,6 +338,14 @@ export class Minions {
 
   aliveFor(owner) {
     return this.list.some(mn => mn.owner === owner && mn.alive);
+  }
+
+  // How many of his are standing. The summon is capped on this rather than on
+  // "is one out", so Mahito can field a crew as long as he can pay for it.
+  countFor(owner) {
+    let n = 0;
+    for (const mn of this.list) if (mn.owner === owner && mn.alive) n++;
+    return n;
   }
 
   // area damage from techniques (eruptions, burning ground)

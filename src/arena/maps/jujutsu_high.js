@@ -204,16 +204,22 @@ export function build(quality) {
   // side and lands on the terrace's edge.
   b.stairs(-23, -10, -34, 10, 0.05, TY, 'x', { mat: M.concrete });
   b.floor(-54, -15, -34, 15, TY, { mat: M.concrete, id: 'terrace' });
-  // the retaining face the terrace stands on, so it is a plateau and not a slab
-  // hovering over the lawn
-  for (const [x0, z0, x1, z1] of [[-54, -15, -34, -15], [-54, 15, -34, 15]]) {
-    b.wall(x0, z0, x1, z1, 0, TY, { mat: M.rock, thick: 0.5, collide: false });
-  }
-  // STOPPED SHORT OF THE DECK IT HOLDS UP. A retaining wall topping out at
-  // exactly the terrace height collides with anyone standing on the terrace
-  // beside it, because `resolveWalls` skips only when `y > w.y1`.
-  b.wall(-33.7, -15, -33.7, -10.4, 0, TY - 0.12, { mat: M.rock, thick: 0.6 });
-  b.wall(-33.7, 10.4, -33.7, 15, 0, TY - 0.12, { mat: M.rock, thick: 0.6 });
+  // The retaining face the terrace stands on, so it is a plateau and not a slab
+  // hovering over the lawn. `bankFace`, because the face is drawn 0.25 m proud
+  // of the deck it edges and on its own that overhang was a strip of terrace
+  // you could see and stand on with nothing under it — walk to the north or
+  // south edge and you drop 6.4 m through the rim. It carries the deck out to
+  // the drawn edge, and it is solid: the terrace is rock, not a curtain.
+  for (const [x0, z0, x1, z1] of [[-54, -15, -34, -15], [-54, 15, -34, 15]])
+    b.bankFace(x0, z0, x1, z1, TY, 0, { mat: M.rock, thick: 0.5 });
+  // STOPPED SHORT OF THE DECK IT HOLDS UP, and carrying that deck across its
+  // own top. `bankFace` does both: the blocker still tops out 0.12 m under the
+  // terrace (a wall level with the floor beside it collides with anyone
+  // standing there), and the 0.6 m of rim it draws above the lawn is walkable
+  // instead of being a strip of terrace you drop through — which is where the
+  // stairs land, so it is a strip everybody walks over.
+  for (const [z0, z1] of [[-15, -10.4], [10.4, 15]])
+    b.bankFace(-33.7, z0, -33.7, z1, TY, 0, { mat: M.rock, thick: 0.6 });
   // split around the steps: a rail run along the whole edge walls off the only
   // way up onto the terrace
   b.railing(-34, -15, -34, -10.3, TY);
