@@ -2112,5 +2112,198 @@ export const SIGNATURE_CLIPS = {
         ThighL: [-48, -4, 0], ShinL: [40, 0, 0], ThighR: [30, 6, 0], ShinR: [54, 0, 0]
       }, 'hold')
     ]
+  },
+
+  // =========================================================================
+  // THE THREE NEW SIGNATURES
+  // =========================================================================
+
+  // ---- MAKI — 釈魂刀, THROUGH THE SOUL -----------------------------------
+  // The mirror of `tojiSpear`, and authored to be read against it. He kills
+  // side-on, bored, without looking. She kills SQUARE — hips through the cut,
+  // eyes on the target the whole way — because the entire point of the
+  // character is that she got here by working and he was born there.
+  //
+  // The other deliberate difference: he never resets and she always does. The
+  // last key brings her back to a centred guard rather than letting the pose
+  // trail off, which is the same thing every clip in her set does.
+  makiSoulCut: {
+    dur: 1.25, loop: false, keys: [
+      K(0, {}),
+      // THE LOAD. Blade drawn back across the body, weight onto the back leg,
+      // shoulders squared. This is the longest anticipation in the file — she
+      // is not hiding it, she is committing to it.
+      K(0.30, {
+        Hips: [0, 62, 0], Hips_pos: [-0.02, -0.13, -0.05], Spine: [8, -28, 0], Chest: [6, -34, 0],
+        Neck: [1, 8, 0], Head: [2, 16, 0],
+        UpArmR: [-18, -34, -20], LoArmR: [-106, -42, 0], HandR: [-14, -80, 0],
+        UpArmL: [-40, 34, 12], LoArmL: [-92, 36, 0],
+        ThighL: [-16, -6, 0], ShinL: [18, 0, 0], ThighR: [26, 8, 0], ShinR: [36, 0, 0]
+      }, 'in'),
+      // and a held beat at the top of it. The still frame before a committed
+      // cut is worth more than the cut.
+      K(0.40, {
+        Hips: [0, 64, 0], Hips_pos: [-0.02, -0.135, -0.05], Spine: [8, -29, 0], Chest: [6, -35, 0],
+        Neck: [1, 8, 0], Head: [2, 16, 0],
+        UpArmR: [-18, -35, -20], LoArmR: [-107, -43, 0], HandR: [-14, -80, 0],
+        UpArmL: [-40, 34, 12], LoArmL: [-92, 36, 0],
+        ThighL: [-16, -6, 0], ShinL: [18, 0, 0], ThighR: [26, 8, 0], ShinR: [36, 0, 0]
+      }, 'hold'),
+      // THROUGH. Hips all the way round, arm fully extended across the body,
+      // and the head TRACKS IT — she watches the cut land, which he never does.
+      K(0.55, {
+        Hips: [0, -26, 0], Hips_pos: [0.01, -0.075, 0.16], Spine: [5, 32, 0], Chest: [4, 38, 0],
+        Neck: [0, -6, 0], Head: [-2, -12, 0],
+        UpArmR: [-96, 30, -4], LoArmR: [-8, 14, 0], HandR: [-4, -34, 0],
+        UpArmL: [-54, 36, 14], LoArmL: [-72, 32, 0],
+        ThighL: [-34, -6, 0], ShinL: [34, 0, 0], ThighR: [24, 8, 0], ShinR: [28, 0, 0]
+      }, 'snap'),
+      // the follow-through, held. Nothing moves for a third of a second.
+      K(0.88, {
+        Hips: [0, -26, 0], Hips_pos: [0.01, -0.075, 0.16], Spine: [5, 32, 0], Chest: [4, 38, 0],
+        Neck: [0, -6, 0], Head: [-2, -12, 0],
+        UpArmR: [-96, 30, -4], LoArmR: [-8, 14, 0], HandR: [-4, -34, 0],
+        UpArmL: [-54, 36, 14], LoArmL: [-72, 32, 0],
+        ThighL: [-34, -6, 0], ShinL: [34, 0, 0], ThighR: [24, 8, 0], ShinR: [28, 0, 0]
+      }, 'hold'),
+      // AND SHE RESETS. He would have kept walking.
+      K(1.25, {
+        Hips: [0, 20, 0], Hips_pos: [0, -0.03, 0], Spine: [0, -6, 0], Chest: [-1, -8, 0],
+        Neck: [0, -3, 0], Head: [-3, -7, 0],
+        UpArmR: [-14, -8, -12], LoArmR: [-42, -16, 0],
+        UpArmL: [-16, 10, 10], LoArmL: [-44, 18, 0],
+        ThighL: [-8, -4, 0], ShinL: [8, 0, 0], ThighR: [7, 6, 0], ShinR: [11, 0, 0]
+      }, 'out')
+    ]
+  },
+
+  // ---- YUKI — THE COMMAND GRAB, ALL THE WAY DOWN --------------------------
+  // She catches them one-handed at the throat, holds them there long enough
+  // for it to be rude, and then puts them through the floor with her whole
+  // body behind it. The pivot is the move: her hips travel further in this
+  // clip than in anything else in the project.
+  yukiGrabSlam: {
+    dur: 1.55, loop: false, keys: [
+      K(0, {}),
+      // THE REACH. Slow, arm out, palm open, walking into it. The tell.
+      K(0.34, {
+        Hips: [0, 10, 0], Hips_pos: [0, -0.07, 0.10], Spine: [6, 6, 0], Chest: [4, 8, 0],
+        Neck: [0, -2, 0], Head: [0, -4, 0],
+        UpArmR: [-88, 10, -10], LoArmR: [-16, 4, 0], HandR: [-18, -74, 0],
+        UpArmL: [-20, 14, 20], LoArmL: [-56, 20, 0],
+        ThighL: [-30, -6, 0], ShinL: [24, 0, 0], ThighR: [20, 8, 0], ShinR: [28, 0, 0]
+      }, 'in'),
+      // CAUGHT. The hand closes and the arm LOCKS — elbow straight, shoulder
+      // set, and she does not strain, because the mass is doing the work.
+      K(0.52, {
+        Hips: [0, 6, 0], Hips_pos: [0, -0.09, 0.14], Spine: [7, 4, 0], Chest: [5, 6, 0],
+        Neck: [-1, -2, 0], Head: [-2, -4, 0],
+        UpArmR: [-94, 12, -6], LoArmR: [-6, 2, 0], HandR: [-8, -96, 0],
+        UpArmL: [-24, 16, 22], LoArmL: [-50, 22, 0],
+        ThighL: [-32, -6, 0], ShinL: [26, 0, 0], ThighR: [22, 8, 0], ShinR: [30, 0, 0]
+      }, 'snap'),
+      // held, so the audience understands they are not getting out
+      K(0.74, {
+        Hips: [0, 6, 0], Hips_pos: [0, -0.09, 0.14], Spine: [7, 4, 0], Chest: [5, 6, 0],
+        Neck: [-1, -2, 0], Head: [-2, -4, 0],
+        UpArmR: [-94, 12, -6], LoArmR: [-6, 2, 0], HandR: [-8, -96, 0],
+        UpArmL: [-24, 16, 22], LoArmL: [-50, 22, 0],
+        ThighL: [-32, -6, 0], ShinL: [26, 0, 0], ThighR: [22, 8, 0], ShinR: [30, 0, 0]
+      }, 'hold'),
+      // THE PIVOT AND THE SLAM. Hips travel 90 degrees and the arm drives down
+      // and across. This is the biggest single rotation in the project.
+      K(0.96, {
+        Hips: [0, 74, 0], Hips_pos: [0, -0.22, 0.06], Spine: [34, -40, 0], Chest: [24, -46, 0],
+        Neck: [4, -4, 0], Head: [16, -8, 0],
+        UpArmR: [-18, -34, -6], LoArmR: [-22, -24, 0], HandR: [-10, -60, 0],
+        UpArmL: [-26, -20, 12], LoArmL: [-34, -14, 0],
+        ThighL: [-58, -8, 0], ShinL: [68, 0, 0], ThighR: [46, 10, 0], ShinR: [70, 0, 0]
+      }, 'snap'),
+      // she stays down over them, hand still on the floor
+      K(1.20, {
+        Hips: [0, 72, 0], Hips_pos: [0, -0.225, 0.06], Spine: [33, -38, 0], Chest: [23, -44, 0],
+        Neck: [4, -4, 0], Head: [15, -8, 0],
+        UpArmR: [-16, -34, -6], LoArmR: [-20, -24, 0],
+        UpArmL: [-24, -20, 12], LoArmL: [-32, -14, 0],
+        ThighL: [-58, -8, 0], ShinL: [68, 0, 0], ThighR: [46, 10, 0], ShinR: [70, 0, 0]
+      }, 'hold'),
+      // and stands back up, unhurried, shaking the hand out
+      K(1.55, {
+        Hips: [0, 24, 0], Hips_pos: [0, -0.04, 0], Spine: [2, -6, 0], Chest: [0, -8, 0],
+        Neck: [0, -3, 0], Head: [-2, -6, 0],
+        UpArmR: [-24, -10, -22], LoArmR: [-54, -14, 0], HandR: [-22, -36, 0],
+        UpArmL: [-14, 8, 14], LoArmL: [-50, 20, 0],
+        ThighL: [-12, -4, 0], ShinL: [11, 0, 0], ThighR: [10, 6, 0], ShinR: [14, 0, 0]
+      }, 'out')
+    ]
+  },
+
+  // ---- MIWA — 抜刀, ONE CUT ------------------------------------------------
+  // The most restrained clip in this file, and it is the whole character. A
+  // long, absolutely motionless stance, TWO FRAMES of draw, and a held
+  // follow-through. There is no flourish anywhere in it, and the sheathe at
+  // the end is the only thing she does that she is unambiguously good at.
+  //
+  // Compare `makiSoulCut` above, which is also a committed cut and takes half
+  // the time: Miwa's is slower because the WAITING is the technique.
+  miwaIai: {
+    dur: 1.85, loop: false, keys: [
+      K(0, {}),
+      // into the stance: square, centred, hands on the sword and the saya
+      K(0.30, {
+        Hips: [0, 34, 0], Hips_pos: [0, -0.11, 0], Spine: [2, -6, 0], Chest: [1, -8, 0],
+        Neck: [0, -2, 0], Head: [0, -4, 0],
+        UpArmL: [-28, 44, 2], LoArmL: [-98, 58, 0], HandL: [-4, 110, 0],
+        UpArmR: [-22, -36, -2], LoArmR: [-92, -54, 0], HandR: [-6, -104, 0],
+        ThighL: [-28, -10, 0], ShinL: [32, 0, 0], ThighR: [26, 10, 0], ShinR: [32, 0, 0]
+      }, 'in'),
+      // ---- AND THEN NOTHING HAPPENS FOR THREE QUARTERS OF A SECOND --------
+      // Two identical keys. This is the longest held frame in the project and
+      // it is doing all the work: her hair is still settling from the entry,
+      // and it is the hair settling against a body that has already stopped
+      // that tells the audience the stillness is deliberate.
+      K(1.05, {
+        Hips: [0, 34, 0], Hips_pos: [0, -0.11, 0], Spine: [2, -6, 0], Chest: [1, -8, 0],
+        Neck: [0, -2, 0], Head: [0, -4, 0],
+        UpArmL: [-28, 44, 2], LoArmL: [-98, 58, 0], HandL: [-4, 110, 0],
+        UpArmR: [-22, -36, -2], LoArmR: [-92, -54, 0], HandR: [-6, -104, 0],
+        ThighL: [-28, -10, 0], ShinL: [32, 0, 0], ThighR: [26, 10, 0], ShinR: [32, 0, 0]
+      }, 'hold'),
+      // ---- THE DRAW. TWO FRAMES. -----------------------------------------
+      // The left hand hauls the saya BACK as the right draws — half the draw,
+      // and the half that is usually forgotten.
+      K(1.075, {
+        Hips: [0, 56, 0], Spine: [3, -18, 0], Hips_pos: [0, -0.108, 0],
+        UpArmL: [-14, 58, 0], LoArmL: [-106, 70, 0], HandL: [-4, 120, 0],
+        UpArmR: [-16, -48, 0], LoArmR: [-98, -64, 0]
+      }, 'in'),
+      K(1.11, {
+        Hips: [0, -26, 0], Hips_pos: [0, -0.09, 0.10], Spine: [4, 34, 0], Chest: [3, 40, 0],
+        Neck: [0, 8, 0], Head: [-2, 15, 0],
+        UpArmR: [-98, 36, -2], LoArmR: [-6, 16, 0], HandR: [-4, -32, 0],
+        UpArmL: [-22, 60, 6], LoArmL: [-120, 72, 0], HandL: [-6, 124, 0],
+        ThighL: [-34, -10, 0], ShinL: [36, 0, 0], ThighR: [30, 10, 0], ShinR: [34, 0, 0]
+      }, 'snap'),
+      // the aftermath, held
+      K(1.52, {
+        Hips: [0, -26, 0], Hips_pos: [0, -0.09, 0.10], Spine: [4, 34, 0], Chest: [3, 40, 0],
+        Neck: [0, 8, 0], Head: [-2, 15, 0],
+        UpArmR: [-98, 36, -2], LoArmR: [-6, 16, 0], HandR: [-4, -32, 0],
+        UpArmL: [-22, 60, 6], LoArmL: [-120, 72, 0], HandL: [-6, 124, 0],
+        ThighL: [-34, -10, 0], ShinL: [36, 0, 0], ThighR: [30, 10, 0], ShinR: [34, 0, 0]
+      }, 'hold'),
+      // chiburi, and the blade goes home. She watches it in.
+      K(1.66, {
+        Hips: [0, 12, 0], Spine: [5, 8, 0], Head: [2, -2, 0], Hips_pos: [0, -0.095, 0],
+        UpArmR: [-52, 6, -12], LoArmR: [-40, 10, 0], HandR: [-30, -46, 0],
+        UpArmL: [-30, 46, 6], LoArmL: [-104, 58, 0]
+      }, 'snap'),
+      K(1.85, {
+        Hips: [0, 34, 0], Hips_pos: [0, -0.10, 0], Head: [12, -6, 0], Neck: [5, -2, 0],
+        UpArmL: [-32, 42, 4], LoArmL: [-100, 54, 0], HandL: [-6, 106, 0],
+        UpArmR: [-30, -34, -4], LoArmR: [-84, -50, 0], HandR: [-8, -96, 0],
+        ThighL: [-24, -8, 0], ShinL: [28, 0, 0], ThighR: [22, 8, 0], ShinR: [28, 0, 0]
+      }, 'out')
+    ]
   }
 };

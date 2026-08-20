@@ -20,6 +20,7 @@ import { CurseSystem } from '../combat/curses.js';
 import { FreezeSystem } from '../combat/freeze.js';
 import { DomainFX } from '../fx/domainfx.js';
 import { NewShadowFx } from '../fx/newshadowfx.js';
+import { awakenBurst, massField } from '../fx/newfx.js';
 import { GarudaSystem } from '../combat/garuda.js';
 import { NewShadowSystem } from '../combat/newshadow.js';
 import { FXSystem } from '../fx/fx.js';
@@ -549,6 +550,18 @@ export class Match {
       // than on the next one.
       this.garuda.update(1 / 60);
       this.newshadow.update(1 / 60);
+      // THE GRAVITATIONAL LATTICE. Emitted on a slow cadence rather than every
+      // frame — it is a persistent tell, and spawning three torus meshes at
+      // 60 Hz would be the most expensive thing in the project for something
+      // the player reads as one continuous object.
+      for (const f of this.activeFighters) {
+        if (!f.cfg.mass || !f.alive) continue;
+        f._massFxT = (f._massFxT ?? 0) - 1 / 60;
+        if (f._massFxT <= 0) {
+          f._massFxT = 0.16;
+          massField(this.fx, f, (f.mass ?? 0) / f.cfg.mass.max, 0x6f7fd0);
+        }
+      }
       // ticked AFTER every damage source, so a freeze applied this frame gets
       // a full second rather than a second minus the frame it landed on
       this.freeze.update(1 / 60);
@@ -1012,6 +1025,57 @@ export class Match {
           break;
         case 'weaponReady':
           this.sfx.swordSwing?.();
+          break;
+        // ---- maki: the awakening ------------------------------------------
+        case 'awakenStage': {
+          // NOT a glow. She has no cursed energy and a glow would say the
+          // opposite of what the character is — this is a hard shell that
+          // cracks outward, pressure leaving a body rather than power
+          // entering one. See fx/newfx.js `awakenBurst`.
+          awakenBurst(this.fx, f, e.stage, 0x5fae7a);
+          this.hud.message(e.def.jp + ' ' + e.def.name, 1.4);
+          this.hud.toast(f, 'AWAKENING ' + e.stage);
+          this.sfx.charged?.() ?? this.sfx.uiOk?.();
+          this.cam.shake(0.25 + e.stage * 0.12);
+          this.stage.flash(0.10 + e.stage * 0.05);
+          break;
+        }
+        case 'awakenGate':
+          this.hud.toast(f, e.used ? 'ALREADY SPENT'
+            : '天与呪縛 ' + e.stage + '/' + e.need);
+          this.sfx.noCE();
+          break;
+        // ---- yuki: star rage ----------------------------------------------
+        case 'massChargeStart':
+          this.sfx.techCharge?.() ?? this.sfx.uiMove();
+          break;
+        case 'massDump':
+          this.hud.toast(f, '質量解放');
+          this.cam.shake(0.3);
+          break;
+        case 'garudaStunned':
+          this.hud.toast(f, 'ガルダ DOWN');
+          this.sfx.noCE();
+          break;
+        // ---- miwa: the circle and the stance -------------------------------
+        case 'sdStart':
+          this.hud.message('簡易領域', 1.0);
+          break;
+        case 'sdCooling':
+          this.hud.toast(f, '簡易領域 ' + e.t.toFixed(1) + 's');
+          this.sfx.noCE();
+          break;
+        case 'miwaStance':
+          this.sfx.swordGrab?.() ?? this.sfx.uiMove();
+          this.hud.toast(f, '抜刀構え');
+          break;
+        case 'stanceTier':
+          // each charge tier announces itself, so the player can see what they
+          // are buying without reading the config
+          if (e.tier > 0) { this.hud.toast(f, e.def.name); this.sfx.uiMove(); }
+          break;
+        case 'needStance':
+          this.hud.toast(f, 'NEEDS THE STANCE');
           break;
         case 'ctSealed':
           this.hud.toast(f, '強制解除 — TECHNIQUES SEALED');

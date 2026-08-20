@@ -174,8 +174,24 @@ class Garuda {
 
     // If the owner is gone (KO, round end) it simply hovers where it is. It
     // does NOT despawn — see the header.
+    // ---- WHERE IT SITS, AND WHY IT IS NOT DIRECTLY BEHIND HER -----------
+    // The first version parked it straight behind her at head height, which
+    // put it EXACTLY on the camera's sight line: the chase camera rides her
+    // shoulder looking forward, so "behind and above" is the one place in the
+    // arena guaranteed to be between the lens and the fight. A creature there
+    // does not read as a partner, it reads as an obstruction. Nudging it
+    // sideways only moved it to the edge of the lens, where perspective made
+    // it look enormous again because it was two metres from the near plane.
+    //
+    // AHEAD, to one side, and above solves both, and it is the better fiction
+    // as well: a flying partner circles over the ground it is covering. High
+    // enough to clear both fighters' heads, offset far enough that it is never
+    // directly over the opponent either.
+    const fwd = o.forward();
+    const side = v3(-fwd.z, 0, fwd.x);
     const home = o.pos.clone()
-      .addScaledVector(o.forward(), -this.def.followDist * 0.5)
+      .addScaledVector(fwd, this.def.followDist * 0.55)
+      .addScaledVector(side, this.def.followSide ?? 1.6)
       .setY(o.pos.y + this.def.hoverHeight);
 
     switch (this.state) {

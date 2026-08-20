@@ -109,7 +109,19 @@ const SEGMENTS = 14;
 const WING_ON = [2, 4, 6, 8];      // which segments carry a wing pair — 4 pairs = 8
 
 export function buildGaruda() {
-  const S = 1.0;
+  // ---- SCALE, PASS 2 -------------------------------------------------------
+  // The first pass built this at S = 1.0: a 5.6 m body with 2.4 m of wingspan,
+  // which is "much larger than its wielder" taken far too literally. In a live
+  // match beside a 1.82 m Yuki it filled most of the screen and read as a boss
+  // rather than as a partner — and a permanent ally that owns the frame makes
+  // the FIGHT unreadable, which is the one thing it must not do.
+  //
+  // At 0.55 the body is about 3.1 m nose to tail. That is still comfortably
+  // larger than she is — it is longer than she is tall by two thirds — while
+  // occupying a fraction of the screen. The segment radius is scaled UP
+  // separately (0.175 -> 0.24) so the shorter body does not come out as a
+  // noodle: it is a thick snake now rather than a long thin one.
+  const S = 0.55;
   const body = new THREE.Group();
   body.name = 'garuda';
 
@@ -119,8 +131,13 @@ export function buildGaruda() {
   const boneDkMat = MAT.metal({ vertexColors: false, color: BONE_DK, rimColor: 0xffe8c0 });
   const columnMat = MAT.metal({ vertexColors: false, color: COLUMN, rimColor: 0xfff8e8 });
   const mawMat = new THREE.MeshBasicMaterial({ color: MAW });
+  // PASS 4: the membrane was drawn at 0.62 opacity, and eight of them at that
+  // value read as bright flat SHEETS that dominated the creature — the bone
+  // frame is the design and the membrane is supposed to be the thing you see
+  // it through. At 0.30 the spars and ribs carry the wing and the panel is a
+  // suggestion, which is what "levitating wings" should look like.
   const membraneMat = new THREE.MeshBasicMaterial({
-    color: MEMBRANE, transparent: true, opacity: 0.62, side: THREE.DoubleSide, depthWrite: false
+    color: MEMBRANE, transparent: true, opacity: 0.30, side: THREE.DoubleSide, depthWrite: false
   });
   const eyeMat = new THREE.MeshBasicMaterial({ color: EYE });
 
@@ -148,7 +165,7 @@ export function buildGaruda() {
     const k = i / (SEGMENTS - 1);
     // radius tapers from a thick neck to a thin tail, with a slight belly
     // around a third of the way down — a uniform taper reads as a traffic cone
-    const r = (0.175 - Math.pow(k, 1.35) * 0.155 + Math.sin(k * Math.PI) * 0.022) * S;
+    const r = (0.240 - Math.pow(k, 1.35) * 0.205 + Math.sin(k * Math.PI) * 0.030) * S;
     const len = 0.40 * S;
     const seg = joint(host, 0, 0, -(i === 0 ? 0 : len));
     segments.push({ node: seg, r, k });
@@ -223,8 +240,8 @@ export function buildGaruda() {
         // silhouette said "flying". The reference makes them the creature's
         // most striking feature after the bill, so they are now roughly a
         // third of the body's length each and genuinely carry the shape.
-        const span = (1.20 - k * 0.42) * S;
-        const chord = (0.62 - k * 0.18) * S;
+        const span = (1.05 - k * 0.36) * S;
+        const chord = (0.56 - k * 0.16) * S;
         // LEADING SPAR — a bone rib running the span
         const spar = new THREE.Mesh(
           new THREE.CylinderGeometry(0.026 * S, 0.011 * S, span, 6), boneMat);
@@ -383,7 +400,7 @@ export function buildGaruda() {
   const api = {
     group, body, head, jaw, segments, wings,
     // roughly how big it is, for the hit tests and the camera framing
-    height: 0.9 * S, radius: 0.55 * S, length: SEGMENTS * 0.40 * S,
+    height: 1.2 * S, radius: 0.75 * S, length: SEGMENTS * 0.40 * S,
 
     // STAR RAGE, poured in. 0..1, written every tick from combat/garuda.js.
     setMass(f) {
