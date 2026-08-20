@@ -193,6 +193,26 @@ class Garuda {
       .addScaledVector(fwd, this.def.followDist * 0.55)
       .addScaledVector(side, this.def.followSide ?? 1.6)
       .setY(o.pos.y + this.def.hoverHeight);
+    // ---- IT MAY NOT OVERTAKE HER ------------------------------------------
+    // Flying it forward fixed the camera and quietly changed the balance: at
+    // point-blank range the station landed on top of the OPPONENT, which put
+    // the autonomous `idleStrike` (range 3.2 m) permanently in range instead of
+    // occasionally in range. That is free chip nobody signed off on, and it
+    // arrived as a side effect of a CAMERA fix, which is the worst way for a
+    // balance change to arrive.
+    //
+    // So the forward offset is a preference, not a right: it is given up
+    // exactly as fast as the fight closes, and the station is pulled back to
+    // her own line the moment it would sit nearer the foe than she does. Her
+    // shikigami stays on her side of the fight.
+    if (foe) {
+      const ownerGap = flatDist(o.pos, foe.pos);
+      const homeGap = flatDist(home, foe.pos);
+      if (homeGap < ownerGap) {
+        const back = Math.min(this.def.followDist * 0.55, ownerGap - homeGap);
+        home.addScaledVector(fwd, -back);
+      }
+    }
 
     switch (this.state) {
       // ---- HURT: knocked away, tumbling, stunned ------------------------

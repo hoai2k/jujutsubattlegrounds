@@ -650,7 +650,16 @@ export class CPU {
           // Hold the range her enormous normals own, and charge whenever they
           // are not on top of her. The charge is held by keeping RB down,
           // which for the bot means asserting ct1 across several frames.
-          f.move.z = dist > 4.2 ? -0.6 : dist < 2.6 ? 0.5 : 0;
+          // ---- SHE HAS TO STAND IN HER OWN RANGE ------------------------
+          // This used to advance only beyond 4.2 m and back off below 2.6,
+          // which parked her in a band OUTSIDE her own normals (reach 2.9) —
+          // fine against a bot that chases, a dead fight against one that does
+          // not. Miwa is exactly that bot, by design, so the two of them stood
+          // at four metres for forty seconds and traded nothing.
+          //
+          // She now closes to where her normals actually reach and only gives
+          // ground when someone is genuinely on top of her.
+          f.move.z = dist > 3.0 ? -0.6 : dist < 1.8 ? 0.5 : 0;
           f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * 0.3;
           this.yukiChargeT = (this.yukiChargeT ?? 0) - 1 / 30;
           if (dist > 3.4 && me.res.curCE >= (me._def('ct1')?.cost ?? 0)) {
