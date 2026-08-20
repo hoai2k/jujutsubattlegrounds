@@ -9,6 +9,20 @@ import { hitMult, SPECIAL } from './balance.js';
 import { isContact } from './freeze.js';
 import { pickTaunt, TAUNT_COOLDOWN, TAUNT_GRANTS_METER, TAUNT_METER_BONUS } from './taunts.js';
 import { tickCharge, spendCharge, chargeDmg, chargeSize, chargeSpeed, chargeFrac } from './charge.js';
+// ---- THE THREE NEW SECOND RESOURCES -----------------------------------
+// Same import discipline as `charge` above: each module owns its own rules
+// and every function it exports returns the identity value for a fighter
+// whose config does not declare the resource, so the existing roster is
+// bit-identical and no call site below needs an `if (isMaki)`.
+import {
+  hasAwakening, tickAwakening, resetAwakening, awakenOnDeal, awakenOnTake,
+  awakenOnEvent, awakenDmg, awakenSpeed, awakenStartup, awakenBlockChip,
+  awakenStamina, awakenDashIFrames, awakenUltReady
+} from './awakening.js';
+import {
+  hasMass, tickMass, resetMass, massOnEvent, massArmor, massSpeed, massDash,
+  massKbResist, massDumpSpeed, dumpMass
+} from './mass.js';
 // CURSED SPEECH — the throat gauge, the tiers, resistance, the resolver and
 // the forced-state driver. Every helper it exports is a no-op for a fighter
 // without `cfg.throat`, which is the entire rest of the roster, so the calls
@@ -260,6 +274,26 @@ export class Fighter {
     // actually decides whether any of it does anything — see combat/charge.js,
     // where every helper returns a no-op for a config without it.
     this.charge = 0;
+    // ---- maki: AWAKENING 天与呪縛 ----
+    // Five fields, and like `charge` they live on EVERY fighter and are
+    // inert for all but one of them. `cfg.awakening` is what decides whether
+    // any of it does anything — see combat/awakening.js.
+    this.awaken = 0;
+    this.awakenStage = 0;
+    this.awakenUses = 0;
+    this.awakenUltCD = 0;
+    // ---- yuki: STAR RAGE 星の怒り ----
+    // `mass` is the meter, `massCharging` is set by the state machine while
+    // an attack input is held, `massDumpT` is the short mobility burst after
+    // an instant dump. See combat/mass.js.
+    this.mass = 0;
+    this.massCharging = false;
+    this.massDumpT = 0;
+    // ---- miwa: SIMPLE DOMAIN 簡易領域 ----
+    // `_sdZone` is set by combat/newshadow.js while a circle is live and is
+    // the field the shared `sdHolds` predicate in domains.js reads.
+    this._sdZone = null;
+    this.sdCooldown = 0;
     this.chargeTier = 0;
     this.amberT = 0;             // seconds of MYTHICAL BEAST AMBER left
     this.arcChain = 0;           // Arc Dash passes used in the current chain
@@ -348,6 +382,9 @@ export class Fighter {
     // overwrites the other's timer.
     this.ctSealT = 0;            // seconds ct1+ct2 are sealed by NULLIFY
     this.soulCut = null;         // {t, mult} — the Split Soul Katana's debuff
+    // MAKI's mirror of it: {t, mult} on damage TAKEN rather than dealt. Two
+    // separate fields on purpose — see `incomingMult`.
+    this.soulSplit = null;
 
     // ---- hanami --------------------------------------------------------
     // NATURE'S EMBRACE. `terrain` is the SETTLED reading of what he is
@@ -661,6 +698,14 @@ export class Fighter {
     this.arcChain = 0;
     this.arcWindow = 0;
     this.model.setCharge?.(0, 0);
+    // ---- THE THREE NEW RESOURCES ARE ROUND-SCOPED TOO ---------------------
+    // Maki starts every round RESTRAINED (stage 0, glasses on), Yuki starts
+    // every round WEIGHTLESS, and Miwa starts with no circle and no cooldown.
+    // Each helper is a no-op for a config that does not declare the resource.
+    resetAwakening(this);
+    resetMass(this);
+    this._sdZone = null;
+    this.sdCooldown = 0;
     // ---- PANDA: THE THREE CORES ARE ROUND-SCOPED ---------------------------
     // This is the one place the core system deliberately parts company with
     // Megumi's shikigami ledger, which survives a round. A destroyed shikigami
@@ -714,6 +759,7 @@ export class Fighter {
     this.nullifyCD = 0;
     this.ctSealT = 0;
     this.soulCut = null;
+    this.soulSplit = null;
     this.domainLock = null;
     // HANAMI: the terrain reading is rebuilt from wherever he respawns
     this.terrain = null;
@@ -902,12 +948,36 @@ export class Fighter {
     // difference between Inumaki's soft lock and Naoya's freeze: one of them
     // takes your speed and the other one takes your body.
     if (this.sleepT > 0) m *= this.sleepMult;
+    // ---- AWAKENING, THE LEGS ---------------------------------------------
+    // 0.94 at stage 0, 1.16 at stage 3. On `speedMult` rather than on the raw
+    // stats so it covers the walk, the run, the dash and the clip playback
+    // together, and cannot be forgotten at one of the four.
+    if (this.cfg.awakening) m *= awakenSpeed(this);
+    // ---- STAR RAGE, THE PRICE --------------------------------------------
+    // Mass is her damage resource AND her mobility debt, and this is the debt
+    // half. Linear in the meter, so being heavy costs speed long before it
+    // buys armour — there is no free weight. The dump grants a short burst
+    // back, which is the only escape option the worst dash in the game has.
+    if (this.cfg.mass) m *= massSpeed(this) * massDumpSpeed(this);
+    // ---- MIWA INSIDE HER OWN CIRCLE --------------------------------------
+    // 0.42 of her walk — the slowest movement in the game by a distance. She
+    // cannot pursue, which is the counterplay the whole character is priced
+    // against: a patient opponent simply backs off and waits for the stamina.
+    if (this._sdZone?.live && this._sdZone.contains(this.pos)) {
+      m *= this._sdZone.def.moveMult;
+    }
     return m;
   }
   // multiplier on damage TAKEN: Soul Wound (Mahito CT1) and max burn stacks
   get incomingMult() {
     let m = 1;
     if (this.buffs.soulWound > 0) m *= this.soulWoundMult || 1.3;
+    // SPLIT SOUL STRIKE (Maki, katana CT2). The MIRROR of Toji's Soul Cut,
+    // deliberately on the opposite multiplier: his lands on `dmgMult` and
+    // makes them WEAKER, hers lands here and makes them SOFTER. Two soul-cut
+    // debuffs on one multiplier would have been the degenerate case, and this
+    // is the line that prevents it.
+    if (this.soulSplit && this.soulSplit.t > 0) m *= this.soulSplit.mult;
     if (this.burn.stacks >= BURN.maxStacks) m *= BURN.vulnMult;
     return m;
   }
@@ -949,6 +1019,13 @@ export class Fighter {
     // not softer. It is on `dmgMult` so it covers their whole kit rather than
     // one button, and it cannot be forgotten at a damage site.
     if (this.twisted && this.twisted.t > 0) m *= this.twisted.mult;
+    // ---- AWAKENING, THE DAMAGE HALF --------------------------------------
+    // 0.86 at stage 0 — the lowest number in the game — climbing to 1.18 at
+    // stage 3, which is Toji's `damageScale` exactly. That equality is the
+    // point of the character. On `dmgMult` rather than per move so it covers
+    // both weapon strings, both techniques, the heavy and the ultimate at
+    // once, exactly as Kashimo's charge does.
+    if (this.cfg.awakening) m *= awakenDmg(this) / (this.cfg.stats.damageScale || 1);
     return m;
   }
   get busy() {
@@ -1044,6 +1121,31 @@ export class Fighter {
     if (this.cfg.throat && name === 'idle') {
       const swap = ['idle', 'idleStrained', 'idleRaw', 'idleSilenced'][this.throatTier] ?? 'idle';
       if (swap !== 'idle' && this.anim.clips.has(swap)) return swap;
+    }
+    // MAKI: ONE NEUTRAL PER AWAKENING STAGE. Same mechanism Kashimo's coiled
+    // cycles and Inumaki's four throat idles use two blocks up, and for the
+    // same reason: the OPPONENT has to be able to read her stage off her
+    // POSTURE from across the arena rather than off a meter on the other
+    // player's side of the screen. Stage 0 has no suffix, so it IS the base
+    // clip and costs no lookup; a missing variant falls straight through.
+    if (this.cfg.awakening && this.awakenStage > 0) {
+      const s = name + 'A' + this.awakenStage;
+      if (this.anim.clips.has(s)) return s;
+      // ...and a stage with no variant of its own falls back to the highest
+      // authored one below it rather than to the braced base, so stage 2
+      // walking does not snap back to the stage-0 walk.
+      for (let k = this.awakenStage - 1; k >= 1; k--) {
+        const f = name + 'A' + k;
+        if (this.anim.clips.has(f)) return f;
+      }
+    }
+    // YUKI: past the armour threshold the neutral cycles are replaced by their
+    // HEAVY versions — lower, wider, barely moving. Same argument again: the
+    // trade she has made is legible from her posture before it is legible from
+    // the HUD, which is what makes the matchup readable.
+    if (this.cfg.mass && massArmor(this)) {
+      const swap = { idle: 'idleHeavy', walk: 'walkHeavy' }[name];
+      if (swap && this.anim.clips.has(swap)) return swap;
     }
     // PANDA: THE WHOLE ANIMATION SET IS PER-STANCE. Built by string from the
     // core's `clipSuffix` (''/Gor/Tri), exactly the way Toji's per-weapon idles
@@ -1149,9 +1251,14 @@ export class Fighter {
     this.play(clipName, { speed: (clip.dur / moveDur), restart: true });
   }
 
-  startCT(slot, ctx) {
+  startCT(slot, ctx, opts = {}) {
     const def = this._def(slot);
     if (!def) return false;
+    // ---- MIWA: THE DRAW ONLY EXISTS OUT OF THE STANCE --------------------
+    // The refusal lives here as well as at the press site, because `startCT`
+    // is also reached from the AI and from Yuta's Copy, and a draw fired from
+    // neutral would be her best move with none of its cost.
+    if (def.requireStance && !opts.ignoreStance) return false;
     // what this fighter leans on, for Confiscation to take away
     this.slotUse[slot] = (this.slotUse[slot] ?? 0) + 1;
 
@@ -1252,6 +1359,21 @@ export class Fighter {
       move.clip = def.clips[v];
       move.variant = v;
     }
+    // ---- MIWA: THE CHARGE TIER RIDES THE MOVE ----------------------------
+    // Read off `stanceTier`, which the stance state wrote at the moment of the
+    // press, and stamped onto the move object — so the effect resolver never
+    // has to look back at a timer that has already been cleared, and the debug
+    // overlay shows the tier that was actually bought.
+    if (def.requireStance) {
+      const tiers = this._def('ct2')?.tiers ?? [];
+      const t = tiers[this.stanceTier ?? 0] ?? tiers[0];
+      if (t) {
+        move.drawTier = this.stanceTier ?? 0;
+        move.drawTierName = t.name;
+        move.dmg = (def.dmg ?? 0) * t.dmgMult;
+        move.reach = t.reach;
+      }
+    }
     this.setState('ct', { move });
     this._syncMoveAnim(move, move.clip || def.clip);
     this.emit('ctStart', { move });
@@ -1303,6 +1425,20 @@ export class Fighter {
       if (move.reach) move.reach *= 1 + (sz - 1) * 0.35;
       if (move.radius) move.radius *= sz;
       if (move.burstRadius) move.burstRadius *= sz;
+    }
+    // ---- AWAKENING, THE FRAME-DATA HALF ------------------------------------
+    // Same hook and the same reasoning as the two blocks above: this is the
+    // one place every built move passes through, so scaling here keeps the
+    // debug overlay, the hit windows and the animation speed in agreement.
+    //
+    // Her stage multiplier is ABOVE 1 at stage 0 (1.10 — every move is 10%
+    // SLOWER than printed) and below it at stages 2 and 3. That is the whole
+    // progression expressed on one line, and it is why her config's printed
+    // frame data is the mid-curve number rather than the best or worst case.
+    if (this.cfg.awakening) {
+      const k = awakenStartup(this);
+      if (move.startup) move.startup = Math.max(3, Math.round(move.startup * k));
+      if (move.recovery) move.recovery = Math.max(3, Math.round(move.recovery * k));
     }
     if (!this.cfg.gluttony || !this.growthStage) return move;
     const k = this.reachScale;
@@ -1726,6 +1862,77 @@ export class Fighter {
         this._syncMoveAnim(move, sp.clip);
         return true;
       }
+      // ---- MAKI: THE WEAPON SWAP ------------------------------------------
+      // A TOGGLE, not a wheel, and that is the whole distinction from Toji's
+      // radial. There is no ring to open, no stick to steer with and no time
+      // dilation — she carries two tools and this moves one out of the way of
+      // the other. It reuses `commitWeapon` and the `arsenalSwap` STATE
+      // wholesale rather than growing a second swap path, so the vulnerable
+      // window, the 4-frame guard cancel and the prop timing are the ones that
+      // already exist and are already tested.
+      //
+      // Costs nothing, because she has nothing to spend. The cooldown exists
+      // only to stop swap-mashing.
+      case 'maki_swap': {
+        const a = this.cfg.arsenal;
+        const cur = this.weapon ?? a.default;
+        const next = a.order[(a.order.indexOf(cur) + 1) % a.order.length];
+        this.commitWeapon(next);
+        return true;
+      }
+
+      // ---- YUKI: COMMAND GARUDA -------------------------------------------
+      // Directs the partner to dive. Note what this branch does NOT do: it
+      // does not summon anything, because Garuda is already on the field and
+      // has been since the round started. That is the character.
+      //
+      // Refused while Garuda is stunned — which is the only thing knocking it
+      // away actually buys the opponent, and it is enough.
+      case 'yuki_command': {
+        const sys = ctx.match.garuda;
+        if (!sys?.forOwner(this)) { this.emit('noCE'); return false; }
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        if (!sys.command(this, ctx.match.other(this))) {
+          this.emit('garudaStunned');
+          return false;
+        }
+        this._setSpecialCD(sp.cooldown);
+        const move = {
+          name: sp.name, kind: 'ct', slot: 'special', effect: null,
+          startup: 10, active: 1, recovery: 12, clip: sp.clip
+        };
+        this.setState('ct', { move });
+        this._syncMoveAnim(move, sp.clip);
+        return true;
+      }
+
+      // ---- MIWA: SIMPLE DOMAIN 簡易領域 ------------------------------------
+      // The character. Costs no cursed energy — she has no cursed technique
+      // and the circle is paid for entirely in stamina, continuously, for as
+      // long as she holds it.
+      //
+      // The cooldown is checked here but SET when the circle drops rather than
+      // when it is cast (see combat/newshadow.js `close`), so a long hold is
+      // followed by a long gap and she cannot re-place it the moment somebody
+      // steps out.
+      case 'miwa_simple_domain': {
+        const sys = ctx.match.newshadow;
+        if (!sys) return false;
+        // pressing it again while one is up TAKES IT DOWN — a held zone she
+        // could not dismiss would be a trap she was also caught in
+        const live = sys.zoneFor(this);
+        if (live) { live.close('dismissed'); return true; }
+        if (this.sdCooldown > 0) { this.emit('sdCooling', { t: this.sdCooldown }); return false; }
+        if (!sys.cast(this)) { this.emit('noStamina'); return false; }
+        const move = {
+          name: sp.name, kind: 'ct', slot: 'special', effect: null,
+          startup: sp.castFrames, active: 1, recovery: 8, clip: sp.clip
+        };
+        this.setState('ct', { move });
+        this._syncMoveAnim(move, sp.clip);
+        return true;
+      }
+
       case 'gojo_teleport': {
         // the one special a barrier shuts off: nothing warps out of a domain
         const d = ctx.domains.state;
@@ -2390,6 +2597,35 @@ export class Fighter {
   _feedGauges(hit, result, hpBefore) {
     const atk = hit.attacker;
     const lost = hpBefore - this.res.hp;
+    // ---- AWAKENING FEEDS FROM BOTH ENDS OF THE SAME HIT --------------------
+    // This is the one place in the codebase where an attacker and a defender
+    // are both in scope with the ACTUAL damage applied, which is exactly what
+    // the awakening meter needs: it pays for dealing damage and it pays MORE
+    // for taking it, and using the real number rather than the move's printed
+    // one means chip, blocks and resistances all feed it honestly.
+    //
+    // The asymmetry (0.80 taken vs 0.55 dealt) is the whole design — see the
+    // header of combat/awakening.js. She is built by the fight happening TO
+    // her, so a losing Maki climbs fastest and the mechanic is a comeback
+    // rather than a snowball.
+    if (lost > 0) {
+      if (hasAwakening(this)) awakenOnTake(this, lost);
+      if (atk && atk !== this && hasAwakening(atk)) awakenOnDeal(atk, lost);
+    }
+    if (result === 'block' && hasAwakening(this)) awakenOnEvent(this, 'block');
+    if (hit.type === 'knockdown' && result === 'hit' && hasAwakening(this)) {
+      awakenOnEvent(this, 'knockdown');
+    }
+    if ((result === 'hit' || result === 'otg') && hit.isCT && hasAwakening(atk)) {
+      awakenOnEvent(atk, 'land');
+    }
+    // ---- AND STAR RAGE FEEDS FROM LANDING ---------------------------------
+    // The smaller of Yuki's two build sources — charging is the main one — but
+    // it matters, because it means pressure funds the next spend rather than
+    // every heavy hit requiring a separate 1.6-second charge in neutral.
+    if ((result === 'hit' || result === 'otg' || result === 'armor') && hasMass(atk)) {
+      massOnEvent(atk, hit.isCT ? 'tech' : hit.type === 'knockdown' ? 'heavy' : 'punch');
+    }
     if (lost > 0) {
       if (this.cfg.blood) this.gainBlood(lost * (this.cfg.blood.perDamageTaken ?? 0));
       if (atk && atk !== this && atk.cfg.blood) {
@@ -2506,8 +2742,14 @@ export class Fighter {
     // A body this heavy gets moved, but it does not get carried. Horizontal
     // knockback and launch height scale down separately, so combos still
     // work — they are just short and low.
-    const kbR = this.cfg.kbResist ?? 1;
-    const lnR = this.cfg.launchResist ?? kbR;
+    // STAR RAGE rides the SAME block, because it is the same idea measured
+    // dynamically instead of declared statically: `massKbResist` runs from 1
+    // at empty to 0 at the armour threshold, CONTINUOUSLY rather than
+    // snapping there. A cliff would read as a bug the first time a hit at 44
+    // mass sent her flying and the same hit at 46 did not.
+    const mkb = massKbResist(this);
+    const kbR = (this.cfg.kbResist ?? 1) * mkb;
+    const lnR = (this.cfg.launchResist ?? this.cfg.kbResist ?? 1) * mkb;
     if (kbR !== 1 || lnR !== 1) {
       hit = {
         ...hit, kb: hit.kb * kbR, kbY: (hit.kbY ?? 0) * lnR,
@@ -2517,8 +2759,22 @@ export class Fighter {
 
     // armor: eat the hit, take reduced damage, no reaction.
     // RESOLVE grants armor through exactly one hit — consumed on absorb.
-    if ((this.armorFrames > 0 || this.resolveArmor) && !hit.sureHit && hit.type !== 'launcher') {
-      if (this.armorFrames <= 0) this.resolveArmor = false;
+    // STAR RAGE ARMOUR joins the existing branch rather than adding a second
+    // one. Above `mass.armorAt` she has armour through hits — and because it
+    // is THIS branch, everything already written against "is this body
+    // currently refusing to react" gets the right answer for her for free:
+    // Inumaki's three posture commands and Naoya's freeze both consult armour,
+    // and both correctly bounce off a Yuki at high mass. That interaction is
+    // called out in the delivery notes as one that had to be decided, and the
+    // decision is: YES, high mass resists forced movement, for the same reason
+    // Todo's super-armour does — being marched around is flinching.
+    //
+    // Note it obeys the same two exclusions as every other armour in the game:
+    // it does NOT stop a launcher, and it does NOT stop a sure-hit. The second
+    // is what makes Miwa's guaranteed slash beat it.
+    const heavyArmor = this.cfg.mass && massArmor(this);
+    if ((this.armorFrames > 0 || this.resolveArmor || heavyArmor) && !hit.sureHit && hit.type !== 'launcher') {
+      if (this.armorFrames <= 0 && !heavyArmor) this.resolveArmor = false;
       this.res.hp -= hit.dmg * 0.6;
       this.emit('armorHit');
       return 'armor';
@@ -2561,7 +2817,11 @@ export class Fighter {
       // applying it here means it works against every guard in the game
       // rather than against a list of them.
       const melted = this.melt && this.melt.t > 0;
-      const chip = hit.dmg * 0.15 * (this._tune('blockChipMult') ?? 1) * (melted ? this.melt.chip : 1);
+      // AWAKENING's guard column: 1.10 at stage 0 (she guards WORSE than the
+      // roster) down to 0.74 at stage 3. Multiplied into the existing chip
+      // rather than replacing it, so a stance override still composes.
+      const chip = hit.dmg * 0.15 * (this._tune('blockChipMult') ?? 1)
+        * awakenBlockChip(this) * (melted ? this.melt.chip : 1);
       this.res.hp -= chip;
       // weak guards (Jogo) bleed stamina faster per blocked hit
       this.res.stamina -= 12 * (this._tune('blockStaminaMult') ?? 1) * (melted ? this.melt.stamina : 1);
@@ -2680,6 +2940,17 @@ export class Fighter {
     // be seen, so the dodge out of it would silently be a jog.
     this._trackDashInput(input, dt);
 
+    // ---- THE THREE NEW RESOURCES ------------------------------------------
+    // Ticked here, alongside every other per-frame resource, and each is a
+    // no-op for a config that does not declare it. Awakening has almost
+    // nothing to do (it has no decay and no passive growth — it moves only
+    // when something happens); mass runs the held charge and the dump timer
+    // and writes the model's shimmer; Miwa's circle is owned by its own
+    // system and only its cooldown lives here.
+    tickAwakening(this, dt);
+    tickMass(this, dt);
+    if (this.sdCooldown > 0) this.sdCooldown = Math.max(0, this.sdCooldown - dt);
+
     // timers
     if (this.iFrames > 0) this.iFrames--;
     if (this.armorFrames > 0) this.armorFrames--;
@@ -2726,6 +2997,10 @@ export class Fighter {
     }
     // TOJI's three clocks. All decay on the wall clock like every other
     // cooldown here; none of them are resources and none of them build.
+    if (this.soulSplit) {
+      this.soulSplit.t -= dt;
+      if (this.soulSplit.t <= 0) { this.soulSplit = null; this.emit('soulSplitEnds'); }
+    }
     if (this.soulCut) {
       this.soulCut.t -= dt;
       if (this.soulCut.t <= 0) { this.soulCut = null; this.emit('soulCutEnds'); }
@@ -2938,7 +3213,18 @@ export class Fighter {
       this.res.curCE = Math.min(this.res.maxCE, this.res.curCE + this.cfg.stats.ceRegen * dt);
     }
     if (!dashing && !blockingNow && this.state !== 'barrierBreak') {
-      this.res.stamina = Math.min(this.cfg.stats.stamina, this.res.stamina + this.cfg.stats.staminaRegen * dt);
+      // AWAKENING scales BOTH the ceiling and the rate — 0.90 at stage 0,
+      // 1.30 at stage 3 — so "better stamina" is a real, felt improvement
+      // rather than a bigger number she refills at the same speed.
+      // MIWA: her circle HALTS regen entirely while it is up (`haltRegen`),
+      // which is what makes the drain figure honest — 26/s against a pool
+      // that is not refilling is about five seconds, not indefinite.
+      const sdHalt = this._sdZone?.live && this._sdZone.def.haltRegen;
+      if (!sdHalt) {
+        const sk = awakenStamina(this);
+        this.res.stamina = Math.min(this.cfg.stats.stamina * sk,
+          this.res.stamina + this.cfg.stats.staminaRegen * sk * dt);
+      }
     }
 
     // ---- REVERSE CURSED TECHNIQUE (Sukuna, passive) -------------------------
@@ -3223,6 +3509,27 @@ export class Fighter {
           this.emit('assassinCooling', { t: this.assassinCD });
           break;
         }
+        // MAKI — D-pad Right is gated on AWAKENING rather than on a bar. She
+        // has no cursed energy, so `ultReady` is permanently false for her;
+        // rather than special-casing that getter — which would have touched
+        // Toji's path — this is a separate `kind`, checked here, exactly as
+        // his `cooldown` kind is checked immediately above. A pressed-but-not-
+        // ready button reports WHY rather than being swallowed, because the
+        // whole point of the gate is that the player is chasing it all round.
+        if (input.ultP && this.cfg.ultimate?.kind === 'awakening') {
+          if (awakenUltReady(this) && this.grounded && !input.block) {
+            this.awakenUses = (this.awakenUses ?? 0) + 1;
+            this.awakenUltCD = this.cfg.ultimate.cooldown ?? 30;
+            this.startUltBurst(ctx);
+            break;
+          }
+          this.emit('awakenGate', {
+            stage: this.awakenStage,
+            need: this.cfg.ultimate.requireStage ?? 3,
+            used: (this.awakenUses ?? 0) >= (this.cfg.ultimate.uses ?? 1)
+          });
+          break;
+        }
         if (input.ultP && this.ultReady && this.grounded) {
           if (input.block) break; // LT+ult reserved for barrier break (domains handles it)
           if (this.cfg.domain) { ctx.domains.castDomain(this, ctx); break; }
@@ -3297,6 +3604,23 @@ export class Fighter {
         // the slot, so swapping to another weapon and back does not launder it.
         if (input.ct2P && this.equipped?.ct2?.effect === 'toji_nullify' && this.nullifyCD > 0) {
           this.emit('nullifyCooling', { t: this.nullifyCD });
+          break;
+        }
+        // ---- MIWA: THE STANCE, AND THE DRAW THAT NEEDS IT ------------------
+        // RT is not a technique, it is a POSTURE, so it does not go through
+        // `startCT` at all — there is no hitbox, no cost and no active frames
+        // to build. It enters its own state and waits.
+        if (input.ct2P && this._def('ct2')?.effect === 'miwa_stance' && this.grounded) {
+          this.stanceHold = 0;
+          this.setState('stance', { clip: this._def('ct2').enterClip ?? 'stanceEnter' });
+          this.emit('miwaStance');
+          break;
+        }
+        // ...and RB is REFUSED from neutral. Her one big hit only exists out
+        // of the stance, which is what makes it the most committal move in
+        // the game and what forces the circle-then-charge gameplan.
+        if (input.ct1P && this._def('ct1')?.requireStance) {
+          this.emit('needStance');
           break;
         }
         if (input.ct1P) { if (this.startCT('ct1', ctx)) break; }
@@ -3428,12 +3752,81 @@ export class Fighter {
           const cmd = this.cfg.commands.defs[m.commandKey];
           ctx.match.speechfx?.utterance(this, this.f / Math.max(1, m.startup), cmd.color, cmd.weight);
         }
+        // ---- YUKI: THE HELD MASS CHARGE ------------------------------------
+        // "Chargeable — hold to build mass into it." Implemented by HOLDING
+        // THE FRAME COUNTER at the last frame of the startup while the button
+        // is down, rather than by a separate charge state: that way the move
+        // is already fully wound up and simply waits, the animation sits on
+        // its own wind-up key, and releasing fires the identical active frames
+        // the uncharged version would have. Nothing about the hit resolution
+        // has to know a charge happened — the meter does all of it.
+        //
+        // Capped at `maxChargeFrames` so it cannot be held for the whole
+        // round, and `massCharging` is what combat/mass.js actually reads to
+        // fill the bar.
+        if (m.chargeable && this.f >= m.startup) {
+          const held = (this.massHeld ?? 0);
+          const stillHolding = !!(input && (m.slot === 'ct1' ? input.ct1 : input.ct2));
+          if (this.f === m.startup && stillHolding && held < (m.maxChargeFrames ?? 96)) {
+            this.massHeld = held + 1;
+            this.massCharging = true;
+            this.f--;                       // hold here; the meter is filling
+            if (this.massHeld === 1) this.emit('massChargeStart');
+            break;
+          }
+          if (this.massCharging) {
+            this.massCharging = false;
+            this.massHeld = 0;
+            this.emit('massChargeRelease');
+          }
+        }
         if (this.f === m.startup) ctx.effects.fire(this, m, ctx);
         // multi-hit ults re-fire during active frames
         if (m.hits && this.f > m.startup && this.f < m.startup + m.active && (this.f - m.startup) % 14 === 0) {
           ctx.effects.fire(this, m, ctx, true);
         }
         if (this.f >= m.startup + m.active + m.recovery) { this.setState('idle', { clip: 'idle' }); this.move = null; }
+        break;
+      }
+
+      // ---- MIWA: THE SHEATHE STANCE 抜刀構え -----------------------------
+      // The only state in this project where a fighter deliberately does
+      // NOTHING and that is the move. She is nearly immobile, she has no
+      // armour, and any hit drops the stance and the charge with it. What she
+      // is buying is a damage multiplier on the draw, in four tiers, and the
+      // whole gameplan is to buy it somewhere the opponent cannot reach her —
+      // which means inside her own circle, where the auto-counter is watching
+      // the perimeter for her.
+      case 'stance': {
+        const d = this._def('ct2');
+        // holding RT sustains it; letting go drops back to neutral WITHOUT
+        // drawing. A stance that fired on release would make every entry a
+        // committed attack and delete the bluff.
+        if (!input || !input.ct2) {
+          this.stanceHold = 0;
+          this.setState('idle', { clip: 'idle' });
+          break;
+        }
+        this.stanceHold = Math.min(d.maxHoldFrames ?? 102, (this.stanceHold ?? 0) + 1);
+        // the entry clip runs once, then she settles into the still one
+        if (this.f === Math.round((d.enterFrames ?? 16))) this.play(d.clip ?? 'stance', { fade: 0.12 });
+        // ---- RB DRAWS -------------------------------------------------------
+        // The tier is read off `stanceHold` at the moment of the press and
+        // written onto the move, so the effect resolver never has to look back
+        // at a timer that has already been cleared.
+        if (input.ct1P) {
+          const tiers = d.tiers ?? [];
+          let tier = 0;
+          for (let i = 0; i < tiers.length; i++) if (this.stanceHold >= tiers[i].at) tier = i;
+          this.stanceTier = tier;
+          this.stanceHold = 0;
+          if (this.startCT('ct1', ctx, { ignoreStance: true })) break;
+          this.setState('idle', { clip: 'idle' });
+          break;
+        }
+        // she can shuffle, barely, to fix her line — but nowhere near enough
+        // to escape anything
+        this._locomote(input.move, false, ctx, dt);
         break;
       }
 
@@ -4041,7 +4434,11 @@ export class Fighter {
         // DASH I-FRAMES, at the FRONT of the dash. Declared per character and
         // absent everywhere except Toji, so nobody else's dash changes. This is
         // his defensive identity: he does not tank hits, he isn't there.
-        const inv = this._tune('dashIFrames') ?? 0;
+        // AWAKENING grants dash i-frames FLAT rather than by multiplier —
+        // her base is zero, and multiplying zero would have left the column
+        // permanently dead. Stage 0 has no invulnerability at all (a real
+        // weakness); stage 3 has Toji's seven.
+        const inv = (this._tune('dashIFrames') ?? 0) + awakenDashIFrames(this);
         if (inv > 0) this.iFrames = Math.max(this.iFrames, inv);
         this.emit('dash');
         this._startDashBurst(m, mag, stats);
@@ -4226,6 +4623,36 @@ export class Fighter {
           : 0.15;
         m.setCurseOpen?.(k);
       }
+    }
+    // ---- MAKI: TWO WEAPONS, ALWAYS BOTH ON THE BODY ------------------------
+    // The visual statement of the toggle. Toji's arsenal sends everything he
+    // is not holding to the under-world stow slot, because a weapon he is not
+    // carrying is inside the inventory curse. Hers go to her BACK — she is
+    // wearing both at all times, and that is the read that separates the two
+    // characters at a glance before either of them has swung anything.
+    //
+    // Gated on `arsenal.toggle` so Toji's block above is untouched.
+    if (this.cfg.arsenal?.toggle && m.setWeapon) {
+      m.setWeapon(this.state === 'arsenalSwap'
+        // MID-SWAP the NEW weapon is not in her hand yet — the hands cross at
+        // the midpoint of the clip and that is the frame the prop moves on, so
+        // the first half of the swap still shows the old one.
+        ? (this.f < Math.round((this.cfg.arsenal.swapFrames ?? 22) / 2)
+          ? (this.weapon === 'split_soul' ? 'playful_cloud' : 'split_soul')
+          : this.weapon)
+        : this.weapon);
+    }
+    // ---- MIWA: THE BLADE AND THE SCABBARD ----------------------------------
+    // Two props that always move together. The sword is in the saya for
+    // everything except the frames after a draw, and the LEFT hand takes the
+    // scabbard for the draw and the sheathe — the classic two-handed iai
+    // action, where the saya moves as much as the blade does.
+    if (m.setDrawn) {
+      const drawing = this.state === 'ct' && this.move?.effect === 'miwa_draw';
+      const ulting = this.state === 'ult' || this.state === 'ultBurst';
+      const after = drawing && this.f > (this.move?.startup ?? 20);
+      m.setDrawn(after || (ulting && this.f > 90));
+      m.setSayaHeld?.(drawing || this.state === 'stance' || ulting);
     }
     // ---- NOBARA: hammer, nail, doll ----------------------------------------
     // The HAMMER lives on her shoulder — that is the stance, and it is half

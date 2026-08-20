@@ -19,6 +19,9 @@ import { SwarmSystem } from '../combat/swarm.js';
 import { CurseSystem } from '../combat/curses.js';
 import { FreezeSystem } from '../combat/freeze.js';
 import { DomainFX } from '../fx/domainfx.js';
+import { NewShadowFx } from '../fx/newshadowfx.js';
+import { GarudaSystem } from '../combat/garuda.js';
+import { NewShadowSystem } from '../combat/newshadow.js';
 import { FXSystem } from '../fx/fx.js';
 // CURSED SPEECH — the extruded-kanji layer and the title-card overlay. Both
 // are Inumaki's, both are inert when nobody in the match has a voice, and both
@@ -160,6 +163,11 @@ export class Match {
     this.bubbles = new BubbleSystem(this.root, stage.camera);
     for (const f of this.fighters) this.fx.attachShadow(f);
     this.domainfx = new DomainFX(stage.scene, this.arena, this.fx);
+    // On the SCENE rather than the match root, like the domain FX above: the
+    // circle is a world object standing on the floor, and it has to survive
+    // the arena being swapped out from under it when a domain opens — which
+    // is exactly the case her whole anti-domain role exists for.
+    this.newshadowfx = new NewShadowFx(stage.scene);
     // On the MATCH ROOT rather than the scene, like the bubbles above, so a
     // round teardown takes every glyph still in the air with it.
     this.speechfx = new SpeechFX(this.root, stage.camera, this.fx);
@@ -179,6 +187,14 @@ export class Match {
     // combat/curses.js for how the three share a field without any of them
     // having to know about the others' internals.
     this.curses = new CurseSystem(this);
+    // ---- THE TWO NEW SYSTEMS ----------------------------------------------
+    // GARUDA is the FOURTH ally system, and the only one whose occupant is
+    // never summoned and never lost — see combat/garuda.js for what that
+    // changes. NEW SHADOW is Miwa's Simple Domain zone, which is a separate
+    // thing from the universal `simpleDomain` STATE the domain system already
+    // owns and does not touch it.
+    this.garuda = new GarudaSystem(this);
+    this.newshadow = new NewShadowSystem(this);
     this.freeze = new FreezeSystem(this);
     // Hakari's reach scenarios and JACKPOT. Owned by the match rather than by
     // the domain system because Jackpot outlives the barrier that starts it.
@@ -232,6 +248,11 @@ export class Match {
     this.hud.gamble = this.gamble;
     this.hud.flora = this.flora;
     this.hud.swarms = this.swarms;
+    // GARUDA JOINS THE FIELD HERE, before the first frame, because it is not
+    // summoned — it has been with her the whole time and the round opening
+    // should show that. `ensure` is idempotent and a no-op for anyone whose
+    // config does not declare a partner.
+    for (const f of this.fighters) this.garuda.ensure(f);
     this.hud.setFighters(this.fighters);
     this.hud.setSplit(this.viewSeats.length >= 2 ? this.viewSeats.length : 0);
 
@@ -522,6 +543,12 @@ export class Match {
       this.flora.update(1 / 60);
       this.swarms.update(1 / 60);
       this.curses.update(1 / 60);
+      // Garuda ticks with the other allies. Miwa's circle ticks AFTER them,
+      // so a projectile spawned this frame is already in the entity list when
+      // the boundary check runs and gets cut on the frame it crosses rather
+      // than on the next one.
+      this.garuda.update(1 / 60);
+      this.newshadow.update(1 / 60);
       // ticked AFTER every damage source, so a freeze applied this frame gets
       // a full second rather than a second minus the frame it landed on
       this.freeze.update(1 / 60);
@@ -1650,6 +1677,13 @@ export class Match {
     // Megumi's is match-scoped. Any live freeze is released cleanly here so a
     // fighter frozen at the buzzer does not start the next round grey.
     this.curses.resetRound();
+    // GARUDA IS NOT REMOVED AND NOT REBUILT — it is put back beside her with
+    // its timers cleared. Rebuilding it would be cheap and would also be a lie
+    // about what the object is: it is the one ally in the game that is always
+    // there. Miwa's circle IS torn down, because a zone is a thing she placed
+    // and a round boundary un-places it.
+    this.garuda.resetRound();
+    this.newshadow.resetRound();
     this.freeze.clear();
     this.hud.setWheel(null, null, null);
     this.hud.setArsenal(null, null);

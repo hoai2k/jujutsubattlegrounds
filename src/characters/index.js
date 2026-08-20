@@ -21,6 +21,9 @@ import { NAOYA } from './naoya.js';
 import { KASHIMO } from './kashimo.js';
 import { PANDA } from './panda.js';
 import { INUMAKI } from './inumaki.js';
+import { MAKI } from './maki.js';
+import { YUKI } from './yuki.js';
+import { MIWA } from './miwa.js';
 import { buildGojo } from '../art/models/gojo.js';
 import { buildYuta } from '../art/models/yuta.js';
 import { buildNanami } from '../art/models/nanami.js';
@@ -43,6 +46,9 @@ import { buildNaoya } from '../art/models/naoya.js';
 import { buildKashimo } from '../art/models/kashimo.js';
 import { buildPanda } from '../art/models/panda.js';
 import { buildInumaki } from '../art/models/inumaki.js';
+import { buildMaki } from '../art/models/maki.js';
+import { buildYuki } from '../art/models/yuki.js';
+import { buildMiwa } from '../art/models/miwa.js';
 import { makeClips } from '../art/anim/index.js';
 import {
   variantsOf, hasVariants, variantEntry, resolveVariant, splitPick, joinPick,
@@ -131,7 +137,36 @@ export const ROSTER = {
   // empty state (SILENCED) removes his entire kit rather than weakening it.
   //
   // Not badged `spirit`: he is a second-year student at Jujutsu High.
-  inumaki: { config: INUMAKI, buildModel: buildInumaki, jp: '狗巻棘', accent: 0x9fd8c8, role: 'CURSED SPEECH · COMMANDER' }
+  inumaki: { config: INUMAKI, buildModel: buildInumaki, jp: '狗巻棘', accent: 0x9fd8c8, role: 'CURSED SPEECH · COMMANDER' },
+  // THE SECOND HEAVENLY RESTRICTION, and the only fighter in the game with
+  // IN-MATCH PROGRESSION. She is built as the deliberate mirror of Toji: he is
+  // at full power on frame one and never scales, she starts below the roster
+  // average and ends up his equal. Same weapon family, opposite curve. She
+  // reuses his `noCursedEnergy` handling everywhere — see characters/maki.js
+  // for the site-by-site list, none of which changed to accommodate her.
+  //
+  // Her accent is deliberately in Toji's family (#5fae7a against his #6ea88a):
+  // it is the one place in the project where two characters are intentionally
+  // adjacent in hue, because the select screen should say the two Heavenly
+  // Restrictions are a pair.
+  maki: { config: MAKI, buildModel: buildMaki, jp: '禪院真希', accent: 0x5fae7a, role: 'HEAVENLY RESTRICTION · AWAKENS MID-FIGHT' },
+  // THE HEAVYWEIGHT, the roster's first true grappler, and the first fighter
+  // with an ally that is ALWAYS on the field rather than summoned and spent.
+  // Canon-correct with no Domain Expansion, so she joins the burst-ultimate
+  // list. What is new about her is the MASS gauge — the only resource in the
+  // game that is simultaneously a damage stat and a mobility debt.
+  yuki: { config: YUKI, buildModel: buildYuki, jp: '九十九由基', accent: 0x6f7fd0, role: 'STAR RAGE · GRAPPLER' },
+  // THE COUNTER CHARACTER, with the weakest raw kit in the game and the single
+  // strongest defensive tool. Also canon-correct with no Domain Expansion —
+  // SIMPLE DOMAIN IS NOT ONE. It is a defensive barrier technique, and hers
+  // being the definitive version in the game does not make it a domain; see
+  // the header of combat/newshadow.js, which is also where the ruling that the
+  // UNIVERSAL Simple Domain is untouched is written down.
+  //
+  // Not badged `spirit`: she is a second-year student at Kyoto Jujutsu High,
+  // and her uniform is the Kyoto one rather than the Tokyo one the shipped
+  // students wear — see art/models/miwa.js.
+  miwa: { config: MIWA, buildModel: buildMiwa, jp: '三輪霞', accent: 0xa8d8e8, role: 'NEW SHADOW STYLE · SIMPLE DOMAIN' }
 };
 
 export const hex = n => '#' + n.toString(16).padStart(6, '0');
@@ -144,7 +179,16 @@ export const hex = n => '#' + n.toString(16).padStart(6, '0');
 // distinction between "fastest" and "never stops" reads on a select screen.
 // Panda sits next to Todo — the two heavyweights, and the two whose answer to
 // pressure is to stand in it.
-export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'naoya', 'kashimo', 'yuta', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'todo', 'jogo', 'mahito', 'hanami', 'kurourushi'];
+// MAKI sits immediately after TOJI, which is the most important placement on
+// this screen: the two Heavenly Restrictions are a matched pair and a player
+// choosing between them should be comparing them side by side, because the
+// whole point of her design is that she is his opposite curve rather than his
+// worse copy. Same argument that already put Naoya next to Toji and Kashimo
+// next to Naoya.
+// MIWA sits next to Yuta — the two sword users — and YUKI next to Todo, which
+// puts the three heavyweights (Panda, Todo, Yuki) in a run and lets the
+// "imposing without bulk" note be read against the one with the bulk.
+export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo', 'yuta', 'miwa', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'todo', 'yuki', 'jogo', 'mahito', 'hanami', 'kurourushi'];
 
 // `pick` is 'gojo' (the base) or 'gojo:shinjuku'. A bare character id still
 // works everywhere it used to, which is why nothing outside the select screen

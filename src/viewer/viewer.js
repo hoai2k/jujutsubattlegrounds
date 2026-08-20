@@ -24,6 +24,12 @@ import { buildNaoya } from '../art/models/naoya.js';
 import { buildKashimo } from '../art/models/kashimo.js';
 import { buildPanda } from '../art/models/panda.js';
 import { buildInumaki } from '../art/models/inumaki.js';
+import { buildMaki } from '../art/models/maki.js';
+import { buildYuki } from '../art/models/yuki.js';
+import { buildMiwa } from '../art/models/miwa.js';
+// GARUDA is not a humanoid and has no clip set, so it loads through the
+// CREATURES path below rather than through BUILDERS — same as the shikigami.
+import { buildGaruda } from '../art/models/garuda.js';
 import { buildGapingMaw, buildTendrilWisp } from '../art/models/lowcurses.js';
 import { RoachSwarm } from '../art/models/roach.js';
 import {
@@ -58,7 +64,7 @@ import { installClips, FIN_PREFIX } from '../finishers/retarget.js';
 const BUILDERS = { gojo: buildGojo, yuta: buildYuta, megumi: buildMegumi, nanami: buildNanami, yuji: buildYuji, todo: buildTodo, jogo: buildJogo, mahito: buildMahito, mahoraga: buildMahoraga, higuruma: buildHiguruma, hakari: buildHakari, sukuna: buildSukuna, toji: buildToji,
   hanami: buildHanami, kurourushi: buildKurourushi, choso: buildChoso, nobara: buildNobara,
   geto: buildGeto, naoya: buildNaoya, kashimo: buildKashimo, panda: buildPanda,
-  inumaki: buildInumaki,
+  inumaki: buildInumaki, maki: buildMaki, yuki: buildYuki, miwa: buildMiwa,
   // VARIANTS. They are separate models with their own geometry, so they get
   // their own viewer entries — a variant you cannot load on the bench is a
   // variant nobody iterates on, which is how a palette swap ships.
@@ -87,6 +93,22 @@ const CREATURES = {
   serpent: { build: buildGreatSerpent, states: { idle: { speed: 0 }, rush: { rush: 1, speed: 8 }, coil: { coil: 1 }, bite: { action: 'bite', actionK: 0.5 }, hurt: { hurt: true } } },
   elephant: { build: buildMaxElephant, states: { idle: { speed: 0 }, walk: { speed: 2 }, torrent: { torrent: 1 }, hurt: { hurt: true } } },
   rabbits: { build: () => buildRabbitSwarm(22), states: { swarm: { spread: 1 } } },
+  // ---- GARUDA — Yuki's permanent partner ------------------------------------
+  // Not one of Megumi's, and it loads here rather than in BUILDERS because it
+  // is not a humanoid: no rig, no clip set, a procedural animator. `mass` is
+  // the Star Rage charge poured through the bone, which is the one state worth
+  // having on the bench because it is the only thing that changes its colour.
+  garuda: {
+    build: buildGaruda,
+    states: {
+      hover: { state: 'hover', speed: 0 },
+      fly: { state: 'fly', speed: 1 },
+      dive: { state: 'dive', speed: 1, actionK: 0.7 },
+      hurt: { state: 'hurt' },
+      recover: { state: 'recover', speed: 0.6 },
+      'mass·full': { state: 'hover', speed: 0.2, mass: 1 }
+    }
+  },
   // ---- THE THREE NEW BEASTS ------------------------------------------------
   // `heal` is Round Deer's reverse-cursed-technique aura, `charge` is the
   // Piercing Ox's runway (its entire identity — at 0 it is a shove, at 1 it is

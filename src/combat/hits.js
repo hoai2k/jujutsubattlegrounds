@@ -103,11 +103,29 @@ export function resolveMelee(match, a, b) {
   // are radius 0.62, half-height 1.45, centre 1.05 — exactly what was
   // hard-coded here before, and exactly what `hurtBox` returns for anyone who
   // does not grow.
+  // ---- MIWA'S SIMPLE DOMAIN: THE GUARANTEE -------------------------------
+  // "Every sword slash she makes inside her Simple Domain hits. It cannot be
+  // blocked, dodged, i-framed or SPACED OUT."
+  //
+  // The spacing half is why this sits ABOVE the capsule test rather than only
+  // tagging the hit below: her circle is 3.1 m across and her sword reaches
+  // 1.7, so a target who has backed to the far side of the ring is outside her
+  // range and inside her domain at the same time. "Spaced out" has to mean
+  // something, and it means the range check is skipped for exactly this case.
+  //
+  // The rest of the guarantee — beating blocks, i-frames, armour, Hakari's two
+  // intercepts and the downed-target refusal — is bought by ONE FLAG on the
+  // hit below, because combat/fighter.js `_applyHit` already carries a
+  // `!hit.sureHit` guard on every one of those. There is one bypass path in
+  // this codebase and this uses it. See combat/newshadow.js for the audit.
+  const guaranteed = match.newshadow?.shouldGuarantee(a, b,
+    win.isPunch === true ? 'punch' : (def.kind === 'heavy' ? 'heavy' : 'punch')) ?? false;
+
   const hb = b.hurtBox;
   const dx = b.pos.x - origin.x, dz = b.pos.z - origin.z;
   const horiz = Math.hypot(dx, dz);
   const centerY = b.pos.y + hb.center;
-  if (horiz > hb.radius + 0.5 || Math.abs(origin.y - centerY) > hb.height) return;
+  if (!guaranteed && (horiz > hb.radius + 0.5 || Math.abs(origin.y - centerY) > hb.height)) return;
 
   win.confirmed = true;
   // punchDmgMult: bare hands are weakened inside the caster's own sword domain
@@ -115,6 +133,11 @@ export function resolveMelee(match, a, b) {
   const result = b.applyHit({
     dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun, type: def.type,
     attacker: a, dir: fwd, otgOk: true, isCT: false,
+    // THE FLAG. `unblockable` rides alongside it because the guard branch in
+    // `_applyHit` tests both and the intent here is "this connects", not
+    // "this connects unless they happen to be guarding".
+    sureHit: guaranteed || undefined,
+    unblockable: guaranteed || undefined,
     // ADAPTATION SOURCE. The whole punch string and the heavy are one
     // category: they are all "he hit me with his body".
     src: def.src ?? 'punch',

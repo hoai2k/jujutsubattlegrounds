@@ -8,6 +8,10 @@ import { commitInstantKO, finishInstantKO } from '../combat/instantko.js';
 import { applyBurn } from '../combat/burn.js';
 import { cleaveDamage, fingerDmg } from '../combat/effects.js';
 import { SPECIAL } from '../combat/balance.js';
+// The circle half of `sdHolds` below, and the only line in this file that the
+// new characters required. Miwa's Simple Domain is a separate object from the
+// universal `simpleDomain` STATE this file owns — see combat/newshadow.js.
+import { sdZoneHolds } from '../combat/newshadow.js';
 
 // Length of the clash contest window: both domains are suspended and the
 // sorcerer who takes the least damage over these seconds wins the exchange.
@@ -32,6 +36,32 @@ export const CONTEST_SECONDS = 5;
 // against ordinary physical attacks, and that is exactly what it does here:
 // `blossomHolds` is only ever consulted on sure-hit paths.
 export function blossomHolds(f) { return !!f && f.blossomT > 0 && f.state === 'blossom'; }
+
+// ---------------------------------------------------------------------------
+// SIMPLE DOMAIN, BOTH KINDS — the one predicate every sure-hit site asks
+// ---------------------------------------------------------------------------
+// There are now TWO ways a body can be holding a Simple Domain:
+//
+//   THE STATE  `simpleDomain` — the universal defensive option every fighter
+//              gets while trapped inside an enemy domain, driven by
+//              `_trappedControls` below and paid for out of
+//              `cfg.simpleDomainDrain`. COMPLETELY UNCHANGED.
+//   THE ZONE   Miwa's New Shadow Style circle, a free-standing object on the
+//              ground she can place at any time. See combat/newshadow.js.
+//
+// Every site in this file that used to read `t.state === 'simpleDomain'`
+// inline now asks this instead. That is deliberately the same move
+// `blossomHolds` above already represents: fold a second anti-domain tool
+// into the checks that exist rather than duplicating sixteen of them.
+//
+// NOTE WHAT THIS DOES NOT CHANGE. For every character who is not Miwa,
+// `sdZoneHolds` is always false, so `sdHolds` is exactly the expression that
+// was there before, character for character. The universal Simple Domain is
+// untouched — including for Miwa, who can still hold the state like anybody
+// else, and whose `simpleDomainDrain` is the best number on the roster.
+export function sdHolds(f) {
+  return !!f && (f.state === 'simpleDomain' || sdZoneHolds(f));
+}
 
 // The shroud answers back. Called from each nullification site so the counter
 // is uniform no matter which domain was stopped.
@@ -264,7 +294,7 @@ export class DomainSystem {
       if (!t.alive) continue;
       const d = flatDist(t.pos, a.shrineOrigin);
       if (d >= a.shrineR) continue;                 // OUT. Running works.
-      if (t.state === 'simpleDomain') {
+      if (sdHolds(t)) {
         if (!a._sdToast) { a._sdToast = true; m.hud.toast(t, 'SIMPLE DOMAIN HOLDS'); }
         continue;
       }
@@ -570,7 +600,7 @@ export class DomainSystem {
         // mean "the lock does not take" or the counter would do nothing here.
         const blossom = blossomHolds(t);
         if (blossom) blossomCounter(m, t, a.caster);
-        const prot = t.state === 'simpleDomain' || t.state === 'barrierBreak' || blossom;
+        const prot = sdHolds(t) || t.state === 'barrierBreak' || blossom;
         const adapt = t.adapt ? (t.adapt.mark('domain'), t.adapt.reductionFor('domain')) : 0;
         // ---- HEAVENLY RESTRICTION vs UNLIMITED VOID -------------------------
         // Found by testing rather than by reasoning: with the lockdown applied
@@ -633,7 +663,7 @@ export class DomainSystem {
       for (const t of trapped) {
         const blossom = blossomHolds(t);
         if (blossom && stackNow) blossomCounter(m, t, a.caster);
-        const prot = t.state === 'simpleDomain' || blossom;
+        const prot = sdHolds(t) || blossom;
         t.burn.noDecay = !prot;
         if (!t.alive || prot) continue;
         // ambient heat is a DOMAIN effect, not a burn stack — adaptation
@@ -648,7 +678,7 @@ export class DomainSystem {
         for (const t of trapped) {
           // an eruption would interrupt the Barrier Break channel forever —
           // the break stays viable, so the channeler only eats ambient heat
-          if (!t.alive || t.state === 'simpleDomain' || t.state === 'barrierBreak' || blossomHolds(t)) continue;
+          if (!t.alive || sdHolds(t) || t.state === 'barrierBreak' || blossomHolds(t)) continue;
           m.fx.eruptionBlast(t.pos.clone(), 1.5);
           m.sfx.erupt();
           t.applyHit({
@@ -709,7 +739,7 @@ export class DomainSystem {
           // Simple Domain halts the drain; so does the shroud. The gauge IS
           // the sure-hit here, so nullifying the sure-hit means the gauge
           // stops moving.
-          if (t.state === 'simpleDomain') continue;
+          if (sdHolds(t)) continue;
           if (blossomHolds(t)) { blossomCounter(m, t, a.caster); continue; }
           // MAHITO vs MAHORAGA. Same ruling the project already applies to
           // Megumi's shikigami: a shadow construct has no soul to reshape, so
@@ -1000,7 +1030,7 @@ export class DomainSystem {
     const a = this.active;
     if (!a || a.phase !== 'active' || a.caster !== caster || !a.gauges || a.tfKO) return;
     if (a.def.sureHit.effect !== 'transfigure' || !target || target === caster) return;
-    if (target.state === 'simpleDomain' || blossomHolds(target)) return;
+    if (sdHolds(target) || blossomHolds(target)) return;
     const tf = a.def.transfig;
     let v = kind === 'minion'
       ? tf.chunkPunch * tf.minionMult
@@ -1502,7 +1532,7 @@ export class DomainSystem {
     m.sfx.swordShatter();
 
     if (!target.alive) return;
-    if (target.state === 'simpleDomain') {
+    if (sdHolds(target)) {
       m.hud.toast(target, 'SIMPLE DOMAIN HOLDS');
       return;
     }
