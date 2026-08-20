@@ -14,6 +14,7 @@ import { DebugOverlay } from '../ui/debug.js';
 import { Match } from './match.js';
 import { OnlineController } from './onlineflow.js';
 import { TitleScreen } from '../ui/title.js';
+import { trackMatch, trackResult } from '../stats/telemetry.js';
 
 export function startGame() {
   const stage = createStage();
@@ -249,12 +250,18 @@ export function startGame() {
         onPause: togglePause,
         onNetNotice: (text, kind) => online.say(text, kind),
         onResult: winner => {
+          trackResult(winner.cfg.name);
           result.show(winner.cfg.name);
           // Only the host decides what happens next online. A guest whose
           // session has already died gets the buttons back, because at that
           // point there is nobody left to wait for.
           result.setLocked(!!net && online.active && !online.isHost);
         }
+      });
+      trackMatch({
+        chars: picks.chars || [picks.p1, picks.p2],
+        map: match.mapId,
+        mode: net ? 'online' : (picks.mode || 'local')
       });
       // D-pad Left on the result screen replays the winner's taunt
       result.onTaunt = () => match?.playVictoryTaunt();

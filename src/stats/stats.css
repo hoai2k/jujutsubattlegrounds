@@ -1,0 +1,86 @@
+/* The dashboard is a separate page from the game and shares none of its CSS:
+   it is a document, not a canvas, and it should stay readable on a phone. */
+:root {
+  --bg: #090b14;
+  --panel: #11142225;
+  --line: #ffffff14;
+  --ink: #e8ecff;
+  --dim: #8b93b5;
+  --hot: #a78bfa;
+  --cool: #56d8e0;
+  --warn: #f4c15d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 700px at 50% -10%, #1c1740 0%, transparent 60%),
+    var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  min-height: 100vh;
+}
+
+#stats-root { max-width: 1080px; margin: 0 auto; padding: 28px 18px 64px; }
+
+h1 {
+  font-size: 20px; letter-spacing: .22em; margin: 0 0 4px;
+  text-transform: uppercase;
+}
+h2 {
+  font-size: 12px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--dim); margin: 30px 0 10px; font-weight: 600;
+}
+a { color: var(--cool); }
+
+.sub { color: var(--dim); font-size: 12px; margin: 0 0 18px; }
+.sub .dot { color: var(--hot); }
+
+.bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; }
+.bar button {
+  font: inherit; font-size: 12px; letter-spacing: .1em;
+  color: var(--dim); background: transparent; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px;
+}
+.bar button:hover { color: var(--ink); border-color: #ffffff33; }
+.bar button[aria-pressed="true"] { color: var(--bg); background: var(--hot); border-color: var(--hot); }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.tile { border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--panel); }
+.tile .n { font-size: 26px; line-height: 1.1; }
+.tile .k { font-size: 11px; letter-spacing: .16em; color: var(--dim); text-transform: uppercase; margin-top: 6px; }
+.tile.live .n { color: var(--cool); }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px 26px; }
+
+.rows { display: flex; flex-direction: column; gap: 3px; }
+.row { position: relative; display: flex; justify-content: space-between; gap: 12px;
+       padding: 6px 10px; border-radius: 6px; overflow: hidden; }
+.row .fill { position: absolute; inset: 0 auto 0 0; background: #a78bfa22; border-right: 1px solid #a78bfa55; }
+.row .label, .row .val { position: relative; }
+.row .val { color: var(--dim); }
+.row .sub2 { color: var(--dim); font-size: 12px; }
+
+.days { display: flex; align-items: flex-end; gap: 3px; height: 90px; }
+.day { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+.day i { display: block; background: linear-gradient(180deg, var(--hot), #6d4bd8); border-radius: 2px 2px 0 0; min-height: 2px; }
+.day em { display: block; font-style: normal; font-size: 9px; color: var(--dim); text-align: center; margin-top: 4px; }
+
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 8px 10px; white-space: nowrap; }
+th { color: var(--dim); font-weight: 600; letter-spacing: .12em; font-size: 10.5px;
+     text-transform: uppercase; border-bottom: 1px solid var(--line); }
+tbody tr:nth-child(even) { background: #ffffff06; }
+td.dim { color: var(--dim); }
+
+.badge { font-size: 10px; letter-spacing: .1em; padding: 1px 6px; border-radius: 999px;
+         border: 1px solid var(--line); color: var(--dim); }
+.badge.you { color: var(--warn); border-color: #f4c15d55; }
+.badge.on { color: var(--cool); border-color: #56d8e055; }
+.pulse { color: var(--cool); }
+
+.note { color: var(--dim); font-size: 12px; margin-top: 26px; border-top: 1px solid var(--line); padding-top: 14px; }
+.empty { color: var(--dim); padding: 24px 0; }
