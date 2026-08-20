@@ -90,6 +90,32 @@ for (const id of ROSTER_IDS) {
   if (!hasCT('ct1')) row.issues.push('no RB (ct1)');
   if (!hasCT('ct2')) row.issues.push('no RT (ct2)');
 
+  // ---- THE ULTIMATE'S FRAME DATA IS THE RIGHT SHAPE FOR ITS KIND ----------
+  // Added after Uro shipped a SOFTLOCK. A `burst` ultimate's frame data is
+  // read by combat/fighter.js `startUltBurst` as `u.startup`; a `domain`'s is
+  // read as `castFrames`. Her config said `castFrames` on a burst, so the move
+  // was built with `startup: undefined`, every frame test in the `ct` state
+  // became a NaN comparison — which is false, forever — and she entered the
+  // cast and never left it. Full bar spent, zero damage, frozen for the rest
+  // of the round.
+  //
+  // Nothing caught it: it builds, it runs, the button responds. Only pressing
+  // it and then waiting finds out, which is the exact failure mode this file
+  // was written for.
+  const u = cfg.ultimate;
+  if (u && u.kind === 'burst') {
+    if (typeof u.startup !== 'number') {
+      row.issues.push(`burst ultimate startup is ${u.startup} — SOFTLOCKS the ct state`);
+    }
+    if (u.castFrames != null) {
+      row.issues.push('burst ultimate has `castFrames` (that is the DOMAIN key — use `startup`)');
+    }
+    if (u.clip && !clips.has(u.clip)) row.issues.push(`ultimate clip missing: ${u.clip}`);
+  }
+  if (cfg.domain && typeof cfg.domain.castFrames !== 'number') {
+    row.issues.push(`domain castFrames is ${cfg.domain.castFrames}`);
+  }
+
   // ---- IT HAS TO BUILD ----------------------------------------------------
   try {
     const made = makeCharacter(id);

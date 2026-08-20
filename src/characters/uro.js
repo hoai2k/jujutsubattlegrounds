@@ -223,9 +223,17 @@ export const URO = withDefaults({
 
   // ---- D-PAD RIGHT · ULTIMATE — SKY COLLAPSE 天蓋崩落 -----------------------
   // *** THIS IS BUILT, NOT RESEARCHED, AND THE HEADER SAYS SO IN FULL. ***
-  // She has a Domain Expansion in canon whose name, interior and sure-hit are
-  // all unknown; there is nothing to build. So this is the brief's stated
-  // fallback: a TOTAL SKY COLLAPSE. The entire skybox bends downward and
+  //
+  // AN EARLIER VERSION OF THIS COMMENT CLAIMED "she has a Domain Expansion in
+  // canon whose name, interior and sure-hit are all unknown". THAT WAS STATED
+  // WITH MORE CONFIDENCE THAN IT DESERVED and it should not have been. The
+  // honest position is: this was written with NO WEB ACCESS, and I could not
+  // verify either that she has one or that she does not. My recollection is
+  // that no Domain Expansion is ever shown for her — her named, shown
+  // technique is Thin Ice Breaker — but that recollection is not a source.
+  //
+  // So this is the brief's stated fallback: a TOTAL SKY COLLAPSE. The
+  // entire skybox bends downward and
   // crushes the arena in a wide radius, with the horizon visibly folding in on
   // itself.
   //
@@ -236,7 +244,17 @@ export const URO = withDefaults({
   ultimate: {
     kind: 'burst', name: 'SKY COLLAPSE', jp: '天蓋崩落',
     effect: 'uro_sky_collapse',
-    castFrames: 52, active: 6, recovery: 46,
+    // *** `startup`, NOT `castFrames`. *** These are not interchangeable and
+    // getting it wrong is silent: `castFrames` is the DOMAIN key, and
+    // combat/fighter.js `startUltBurst` reads `u.startup` for a burst. With
+    // this spelled `castFrames` the move was built with `startup: undefined`,
+    // every frame comparison in the `ct` state became a NaN test, and she
+    // entered the cast and NEVER LEFT IT — a full-bar softlock that did zero
+    // damage. It cost her whole gauge and froze her for the rest of the round.
+    //
+    // `clip` was missing for the same reason (a domain casts off `domainCast`,
+    // a burst names its own), so the cast played the fallback pose.
+    startup: 52, active: 6, recovery: 46, clip: 'ult',
     // the collapse itself
     radius: 16.0, dmg: 62, kb: 9.0, kbY: 5.0, hitstun: 48,
     rings: 3,                 // it comes down in three closing shells
@@ -248,9 +266,10 @@ export const URO = withDefaults({
 
   simpleDomainDrain: 20,
   barrierBreak: { ceDrain: 30, chip: 22 },
-  // NO DOMAIN. Canon-correct in the only sense the game can express: she has
-  // one and nothing about it is known, so she sits with the burst-ultimate
-  // majority of the roster. See the research note at the top.
+  // NO DOMAIN — an UNVERIFIED call, not a canon-correct one. See the long note
+  // on the ultimate above: I could not check whether she has one. She sits with
+  // the burst-ultimate majority of the roster because that is the safe default
+  // when the answer is unknown, not because the answer is known to be "none".
   domain: null,
 
   // ---- YUTA'S COPY ---------------------------------------------------------
