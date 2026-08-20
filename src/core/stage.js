@@ -65,6 +65,18 @@ export const GRADES = {
   // pocket dimension); `reach` pushes it further and pinks it, and is what
   // bleeds out of the corner window on a super reach; `jackpot` floods gold
   // and survives the barrier collapsing, because Jackpot does.
+  // TAKABA. THE GAME SHOW, and it is deliberately the brightest grade in the
+  // table — brighter than Hakari's parlor, which is the only other one that
+  // makes the screen lighter rather than darker. A studio is over-lit, the
+  // vignette is almost gone (there is no pocket dimension here, there is a
+  // SET), and the saturation is pushed past every other grade because the
+  // whole point of the ultimate is that the game has stopped being serious.
+  //
+  // TUNED DOWN FROM A FIRST PASS AT lift 0.07 / sat 1.42, which blew the whole
+  // frame to white and turned both fighters into pale mannequins — a studio is
+  // over-lit, not over-exposed, and the panel is already the loudest thing on
+  // screen without the arena competing with it.
+  gameshow: { vignette: 0.30, tint: [1.10, 1.02, 1.08], lift: 0.015, sat: 1.22 },
   pachinko: { vignette: 0.30, tint: [1.12, 1.00, 1.10], lift: 0.03, sat: 1.28 },
   reach: { vignette: 0.26, tint: [1.30, 1.02, 1.20], lift: 0.06, sat: 1.48 },
   jackpot: { vignette: 0.34, tint: [1.32, 1.14, 0.80], lift: 0.05, sat: 1.32 },

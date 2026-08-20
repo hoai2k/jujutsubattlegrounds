@@ -2584,3 +2584,208 @@ html.filters-on #ui-root::after {
 .sd-row.cooling .sd-key, .sd-row.cooling .sd-state { color: #7a8f9c; text-shadow: none; }
 .plate.p2 .sd-row { flex-direction: row-reverse; }
 .plate.p2 .sd-row .sd-state { text-align: left; }
+
+/* ===========================================================================
+   YAGA — THE CONSTRUCTION METER AND THE BENCH
+   ===========================================================================
+   Warm timber and lamplight, and a palette nothing else in the HUD uses: the
+   other summoners are shadow-blue (Megumi), purple (Geto), grey flesh
+   (Mahito) and sea-green (Dagon), and his has to read as A WORKSHOP against
+   all four from a glance at the corner of the screen.
+
+   THE TICKS ARE THE WHOLE ROW. A bar filling means nothing on its own; four
+   marked thresholds mean "release now and you get THAT". Both players read
+   the same four marks, which is what makes the mechanic a negotiation. */
+.build-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.build-row .bd-key {
+  font-family: var(--jp), inherit; font-size: 11px; font-weight: 800;
+  color: #b59a68; flex: none; text-shadow: 0 0 10px rgba(140,110,60,0.8);
+}
+.build-row .bar-bd {
+  position: relative; flex: 1; height: 8px; background: rgba(18,14,8,0.78);
+  border: 1px solid rgba(181,154,104,0.36); overflow: hidden;
+}
+.build-row .bar-bd .fill {
+  height: 100%;
+  background: linear-gradient(180deg, #f0dca8, #b59a68 55%, #6a5a38);
+  transition: width 0.06s linear;
+}
+.build-row .bd-ticks { position: absolute; inset: 0; pointer-events: none; }
+.build-row .bd-ticks i {
+  position: absolute; top: 0; bottom: 0; width: 1px;
+  background: rgba(240,220,168,0.35); transform: translateX(-0.5px);
+}
+.build-row .bd-ticks i.passed { background: rgba(255,244,214,0.95); box-shadow: 0 0 6px rgba(240,220,168,0.9); }
+.build-row .bd-tier {
+  font-size: 9px; font-weight: 900; letter-spacing: 0.06em;
+  min-width: 46px; text-align: right; color: #b59a68;
+}
+/* HOLDING is the vulnerable state and the row says so — it breathes while he
+   is exposed and stops the instant he lets go. */
+.build-row.holding .bar-bd { border-color: #f0dca8; animation: bdPulse 0.7s ease-in-out infinite; }
+.build-row.full .bar-bd { border-color: #fff4d6; box-shadow: 0 0 16px rgba(240,220,168,0.75); }
+@keyframes bdPulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(240,220,168,0.35); }
+  50% { box-shadow: 0 0 16px rgba(240,220,168,0.85); }
+}
+.plate.p2 .build-row { flex-direction: row-reverse; }
+.plate.p2 .build-row .bd-tier { text-align: left; }
+
+/* THE BENCH. One chip per standing corpse, each carrying TWO bars — health
+   above, lifespan below — because "nearly dead" and "about to expire" are
+   different situations and one bar cannot say both. */
+.corpse-row { display: flex; gap: 4px; margin-top: 3px; }
+.corpse-row .cp {
+  position: relative; flex: 1; min-width: 0; padding: 2px 4px 5px;
+  background: rgba(16,12,8,0.72); border: 1px solid color-mix(in srgb, var(--cc) 45%, transparent);
+}
+.corpse-row .cp span {
+  display: block; font-size: 8px; font-weight: 900; letter-spacing: 0.08em;
+  color: var(--cc); text-shadow: 0 0 8px color-mix(in srgb, var(--cc) 55%, transparent);
+}
+.corpse-row .cp i { display: block; height: 2px; background: var(--cc); margin-top: 2px; transition: width 0.1s linear; }
+.corpse-row .cp .cp-life { background: rgba(200,190,170,0.55); height: 1px; }
+.corpse-row .cp.cmd { border-color: #fff4d6; box-shadow: 0 0 10px rgba(240,220,168,0.55); }
+.corpse-row .cp.dying { opacity: 0.55; }
+.plate.p2 .corpse-row { flex-direction: row-reverse; }
+.plate.p2 .corpse-row .cp span { text-align: right; }
+
+/* ===========================================================================
+   TAKABA — THE COMEDY METER
+   ===========================================================================
+   The one row in the HUD that CHANGES COLOUR ENTIRELY as it fills: grey at
+   OPEN MIC, gold at WARMING UP, hot pink at KILLING. Every other meter in the
+   game keeps one hue and changes length; his changes what kind of thing it
+   is, which is the honest reading of a resource that is a mood. */
+.comedy-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.comedy-row .cm-key {
+  font-family: var(--jp), inherit; font-size: 12px; font-weight: 800;
+  color: #6f7a88; flex: none; transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+.comedy-row .bar-cm {
+  position: relative; flex: 1; height: 7px; background: rgba(10,10,16,0.75);
+  border: 1px solid rgba(111,122,136,0.34); overflow: hidden; transition: border-color 0.3s ease;
+}
+.comedy-row .bar-cm .fill {
+  height: 100%; background: linear-gradient(180deg, #9aa6b4, #6f7a88 55%, #39404a);
+  transition: width 0.12s linear, background 0.3s ease;
+}
+.comedy-row .cm-ticks { position: absolute; inset: 0; pointer-events: none; }
+.comedy-row .cm-ticks i {
+  position: absolute; top: 0; bottom: 0; width: 1px;
+  background: rgba(255,255,255,0.28); transform: translateX(-0.5px);
+}
+.comedy-row .cm-tier {
+  font-size: 9px; font-weight: 900; letter-spacing: 0.07em;
+  min-width: 62px; text-align: right;
+}
+.comedy-row[data-tier="warm"] .cm-key { color: #e0b45a; text-shadow: 0 0 10px rgba(224,180,90,0.7); }
+.comedy-row[data-tier="warm"] .bar-cm { border-color: rgba(224,180,90,0.5); }
+.comedy-row[data-tier="warm"] .bar-cm .fill { background: linear-gradient(180deg, #ffd88a, #e0b45a 55%, #7a5f22); }
+.comedy-row[data-tier="killing"] .cm-key { color: #ff4d7a; text-shadow: 0 0 14px rgba(255,77,122,0.9); }
+.comedy-row[data-tier="killing"] .bar-cm { border-color: #ff4d7a; box-shadow: 0 0 16px rgba(255,77,122,0.6); }
+.comedy-row[data-tier="killing"] .bar-cm .fill { background: linear-gradient(180deg, #ff9ab8, #ff4d7a 55%, #8a1c3c); }
+.comedy-row.killing .bar-cm { animation: cmPulse 0.85s ease-in-out infinite; }
+@keyframes cmPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255,77,122,0.4); }
+  50% { box-shadow: 0 0 22px rgba(255,77,122,0.9); }
+}
+.plate.p2 .comedy-row { flex-direction: row-reverse; }
+.plate.p2 .comedy-row .cm-tier { text-align: left; }
+
+/* ===========================================================================
+   THE GAME SHOW
+   ===========================================================================
+   Full-screen, readable by both players, and DELIBERATELY THE BRIGHTEST THING
+   THE GAME EVER DRAWS — the tonal clash is the joke and the panel is where it
+   is loudest. It is built like the execution duel (one panel, one clock, both
+   players looking at the same object) because it is the same kind of moment,
+   and it is coloured nothing like it, because it is the opposite kind. */
+.gshow {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(760px, 84vw); display: none; z-index: 42;
+  text-align: center; pointer-events: none;
+  --gs: #e0b45a;
+}
+.gshow.on { display: block; animation: gsIn 0.24s cubic-bezier(0.2, 1.4, 0.4, 1); }
+@keyframes gsIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.86); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.gs-card {
+  padding: 10px 18px 12px; background: linear-gradient(180deg, rgba(20,10,24,0.94), rgba(10,6,14,0.9));
+  border: 2px solid var(--gs); box-shadow: 0 0 40px color-mix(in srgb, var(--gs) 45%, transparent);
+}
+.gs-tier {
+  font-size: 10px; font-weight: 900; letter-spacing: 0.28em; color: var(--gs); opacity: 0.9;
+}
+.gs-name {
+  font-size: 30px; font-weight: 900; letter-spacing: 0.06em; color: #fff;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--gs) 80%, transparent); margin-top: 2px;
+}
+.gs-jp { font-family: var(--jp), inherit; font-size: 13px; color: var(--gs); opacity: 0.85; }
+.gs-stage { margin-top: 10px; padding: 12px 16px 10px; background: rgba(6,4,10,0.86); border: 1px solid rgba(255,255,255,0.14); }
+.gs-prompt { font-size: 12px; font-weight: 900; letter-spacing: 0.2em; color: #dfe4ee; opacity: 0.85; }
+.gs-play { margin: 10px 0 8px; min-height: 54px; display: flex; align-items: center; justify-content: center; }
+.gs-play.hit { animation: gsHit 0.14s ease-out; }
+.gs-play.wrong { animation: gsWrong 0.16s ease-out; }
+@keyframes gsHit { from { transform: scale(1.07); } to { transform: scale(1); } }
+@keyframes gsWrong { 0% { transform: translateX(-7px); } 50% { transform: translateX(7px); } 100% { transform: none; } }
+.gs-clock { position: relative; height: 6px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.16); }
+.gs-clock .fill { height: 100%; background: var(--gs); transition: width 0.06s linear; }
+.gs-clock.critical .fill { background: #ff4d5a; }
+.gs-score { margin-top: 10px; display: flex; gap: 10px; justify-content: center; }
+.gs-score .gsp {
+  width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
+  background: rgba(0,0,0,0.5);
+}
+.gs-score .gsp.pass { background: #6fe89a; border-color: #b6ffd2; box-shadow: 0 0 14px rgba(111,232,154,0.8); }
+.gs-score .gsp.fail { background: #ff4d5a; border-color: #ff9aa2; box-shadow: 0 0 14px rgba(255,77,90,0.8); }
+.gs-foot { margin-top: 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; color: #b8c0cc; }
+
+/* ---- the six stagings ---------------------------------------------------- */
+/* 1 · THE PRIZE WHEEL */
+.gsw { width: 100%; }
+.gsw-track {
+  position: relative; height: 26px; background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(255,255,255,0.2); overflow: hidden;
+}
+.gsw-zone { position: absolute; top: 0; bottom: 0; background: rgba(111,232,154,0.4); border-left: 1px solid #6fe89a; border-right: 1px solid #6fe89a; }
+.gsw-mark { position: absolute; top: -3px; bottom: -3px; width: 3px; background: #fff; box-shadow: 0 0 12px #fff; transform: translateX(-1.5px); }
+.gsw-btn { margin-top: 6px; font-size: 15px; font-weight: 900; color: #5fd0ff; }
+/* 2 · THE QUIZ PODIUM / 4 · THE CONVEYOR BELT */
+.gsq { display: flex; gap: 8px; }
+.gsq b {
+  width: 44px; height: 44px; line-height: 42px; font-size: 20px; font-weight: 900;
+  color: #fff; background: rgba(0,0,0,0.55); border: 2px solid rgba(255,255,255,0.28);
+  transition: opacity 0.12s, transform 0.12s;
+}
+.gsq b.done { opacity: 0.28; transform: scale(0.86); }
+.gsq b.now { border-color: var(--gs); box-shadow: 0 0 18px color-mix(in srgb, var(--gs) 70%, transparent); }
+/* THE MEMORY GAME: the prompts go away, and the placeholders stay so the
+   contestant still knows HOW MANY they are recalling. */
+.gs-play.hidden .gsq b { color: transparent; background: rgba(255,255,255,0.06); }
+.gs-play.hidden .gsq b.done { background: rgba(111,232,154,0.25); }
+/* 3 · THE DUNK TANK */
+.gsd { width: 100%; }
+.gsd-bar { height: 26px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); }
+.gsd-bar .fill { height: 100%; background: linear-gradient(180deg, #7fd8ff, #2f8fd0); transition: width 0.05s linear; }
+.gsd-n { margin-top: 5px; font-size: 13px; font-weight: 900; color: #dfe4ee; }
+/* 5 · THE BUZZER ROUND */
+.gsb-lamp {
+  width: 130px; height: 46px; line-height: 44px; font-size: 18px; font-weight: 900; letter-spacing: 0.2em;
+  color: #8a8f98; background: rgba(0,0,0,0.6); border: 2px solid rgba(255,255,255,0.2);
+}
+.gsb-lamp.live {
+  color: #06110a; background: #6fe89a; border-color: #d6ffe6;
+  box-shadow: 0 0 34px rgba(111,232,154,0.95); animation: gsLamp 0.1s ease-out;
+}
+@keyframes gsLamp { from { transform: scale(1.22); } to { transform: scale(1); } }
+/* 6 · DIRECTION DODGE */
+.gsa { display: flex; gap: 8px; }
+.gsa b {
+  width: 40px; height: 40px; line-height: 38px; font-size: 22px; font-weight: 900;
+  color: #ffd84a; background: rgba(0,0,0,0.55); border: 2px solid rgba(255,216,74,0.35);
+}
+.gsa b.done { opacity: 0.25; transform: scale(0.85); }
+.gsa b.now { border-color: #ffd84a; box-shadow: 0 0 18px rgba(255,216,74,0.8); }

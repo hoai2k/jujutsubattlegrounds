@@ -29,6 +29,9 @@ import { buildYuki } from '../art/models/yuki.js';
 import { buildMiwa } from '../art/models/miwa.js';
 import { buildUro } from '../art/models/uro.js';
 import { buildDagon } from '../art/models/dagon.js';
+import { buildYaga } from '../art/models/yaga.js';
+import { buildTakaba } from '../art/models/takaba.js';
+import { buildCursedCorpse, CORPSE_IDS } from '../art/models/cursedcorpses.js';
 // DAGON'S FOUR — not humanoids and not Megumi's, so they load through the
 // CREATURES path with the rest of the summons.
 import {
@@ -72,7 +75,7 @@ const BUILDERS = { gojo: buildGojo, yuta: buildYuta, megumi: buildMegumi, nanami
   hanami: buildHanami, kurourushi: buildKurourushi, choso: buildChoso, nobara: buildNobara,
   geto: buildGeto, naoya: buildNaoya, kashimo: buildKashimo, panda: buildPanda,
   inumaki: buildInumaki, maki: buildMaki, yuki: buildYuki, miwa: buildMiwa,
-  uro: buildUro, dagon: buildDagon,
+  uro: buildUro, dagon: buildDagon, yaga: buildYaga, takaba: buildTakaba,
   // VARIANTS. They are separate models with their own geometry, so they get
   // their own viewer entries — a variant you cannot load on the bench is a
   // variant nobody iterates on, which is how a palette swap ships.
@@ -90,6 +93,9 @@ const FRAMING = {
   // bench exists to check.
   uro: { dist: 4.9, height: 1.30 },
   dagon: { dist: 6.0, height: 1.35 },
+  // The tallest human in the roster needs the camera further back than the
+  // students; the most ordinary one needs it exactly where the default is.
+  yaga: { dist: 4.6, height: 1.10 },
   hanami: { dist: 5.4, height: 1.25 },
   kurourushi: { dist: 5.6, height: 1.30 }
 };
@@ -201,6 +207,26 @@ const CREATURES = {
   // CharacterModels, so this simpler path is the only place they can be
   // inspected at all. `maw` opens its jaw on `bite`; `wisp` lashes its tendril
   // curtain on `lash`.
+  // ---- YAGA'S FOUR CURSED CORPSE TIERS -------------------------------------
+  // On the bench for exactly the reason the transfigured-human set is: "each
+  // tier must be a VISIBLY different model, not one model rescaled" is a claim
+  // that can only be checked by standing them in a row. `deploy` runs the
+  // assembly reveal, which is the beat that has to read as CONSTRUCTION rather
+  // than as a summon.
+  ...Object.fromEntries(CORPSE_IDS.map(k => [
+    'corpse ' + k,
+    {
+      build: () => buildCursedCorpse(k),
+      states: {
+        idle: { speed: 0 }, walk: { speed: 3 }, run: { speed: 6 },
+        swipe: { speed: 1, action: 'swipe', actionK: 0.8 },
+        lunge: { speed: 6, action: 'lunge', actionK: 1 },
+        slam: { action: 'slam', actionK: 0.5 },
+        commanded: { speed: 4, commanded: true },
+        collapse: { collapse: 0.6 }
+      }
+    }
+  ])),
   maw: { build: buildGapingMaw, states: { idle: { speed: 0 }, hop: { speed: 5 }, bite: { speed: 2, action: 'bite', actionK: 0.8 }, hurt: { hurt: true } } },
   wisp: { build: buildTendrilWisp, states: { idle: { speed: 0 }, drift: { speed: 4 }, lash: { action: 'lash', actionK: 0.9 }, hurt: { hurt: true } } },
   // ---- THE REST OF GETO'S STABLE -------------------------------------------

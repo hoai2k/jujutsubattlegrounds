@@ -23,6 +23,9 @@ import { ARTIFICIAL } from '../arena/terrain.js';
 // header of combat/reflect.js for why one hook covers every projectile in the
 // game and why a technique added later is safe-by-default.
 import { tryReflect } from './reflect.js';
+// TAKABA's roll (the lift of Yuta's) and YAGA's corpse geometry.
+import { rollBit, gainComedy } from './comedy.js';
+import { corpseDeploy, commandPulse, bigGlove, mallet, bananaPeel, bucket, pie, rake, trapdoor, stageLight, anvil, safe, curtain, fireHose, foamFinger, piano } from '../fx/comedyfx.js';
 
 const TODO_ACCENT = 0xff5fc8; // Boogie Woogie's signature snap color
 
@@ -144,6 +147,21 @@ export const EFFECT_SRC = {
   // `summon` rather than `domain`: adapting to being bitten should work
   // whether the barrier is up or not.
   dagon_volley: 'projectile', dagon_tidal_slam: 'ct2', dagon_summon: null,
+  // YAGA — COMMAND deals nothing at all (the corpses do, and they are tagged
+  // `summon` where they strike, in combat/construction.js — the same bucket
+  // Megumi's shikigami, Geto's curses, Mahito's minion and Dagon's sea
+  // shikigami feed, because they are the same KIND of thing). The HAYMAKER is
+  // a very large man hitting you with his fist, so it is `punch` rather than
+  // `ct2`: adapting to Yaga's hands should blunt his string AND his big swing,
+  // because they are the same hands. MASTERPIECE produces a body and no hit.
+  yaga_command: null, yaga_haymaker: 'punch', yaga_masterpiece: null,
+  // TAKABA — ONE CATEGORY FOR ALL FOURTEEN, which is the recommendation in the
+  // brief and the Kashimo argument rather than the Toji one. Every outcome IS
+  // THE COMEDIAN wearing a different costume; see the full reasoning in
+  // combat/adaptation.js under `comedian`. THE GAME SHOW is an instant kill
+  // and routes through the INSTANT_KO category instead, which is read as a
+  // resist chance rather than a reduction — so it is null here.
+  takaba_bit: 'comedian', takaba_big: 'comedian', takaba_gameshow: null,
   // MAHORAGA (mirror match / Yuta's copy of him)
   mahoraga_wheel_slash: 'ct1', mahoraga_world_cut: 'ct2',
   // HAKARI — the base kit sits on its slots. The SHUTTER is defensive and has
@@ -3638,6 +3656,109 @@ export class Effects {
         break;
       }
 
+      // =====================================================================
+      // YAGA — CURSED CORPSES 呪骸
+      // =====================================================================
+      // COMMAND. Deals nothing. It reaches every corpse he has standing,
+      // wherever they are, and overwrites their task list with a point — which
+      // is the only technique in the game whose range is "the arena". The
+      // point is the stick, or the opponent on a neutral stick, because the
+      // thing a player wants ninety percent of the time is "go and hit them".
+      case 'yaga_command': {
+        const sys = m.construction;
+        if (!sys) break;
+        // The stick aims, character-relative, exactly as Jogo's eruption and
+        // Sukuna's cleave already do — `m.inputFor` is the shared read.
+        // NEUTRAL SENDS THEM AT THE OPPONENT, which is what a player wants
+        // ninety percent of the time and is the only sensible default for a
+        // button whose whole purpose is "go and hit them".
+        const inp = m.inputFor(caster);
+        const mv = inp?.move ?? { x: 0, z: 0 };
+        let point;
+        if (Math.hypot(mv.x, mv.z) > 0.3) {
+          const aim = caster._moveVec(mv);
+          point = caster.pos.clone().addScaledVector(aim.normalize(), Math.min(opts.aimRange ?? 40, 9));
+        } else {
+          point = (t?.alive ? t.pos : caster.pos).clone();
+        }
+        const n = sys.commandAll(caster, point, opts.duration ?? 4, opts.speedMult ?? 1.35, opts.dmgMult ?? 1.2);
+        for (const c of sys.aliveFor(caster)) {
+          commandPulse(m.fx, caster.pos.clone().setY(caster.pos.y + 1.4), c.pos, 0xb59a68);
+        }
+        m.sfx.corpseCommand?.(n);
+        m.hud.toast(caster, n ? 'COMMAND — ' + n : 'NOTHING TO COMMAND');
+        break;
+      }
+
+      // HAYMAKER. One committed blow, enormous damage, a hard knockdown, and
+      // it shatters a held guard. It is how he manufactures the four seconds
+      // he needs, and its recovery is the price.
+      case 'yaga_haymaker': {
+        m.sfx.heavySwing?.() ?? m.sfx.hit(true);
+        m.cam.shake(0.4);
+        if (sure || inArc(caster, t, opts.reach ?? 2.3, opts.arc ?? 1.9)) {
+          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 34) * mult);
+          const r = t.applyHit({
+            ...hitOpts, dmg, kb: opts.kb ?? 8.5, kbY: opts.kbY ?? 2.0,
+            hitstun: opts.hitstun ?? 40, type: 'knockdown', guardBreak: !!opts.guardBreak
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, t, r, { crit, heavy: true });
+          if (r === 'hit' || r === 'otg') {
+            m.hitstop(12);
+            m.fx.impactBloom?.(t.pos.clone().add(v3(0, 1.2, 0)), 0xb59a68, 1.2);
+          }
+        }
+        break;
+      }
+
+      // MASTERPIECE. The full-bar shortcut past the entire construction risk:
+      // a MASTERWORK with no build time, bigger and longer-lived than one he
+      // could make by hand, because a full bar has to beat patience.
+      //
+      // It is the ONE path allowed to clear his own bench (`force`), and the
+      // reason that is not a contradiction of the "blocked, not replaced" rule
+      // on B is stated in characters/yaga.js: an ultimate retiring a corpse is
+      // a decision he made; a held button silently deleting one is not.
+      case 'yaga_masterpiece': {
+        const sys = m.construction;
+        if (!sys) break;
+        const tiers = caster.cfg.special.tiers;
+        const tier = tiers.find(x => x.key === (opts.tier ?? 'masterwork')) ?? tiers[tiers.length - 1];
+        const c = sys.deploy(caster, tier, {
+          force: true, scale: opts.scale ?? 1.18, lifeMult: opts.lifeMult ?? 1.5,
+          hpMult: opts.hpMult ?? 1.25, dmgMult: opts.dmgMult ?? 1.15
+        });
+        if (c) {
+          corpseDeploy(m.fx, c.pos, tier, opts.scale ?? 1.18);
+          m.sfx.corpseDeploy?.('masterwork');
+          m.cam.shake(0.7);
+          m.stage.flash(0.4);
+          m.hitstop(10);
+        }
+        break;
+      }
+
+      // =====================================================================
+      // TAKABA — THE COMEDIAN 笑いの術式
+      // =====================================================================
+      // ONE resolver for all fourteen outcomes. The ROLL already happened, at
+      // the press, in `Fighter.startCT` — so this case never rolls and the
+      // animation the player watched and the thing that lands can never
+      // disagree. `opts.bit` is the entry off the table.
+      case 'takaba_bit':
+      case 'takaba_big': {
+        const bit = opts.bit ?? rollBit(caster, key === 'takaba_big'
+          ? caster.cfg.ct2.table : caster.cfg.ct1.table, opts.copyTier);
+        this._applyBit(caster, t, bit, mult, sure, hitOpts, opts);
+        break;
+      }
+
+      // THE GAME SHOW. Everything about it is in combat/gameshow.js; the
+      // dispatcher's whole job is to hand it the two fighters.
+      case 'takaba_gameshow':
+        m.gameshow?.start(caster, t);
+        break;
+
       case 'nanami_collapse': {
         m.fx.cleaveArc(caster, true);
         m.sfx.cleave(true);
@@ -3650,6 +3771,153 @@ export class Effects {
         }
         break;
       }
+    }
+  }
+
+  // ===========================================================================
+  // ONE RESOLVER FOR ALL FOURTEEN BITS
+  // ===========================================================================
+  // Every outcome resolves through here, and the switch below is on the
+  // ENTRY'S DECLARED SHAPE rather than on its key: `projectile`, `telegraph`,
+  // `offField`, `stream`, `reaction`. That is what makes a fifteenth bit a
+  // table entry plus one geometry function, and it is why the reflect and
+  // adaptation audits are lookups rather than opinions — a new entry cannot
+  // become secretly reflectable or secretly its own adaptation bucket.
+  //
+  // THE CALLOUT IS ALWAYS ISSUED, hit or miss. He said the thing; whether it
+  // landed is a separate question, and a technique that only announces itself
+  // on a connect would let the opponent read a whiff off the silence.
+  _applyBit(caster, t, bit, mult, sure, hitOpts, opts = {}) {
+    const m = this.match;
+    if (!bit) return;
+    caster.emit('bitRolled', { bit });
+    const fwd = caster.forward();
+    const at = t?.alive ? t.pos.clone() : caster.pos.clone().addScaledVector(fwd, 4);
+    const from = caster.pos.clone().addScaledVector(fwd, 0.7).setY(caster.pos.y + 1.2);
+    const range = opts.range ?? 6.5;
+    const inRange = t?.alive && flatDist(caster.pos, t.pos) <= range + 1.0;
+    const dmg = (bit.dmg ?? 0) * mult;
+    const hit = {
+      ...hitOpts, src: 'comedian', bit: bit.key,
+      dmg: 0, kb: bit.kb ?? 0, kbY: bit.kbY ?? 0, hitstun: bit.hitstun ?? 16,
+      type: bit.reaction === 'knockdown' ? 'knockdown' : bit.reaction === 'launch' ? 'launcher' : 'light'
+    };
+
+    // ---- THE GEOMETRY, one per key ---------------------------------------
+    // Placed FIRST so the object exists on the frame the callout lands, even
+    // for the entries whose damage is delayed behind a telegraph.
+    switch (bit.key) {
+      case 'glove': bigGlove(m.fx, from, fwd, Math.min(range, 5.2)); break;
+      case 'mallet': mallet(m.fx, at.clone().setY(at.y)); break;
+      case 'banana': bananaPeel(m.fx, at); break;
+      case 'bucket': if (t) bucket(m.fx, t, bit.blind); break;
+      case 'pie': pie(m.fx, from, at.clone().setY(at.y + 1.3)); break;
+      case 'rake': rake(m.fx, at, fwd); break;
+      case 'trapdoor': trapdoor(m.fx, at, (bit.offField ?? 1.1) + 0.35); break;
+      case 'stagelight': stageLight(m.fx, at, bit.telegraph ?? 0.55); break;
+      case 'anvil': anvil(m.fx, at, bit.telegraph ?? 0.35); break;
+      case 'safe': safe(m.fx, at, bit.telegraph ?? 0.4, 0.34, bit.pin ?? 2); break;
+      case 'curtain': curtain(m.fx, at, (bit.offField ?? 1.6) + 0.4); break;
+      case 'firehose': fireHose(m.fx, from, fwd, Math.min(range * 1.5, 9)); break;
+      case 'foamfinger': foamFinger(m.fx, caster.pos.clone(), caster.facing); break;
+      case 'piano': piano(m.fx, at, bit.telegraph ?? 0.5); break;
+    }
+    m.cam.shake(0.15 + (bit.bigness ?? 0.5) * 0.45);
+
+    // ---- 1 · IT TRAVELS ---------------------------------------------------
+    // Three of the fourteen. Registered as a `bit` entity, which is the ONLY
+    // key added to combat/reflect.js's REFLECTABLE table — so Uro can bend a
+    // glove, a pie and a fire hose back, and nothing else.
+    if (bit.projectile) {
+      const ticks = bit.stream?.ticks ?? 1;
+      for (let i = 0; i < ticks; i++) {
+        this.entities.push({
+          type: 'bit', caster, sure, bit,
+          pos: from.clone(), dir: fwd.clone(),
+          spd: bit.stream ? 26 : 22, range: range + 2.5, travelled: 0,
+          dmg: dmg / ticks, kb: (bit.kb ?? 0) / (bit.stream ? ticks * 0.55 : 1),
+          kbY: bit.kbY ?? 0, hitstun: bit.hitstun ?? 16,
+          delay: i * ((bit.stream?.dur ?? 0.3) / Math.max(1, ticks)),
+          // A STREAM PAYS THE METER ONCE, on its first connecting tick. The
+          // fire hose is five entities carrying one bit; without this it would
+          // pay `gainBigLand` five times and be, by a wide margin, the best
+          // meter source in his kit — which is exactly the "one outcome is
+          // clearly better than the others" the tables are tuned to avoid.
+          pays: i === 0,
+          hitOpts: { ...hit }, fxT: 0
+        });
+      }
+      return;
+    }
+
+    // ---- 2 · IT ARRIVES LATER --------------------------------------------
+    // The four that fall from above. The delay is the TELEGRAPH — a real light
+    // cone or dust ring on the floor that can be walked out of on sight, which
+    // is what pays for the biggest numbers in both tables.
+    if (bit.telegraph) {
+      this.entities.push({
+        type: 'bitDrop', caster, sure, bit, pos: at.clone(),
+        t: bit.telegraph + (bit.key === 'stagelight' ? 0.40 : 0.34),
+        radius: bit.radius ?? 1.8, dmg, hitOpts: { ...hit }
+      });
+      return;
+    }
+
+    // ---- 3 · IT HAPPENS NOW ----------------------------------------------
+    if (!inRange) { gainComedy(caster, -caster.cfg.comedy.loseWhiff, 'whiffed'); return; }
+
+    // OFF THE FIELD — the trapdoor and the curtain. Damage first, then the
+    // removal, so the small hit still registers as a hit (and still feeds the
+    // meter) before the body stops being reachable.
+    if (bit.reaction === 'offfield') {
+      const { dmg: d } = computeDamage(caster, dmg, { canCrit: false });
+      const r = t.applyHit({ ...hit, dmg: d }, m.ctxFor(caster));
+      hitFeedback(m, caster, t, r, {});
+      if (r === 'hit' || r === 'otg') {
+        const took = t.setOffField(bit.offField, { by: caster });
+        this._bitLanded(caster, bit, took);
+      }
+      return;
+    }
+
+    const { dmg: d, crit } = computeDamage(caster, dmg, { canCrit: false });
+    const r = t.applyHit({ ...hit, dmg: d }, m.ctxFor(caster));
+    hitFeedback(m, caster, t, r, { crit, heavy: (bit.bigness ?? 0) > 0.6 });
+    if (r === 'hit' || r === 'otg') {
+      this._bitApplyRiders(caster, t, bit);
+      this._bitLanded(caster, bit, true);
+    } else if (r === 'miss') {
+      gainComedy(caster, -caster.cfg.comedy.loseWhiff, 'whiffed');
+    }
+  }
+
+  // The non-damage payloads. Every one of them REUSES a field the fighter
+  // already has, which is why "blind" and "slow" needed no new machinery:
+  //   BLIND  -> `aimLag`, the stale-soft-lock timer Todo's Boogie Woogie swap
+  //             already writes. Their lock-on stops tracking and their aim
+  //             wanders, which is what being unable to see is in this game.
+  //   SLOW   -> `floraSlow`, the multiplier Hanami's root field already owns
+  //             and `speedMult` already reads.
+  //   PIN    -> `hitstun`, extended. A safe on your chest is hitstun with a
+  //             safe on it.
+  _bitApplyRiders(caster, t, bit) {
+    if (bit.blind) t.aimLag = Math.max(t.aimLag, bit.blind);
+    if (bit.slow) { t.floraSlow = Math.min(t.floraSlow ?? 1, bit.slow.mult); t._bitSlowT = bit.slow.dur; }
+    if (bit.pin) t.hitstun = Math.max(t.hitstun, Math.round(bit.pin * 60));
+  }
+
+  // The meter, and the one place a landed bit pays.
+  _bitLanded(caster, bit, landed) {
+    if (!landed || !caster.cfg.comedy) return;
+    const c = caster.cfg.comedy;
+    const big = caster.cfg.ct2.table.includes(bit);
+    gainComedy(caster, big ? c.gainBigLand : c.gainBitLand, 'landed ' + bit.key);
+    if (bit.reaction === 'knockdown') gainComedy(caster, c.gainKnockdown, 'knockdown');
+    // AT MAXIMUM METER: the audience. Crowd laughter under the hit, and
+    // applause on a knockdown. Presentation only — it grants nothing.
+    if (caster.comedy >= c.max * c.audienceAt) {
+      this.match.sfx.audienceLaugh?.(bit.bigness ?? 0.5);
+      if (bit.reaction === 'knockdown') this.match.sfx.audienceApplause?.();
     }
   }
 
@@ -3952,6 +4220,90 @@ export class Effects {
       // DAGON — the volley. Loose homing, like Jogo's embers and deliberately
       // slacker: these are fish, not guided missiles, and they should be
       // walkable at range and unavoidable up close.
+      // =================================================================
+      // TAKABA'S TRAVELLING BITS
+      // =================================================================
+      // THE GLOVE, THE PIE AND THE FIRE HOSE, and nothing else — the entity is
+      // only ever created for a table entry that declares `projectile: true`.
+      // It sits below `tryReflect` like every other travelling thing in this
+      // loop, which is the whole of Uro's integration: she bends the three
+      // that fly and cannot touch the eleven that do not.
+      if (e.type === 'bit') {
+        if (e.delay > 0) { e.delay -= dt; continue; }
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        e.fxT -= dt;
+        if (e.fxT <= 0) {
+          e.fxT = 0.04;
+          m.fx._spawn(e.pos.clone(), {
+            color: e.bit.color, size: 0.16, life: 0.16, opacity: 0.7, vel: v3(0, 0.2, 0)
+          });
+        }
+        const tgt = this.other(e.caster);
+        if (tgt?.alive && (e.sure || e.pos.distanceTo(tgt.pos.clone().add(v3(0, 1.15, 0))) < 0.92 + (tgt.hurtBox?.pad ?? 0))) {
+          const { dmg } = computeDamage(e.caster, e.dmg, { canCrit: false });
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            dir: e.dir.clone(), sureHit: e.sure, attacker: e.caster
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, {});
+          if (r === 'hit' || r === 'otg') {
+            this._bitApplyRiders(e.caster, tgt, e.bit);
+            this._bitLanded(e.caster, e.bit, e.pays !== false);
+          }
+          m.fx.impactBloom?.(e.pos.clone(), e.bit.color, 0.6);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled >= e.range) {
+          // A WHIFF COSTS METER. It is the only thing in his kit that does,
+          // and it is what stops "press RB forever" being the whole character.
+          // Charged once per CAST, not once per entity — same reason the gain
+          // is (see `pays` above).
+          if (e.caster.cfg.comedy && e.pays !== false) gainComedy(e.caster, -e.caster.cfg.comedy.loseWhiff, 'whiffed');
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+      // THE FOUR THAT FALL FROM ABOVE — the anvil, the safe, the piano and the
+      // stage light. They resolve at a POINT ON THE FLOOR after their
+      // telegraph, so walking out of the marked circle is a complete answer.
+      // That is the entire price of the biggest numbers in both tables.
+      if (e.type === 'bitDrop') {
+        e.t -= dt;
+        if (e.t > 0) continue;
+        const tgt = this.other(e.caster);
+        const caught = tgt?.alive && flatDist(tgt.pos, e.pos) <= e.radius;
+        if (caught) {
+          const { dmg } = computeDamage(e.caster, e.dmg, { canCrit: false });
+          const dir = v3(tgt.pos.x - e.caster.pos.x, 0, tgt.pos.z - e.caster.pos.z);
+          if (dir.lengthSq() < 1e-4) dir.copy(e.caster.forward());
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, dir: dir.normalize(), attacker: e.caster, sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, { heavy: true });
+          if (r === 'hit' || r === 'otg') {
+            this._bitApplyRiders(e.caster, tgt, e.bit);
+            this._bitLanded(e.caster, e.bit, true);
+            m.hitstop(e.bit.bigness > 0.8 ? 12 : 7);
+          }
+        } else if (e.caster.cfg.comedy) {
+          gainComedy(e.caster, -e.caster.cfg.comedy.loseWhiff, 'walked out of it');
+        }
+        // THE PIANO'S WRECK. It comes apart, and the debris chips anything
+        // standing near it — including a target who dodged the piano itself
+        // but did not leave the room.
+        if (e.bit.shards && tgt?.alive && flatDist(tgt.pos, e.pos) <= e.bit.shards.radius) {
+          const { dmg } = computeDamage(e.caster, e.bit.shards.dmg, { canCrit: false });
+          tgt.applyHit({
+            ...e.hitOpts, dmg, kb: 0.8, kbY: 0, hitstun: 8, type: 'light',
+            attacker: e.caster, dir: e.caster.forward()
+          }, m.ctxFor(e.caster));
+        }
+        this.entities.splice(i, 1);
+        continue;
+      }
       if (e.type === 'seaFish') {
         if (e.delay > 0) { e.delay -= dt; continue; }
         e.life -= dt;

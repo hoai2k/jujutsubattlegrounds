@@ -26,6 +26,8 @@ import { YUKI } from './yuki.js';
 import { MIWA } from './miwa.js';
 import { URO } from './uro.js';
 import { DAGON } from './dagon.js';
+import { YAGA } from './yaga.js';
+import { TAKABA } from './takaba.js';
 import { buildGojo } from '../art/models/gojo.js';
 import { buildYuta } from '../art/models/yuta.js';
 import { buildNanami } from '../art/models/nanami.js';
@@ -53,6 +55,8 @@ import { buildYuki } from '../art/models/yuki.js';
 import { buildMiwa } from '../art/models/miwa.js';
 import { buildUro } from '../art/models/uro.js';
 import { buildDagon } from '../art/models/dagon.js';
+import { buildYaga } from '../art/models/yaga.js';
+import { buildTakaba } from '../art/models/takaba.js';
 import { makeClips } from '../art/anim/index.js';
 import {
   variantsOf, hasVariants, variantEntry, resolveVariant, splitPick, joinPick,
@@ -190,7 +194,32 @@ export const ROSTER = {
   // deliberately weak until he casts it. Badged `spirit`: he is a special
   // grade cursed spirit born of the fear of the ocean, so he joins Jogo,
   // Mahito, Hanami and Kurourushi.
-  dagon: { config: DAGON, buildModel: buildDagon, jp: '陀艮', accent: 0xb8323a, role: 'CAPTIVATING SKANDHA · DOMAIN SUMMONER', spirit: true }
+  dagon: { config: DAGON, buildModel: buildDagon, jp: '陀艮', accent: 0xb8323a, role: 'CAPTIVATING SKANDHA · DOMAIN SUMMONER', spirit: true },
+  // THE BUILDER. The sixth summon family on the field and the only one that is
+  // MANUFACTURED rather than called: he spends time under pressure and receives
+  // whatever he managed to finish. Canon-correct with no Domain Expansion.
+  //
+  // Not badged `spirit`: he is the headmaster of Tokyo Jujutsu High, a human
+  // sorcerer. His CORPSES are not cursed spirits either — see the separation
+  // note in art/models/cursedcorpses.js — which is the same ruling Panda (one
+  // of those corpses, walking around as a student) already gets.
+  //
+  // His accent #b59a68 is the STANDARD corpse tier's core colour rather than
+  // anything he wears, because he wears a black suit and a black accent would
+  // be invisible on every callout the game draws for him. The roster's rule is
+  // that the accent is the character's signature colour, and his signature is
+  // the light burning inside the things he makes.
+  yaga: { config: YAGA, buildModel: buildYaga, jp: '夜蛾正道', accent: 0xb59a68, role: 'CURSED CORPSES · THE BUILDER' },
+  // THE WILDCARD, and the only fighter in the game nobody can plan around —
+  // including the player holding him. Every technique rolls a random absurd
+  // outcome off a weighted table, and his ultimate hands control of the round
+  // to the OPPONENT for eight seconds. Also canon-correct with no domain.
+  //
+  // He is the deliberate tonal break in a cast that is otherwise entirely
+  // serious, and the design leans on it rather than apologising for it: his
+  // stats are the roster average in every category, because the joke and the
+  // design are the same thing.
+  takaba: { config: TAKABA, buildModel: buildTakaba, jp: '高羽史彦', accent: 0xff4d7a, role: 'THE COMEDIAN · RANDOM OUTCOMES' }
 };
 
 export const hex = n => '#' + n.toString(16).padStart(6, '0');
@@ -216,9 +245,19 @@ export const hex = n => '#' + n.toString(16).padStart(6, '0');
 // "fastest", "never stops" and "does not come down" is comparing the three
 // characters whose whole identity is where their body is, which is the only
 // way the distinction between them reads on a select screen.
+// YAGA sits immediately after PANDA, and it is the most pointed placement on
+// this screen after Toji/Maki: Panda IS one of Yaga's cursed corpses, and a
+// player choosing between them is looking at the maker and the made. It also
+// puts the game's two "constructed body" entries side by side, which is the
+// only place the distinction between "a corpse that became a person" and "a
+// corpse that is a tool" can be read.
+// TAKABA sits between the humans and the spirits, alone, which is exactly
+// where he belongs: he is the last serious pick before the monsters start and
+// he is not serious at all. Nothing on this screen pairs with him, and that is
+// the point of the character.
 // DAGON sits at the end of the spirits, next to Kurourushi: the two attrition
 // spirits, and the two whose answer to being rushed is to let you.
-export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo', 'uro', 'yuta', 'miwa', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'todo', 'yuki', 'jogo', 'mahito', 'hanami', 'kurourushi', 'dagon'];
+export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo', 'uro', 'yuta', 'miwa', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'yaga', 'todo', 'yuki', 'takaba', 'jogo', 'mahito', 'hanami', 'kurourushi', 'dagon'];
 
 // `pick` is 'gojo' (the base) or 'gojo:shinjuku'. A bare character id still
 // works everywhere it used to, which is why nothing outside the select screen

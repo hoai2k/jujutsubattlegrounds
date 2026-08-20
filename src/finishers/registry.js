@@ -30,7 +30,37 @@
 import { S, closeOn, two, groundUp, wide } from './shots.js';
 // Dagon's beats place water and creatures at real world offsets, so this file
 // needs a vector helper for the first time.
-import { v3 } from '../core/mathutil.js';
+import { v3, rand } from '../core/mathutil.js';
+// Yaga's COMMAND pulse and Takaba's confetti and piano, so the two new
+// finishers draw the same objects their kits draw rather than approximations.
+import { commandPulse, confetti, piano } from '../fx/comedyfx.js';
+import * as THREE from 'three';
+import { roundBox, tGeo } from '../art/builders/geo.js';
+import { toonMaterial } from '../art/shaders/toon.js';
+
+// ---- THE BANDANNA AND THE SUNGLASSES ---------------------------------------
+// Real geometry, parented to the LOSER'S HEAD BONE, so they ride every reaction
+// for the rest of the scene — which is the joke: they are still there while the
+// body is being folded in half. Built here rather than in comedyfx.js because
+// nothing else in the game ever needs them, and it retargets to any body,
+// including the non-standard ones, because a head bone is a head bone.
+function takabaKit(d) {
+  const head = d.lose.model?.getBone?.('Head');
+  if (!head) return null;
+  const R = (d.lose.cfg.size?.height ?? 1.8) * 0.062;
+  const g = new THREE.Group();
+  const band = (c) => toonMaterial({ vertexColors: false, steps: [64, 140, 255], rim: 0.3, rimStart: 0.68, color: c, rimColor: 0xffd8c8 });
+  // the bandanna: a cap band with the three stripes and a knot at the back
+  g.add(new THREE.Mesh(tGeo(roundBox(R * 2.6, R * 0.9, R * 2.4, R * 0.25), { pos: [0, R * 1.5, 0] }), band(0xf2f2ee)));
+  g.add(new THREE.Mesh(tGeo(roundBox(R * 2.62, R * 0.26, R * 2.42, R * 0.24), { pos: [0, R * 1.72, 0] }), band(0xd8332e)));
+  g.add(new THREE.Mesh(tGeo(roundBox(R * 2.62, R * 0.26, R * 2.42, R * 0.24), { pos: [0, R * 1.26, 0] }), band(0xd8332e)));
+  g.add(new THREE.Mesh(tGeo(roundBox(R * 0.9, R * 0.9, R * 0.9, R * 0.2), { pos: [0, R * 1.4, -R * 1.35] }), band(0x2f63b0)));
+  // the shades: one bar with two lenses, sitting low
+  g.add(new THREE.Mesh(tGeo(roundBox(R * 2.3, R * 0.62, R * 0.16, R * 0.06), { pos: [0, R * 0.35, R * 1.15] }),
+    toonMaterial({ vertexColors: false, steps: [10, 30, 70, 140, 220], rim: 0.7, rimStart: 0.46, gloss: 0.95, color: 0x15171f, rimColor: 0xdfe8ff })));
+  head.add(g);
+  return g;
+}
 
 // THE EXIT. Two actions: the body finishes going down, and the winner is left
 // holding something. The GRAMMAR is shared — every one of these ends on a body
@@ -63,6 +93,264 @@ const OUTRO = (winClip, opts = {}) => {
 };
 
 export const FINISHERS_BY_PICK = {
+
+  // =========================================================================
+  // YAGA MASAMICHI — 「呪骸」 HE NEVER FIGHTS ALONE
+  // Chapter 147, the last fight: Gakuganji comes for him at Jujutsu High and
+  // Yaga does not fight it alone — he fights it standing beside the things he
+  // made, and he keeps working while it happens. The research finding that
+  // shaped the choreography is that the fight was ONE-SIDED IN HIS FAVOUR
+  // until he chose to stop: he broke Gakuganji's guitar and wounded him, and
+  // then let it end. So this is not a scramble. It is a large, patient man
+  // and his work, taking their time.
+  //
+  // THE BRIEF'S REQUIREMENT, honoured beat by beat: A CORPSE IS IN THE
+  // CHOREOGRAPHY THROUGHOUT, and the loser is attacking BOTH of them the whole
+  // way. Every beat below has the opponent throwing something real.
+  // =========================================================================
+  yaga: {
+    id: 'yaga_corpse',
+    moment: 'The last fight at Jujutsu High — the headmaster, and something he made, standing together.',
+    color: '#b59a68', grade: 'sentence', chord: 'cold', root: 110.0,
+    // The corpse is placed once, at the top, and every beat after this is
+    // choreographed around a body that is actually standing there.
+    ambient: (d, t) => {
+      if (!d._corpse) {
+        d._corpse = d.m.construction?.spawnCinematic(d.win, 'masterwork',
+          d.win.pos.clone().addScaledVector(d.win.forward(), 1.9).add(v3(1.4, 0, 0))) ?? null;
+        if (d._corpse) { d._corpse.reveal = 1; d._corpse.model.setReveal(1); }
+      }
+      // sawdust on the air for the whole scene — he has been working
+      if (Math.random() < 0.10) {
+        d.fx._spawn(d.win.pos.clone().add(v3(rand(-0.8, 0.8), rand(0.8, 1.9), rand(-0.8, 0.8))), {
+          color: Math.random() < 0.4 ? 0xb59a68 : 0xb8a888, size: rand(0.04, 0.10),
+          aspect: 0.5, life: rand(0.6, 1.3), opacity: 0.55, gravity: 1.6,
+          vel: v3(rand(-0.3, 0.3), rand(-0.3, 0.1), rand(-0.3, 0.3))
+        });
+      }
+    },
+    actions: [
+      // ONE. They come in hard and he simply does not move. Arms up, feet set.
+      // He is the biggest human in the game and the first beat has to say so.
+      {
+        op: 'fCross', strike: 'op', hit: true, react: 'rBlockPush', win: 'yagaBrace',
+        shot: S.lowR(), power: 1.15, knock: 0.35, dofBase: 0.2
+      },
+      // TWO. A second one, harder, and it moves him about a foot.
+      {
+        op: 'fRound', strike: 'op', hit: true, react: 'rBlockPush', win: 'yagaBrace',
+        shot: S.otsLose(), power: 1.3, knock: 0.6, impact: 0.08,
+        fx: d => { d.fx.guardSpark?.(d.win.pos.clone().add(v3(0, 1.3, 0))); d.sfx.hit(true); }
+      },
+      // THREE. 指令. He points, and it is the whole character: he does not
+      // answer the person hitting him, he tells something else to.
+      {
+        win: 'yagaPoint', op: 'fGuardUp', span: 1.10, shot: S.faceWin({ d: 1.5, side: 0.6 }),
+        dofBase: 0.85, speed: 0.92,
+        fx: d => {
+          d.sfx.corpseCommand?.(1);
+          d.audio.accent(147, { gain: 0.11, dur: 0.9 });
+          if (d._corpse) commandPulse(d.fx, d.win.pos.clone().setY(d.win.pos.y + 1.5), d._corpse.pos, 0xb59a68);
+        }
+      },
+      // FOUR. THE CORPSE STEPS IN AND TAKES THE NEXT ONE FOR HIM. It does not
+      // flinch, because it cannot — which is the canon detail the whole
+      // creature is built on and the moment the scene is about.
+      {
+        op: 'fAxe', strike: 'op', hit: false, win: 'idle', span: 1.05,
+        shot: S.wideL(), power: 1.4, dofBase: 0.25,
+        fx: d => {
+          if (d._corpse) {
+            d._corpse.pos.copy(d.win.pos).lerp(d.lose.pos, 0.55);
+            d._corpse.facing = Math.atan2(d.lose.pos.x - d._corpse.pos.x, d.lose.pos.z - d._corpse.pos.z);
+            d.fx.hitSpark(d._corpse.pos.clone().add(v3(0, 1.5, 0)), 'heavy');
+            d.fx.debris?.(d._corpse.pos.clone().add(v3(0, 1.3, 0)), 10, 0x8a7c66);
+          }
+          d.sfx.hit(true);
+          d.m.cam?.shake(0.35);
+        }
+      },
+      // FIVE. And they keep going — a real combination, on the corpse,
+      // landing, and the corpse walks through it. The loser is fighting hard
+      // and it is not working, which is the point of the tier.
+      {
+        op: 'fBodyRip', strike: 'op', hit: false, win: 'idle', span: 0.85,
+        shot: S.hitR(), power: 1.2, speed: 1.15,
+        fx: d => {
+          if (d._corpse) {
+            d.fx.hitSpark(d._corpse.pos.clone().add(v3(0, 1.2, 0)), 'light');
+            d._corpse.anim.action = 'swipe';
+            d._corpse.anim.actionK = 0.6;
+          }
+          d.sfx.hit(false);
+        }
+      },
+      // SIX. THE CORPSE SWINGS BACK. The one beat where the thing he built is
+      // the one doing the damage, and it hits like a piece of furniture.
+      {
+        win: 'idle', op: 'fGuardUp', strike: 'win', hit: true, react: 'rBlownBack',
+        span: 0.95, power: 1.6, knock: 1.4, shot: S.bigHit(), impact: 0.14, flash: 0.25,
+        fx: d => {
+          if (d._corpse) {
+            d._corpse.anim.action = 'slam';
+            d._corpse.anim.actionK = 0.9;
+            d.fx._ring(d._corpse.pos.clone().setY(d._corpse.pos.y + 0.06), 0xf0dca8,
+              { size: 0.6, growRate: 14, life: 0.45 });
+          }
+          d.sfx.corpseDeploy?.('masterwork');
+          d.m.cam?.shake(0.6);
+        }
+      },
+      // SEVEN. They get up and come back at HIM instead — which is the correct
+      // read and the last mistake.
+      {
+        op: 'fThrust', strike: 'op', hit: false, miss: true, win: 'fSlip',
+        shot: S.dollyR(), speed: 1.2
+      },
+      // EIGHT. 大振り. One committed blow. Everything he has, from the hip,
+      // and the recovery does not matter any more.
+      {
+        win: 'ct2', strike: 'win',
+        contact: { bone: 'HandR', at: 0.40, aim: 'chest', reach: 0.72, power: 2.1, kind: 'punch' },
+        hit: true, react: 'rBlownBack', op: 'fGuardUp', span: 1.30,
+        power: 2.1, knock: 1.8, shot: S.hitL(), sting: true, impact: 0.26, flash: 0.6,
+        reactSpeed: 0.9,
+        fx: d => { d.sfx.hit(true); d.audio.accent(82, { gain: 0.16, dur: 1.1 }); },
+        onContact: (d, at) => {
+          d.fx.impactBloom(at, 0xb59a68, 1.5);
+          d.fx.debris?.(at, 16, 0xb59a68);
+          d.m.cam?.shake(0.9);
+        }
+      },
+      // And he folds his arms and marks it. A teacher, at the end of a lesson
+      // he did not want to give.
+      ...OUTRO('yagaGrade', {
+        fallSpan: 1.25, fallShot: S.wideR(),
+        heroClip: 'yagaGrade', heroSpan: 1.6, heroSpeed: 0.85,
+        heroShot: S.hero(), heroDof: 0.6
+      })
+    ]
+  },
+
+  // =========================================================================
+  // TAKABA FUMIHIKO — 「ザ・コメディアン」 THE BANDANNA
+  // Chapter 240, against Kenjaku. The single most-quoted image of the fight is
+  // Takaba putting SUNGLASSES AND AN AMERICAN FLAG BANDANNA on his opponent
+  // mid-battle, for no reason, and the opponent continuing to fight in them.
+  //
+  // THE BRIEF'S REQUIREMENT AND THE JOKE ARE THE SAME REQUIREMENT: the loser
+  // must be fighting hard the entire time. Every beat below has them throwing
+  // a genuine, committed, correctly-executed attack — while a bandanna
+  // appears on their head, while a pie arrives, while a piano falls. THE
+  // COMEDY ONLY WORKS IF THEY ARE TAKING IT COMPLETELY SERIOUSLY, and the
+  // choreography never once lets them react to the absurdity.
+  // =========================================================================
+  takaba: {
+    id: 'takaba_bandanna',
+    moment: 'Chapter 240 — the sunglasses and the bandanna, and an opponent who will not stop fighting.',
+    color: '#ff4d7a', grade: 'overtime', chord: 'bright', root: 261.63,
+    ambient: (d, t) => {
+      // confetti drifting through the whole scene, from nowhere, never
+      // acknowledged by either fighter
+      if (Math.random() < 0.16) {
+        const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 5;
+        d.fx._spawn(d.win.pos.clone().add(v3(Math.cos(a) * r, 3.4 + Math.random() * 1.6, Math.sin(a) * r)), {
+          color: [0xff4d7a, 0xffd84a, 0x5fd0ff, 0x6fe89a][(Math.random() * 4) | 0],
+          size: rand(0.07, 0.15), aspect: 0.45, life: rand(1.4, 2.6), opacity: 0.9,
+          spin: rand(-8, 8), gravity: 1.6, vel: v3(rand(-0.6, 0.6), rand(-0.6, -0.1), rand(-0.6, 0.6))
+        });
+      }
+    },
+    actions: [
+      // ONE. They open with a completely straight, completely correct attack,
+      // and it lands. He is a normal man and he eats it.
+      {
+        op: 'fCross', strike: 'op', hit: true, react: 'rSnapHead', win: 'fGuardUp',
+        shot: S.otsLose(), power: 1.2, knock: 0.8
+      },
+      // TWO. He shrugs. Not a dodge, not a guard — a shrug, while they wind up
+      // the next one.
+      {
+        win: 'takabaShrug', op: 'fHook', strike: 'op', hit: false, miss: true,
+        span: 0.9, shot: S.faceWin({ d: 1.5, side: 0.55 }), dofBase: 0.8,
+        fx: d => d.audio.accent(392, { gain: 0.07, dur: 0.5 })
+      },
+      // THREE. THE BANDANNA. It simply is on them now. Sunglasses too. They do
+      // not notice, they do not react, and they throw a knee.
+      {
+        win: 'bit_bucket', op: 'fKnee', strike: 'op', hit: true, react: 'rFoldGut',
+        span: 1.0, shot: S.midR(), power: 1.15, knock: 0.6,
+        fx: d => {
+          d.sfx.showRimshot?.();
+          d.audio.accent(523.25, { gain: 0.09, dur: 0.35 });
+          // the bandanna and the shades, as real geometry on their head, for
+          // the rest of the scene
+          d._kit = takabaKit(d);
+        }
+      },
+      // FOUR. THEY KEEP FIGHTING. A full committed combination, in a bandanna,
+      // and it lands. This beat exists purely so the joke has something to be
+      // funny against.
+      {
+        op: 'fBodyRip', strike: 'op', hit: true, react: 'rFoldGut', win: 'fGuardUp',
+        shot: S.hitR(), power: 1.3, knock: 0.7, speed: 1.15,
+        fx: d => d.sfx.hit(true)
+      },
+      // FIVE. A pie. Full in the face. They do not break stride.
+      {
+        win: 'bit_pie', strike: 'win', blast: { at: 0.32, aim: 'head', power: 0.7, kind: 'punch' },
+        hit: true, react: 'rWhiff', op: 'fGuardUp', span: 0.9,
+        power: 0.7, knock: 0.2, shot: S.hitL(), impact: 0.06,
+        fx: d => { d.sfx.bitCue?.('pie'); d.audio.accent(740, { gain: 0.08, dur: 0.3 }); },
+        onContact: (d, at) => { d.fx.impactBloom(at, 0xf0e6d0, 0.6); }
+      },
+      // SIX. AND THEY ANSWER IT WITH A REAL TECHNIQUE, still wearing the pie.
+      // Their best beat in the scene, and it connects.
+      {
+        op: 'fOverhead', strike: 'op', hit: true, react: 'rCrumple', win: 'fGuardUp',
+        shot: S.lowR(), power: 1.5, knock: 1.1, impact: 0.12,
+        fx: d => { d.sfx.hit(true); d.m.cam?.shake(0.5); }
+      },
+      // SEVEN. He gets up, and he PRESENTS. Both arms wide. The audience he
+      // does not have applauds.
+      {
+        win: 'takabaPresent', op: 'fGuardUp', span: 1.30, shot: S.crane({ d: 6.2, top: 3.8 }),
+        dofBase: 0.25, flash: 0.25,
+        fx: d => {
+          d.sfx.showApplause?.();
+          d.audio.accent(261.63, { gain: 0.13, dur: 1.1 });
+          confetti(d.fx, d.win.pos.clone().setY(d.win.pos.y + 2.4), 40);
+        }
+      },
+      // EIGHT. A PIANO. It is beautifully made, it falls with a piano's
+      // weight, and it lands on somebody who is still mid-swing.
+      {
+        win: 'big_piano', strike: 'win',
+        contact: { bone: 'HandR', at: 0.62, aim: 'head', reach: 1.4, power: 2.2, kind: 'blade' },
+        hit: true, react: 'rSlam', op: 'fAxe', span: 1.55,
+        power: 2.2, knock: 1.2, shot: S.wideL(), sting: true, impact: 0.28, flash: 0.7,
+        reactSpeed: 0.85,
+        fx: d => {
+          piano(d.fx, d.lose.pos.clone(), 0.45, 0.40);
+          d.sfx.bitCue?.('piano');
+          d.audio.accent(65.41, { gain: 0.2, dur: 1.6 });
+        },
+        onContact: (d, at) => {
+          d.fx.impactBloom(at, 0xf4f2ea, 1.6);
+          d.m.cam?.shake(1.0);
+          confetti(d.fx, at.clone(), 50);
+        }
+      },
+      // And he is genuinely delighted. Doubled over. The tonal mismatch is the
+      // whole finisher.
+      ...OUTRO('takabaLaugh', {
+        fallSpan: 1.2, fallShot: S.wideR(),
+        heroClip: 'takabaLaugh', heroSpan: 1.7, heroSpeed: 0.95,
+        heroShot: S.hero(), heroDof: 0.5,
+        heroFx: d => { d.sfx.audienceLaugh?.(1); confetti(d.fx, d.win.pos.clone().setY(d.win.pos.y + 2.2), 30); }
+      })
+    ]
+  },
 
   // =========================================================================
   // NAOYA ZENIN — 「投射呪法」 THE HAIR BRUSH

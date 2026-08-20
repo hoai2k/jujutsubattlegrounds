@@ -1164,6 +1164,225 @@ export class CPU {
       return f;
     }
 
+    // ---- YAGA: MAKE THE SPACE, THEN USE IT ----------------------------------
+    // The profile is FOUR RULES and they are in strict priority order, because
+    // the whole character is a question about time and a bot that answers it in
+    // the wrong order simply dies mid-build:
+    //
+    //   1  DEFEND WHAT IS ALREADY BUILT. If a corpse is out and the opponent is
+    //      hitting it rather than him, he walks in and makes them stop. A bot
+    //      that let its own MASTERWORK get dismantled while it stood at range
+    //      would be throwing away the thing it spent six seconds on.
+    //   2  MAKE SPACE WITH THE HAYMAKER. Not on cooldown and not at range —
+    //      only in its actual reach, and preferentially into a whiff, because
+    //      it is his most punishable button and the whole point of it is that
+    //      it BUYS the seconds rather than spending them.
+    //   3  BUILD, BUT ONLY WITH ROOM. The gate is real distance plus a real
+    //      read that they are not closing, and it RELEASES THE MOMENT THAT
+    //      STOPS BEING TRUE — which is the behaviour the brief asks for.
+    //   4  *** IT NEVER ATTEMPTS A MASTERWORK UNDER PRESSURE. *** The target
+    //      tier is chosen at the start of the hold from how much room it has,
+    //      and the hold ends at that tier rather than at the top of the bar.
+    //      A bot holding for six seconds against a rushdown would be a free
+    //      round, and — more importantly — it would be playing the character
+    //      wrong: STANDARD is the realistic ceiling under pressure and the bot
+    //      should know that.
+    if (me.cfg.special?.key === 'yaga_build') {
+      const sys = this.match.construction;
+      const mine = sys ? sys.aliveFor(me) : [];
+      const tiersOfMe = me.cfg.special.tiers;
+      const closing = foe.state === 'run' || foe.state === 'dash'
+        || (foe.vel && flatDist(me.pos, foe.pos) < (this._yagaLastD ?? 99));
+      this._yagaLastD = dist;
+      const pressured = dist < 5.2 || closing;
+      const p = me.build?.p ?? 0;
+
+      // ---- 3/4 · THE HOLD, and the tier it is holding FOR -----------------
+      if (me.state === 'building') {
+        // ---- WHEN TO LET GO -------------------------------------------------
+        // Three reasons, and the third is the one that makes the bot play the
+        // character properly rather than merely survive it:
+        //   1  the target tier is reached — take it and stop
+        //   2  it has run out of cursed energy — the meter has stalled anyway
+        //   3  *** IT IS ABOUT TO BE HIT AND IT HAS SOMETHING TO BANK. ***
+        //      A held build that gets punched is worth NOTHING; a SCRAP on the
+        //      field is worth a second. Measured over a 90-second bot-vs-bot
+        //      match, the first version of this profile held for the STANDARD
+        //      tier every time, was interrupted every time, and deployed
+        //      nothing at all in the whole match — which is a bot that has
+        //      understood the mechanic and refuses to use it.
+        const target = this._yagaTarget ?? 0.5;
+        // "Closing" is about DISTANCE CHANGING, not about them being busy: a
+        // bot in `attack` or `ct` is in one of those states almost all the
+        // time, and treating that as a threat from eight metres made the
+        // profile bank a SCRAP the instant it had one and never once reach
+        // STANDARD. Measured across three matchups before and after.
+        // ...and a COMMITTED TECHNIQUE inside its own range counts, because
+        // against a ranged character there is no safe distance at all and a
+        // profile that only reacted to footsteps banked nothing whatsoever in
+        // a 90-second match against Takaba. Bounded by distance so a technique
+        // thrown across the map is not a reason to stop working.
+        const closing = foe.state === 'run' || foe.state === 'dash'
+          || (foe.state === 'ct' && dist < 9.0);
+                // The bank threshold is deliberately BRAVE rather than safe: banking a
+        // SCRAP the moment anybody takes a step is a bot that never reaches
+        // STANDARD, which is the tier the character is actually balanced
+        // around. It holds until they are genuinely on top of it.
+        const bank = p >= (tiersOfMe[0]?.at ?? 0.25) && (dist < 4.6 || (closing && dist < 5.8));
+        if (p >= target || bank || me.res.curCE < 6) {
+          f.copy = false;
+          this._yagaTarget = null;
+        } else {
+          f.copy = true;
+          // shuffle backwards while he works — the moveMult makes it almost
+          // nothing, but "almost nothing" away from a closing opponent is the
+          // difference between STANDARD and a demolished bar
+          f.move.z = dist < 8 ? 1 : 0;
+        }
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 1 · DEFEND THE BENCH -------------------------------------------
+      const threatened = mine.find(c => flatDist(c.pos, foe.pos) < 2.4);
+      if (threatened && !me.busy) {
+        f.move.z = -1;
+        f.dash = dist > 4.5 && me.res.stamina > 22;
+        if (dist < 2.2 && this.punchT <= 0) { f.punch = true; this.punchT = rand(0.12, 0.3); }
+        // and it re-orders them onto whoever is doing it — COMMAND is free, so
+        // there is never a reason not to
+        if (me.res.curCE >= 0 && !me.busy && (this._cmdT ?? 0) <= 0) {
+          f.ct1 = true; this._cmdT = rand(3.5, 5.5);
+        }
+        this._cmdT = (this._cmdT ?? 0) - 1 / 60;
+        this._edges(f);
+        return f;
+      }
+      this._cmdT = (this._cmdT ?? 0) - 1 / 60;
+
+      // ---- COMMAND on its own clock when there IS something to command ----
+      if (mine.length && !me.busy && (this._cmdT ?? 0) <= 0 && dist < 14) {
+        f.ct1 = true;
+        this._cmdT = rand(4.0, 6.0);
+        this._edges(f);
+        return f;
+      }
+
+      // ---- THE ULTIMATE ----------------------------------------------------
+      // A full bar buys a MASTERWORK with no risk, which is exactly what a bot
+      // that cannot safely hold for six seconds should be spending it on. It
+      // waits for a moment rather than firing on the frame the gate opens.
+      if (me.ultReady && !me.busy && dist > 3.0 && dist < 14 && Math.random() < 0.05) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 2 · THE HAYMAKER ------------------------------------------------
+      const ct2 = me.cfg.ct2;
+      const whiffing = foe.state === 'attack' || foe.state === 'ct';
+      if (!me.busy && me.res.curCE >= ct2.cost && dist < (ct2.reach ?? 2.3) + 0.5
+        && (whiffing ? Math.random() < 0.5 : Math.random() < 0.10)) {
+        f.ct2 = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 3 · OPEN THE HOLD ----------------------------------------------
+      // The target tier is a function of the room it actually has, and it is
+      // capped BELOW MASTERWORK unless the opponent is on the floor at range —
+      // which is the only situation in which six seconds is a real offer.
+      if (!me.busy && !pressured && dist > 6.8 && sys?.canBuild(me) && me.res.curCE > 22) {
+        const down = foe.state === 'knockdown' || foe.state === 'getup' || foe.state === 'launched';
+        this._yagaTarget = (down && dist > 11 && me.res.curCE > 60) ? 1.0
+          : dist > 11 ? 0.75 : 0.5;
+        f.copy = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- otherwise: a heavyweight, playing heavyweight neutral -----------
+      f.move.z = dist > 2.4 ? -1 : 0.2;
+      f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * 0.22;
+      f.dash = dist > 7.0 && me.res.stamina > 30;
+      if (dist < 1.8 && this.punchT <= 0) { f.punch = true; this.punchT = rand(0.14, 0.3); }
+      if (dist < 2.4 && whiffing && Math.random() < 0.4) { f.block = true; f.punch = false; }
+      this._edges(f);
+      return f;
+    }
+
+    // ---- TAKABA: THROW BITS, AND RIFF WHEN IT IS SAFE -----------------------
+    // THREE RULES:
+    //   1  THROW BITS CONSTANTLY. RB is cheap, fast and his neutral, and a bot
+    //      that hoarded it would be playing a character who does not exist.
+    //   2  RIFF ONLY IN A SAFE WINDOW, and the definition of safe is strict:
+    //      far away, they are on the floor or committed, and the cooldown is
+    //      up. Getting hit during it costs more meter than the whole stance
+    //      earns, so a bot that riffed on a whim would spend the round at OPEN
+    //      MIC — which is not weaker, but is much less fun to watch.
+    //   3  THE GAME SHOW AT A SENSIBLE MOMENT, not the instant the meter fills.
+    //      It waits for the meter to be worth cashing (the difficulty scales
+    //      off it) AND for the opponent to be somewhere it can be started
+    //      safely. See the note on the gate below.
+    if (me.cfg.comedy) {
+      const c1 = me.cfg.ct1, c2 = me.cfg.ct2, sp = me.cfg.special;
+      const meterFrac = (me.comedy ?? 0) / me.cfg.comedy.max;
+      const safeWindow = dist > 8.0
+        && (foe.state === 'knockdown' || foe.state === 'getup' || foe.state === 'launched'
+          || (foe.busy && dist > 11));
+
+      // ---- 3 · THE GAME SHOW ------------------------------------------------
+      // GATED ON THE METER, NOT JUST ON THE BAR. A show fired at OPEN MIC is a
+      // full bar spent on the EASIEST version of the challenge, which is the
+      // worst use of it in the game — so the bot holds for WARMING UP at least,
+      // and prefers KILLING. It also will not open one at point-blank range,
+      // because it wants the seconds after the show as much as the show.
+      if (me.ultReady && !me.busy && dist > 2.5 && dist < 16
+        && meterFrac > 0.45 && Math.random() < (meterFrac > 0.82 ? 0.06 : 0.02)) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 2 · THE RIFF -----------------------------------------------------
+      if (!me.busy && me.specialCD <= 0 && safeWindow && meterFrac < 0.9 && Math.random() < 0.08) {
+        f.copy = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 1 · BITS ---------------------------------------------------------
+      this._bitT = (this._bitT ?? 0) - 1 / 60;
+      if (!me.busy && this._bitT <= 0) {
+        // THE BIG ONE when it can afford the commitment — close enough to
+        // connect, and they are not about to punish 27 frames of startup.
+        if (me.res.curCE >= c2.cost && dist < (c2.range ?? 4.2)
+          && (foe.state === 'knockdown' || foe.state === 'getup' || Math.random() < 0.20)) {
+          f.ct2 = true;
+          this._bitT = rand(1.4, 2.4);
+          this._edges(f);
+          return f;
+        }
+        if (me.res.curCE >= c1.cost && dist < (c1.range ?? 6.5)) {
+          f.ct1 = true;
+          this._bitT = rand(0.5, 1.1);
+          this._edges(f);
+          return f;
+        }
+      }
+
+      // ---- otherwise: an ordinary man, at ordinary range --------------------
+      f.move.z = dist > 3.2 ? -1 : dist < 1.4 ? 0.5 : 0;
+      f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * 0.32;
+      f.dash = dist > 6.5 && me.res.stamina > 26;
+      if (dist < 1.5 && this.punchT <= 0) { f.punch = true; this.punchT = rand(0.12, 0.26); }
+      if (dist < 2.2 && (foe.state === 'attack' || foe.state === 'ct') && Math.random() < 0.3) {
+        f.block = true; f.punch = false;
+      }
+      this._edges(f);
+      return f;
+    }
+
     // ---- MEGUMI: keep something on the field, always ------------------------
     // The whole profile is "never fight alone". It summons on cooldown, plays
     // at mid range behind whatever it has out, re-binds the wheel to suit the

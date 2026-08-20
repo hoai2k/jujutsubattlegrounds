@@ -68,6 +68,37 @@ export const CATEGORIES = {
   // one thing electricity cannot be adapted to — the CHARGE curve itself,
   // because adaptation cuts damage and Charge raises it back.
   electric: { label: 'ELECTRICITY', jp: '雷' },
+  // ---- TAKABA'S FOURTEEN BITS — ONE CATEGORY ------------------------------
+  // The same call Kashimo's electricity gets above, and for a stronger version
+  // of the same reason. Toji's four weapons are four genuinely different
+  // things carried by one man; Kashimo's whole kit is ONE SUBSTANCE arriving in
+  // different shapes. Takaba is the purest case of the latter in the game:
+  // every one of the fourteen outcomes IS THE COMEDIAN — one reality-warping
+  // technique wearing a different costume each time it fires.
+  //
+  // Splitting them would not be a nuance, it would silently switch adaptation
+  // OFF for one character: a wheel that has to spin fourteen separate times to
+  // learn "a pie" and then separately "a piano" would never reach a meaningful
+  // percentage inside a round, so Mahoraga would simply not adapt to Takaba at
+  // all, and nothing on screen would say why.
+  //
+  // The consequence is intended and it is the most interesting thing about the
+  // matchup: Mahoraga is the ONE opponent Takaba's randomness stops mattering
+  // against, because the wheel does not care which bit it was. Takaba's answer
+  // is everybody else's answer — the ultimate, which routes through INSTANT_KO
+  // above and is therefore RESISTED BY CHANCE rather than blunted by
+  // percentage.
+  comedian: { label: 'THE COMEDIAN', jp: '笑いの術式' },
+  // ---- YAGA'S CORPSES -----------------------------------------------------
+  // NOT their own category: they feed `summon`, alongside Megumi's shikigami,
+  // Geto's curses, Mahito's minion and Dagon's sea shikigami. They are the same
+  // KIND of thing — a body somebody else sent — and a Mahoraga who has adapted
+  // to being bitten by things that are not the sorcerer has adapted to this
+  // too. Tagged at the damage site in combat/construction.js, exactly as the
+  // other four families are.
+  //
+  // His HANDS are a different matter and stay on `punch` and their slots: the
+  // Haymaker is a man hitting you.
   // ---- PANDA'S THREE CORES ------------------------------------------------
   // THREE SEPARATE CATEGORIES, one per stance — the opposite call from
   // Kashimo's single bucket above, and the same call Toji's four tools get.

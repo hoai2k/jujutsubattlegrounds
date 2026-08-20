@@ -127,6 +127,23 @@ export class HUD {
         <div class="duel-clock"><div class="fill"></div><div class="duel-time"></div></div>
         <div class="duel-foot"></div>
       </div>
+      <!-- THE GAME SHOW. One panel, six stagings, and the staging class is
+           what changes the furniture — the contest itself is always the same
+           three elements: a title card, a play area and a scoreboard. -->
+      <div class="gshow">
+        <div class="gs-card">
+          <div class="gs-tier"></div>
+          <div class="gs-name"></div>
+          <div class="gs-jp"></div>
+        </div>
+        <div class="gs-stage">
+          <div class="gs-prompt"></div>
+          <div class="gs-play"></div>
+          <div class="gs-clock"><div class="fill"></div></div>
+        </div>
+        <div class="gs-score"></div>
+        <div class="gs-foot"></div>
+      </div>
       <div class="crawl"></div>
       <div class="blackout"></div>
       <div class="flash"></div>
@@ -291,6 +308,23 @@ export class HUD {
           <span class="es-num"></span>
         </div>
         <div class="ratio-bar"><div class="rb-red"></div><div class="rb-marker"></div></div>
+        <!-- YAGA. Two rows, and the split is the mechanic: the METER is the
+             work in progress and the STRIP is what is already standing. The
+             meter carries a tick per quality tier so both players can see
+             which one the next release would produce. -->
+        <div class="build-row">
+          <span class="bd-key">呪骸製作</span>
+          <div class="bar bar-bd"><div class="fill"></div><div class="bd-ticks"></div></div>
+          <span class="bd-tier"></span>
+        </div>
+        <div class="corpse-row"></div>
+        <!-- TAKABA. One row, three tiers, and the tier NAME is the readout —
+             the number matters far less than whether the room is with him. -->
+        <div class="comedy-row">
+          <span class="cm-key">笑</span>
+          <div class="bar bar-cm"><div class="fill"></div><div class="cm-ticks"></div></div>
+          <span class="cm-tier"></span>
+        </div>
         <div class="shiki-row">
           <div class="shiki-slot s1"><div class="ss-cd"></div><span class="ss-key">RB</span><span class="ss-name"></span></div>
           <div class="shiki-slot s2"><div class="ss-cd"></div><span class="ss-key">RT</span><span class="ss-name"></span></div>
@@ -795,6 +829,75 @@ export class HUD {
           row.classList.remove('low');
         }
       }
+      // ---- YAGA: THE CONSTRUCTION METER AND THE BENCH --------------------
+      // The meter is only interesting while there is something on it, so the
+      // row hides at zero rather than sitting at empty — an always-visible bar
+      // at 0% for most of a round is noise. The TICKS are built once.
+      const bdRow = plate.querySelector('.build-row');
+      if (f.cfg.special?.key === 'yaga_build') {
+        const p = f.build?.p ?? 0;
+        bdRow.style.display = p > 0.001 ? '' : 'none';
+        if (p > 0.001) {
+          const tiers = f.cfg.special.tiers;
+          const ticks = bdRow.querySelector('.bd-ticks');
+          if (!ticks.childElementCount) {
+            ticks.innerHTML = tiers.map(t => `<i style="left:${t.at * 100}%"></i>`).join('');
+          }
+          bdRow.querySelector('.fill').style.width = (p * 100) + '%';
+          let cur = null;
+          for (const t of tiers) if (p >= t.at - 1e-6) cur = t;
+          const el = bdRow.querySelector('.bd-tier');
+          el.textContent = cur ? cur.short : '—';
+          el.style.color = cur ? '#' + cur.accent.toString(16).padStart(6, '0') : '';
+          bdRow.classList.toggle('holding', f.state === 'building');
+          bdRow.classList.toggle('full', p >= 0.999);
+          for (const i of ticks.children) i.classList.toggle('passed', p >= parseFloat(i.style.left) / 100 - 1e-6);
+        }
+      } else bdRow.style.display = 'none';
+
+      // THE BENCH. What he has standing, each with its own health and its own
+      // clock — because a corpse the opponent has nearly killed and a corpse
+      // that is about to expire are two completely different situations and
+      // one bar cannot say both.
+      const cpRow = plate.querySelector('.corpse-row');
+      if (f.cfg.special?.key === 'yaga_build' && this.construction) {
+        const snap = this.construction.snapshot(f);
+        cpRow.style.display = snap.length ? '' : 'none';
+        const key = snap.map(c => c.key + (c.commanded ? '!' : '')).join('|');
+        if (cpRow.dataset.key !== key) {
+          cpRow.dataset.key = key;
+          cpRow.innerHTML = snap.map(c =>
+            `<div class="cp${c.commanded ? ' cmd' : ''}" style="--cc:#${c.color.toString(16).padStart(6, '0')}">
+               <span>${c.short}</span><i class="cp-hp"></i><i class="cp-life"></i></div>`).join('');
+        }
+        snap.forEach((c, k) => {
+          const el = cpRow.children[k];
+          if (!el) return;
+          el.querySelector('.cp-hp').style.width = Math.max(2, c.hp * 100) + '%';
+          el.querySelector('.cp-life').style.width = Math.max(2, c.life * 100) + '%';
+          el.classList.toggle('dying', c.life < 0.25);
+        });
+      } else cpRow.style.display = 'none';
+
+      // ---- TAKABA: THE COMEDY METER ---------------------------------------
+      const cmRow = plate.querySelector('.comedy-row');
+      cmRow.style.display = f.cfg.comedy ? '' : 'none';
+      if (f.cfg.comedy) {
+        const c = f.cfg.comedy;
+        const ticks = cmRow.querySelector('.cm-ticks');
+        if (!ticks.childElementCount) {
+          ticks.innerHTML = c.tiers.slice(1).map(t => `<i style="left:${t.at * 100}%"></i>`).join('');
+        }
+        const pct = Math.max(0, Math.min(100, (f.comedy ?? 0) / c.max * 100));
+        cmRow.querySelector('.fill').style.width = pct + '%';
+        const t = c.tiers[f.comedyTier ?? 0];
+        const el = cmRow.querySelector('.cm-tier');
+        el.textContent = t.name;
+        el.style.color = '#' + t.color.toString(16).padStart(6, '0');
+        cmRow.dataset.tier = t.key;
+        cmRow.classList.toggle('killing', t.key === 'killing');
+      }
+
       if (f.cfg.blood) {
         const row = plate.querySelector('.blood-row');
         const pct = Math.max(0, Math.min(100, f.blood / f.cfg.blood.max * 100));
@@ -1281,6 +1384,7 @@ export class HUD {
 
     this._duel(duel);
     this._trial(trial);
+    this._gameshow(this.gameshow?.snapshot?.() ?? null);
     if (this.blackT > 0) {
       this.blackT -= dt;
       if (this.blackT <= 0) this.q('.blackout').classList.remove('on');
@@ -1405,6 +1509,140 @@ export class HUD {
     el.querySelector('.trial-foot').textContent = rev
       ? `${t.caster?.cfg.name ?? ''} CALLED ${t.guess ?? '?'} · PLEA WAS ${t.plea ?? '?'}`
       : `${t.pleaded ? 'PLEA IN' : 'DEFENDANT CHOOSING'} · ${t.guessed ? 'CALL IN' : 'HIGURUMA CHOOSING'}`;
+  }
+
+  // ---- THE GAME SHOW -------------------------------------------------------
+  // ONE PANEL, SIX STAGINGS. The contest is always the same three elements —
+  // a title card, a play area and a scoreboard — and the `staging` class is
+  // what changes the FURNITURE around them: a prize wheel, a quiz podium, a
+  // dunk tank, a conveyor belt, a buzzer, a row of arrows. That split is
+  // deliberate: the comedy is in the dressing, and the thing the contestant
+  // has to READ has to be identical every time or the challenge becomes
+  // "find the UI" instead of "do the thing".
+  //
+  // It is drawn for BOTH players. The contestant needs it to play; Takaba's
+  // player needs it to know whether the joke is landing.
+  _gameshow(g) {
+    const el = this.q('.gshow');
+    if (!g) { el.classList.remove('on'); this._gsKey = null; return; }
+    el.classList.add('on');
+    el.dataset.phase = g.phase;
+    el.dataset.tier = g.tierKey;
+    el.style.setProperty('--gs', '#' + g.tierColor.toString(16).padStart(6, '0'));
+
+    // the title card
+    el.querySelector('.gs-tier').textContent = 'DIFFICULTY — ' + g.tier;
+    el.querySelector('.gs-name').textContent = g.game ? g.game.name : 'THE GAME SHOW';
+    el.querySelector('.gs-jp').textContent = g.game ? g.game.jp : '公開収録';
+
+    // the scoreboard — three lamps, filled as they resolve
+    const score = Array.from({ length: g.rounds }, (_, i) => {
+      const r = g.results[i];
+      return `<i class="gsp${r ? (r.result === 'pass' ? ' pass' : ' fail') : ''}"></i>`;
+    }).join('');
+    const scoreEl = el.querySelector('.gs-score');
+    if (scoreEl.dataset.k !== score) { scoreEl.dataset.k = score; scoreEl.innerHTML = score; }
+
+    const stage = el.querySelector('.gs-stage');
+    const play = el.querySelector('.gs-play');
+    const gm = g.game;
+    stage.style.display = (g.phase === 'play' || g.phase === 'settle') && gm ? '' : 'none';
+    if (gm && stage.style.display === '') {
+      stage.dataset.staging = gm.staging;
+      el.querySelector('.gs-prompt').textContent = gm.prompt;
+      const key = gm.key + ':' + (gm.seq?.join('') ?? '') + ':' + (gm.need ?? '');
+      if (this._gsKey !== key) {
+        this._gsKey = key;
+        play.innerHTML = this._gsMarkup(gm);
+      }
+      this._gsPaint(play, gm);
+      const c = el.querySelector('.gs-clock');
+      c.querySelector('.fill').style.width = Math.max(0, 1 - gm.t / gm.limit) * 100 + '%';
+      c.classList.toggle('critical', gm.t / gm.limit > 0.7);
+      play.classList.toggle('hit', !!gm.hit);
+      play.classList.toggle('wrong', !!gm.wrong);
+      play.classList.toggle('resolved', !!gm.result);
+      play.dataset.result = gm.result ?? '';
+    }
+
+    el.querySelector('.gs-foot').textContent =
+      g.phase === 'result'
+        ? (g.outcome === 'ko' ? 'NO SCORE.' : g.outcome === 'survived' ? 'A PERFECT SCORE — ' + g.contestant + ' SURVIVES'
+          : g.killRefused ? g.killRefused : g.passed + ' OF ' + g.rounds)
+        : g.contestant + ' IS TODAY\'S CONTESTANT   ·   HOST: ' + g.host;
+  }
+
+  // The furniture, per staging. Built once per round.
+  _gsMarkup(gm) {
+    switch (gm.key) {
+      case 'wheel':
+        return `<div class="gsw"><div class="gsw-track"><div class="gsw-zone"></div><div class="gsw-mark"></div></div>
+                <div class="gsw-btn">X</div></div>`;
+      case 'podium':
+      case 'belt':
+        return `<div class="gsq">${gm.seq.map(k => `<b>${k}</b>`).join('')}</div>`;
+      case 'dunk':
+        return `<div class="gsd"><div class="gsd-bar"><div class="fill"></div></div><div class="gsd-n"></div></div>`;
+      case 'buzzer':
+        return `<div class="gsb"><div class="gsb-lamp">WAIT</div></div>`;
+      case 'arrows':
+        return `<div class="gsa">${gm.seq.map(k => `<b>${k}</b>`).join('')}</div>`;
+      default: return '';
+    }
+  }
+
+  // The per-frame paint. Deliberately writes only STYLE and CLASS, never
+  // innerHTML — a DOM rebuild inside a two-second contest is exactly the wrong
+  // place to spend the frame budget, which is the same rule the execution
+  // duel's prompt row already follows.
+  _gsPaint(play, gm) {
+    switch (gm.key) {
+      case 'wheel': {
+        const z = play.querySelector('.gsw-zone');
+        z.style.left = ((gm.mark - gm.window) * 100) + '%';
+        z.style.width = (gm.window * 200) + '%';
+        play.querySelector('.gsw-mark').style.left = (gm.pos * 100) + '%';
+        break;
+      }
+      case 'podium': {
+        const chips = play.querySelectorAll('.gsq b');
+        for (let i = 0; i < chips.length; i++) {
+          chips[i].classList.toggle('done', i < gm.idx);
+          chips[i].classList.toggle('now', i === gm.idx);
+        }
+        break;
+      }
+      case 'belt': {
+        const chips = play.querySelectorAll('.gsq b');
+        // THE WHOLE GAME: the prompts are visible, and then they are not.
+        play.classList.toggle('hidden', !!gm.hidden);
+        for (let i = 0; i < chips.length; i++) {
+          chips[i].classList.toggle('done', gm.hidden && i < gm.idx);
+          chips[i].classList.toggle('now', gm.hidden && i === gm.idx);
+        }
+        break;
+      }
+      case 'dunk': {
+        play.querySelector('.gsd-bar .fill').style.width =
+          Math.min(100, (gm.presses / gm.need) * 100) + '%';
+        play.querySelector('.gsd-n').textContent = gm.presses + ' / ' + gm.need;
+        break;
+      }
+      case 'buzzer': {
+        const lamp = play.querySelector('.gsb-lamp');
+        lamp.classList.toggle('live', !!gm.shown);
+        lamp.textContent = gm.shown ? 'X' : 'WAIT';
+        break;
+      }
+      case 'arrows': {
+        const chips = play.querySelectorAll('.gsa b');
+        for (let i = 0; i < chips.length; i++) {
+          chips[i].classList.toggle('done', i < gm.idx);
+          chips[i].classList.toggle('now', i === gm.idx);
+        }
+        break;
+      }
+    }
   }
 
   _duel(d) {

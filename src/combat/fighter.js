@@ -41,6 +41,15 @@ import { buildCores, resetCores, coresAlive, nextCore, coreIndexOf } from './cor
 // per-tool audit of what the surface does and does not turn around.
 import { hasFlight, hovering, gravityScale, tickFlight, airLocomote, resetFlight } from './flight.js';
 import { reflectDef } from './reflect.js';
+// YAGA — the construction meter. The state machine owns the `building` state
+// and the button; everything the meter IS lives in combat/construction.js.
+import {
+  ensureBuild, tickBuilding, releaseBuild, tickBuildDecay, interruptBuild, tierFor
+} from './construction.js';
+// TAKABA — the Comedy Meter and the shared weighted roll. `rollBit` is the
+// same roller Yuta's domain uses (see the header of combat/comedy.js); his own
+// copy in domains.js is untouched.
+import { ensureComedy, tickComedy, gainComedy, tierOf as comedyTierOf, rollBit } from './comedy.js';
 
 const GRAVITY = 26;
 
@@ -262,6 +271,11 @@ export class Fighter {
     this.lastCT = null;          // last technique key fired (Copy roll mirrors it)
     this.rootT = 0;              // seconds left rooted by Cursed Speech
     this.aimLag = 0;             // seconds the soft lock stays stale (post-swap disorientation)
+    // ---- OFF THE FIELD --------------------------------------------------
+    // Seconds this fighter is not present. TAKABA'S TRAPDOOR and STAGE
+    // CURTAIN are the only things in the game that set it. See `setOffField`
+    // for the full audit of what this does and does not break.
+    this.offFieldT = 0;
     // OPPONENT LOCK (left stick press / L3). On by default — the whole control
     // scheme is built around it. Off, the fighter turns to face the way they
     // are moving and the stick becomes camera-relative, which is what lets a
@@ -695,6 +709,19 @@ export class Fighter {
     this.castThresholdOverride = null;
     this.lockedSlot = null;
     this.slotUse.ct1 = this.slotUse.ct2 = this.slotUse.special = 0;
+    // YAGA — the work in progress is ROUND-SCOPED. A partial build is time he
+    // spent under pressure in a round that is over; carrying it into the next
+    // one would hand him a free tier for a risk he took against a health bar
+    // that has been reset. The corpses already go (match.construction.clear).
+    if (this.build) { this.build.p = 0; this.build.holding = false; this.build.idleT = 0; this.build.worked = 0; }
+    // TAKABA — the meter is round-scoped for the same reason and the opposite
+    // feeling: a set that was killing does not carry over to a new room. It
+    // goes back to `comedy.start`, not to zero, because he walks on stage with
+    // some confidence and has to earn the rest.
+    if (this.cfg.comedy) { this.comedy = this.cfg.comedy.start; this.comedyTier = 0; }
+    this.riff = null;
+    this.offFieldT = 0;
+    this.model.setVisible?.(true);
     // an executed body does not come back next round — the round does
     this.instantKO = null;
     this.lastCT = null;
@@ -719,6 +746,7 @@ export class Fighter {
     this.sleepMult = 1;
     this.twisted = null;
     this.aimLag = 0;
+    this.offFieldT = 0;
     this.aimOverride = null;
     // lockOn deliberately survives the round: it is a control preference, not
     // a combat resource
@@ -1178,6 +1206,17 @@ export class Fighter {
       const swap = ['idle', 'idleStrained', 'idleRaw', 'idleSilenced'][this.throatTier] ?? 'idle';
       if (swap !== 'idle' && this.anim.clips.has(swap)) return swap;
     }
+    // TAKABA: ONE IDLE PER COMEDY TIER. Same mechanism as the four blocks
+    // above and for exactly the same reason: the OPPONENT has to be able to
+    // read how well his set is going off his POSTURE rather than off a meter
+    // on the other player's side of the screen. At OPEN MIC he is apologetic
+    // and rounded; at KILLING he is a showman. Nothing about his frame data
+    // changes between them — only how sure of himself he looks, which is the
+    // whole promise of the meter.
+    if (this.cfg.comedy && name === 'idle') {
+      const swap = ['idle', 'idleWarm', 'idleKilling'][this.comedyTier ?? 0] ?? 'idle';
+      if (swap !== 'idle' && this.anim.clips.has(swap)) return swap;
+    }
     // MAKI: ONE NEUTRAL PER AWAKENING STAGE. Same mechanism Kashimo's coiled
     // cycles and Inumaki's four throat idles use two blocks up, and for the
     // same reason: the OPPONENT has to be able to read her stage off her
@@ -1432,6 +1471,26 @@ export class Fighter {
     this._applyGrowth(move);
     this._applyEssenceChannel(move);
     if (wasCharged && def.charged) Object.assign(move, def.charged, { chargedCast: true });
+    // ---- TAKABA: THE ROLL HAPPENS ON THE PRESS -------------------------
+    // Not on the active frame, and that is deliberate: each of the fourteen
+    // outcomes has its OWN animation, so the body has to know which bit it is
+    // doing before the wind-up starts. The rolled entry rides the move object
+    // — `move.bit` — so the effect dispatcher never re-rolls and the debug
+    // overlay shows the outcome that was actually bought.
+    //
+    // The roller is `rollBit` in combat/comedy.js, which is the lift of Yuta's
+    // `_rollSwordTech`: seeded stream, no immediate repeats, debug force. The
+    // only thing it adds is the Comedy Meter's weight tilt.
+    //
+    // `copyTier` is Yuta's copy, which always rolls WARM — he has no meter of
+    // his own and the meter is Takaba's confidence, not the technique's.
+    if (def.table) {
+      const b = rollBit(this, def.table, opts.copyTier ?? def.copyTier ?? null);
+      move.bit = b;
+      move.clip = b.clip ?? def.clip;
+      move.dmg = b.dmg;
+      move.name = b.name;
+    }
     // clip variants (Mahito's Body Weapon): rotate so it never repeats twice
     if (def.clips?.length) {
       let v;
@@ -2060,6 +2119,42 @@ export class Fighter {
         return true;
       }
 
+      // ---- YAGA: CONSTRUCTION -------------------------------------------
+      // HOLD TO BUILD. The press only OPENS the state; everything after is the
+      // `building` case below, which fills the meter, bills the cursed energy
+      // and watches for the release.
+      //
+      // Two refusals, both before anything is spent and both with their own
+      // line, because a full-hold that produces nothing is the worst thing
+      // this button could do:
+      //   CAPPED   two corpses are already standing. BLOCKED rather than
+      //            replacing the oldest — see the ruling in characters/yaga.js.
+      //   NO CE    he cannot pay the first tick. Nothing is lost; any partial
+      //            he is already carrying survives.
+      case 'yaga_build': {
+        const sys = ctx.match.construction;
+        if (sys && !sys.canBuild(this)) { this.emit('constructCapped'); return false; }
+        if (this.res.curCE < sp.ceDrain * 0.5) { this.emit('noCE'); return false; }
+        ensureBuild(this);
+        this.setState('building', { clip: sp.clip });
+        this.emit('constructStart', { progress: this.build.p });
+        return true;
+      }
+
+      // ---- TAKABA: THE RIFF ---------------------------------------------
+      // A short stance where he works the crowd. Free, on a long cooldown, and
+      // COMPLETELY vulnerable: no guard, no armour, and after `cancelBefore`
+      // no way out of it. Getting hit during it drains more meter than the
+      // whole stance was going to earn (`loseRiffInterrupt`, paid in
+      // `_applyHit`), which is what makes it a decision rather than a habit.
+      case 'takaba_riff': {
+        this._setSpecialCD(sp.cooldown);
+        this.riff = { t: 0 };
+        this.setState('riff', { clip: sp.clip });
+        this.emit('riffStart');
+        return true;
+      }
+
       case 'gojo_teleport': {
         // the one special a barrier shuts off: nothing warps out of a domain
         const d = ctx.domains.state;
@@ -2522,6 +2617,61 @@ export class Fighter {
     this.emit('warp', { from, to: dest.clone() });
   }
 
+  // ---- OFF THE FIELD -------------------------------------------------------
+  // They are briefly NOT HERE. Two of Takaba's fourteen outcomes do this — the
+  // TRAPDOOR (1.1 s) and the STAGE CURTAIN (1.6 s) — and it is the single most
+  // invasive thing in either new character, so the audit the brief asks for is
+  // written here rather than in a report.
+  //
+  // WHAT IT ACTUALLY DOES: the body is hidden, the state machine runs nothing,
+  // and `applyHit` refuses everything. That last one is the load-bearing
+  // decision — ONE refusal at the single point every damage source in the game
+  // funnels through — which is why nothing had to be taught about this state
+  // individually.
+  //
+  //   DOMAINS DO NOT BREAK. A standing barrier keeps standing, keeps its
+  //     clock, and keeps its caster's buffs; its sure-hit tick simply finds
+  //     nothing to land on for a second. The one place that reaches past
+  //     `applyHit` is Unlimited Void's lockdown, which sets the victim's state
+  //     directly — `offField` is added to its non-interruptible list
+  //     (domains.js) so it cannot yank a body back out of a trapdoor.
+  //   JUGGLE COUNTERS DO NOT BREAK. They come back in a KNOCKDOWN, which is
+  //     what every other hard knockdown in the game does: `juggle` is zeroed
+  //     and the attacker gets the wake-up situation. There is no state in
+  //     which a juggle is left half-counted, because the return is not a
+  //     hitstun state.
+  //   MAHITO'S PROXIMITY GAUGE DOES NOT BREAK. *** THE POSITION IS KEPT. ***
+  //     They vanish from where they were standing and come back there. That is
+  //     deliberate and it is the whole reason nothing else needed changing:
+  //     every distance-based system in the game — the transfiguration gauge,
+  //     Miwa's circle, the soft lock, the camera frame, the arena bounds, the
+  //     summon AI's target — keeps reading a real number. The alternative (an
+  //     undefined or off-world position) would have broken all six.
+  //   MIWA'S CIRCLE DOES NOT BREAK. It is a boundary test on TRAVELLING
+  //     ENTITIES and does not care about bodies at all.
+  //   THE FINISHER TRIGGER DOES NOT BREAK. It fires on the match-ending KO,
+  //     and no KO can occur while they are gone, because nothing can damage
+  //     them. The worst case is that the killing blow lands a second later.
+  //
+  // WHAT IT REFUSES: it will not take a fighter who is already in somebody
+  // else's cinematic. A body that is being sentenced, transfigured, devoured
+  // or frozen inside Unlimited Void belongs to that system, and pulling it
+  // through a trapdoor would leave two owners.
+  setOffField(dur, opts = {}) {
+    const OWNED = ['sentenced', 'executing', 'transfigured', 'devoured', 'voided', 'ko'];
+    if (!this.alive || OWNED.includes(this.state)) return false;
+    this.offFieldT = dur;
+    this.vel.set(0, 0, 0);
+    this.activeHit = null;
+    this.move = null;
+    this.juggle = 0;
+    this.grounded = true;
+    this.model.setVisible(false);
+    this.setState('offField', { clip: 'stunned' });
+    this.emit('offField', { dur, by: opts.by ?? null });
+    return true;
+  }
+
   // TODO — Boogie Woogie: swap ground positions with the nearest opponent.
   // Only x/z trade places: each fighter keeps their own height, state, facing,
   // velocity and juggle count, so a mid-air victim keeps falling exactly as
@@ -2701,6 +2851,10 @@ export class Fighter {
   // ledger sees every route into this fighter's health — the body below
   // returns from a dozen places and each of them can subtract HP.
   applyHit(hit, ctx) {
+    // THE ONE REFUSAL THAT MAKES `offField` SAFE. They are not here, so
+    // nothing reaches them — including sure-hits, domain ticks, summons and
+    // anything added later. See `setOffField` for the full audit.
+    if (this.state === 'offField') return 'miss';
     const before = this.res.hp;
     const r = this._applyHit(hit, ctx);
     if (this.jackpot) this._rct(before);
@@ -3007,12 +3161,49 @@ export class Fighter {
         this.emit('guardBreak');
         return 'guardbreak';
       }
+      // POLITE LAUGHTER. A bit that landed and was blocked still played; it
+      // just did not kill. Small drain on the comedian, on the attacker rather
+      // than on the defender — the only place in this method that touches the
+      // other fighter's meter.
+      if (hit.attacker?.cfg?.comedy && hit.bit) {
+        gainComedy(hit.attacker, -hit.attacker.cfg.comedy.loseBlocked, 'blocked');
+      }
       return 'block';
     }
 
     // clean hit
     this.res.hp -= hit.dmg;
     this.comboTimer = 0;
+    // ---- YAGA: BEING HIT COSTS WORK ------------------------------------
+    // The single door into the interruption table, per the audit in
+    // combat/construction.js. The severity is read off the hit's own shape
+    // rather than off a per-move flag, so a technique added later is
+    // classified correctly without anybody remembering to tag it:
+    //   a KNOCKDOWN, a LAUNCHER or anything with 20+ frames of hitstun is
+    //   FORCE, and force destroys the work outright;
+    //   anything lighter is a setback.
+    // It fires whether or not he is currently HOLDING the button, which is the
+    // honest reading: a partial sitting in his hands is still in his hands.
+    if (this.build?.p > 0) {
+      // CHIP is damage that arrives in small repeated pieces rather than as a
+      // blow: a burn or bleed tick, and a domain's sure-hit tick. Nobara's
+      // Resonance reaching through a straw effigy is the case the brief names
+      // and it lands here, which is the honest classification — it hurts him
+      // at range, it is small, and it repeats.
+      const chip = hit.src === 'dot' || (hit.sureHit && hit.src === 'domain');
+      const heavy = hit.type === 'knockdown' || hit.type === 'launcher' || hit.hitstun >= 20;
+      interruptBuild(this, chip ? 'chip' : heavy ? 'heavy' : 'light');
+      if (this.state === 'building') this.emit('constructBroken');
+    }
+    // ---- TAKABA: BOMBING ------------------------------------------------
+    // Getting hit costs meter. Getting hit DURING THE RIFF costs four times as
+    // much, which is the entire price of the stance.
+    if (this.cfg.comedy) {
+      const c = this.cfg.comedy;
+      if (this.state === 'riff') gainComedy(this, -c.loseRiffInterrupt, 'riff broken');
+      else if (hit.type === 'knockdown' || hit.type === 'launcher') gainComedy(this, -c.loseHeavy, 'floored');
+      else gainComedy(this, -c.loseHit, 'hit');
+    }
     // THE CASE BUILDS FASTEST WHEN HE IS LOSING. Every clean hit landed on
     // Higuruma is evidence against whoever landed it — which is the whole
     // reason his gameplan is "survive" rather than "win the neutral".
@@ -3153,6 +3344,23 @@ export class Fighter {
     }
     if (this.specialCD > 0) this.specialCD -= dt;
     if (this.tauntCD > 0) this.tauntCD -= dt;
+    // YAGA: an abandoned build sits for its grace window and then bleeds away.
+    // Ticked here rather than in the `building` state so it runs whatever he
+    // is doing — the whole point of the grace window is that he can go and
+    // fight for a second and come back to it.
+    if (this.cfg.special?.key === 'yaga_build') tickBuildDecay(this, dt);
+    // TAKABA: the slow bleed. A set does not hold itself up.
+    if (this.cfg.comedy) tickComedy(this, dt);
+    // ...and the PIE's slow expiring. It rides `floraSlow`, the multiplier
+    // Hanami's root field already owns and `speedMult` already reads, so no
+    // new debuff channel was needed — only a clock to hand it back. Hanami's
+    // own field rewrites `floraSlow` every frame while a fighter is standing
+    // in it, so the two cannot fight over it: whichever is active last wins,
+    // and the pie releases to 1 only if nothing else is holding it down.
+    if (this._bitSlowT > 0) {
+      this._bitSlowT -= dt;
+      if (this._bitSlowT <= 0) { this._bitSlowT = 0; this.floraSlow = 1; }
+    }
     if (this.chargeCD > 0) this.chargeCD -= dt;
     // GUARD MELT wears off on its own clock
     if (this.melt) {
@@ -3645,6 +3853,30 @@ export class Fighter {
     // their cuts, against Naoya's flat one second), that it deals no damage,
     // and that it hands the body back standing and neutral rather than in
     // hitstun. See the honesty note in the delivery report.
+    // ---- OFF THE FIELD -------------------------------------------------
+    // Placed with the other input-locked states and ABOVE their early return,
+    // because this one owns a clock and they do not: everything below this
+    // line — Black Flash's window, Nobara's confirm, the taunt, the whole
+    // switch — is correctly unreachable for a body that is not in the room,
+    // but the clock still has to run or they would never come back.
+    if (S === 'offField') {
+      this.offFieldT -= dt;
+      this.iFrames = Math.max(this.iFrames, 4);
+      this.vel.set(0, 0, 0);
+      if (this.offFieldT <= 0) {
+        this.offFieldT = 0;
+        this.model.setVisible(true);
+        // They come back in a HARD KNOCKDOWN, face down, where they left. The
+        // juggle ledger is zeroed exactly as any other knockdown zeroes it, so
+        // there is no state in which a juggle is left half-counted.
+        this.juggle = 0;
+        this.otgUsed = false;
+        this.techLock = false;
+        this.setState('knockdown', { clip: 'knockdown' });
+        this.emit('offFieldReturn');
+      }
+      return;
+    }
     if (['voided', 'simpleDomain', 'barrierBreak', 'castDomain', 'rooted', 'transfigured',
       'sentenced', 'executing', 'devoured', 'frozen'].includes(S)) return;
     if (S === 'ko' || S === 'victory' || S === 'intro') return;
@@ -4353,6 +4585,79 @@ export class Fighter {
       // Megumi's of the three: both hold TWO bindings and both use RB/RT to
       // choose which one the pick lands in. The only difference is that his
       // sectors go grey when his throat cannot afford them.
+      // ---- YAGA: BUILDING -----------------------------------------------
+      // The whole mechanic, and the state is deliberately THIN: it fills the
+      // meter, it lets him shuffle, and it watches for the release. Everything
+      // it refuses it refuses BY OMISSION — there is no attack branch, no
+      // block branch, no dash branch and no jump branch in here, so "he cannot
+      // attack, block, dash or jump while building" is structural rather than
+      // a list somebody has to remember to extend.
+      //
+      // Being hit does not exit here either: `_applyHit` puts him in a
+      // reaction state, which ends the hold on its own, and the meter damage
+      // is applied there by the shared `interruptBuild`. That is what makes
+      // the interruption table one function instead of six.
+      case 'building': {
+        const sp = this.cfg.special;
+        // He shuffles at a third of walk speed and can turn. That is all the
+        // mobility there is, and it exists so that "building" is a position
+        // he can adjust rather than a spot he is nailed to.
+        // `keepState` is the flag `_locomote` already carries for exactly this
+        // case: move the body, do not touch the state. Without it the shared
+        // locomotion would drop him straight back to idle/walk every frame and
+        // the hold could never last more than one tick.
+        const mv = input?.move ?? { x: 0, z: 0 };
+        this._locomote({ x: mv.x * sp.moveMult, z: mv.z * sp.moveMult }, false, ctx, dt, { keepState: true });
+        // Fill. Returns false when he cannot pay, which STALLS the meter
+        // rather than destroying it — running out of cursed energy is a reason
+        // to release, not a punishment.
+        tickBuilding(this, dt, ctx.match);
+        // RELEASE -> DEPLOY. A release below the SCRAP threshold produces
+        // nothing at all and says so; that is the floor of the risk.
+        if (!input?.copy) {
+          releaseBuild(this);
+          const tier = tierFor(this, this.build.p);
+          if (!tier) {
+            this.emit('constructFailed', { progress: this.build.p });
+            this.setState('idle', { clip: 'idle' });
+            break;
+          }
+          this.build.p = 0;
+          this.build.worked = 0;
+          this.setState('special', { clip: 'deploy' });
+          this.emit('constructDeploy', { tier });
+        }
+        break;
+      }
+
+      // ---- TAKABA: THE RIFF ----------------------------------------------
+      // Same shape and the same omissions: there is no branch in here that
+      // does anything except stand there. The one input it reads is the early
+      // bail-out inside `cancelBefore`, which exists so a mis-press costs a few
+      // frames rather than the whole stance.
+      case 'riff': {
+        const sp = this.cfg.special;
+        const r = this.riff;
+        if (!r) { this.setState('idle', { clip: 'idle' }); break; }
+        r.t += dt;
+        this.vel.x = 0; this.vel.z = 0;    // he is not going anywhere
+        if (r.t < sp.cancelBefore && !input?.copy) {
+          this.riff = null;
+          this.setState('idle', { clip: 'idle' });
+          break;
+        }
+        // THE FASTEST METER GAIN IN HIS KIT, paid continuously so an
+        // interrupted riff keeps what it earned up to the frame it broke —
+        // and then loses far more than that to `loseRiffInterrupt`.
+        gainComedy(this, this.cfg.comedy.gainRiffPerSec * dt, 'riff');
+        if (r.t >= sp.duration) {
+          this.riff = null;
+          this.emit('riffEnd');
+          this.setState('idle', { clip: 'idle' });
+        }
+        break;
+      }
+
       case 'wheel': {
         const sp = this.cfg.special;
         const curses = this.cfg.curses;
@@ -4548,6 +4853,16 @@ export class Fighter {
           // can ever be paid — an interrupted taunt exits through
           // `_tauntCheck` above, which never reaches this branch.
           tn.done = true;
+          // ---- THE ONE TAUNT IN THE GAME THAT DOES SOMETHING ------------
+          // Takaba's, and only Takaba's. Keyed on `cfg.comedy`, which nobody
+          // else declares, and paid HERE — the branch only an uninterrupted
+          // taunt reaches — so the risk/reward is identical to the global
+          // bonus below even though the resource is not. The global flag is
+          // untouched and still false; no other taunt gained anything.
+          if (this.cfg.comedy && tn.def.buildsComedy) {
+            gainComedy(this, this.cfg.comedy.gainTaunt, 'taunt');
+            this.emit('tauntReward', { amount: this.cfg.comedy.gainTaunt, comedy: true });
+          }
           if (TAUNT_GRANTS_METER) {
             this.res.curCE = Math.min(this.res.maxCE, this.res.curCE + TAUNT_METER_BONUS);
             this.emit('tauntReward', { amount: TAUNT_METER_BONUS });
