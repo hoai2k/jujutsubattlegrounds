@@ -76,7 +76,11 @@ export const GRADES = {
   // frame to white and turned both fighters into pale mannequins — a studio is
   // over-lit, not over-exposed, and the panel is already the loudest thing on
   // screen without the arena competing with it.
-  gameshow: { vignette: 0.30, tint: [1.10, 1.02, 1.08], lift: 0.015, sat: 1.22 },
+  // ...and the tint is nearly neutral with a warm bias rather than the first
+  // pass's [1.10, 1.02, 1.08], which pushed magenta and turned every grey
+  // surface in the set — the rooftops, the taxis, the hospital lino — a flat
+  // lavender. A studio is over-lit, not tinted.
+  gameshow: { vignette: 0.30, tint: [1.07, 1.02, 0.99], lift: 0.012, sat: 1.20 },
   pachinko: { vignette: 0.30, tint: [1.12, 1.00, 1.10], lift: 0.03, sat: 1.28 },
   reach: { vignette: 0.26, tint: [1.30, 1.02, 1.20], lift: 0.06, sat: 1.48 },
   jackpot: { vignette: 0.34, tint: [1.32, 1.14, 0.80], lift: 0.05, sat: 1.32 },

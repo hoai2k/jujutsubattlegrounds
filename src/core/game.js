@@ -17,7 +17,7 @@ import { TitleScreen } from '../ui/title.js';
 import { trackMatch, trackResult } from '../stats/telemetry.js';
 import { cycleForcedBit } from '../combat/comedy.js';
 import { ALL_BITS } from '../characters/takaba_bits.js';
-import { MINIGAMES } from '../combat/gameshow.js';
+import { SCENES } from '../combat/theset.js';
 import { ensureBuild } from '../combat/construction.js';
 
 export function startGame() {
@@ -105,17 +105,17 @@ export function startGame() {
       match.hud.message(key ? 'FORCE BIT: ' + key.toUpperCase() : 'FORCE BIT: OFF', 0.8);
     }
   };
-  // ---- TAKABA: FORCE THE GAME SHOW'S THREE ROUNDS -------------------------
-  // F9 cycles the drawn set through OFF -> each single minigame repeated
-  // three times, so one round can be tuned in isolation.
+  // ---- TAKABA: FORCE THE SET'S THREE SCENES -------------------------------
+  // F9 cycles the drawn set through OFF -> each single scene repeated three
+  // times, so one scene can be walked and tuned in isolation.
   input.onToggle['F9'] = () => {
-    const g = match?.gameshow;
+    const g = match?.theset;
     if (!g) return;
-    const keys = [null, ...MINIGAMES.map(x => x.key)];
-    const cur = g.forcedGames ? g.forcedGames[0] : null;
+    const keys = [null, ...SCENES.map(x => x.key)];
+    const cur = g.forcedScenes ? g.forcedScenes[0] : null;
     const next = keys[(keys.indexOf(cur) + 1) % keys.length];
-    g.forcedGames = next ? [next, next, next] : null;
-    match.hud.message(next ? 'FORCE SHOW: ' + next.toUpperCase() : 'FORCE SHOW: OFF', 0.8);
+    g.forcedScenes = next ? [next, next, next] : null;
+    match.hud.message(next ? 'FORCE SCENE: ' + next.toUpperCase() : 'FORCE SCENE: OFF', 0.8);
   };
   // ---- YAGA: FILL THE CONSTRUCTION METER ----------------------------------
   // F10 tops every Yaga's meter to full, so a MASTERWORK can be inspected

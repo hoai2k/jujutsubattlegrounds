@@ -161,7 +161,7 @@ export const EFFECT_SRC = {
   // combat/adaptation.js under `comedian`. THE GAME SHOW is an instant kill
   // and routes through the INSTANT_KO category instead, which is read as a
   // resist chance rather than a reduction — so it is null here.
-  takaba_bit: 'comedian', takaba_big: 'comedian', takaba_gameshow: null,
+  takaba_bit: 'comedian', takaba_big: 'comedian', takaba_theset: null,
   // MAHORAGA (mirror match / Yuta's copy of him)
   mahoraga_wheel_slash: 'ct1', mahoraga_world_cut: 'ct2',
   // HAKARI — the base kit sits on its slots. The SHUTTER is defensive and has
@@ -3753,10 +3753,10 @@ export class Effects {
         break;
       }
 
-      // THE GAME SHOW. Everything about it is in combat/gameshow.js; the
-      // dispatcher's whole job is to hand it the two fighters.
-      case 'takaba_gameshow':
-        m.gameshow?.start(caster, t);
+      // THE SET. Everything about it is in combat/theset.js; the dispatcher's
+      // whole job is to hand it the two fighters.
+      case 'takaba_theset':
+        m.theset?.start(caster, t);
         break;
 
       case 'nanami_collapse': {

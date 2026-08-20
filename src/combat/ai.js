@@ -84,6 +84,14 @@ export class CPU {
   frame() {
     const f = emptyFrame();
     const me = this.me;
+    // ---- THE SET OWNS THE CONTESTANT ---------------------------------------
+    // While Takaba's ultimate is running, the bot on the receiving end is not
+    // fighting — it is running an obstacle course, and the course knows what
+    // the course wants. `cpuFrame` writes the stick and the jump; everything
+    // below this line would be steering it at the host instead of at the exit.
+    // Returns false for every fighter that is not the contestant and for every
+    // frame the set is not live, so this costs one property read otherwise.
+    if (this.match.theset?.cpuFrame?.(me, f)) { this._edges(f); return f; }
     // in a free-for-all the bot fights whoever is closest right now
     const foe = this.foe = this.match.other(me) || this.foe;
     const dt = 1 / 60;
@@ -1326,6 +1334,20 @@ export class CPU {
     //      safely. See the note on the gate below.
     if (me.cfg.comedy) {
       const c1 = me.cfg.ct1, c2 = me.cfg.ct2, sp = me.cfg.special;
+      // ---- HOSTING -----------------------------------------------------------
+      // Inside his own set he deals no damage and takes none, so there is
+      // nothing to win by attacking. He CHASES — a body in the corridor is a
+      // real obstacle, and getting in front of the contestant is the only
+      // pressure he has in there.
+      if (this.match.theset?.running) {
+        // the corridor camera maps stick-up to world +X and stick-right to
+        // world z, so this is "down the corridor, drifting onto their line"
+        f.move.z = -1;
+        f.move.x = Math.max(-1, Math.min(1, (foe.pos.z - me.pos.z) * 0.6));
+        f.dash = dist > 4.0 && me.res.stamina > 20;
+        this._edges(f);
+        return f;
+      }
       const meterFrac = (me.comedy ?? 0) / me.cfg.comedy.max;
       const safeWindow = dist > 8.0
         && (foe.state === 'knockdown' || foe.state === 'getup' || foe.state === 'launched'

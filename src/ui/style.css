@@ -2694,98 +2694,58 @@ html.filters-on #ui-root::after {
 .plate.p2 .comedy-row .cm-tier { text-align: left; }
 
 /* ===========================================================================
-   THE GAME SHOW
+   THE SET
    ===========================================================================
-   Full-screen, readable by both players, and DELIBERATELY THE BRIGHTEST THING
-   THE GAME EVER DRAWS — the tonal clash is the joke and the panel is where it
-   is loudest. It is built like the execution duel (one panel, one clock, both
-   players looking at the same object) because it is the same kind of moment,
-   and it is coloured nothing like it, because it is the opposite kind. */
-.gshow {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: min(760px, 84vw); display: none; z-index: 42;
-  text-align: center; pointer-events: none;
-  --gs: #e0b45a;
+   DELIBERATELY SMALL. Its predecessor was a full-screen panel because the
+   contest was the UI; here the contest is the room, so this is a title card
+   that comes and goes plus a thin run band, and the middle of the screen is
+   left clear for the thing the player is trying to jump over. */
+.tset {
+  position: absolute; left: 50%; top: 12%; transform: translateX(-50%);
+  width: min(680px, 82vw); display: none; z-index: 42;
+  text-align: center; pointer-events: none; --gs: #e0b45a;
 }
-.gshow.on { display: block; animation: gsIn 0.24s cubic-bezier(0.2, 1.4, 0.4, 1); }
-@keyframes gsIn {
-  from { opacity: 0; transform: translate(-50%, -50%) scale(0.86); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.tset.on { display: block; }
+.ts-card {
+  padding: 8px 18px 10px;
+  background: linear-gradient(180deg, rgba(20,10,24,0.94), rgba(10,6,14,0.88));
+  border: 2px solid var(--gs);
+  box-shadow: 0 0 36px color-mix(in srgb, var(--gs) 42%, transparent);
+  opacity: 0; transform: translateY(-10px) scale(0.96);
+  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.2, 1.4, 0.4, 1);
 }
-.gs-card {
-  padding: 10px 18px 12px; background: linear-gradient(180deg, rgba(20,10,24,0.94), rgba(10,6,14,0.9));
-  border: 2px solid var(--gs); box-shadow: 0 0 40px color-mix(in srgb, var(--gs) 45%, transparent);
+.ts-card.on { opacity: 1; transform: none; }
+.ts-tier { font-size: 10px; font-weight: 900; letter-spacing: 0.26em; color: var(--gs); opacity: 0.92; }
+.ts-name {
+  font-size: 30px; font-weight: 900; letter-spacing: 0.05em; color: #fff;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--gs) 80%, transparent); margin-top: 1px;
 }
-.gs-tier {
-  font-size: 10px; font-weight: 900; letter-spacing: 0.28em; color: var(--gs); opacity: 0.9;
+.ts-jp { font-family: var(--jp), inherit; font-size: 13px; color: var(--gs); opacity: 0.85; }
+.ts-blurb { font-size: 11px; font-weight: 800; letter-spacing: 0.16em; color: #cfd6e2; margin-top: 3px; }
+
+/* THE RUN BAND. A rail from the start line to the exit with the contestant's
+   position on it, and one clock. It is the only thing on screen while a scene
+   is actually live. */
+.ts-run {
+  display: none; align-items: center; gap: 10px; margin-top: 8px;
+  padding: 5px 12px; background: rgba(6,4,10,0.78); border: 1px solid rgba(255,255,255,0.14);
 }
-.gs-name {
-  font-size: 30px; font-weight: 900; letter-spacing: 0.06em; color: #fff;
-  text-shadow: 0 0 22px color-mix(in srgb, var(--gs) 80%, transparent); margin-top: 2px;
+.ts-run.on { display: flex; }
+.ts-lab { font-size: 9px; font-weight: 900; letter-spacing: 0.2em; color: #6fe89a; flex: none; order: 3; }
+.ts-prog { position: relative; flex: 1; height: 8px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.16); }
+.ts-prog .fill { height: 100%; background: linear-gradient(90deg, var(--gs), #6fe89a); transition: width 0.08s linear; }
+.ts-prog .ts-goal {
+  position: absolute; right: -1px; top: -4px; bottom: -4px; width: 3px;
+  background: #6fe89a; box-shadow: 0 0 10px rgba(111,232,154,0.9);
 }
-.gs-jp { font-family: var(--jp), inherit; font-size: 13px; color: var(--gs); opacity: 0.85; }
-.gs-stage { margin-top: 10px; padding: 12px 16px 10px; background: rgba(6,4,10,0.86); border: 1px solid rgba(255,255,255,0.14); }
-.gs-prompt { font-size: 12px; font-weight: 900; letter-spacing: 0.2em; color: #dfe4ee; opacity: 0.85; }
-.gs-play { margin: 10px 0 8px; min-height: 54px; display: flex; align-items: center; justify-content: center; }
-.gs-play.hit { animation: gsHit 0.14s ease-out; }
-.gs-play.wrong { animation: gsWrong 0.16s ease-out; }
-@keyframes gsHit { from { transform: scale(1.07); } to { transform: scale(1); } }
-@keyframes gsWrong { 0% { transform: translateX(-7px); } 50% { transform: translateX(7px); } 100% { transform: none; } }
-.gs-clock { position: relative; height: 6px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.16); }
-.gs-clock .fill { height: 100%; background: var(--gs); transition: width 0.06s linear; }
-.gs-clock.critical .fill { background: #ff4d5a; }
-.gs-score { margin-top: 10px; display: flex; gap: 10px; justify-content: center; }
-.gs-score .gsp {
-  width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
+.ts-clock { font-size: 15px; font-weight: 900; color: #dfe4ee; min-width: 42px; text-align: right; flex: none; }
+.ts-run.critical .ts-clock { color: #ff4d5a; }
+.ts-run.critical .ts-prog { border-color: #ff4d5a; }
+.ts-score { margin-top: 7px; display: flex; gap: 9px; justify-content: center; }
+.ts-score .tsp {
+  width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
   background: rgba(0,0,0,0.5);
 }
-.gs-score .gsp.pass { background: #6fe89a; border-color: #b6ffd2; box-shadow: 0 0 14px rgba(111,232,154,0.8); }
-.gs-score .gsp.fail { background: #ff4d5a; border-color: #ff9aa2; box-shadow: 0 0 14px rgba(255,77,90,0.8); }
-.gs-foot { margin-top: 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; color: #b8c0cc; }
+.ts-score .tsp.pass { background: #6fe89a; border-color: #b6ffd2; box-shadow: 0 0 12px rgba(111,232,154,0.8); }
+.ts-score .tsp.fail { background: #ff4d5a; border-color: #ff9aa2; box-shadow: 0 0 12px rgba(255,77,90,0.8); }
 
-/* ---- the six stagings ---------------------------------------------------- */
-/* 1 · THE PRIZE WHEEL */
-.gsw { width: 100%; }
-.gsw-track {
-  position: relative; height: 26px; background: rgba(0,0,0,0.6);
-  border: 1px solid rgba(255,255,255,0.2); overflow: hidden;
-}
-.gsw-zone { position: absolute; top: 0; bottom: 0; background: rgba(111,232,154,0.4); border-left: 1px solid #6fe89a; border-right: 1px solid #6fe89a; }
-.gsw-mark { position: absolute; top: -3px; bottom: -3px; width: 3px; background: #fff; box-shadow: 0 0 12px #fff; transform: translateX(-1.5px); }
-.gsw-btn { margin-top: 6px; font-size: 15px; font-weight: 900; color: #5fd0ff; }
-/* 2 · THE QUIZ PODIUM / 4 · THE CONVEYOR BELT */
-.gsq { display: flex; gap: 8px; }
-.gsq b {
-  width: 44px; height: 44px; line-height: 42px; font-size: 20px; font-weight: 900;
-  color: #fff; background: rgba(0,0,0,0.55); border: 2px solid rgba(255,255,255,0.28);
-  transition: opacity 0.12s, transform 0.12s;
-}
-.gsq b.done { opacity: 0.28; transform: scale(0.86); }
-.gsq b.now { border-color: var(--gs); box-shadow: 0 0 18px color-mix(in srgb, var(--gs) 70%, transparent); }
-/* THE MEMORY GAME: the prompts go away, and the placeholders stay so the
-   contestant still knows HOW MANY they are recalling. */
-.gs-play.hidden .gsq b { color: transparent; background: rgba(255,255,255,0.06); }
-.gs-play.hidden .gsq b.done { background: rgba(111,232,154,0.25); }
-/* 3 · THE DUNK TANK */
-.gsd { width: 100%; }
-.gsd-bar { height: 26px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); }
-.gsd-bar .fill { height: 100%; background: linear-gradient(180deg, #7fd8ff, #2f8fd0); transition: width 0.05s linear; }
-.gsd-n { margin-top: 5px; font-size: 13px; font-weight: 900; color: #dfe4ee; }
-/* 5 · THE BUZZER ROUND */
-.gsb-lamp {
-  width: 130px; height: 46px; line-height: 44px; font-size: 18px; font-weight: 900; letter-spacing: 0.2em;
-  color: #8a8f98; background: rgba(0,0,0,0.6); border: 2px solid rgba(255,255,255,0.2);
-}
-.gsb-lamp.live {
-  color: #06110a; background: #6fe89a; border-color: #d6ffe6;
-  box-shadow: 0 0 34px rgba(111,232,154,0.95); animation: gsLamp 0.1s ease-out;
-}
-@keyframes gsLamp { from { transform: scale(1.22); } to { transform: scale(1); } }
-/* 6 · DIRECTION DODGE */
-.gsa { display: flex; gap: 8px; }
-.gsa b {
-  width: 40px; height: 40px; line-height: 38px; font-size: 22px; font-weight: 900;
-  color: #ffd84a; background: rgba(0,0,0,0.55); border: 2px solid rgba(255,216,74,0.35);
-}
-.gsa b.done { opacity: 0.25; transform: scale(0.85); }
-.gsa b.now { border-color: #ffd84a; box-shadow: 0 0 18px rgba(255,216,74,0.8); }
