@@ -576,15 +576,19 @@ plainly, with the measurement.
 
 Instrumented, 90 seconds of bot-versus-bot with both sides played by the AI:
 
-* **vs TAKABA (ranged pressure, bits from 6.5 m):** the highest the meter ever
-  reached was **29%** and exactly **one SCRAP** was deployed in the whole match.
-  Against a character who applies pressure from outside the Haymaker's 2.3 m,
-  the window essentially does not exist.
+* **vs NANAMI (mid-range, committed techniques):** **two SCRAPs deployed** and
+  one COMMAND issued; the meter peaked at **39%**. The window exists.
+* **vs TAKABA (ranged pressure, bits thrown from 6.5 m):** the meter peaked at
+  **33%** and **nothing was deployed in the whole ninety seconds.** Against a
+  character who applies pressure from outside the Haymaker's 2.3 m, the window
+  essentially does not exist.
 * The first version of the CPU profile held out for STANDARD every time, was
-  interrupted every time, and **deployed nothing at all** — a bot that had
-  understood the mechanic and refused to use it. It now banks a SCRAP rather
-  than losing everything, which is what a player learns to do in about three
-  rounds.
+  interrupted every time, and **deployed nothing against anybody** — a bot that
+  had understood the mechanic and refused to use it. It now banks a tier it has
+  already earned rather than losing everything, which is what a player learns to
+  do in about three rounds. Three tuning passes on the bank threshold moved the
+  Nanami matchup from 0 deploys to 2 and never moved the Takaba matchup off 0,
+  which is the finding rather than a failure of the bot.
 
 **Why it is still viable, and what actually makes it work:**
 
