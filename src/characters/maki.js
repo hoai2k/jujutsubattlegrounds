@@ -268,8 +268,13 @@ export const MAKI = withDefaults({
           // Slashing String and each hit is weaker; the total is close, and
           // the extra hit is what makes it better at confirming into the
           // launcher and worse at trading.
+          // ROSTER CONVENTION: RB is the furthest-reaching technique, RT the
+          // strongest. On the staff that falls out naturally (3.1 m sweep vs
+          // a 19-damage guard break); on the katana the string needed 0.4 m
+          // more reach than the strike so the pair reads the same way round as
+          // everybody else's.
           name: 'Slashing String', cost: 0, startup: 8, active: 16, recovery: 21,
-          effect: 'maki_soul_string', dmg: 5, hits: 3, reach: 2.5, arc: 1.8,
+          effect: 'maki_soul_string', dmg: 5, hits: 3, reach: 2.9, arc: 1.8,
           kb: 1.9, kbY: 0, hitstun: 15, clip: 'ct1Soul'
         },
         // ---- SPLIT SOUL STRIKE ---------------------------------------------

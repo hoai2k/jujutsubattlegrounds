@@ -135,6 +135,17 @@ export const MIWA = withDefaults({
   // =========================================================================
   // RT — SHEATHE STANCE, and RB — THE DRAW
   // =========================================================================
+  // ---- A NOTE ON THE ROSTER'S RB/RT CONVENTION -------------------------
+  // The convention is RB = the furthest-reaching technique, RT = the
+  // strongest. Miwa is the one character it cannot describe, because SHE ONLY
+  // HAS ONE TECHNIQUE: RT is not a technique at all, it is a POSTURE with no
+  // reach, no damage and no hitbox, and RB is the single cut that posture
+  // exists to load. So the draw is both the furthest and the strongest by
+  // default, and the mapping is the one the design requires — hold RT, tap RB
+  // is a two-finger grip that reads as drawing a sword, and the reverse does
+  // not. Stated here so the exception reads as a decision rather than as an
+  // oversight the next time somebody audits the convention.
+  //
   // These two are one move in two halves and neither works without the other.
   // RT enters the stance and HOLDS to charge; RB releases it as the draw. The
   // draw is not available from neutral at all — `requireStance` is what says
