@@ -174,9 +174,45 @@ class Garuda {
 
     // If the owner is gone (KO, round end) it simply hovers where it is. It
     // does NOT despawn — see the header.
+    // ---- WHERE IT SITS, AND WHY IT IS NOT DIRECTLY BEHIND HER -----------
+    // The first version parked it straight behind her at head height, which
+    // put it EXACTLY on the camera's sight line: the chase camera rides her
+    // shoulder looking forward, so "behind and above" is the one place in the
+    // arena guaranteed to be between the lens and the fight. A creature there
+    // does not read as a partner, it reads as an obstruction. Nudging it
+    // sideways only moved it to the edge of the lens, where perspective made
+    // it look enormous again because it was two metres from the near plane.
+    //
+    // AHEAD, to one side, and above solves both, and it is the better fiction
+    // as well: a flying partner circles over the ground it is covering. High
+    // enough to clear both fighters' heads, offset far enough that it is never
+    // directly over the opponent either.
+    const fwd = o.forward();
+    const side = v3(-fwd.z, 0, fwd.x);
     const home = o.pos.clone()
-      .addScaledVector(o.forward(), -this.def.followDist * 0.5)
+      .addScaledVector(fwd, this.def.followDist * 0.55)
+      .addScaledVector(side, this.def.followSide ?? 1.6)
       .setY(o.pos.y + this.def.hoverHeight);
+    // ---- IT MAY NOT OVERTAKE HER ------------------------------------------
+    // Flying it forward fixed the camera and quietly changed the balance: at
+    // point-blank range the station landed on top of the OPPONENT, which put
+    // the autonomous `idleStrike` (range 3.2 m) permanently in range instead of
+    // occasionally in range. That is free chip nobody signed off on, and it
+    // arrived as a side effect of a CAMERA fix, which is the worst way for a
+    // balance change to arrive.
+    //
+    // So the forward offset is a preference, not a right: it is given up
+    // exactly as fast as the fight closes, and the station is pulled back to
+    // her own line the moment it would sit nearer the foe than she does. Her
+    // shikigami stays on her side of the fight.
+    if (foe) {
+      const ownerGap = flatDist(o.pos, foe.pos);
+      const homeGap = flatDist(home, foe.pos);
+      if (homeGap < ownerGap) {
+        const back = Math.min(this.def.followDist * 0.55, ownerGap - homeGap);
+        home.addScaledVector(fwd, -back);
+      }
+    }
 
     switch (this.state) {
       // ---- HURT: knocked away, tumbling, stunned ------------------------

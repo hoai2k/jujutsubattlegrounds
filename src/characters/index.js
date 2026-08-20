@@ -197,9 +197,18 @@ export function makeCharacter(pick) {
   const { charId, variantId } = splitPick(pick);
   const entry = ROSTER[charId];
   const r = resolveVariant(entry, charId, variantId);
+  const model = r.buildModel();
+  // ---- THE ACCENT IS STAMPED ON THE MODEL --------------------------------
+  // fx/impactgeo.js tints every punch's 3D debris by the attacker's accent, so
+  // a player can tell whose hit landed from the colour of what came off it.
+  // Reading it from the ROSTER rather than from each model's own palette means
+  // it is authoritative in one place — the same value the select screen, the
+  // HUD cut-in and the finisher grade already use — and that the older models,
+  // most of which never declared a palette accent, get it for free.
+  if (model.palette) model.palette.accent = r.accent ?? model.palette.accent;
   return {
     config: r.config,
-    model: r.buildModel(),
+    model,
     clips: makeClips(r.clipId),
     variant: r.variant
   };

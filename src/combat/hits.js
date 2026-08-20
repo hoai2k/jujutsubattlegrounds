@@ -2,6 +2,7 @@
 // (ratio crits, block/chip, juggle), hitstop + feedback dispatch.
 import { v3 } from '../core/mathutil.js';
 import { gainCharge, chargeAoE } from './charge.js';
+import { impactGeo, guardGeo, armorGeo } from '../fx/impactgeo.js';
 
 export function computeDamage(attacker, baseDmg, opts = {}) {
   let dmg = baseDmg * attacker.dmgMult;
@@ -57,6 +58,15 @@ export function hitFeedback(match, attacker, defender, result, opts = {}) {
   const { fx, sfx, cam } = match;
   const p = defender.pos.clone();
   p.y += 1.25;
+  // ---- THE STRIKE AXIS AND THE ATTACKER'S COLOUR -------------------------
+  // Both feed fx/impactgeo.js. The axis is what lets the 3D constructs be
+  // oriented along the blow instead of at the camera, and the colour is read
+  // off the attacker's own model palette so a player can tell whose hit landed
+  // from the debris. Older models without an `accent` fall through to the
+  // neutral default inside impactGeo.
+  const axis = opts.dir
+    || (attacker ? v3(defender.pos.x - attacker.pos.x, 0, defender.pos.z - attacker.pos.z) : null);
+  const accent = attacker?.model?.palette?.accent;
   // Heavy contact damages the level around it, and anything landing in water
   // throws a ripple. Both are cheap here and cover every damage source that
   // routes through the normal hit pipeline.
@@ -67,15 +77,29 @@ export function hitFeedback(match, attacker, defender, result, opts = {}) {
   }
   if (result === 'block') {
     fx.guardSpark(p);
+    guardGeo(fx, p, axis, accent);
     sfx.guard();
     match.hitstop(2);
   } else if (result === 'guardbreak') {
     fx.guardBreak(p);
+    // a guard BREAK gets the full impact construct: the guard did not hold, so
+    // the event is a landed hit that happened to go through a raised arm
+    impactGeo(fx, p, axis, 'knockdown', accent, defender.pos.y);
     sfx.guardBreak();
     cam.shake(0.5);
     match.hitstop(8);
   } else if (result === 'hit' || result === 'otg' || result === 'tech') {
     fx.hitSpark(p, opts.crit ? 'crit' : opts.heavy ? 'heavy' : 'light');
+    // ---- THE 3D IMPACT ----------------------------------------------------
+    // Fires for EVERY landed hit in the game, not only the new characters'.
+    // The basic string was the most-thrown thing in the project and the least
+    // interesting to look at — a camera-facing spark card has no orientation,
+    // no volume and no relationship to the direction the blow travelled. This
+    // is real geometry, oriented along the strike. See fx/impactgeo.js for the
+    // five constructs and the weight ladder.
+    impactGeo(fx, p, axis,
+      opts.crit ? 'crit' : opts.knockdown ? 'knockdown' : opts.heavy ? 'heavy' : 'light',
+      accent, defender.pos.y);
     if (opts.crit) { sfx.crit(); fx.ratioMark(p); cam.shake(0.42); match.hitstop(8); cam.fovKick(5); }
     // the knockdown swing gets the biggest read in the game short of a crit
     else if (opts.knockdown) { sfx.hit(true); sfx.slam(); cam.shake(0.52); match.hitstop(11); cam.fovKick(6); }
@@ -83,6 +107,9 @@ export function hitFeedback(match, attacker, defender, result, opts = {}) {
     else { sfx.hit(false); cam.shake(0.16); match.hitstop(4); }
   } else if (result === 'armor') {
     fx.armorFlash(defender.pos.clone().setY(1.2));
+    // the shell that hardens and shrinks — the one construct in the set that
+    // moves INWARD, because nothing left the body
+    armorGeo(fx, p, axis, accent);
     sfx.armor();
     match.hitstop(3);
   }

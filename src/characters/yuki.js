@@ -270,8 +270,18 @@ export const YUKI = withDefaults({
   garuda: {
     permanent: true,
     // ---- POSITIONING -----------------------------------------------------
-    hoverHeight: 2.6,
-    followDist: 2.9,          // how far behind and above her it likes to sit
+    // Lowered along with the model's scale: at 2.6 m up and 2.9 m back it was
+    // both enormous AND far away, which put it in the camera's path more often
+    // than beside her. It now rides just over her shoulder, which is where a
+    // partner belongs. A second pass took the height down again — at 2.9 the
+    // chase camera still clipped it off the top of the frame at close range,
+    // and a partner you can only half see is worse than one you can see all of.
+    hoverHeight: 2.35,
+    followDist: 2.2,          // how far AHEAD of her it flies — see garuda.js
+    // ...and how far to the SIDE. This is the number that keeps it out of the
+    // chase camera's sight line — see the note in combat/garuda.js. Positive
+    // is her left, so it rides the shoulder the camera is not looking over.
+    followSide: 1.7,
     followSpeed: 6.2,
     // ---- THE DIVE (B) ----------------------------------------------------
     dive: {
