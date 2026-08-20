@@ -20,6 +20,12 @@ import { CurseSystem } from '../combat/curses.js';
 import { FreezeSystem } from '../combat/freeze.js';
 import { DomainFX } from '../fx/domainfx.js';
 import { NewShadowFx } from '../fx/newshadowfx.js';
+// URO's refraction, and DAGON's creatures. See the headers of both: the warp
+// system is the only thing in the project that captures the scene to a texture
+// and samples it back, and the ocean system is the only summon engine with a
+// hard concurrent cap.
+import { WarpFX } from '../fx/warpfx.js';
+import { OceanSystem } from '../combat/ocean.js';
 import { GarudaSystem } from '../combat/garuda.js';
 import { NewShadowSystem } from '../combat/newshadow.js';
 import { FXSystem } from '../fx/fx.js';
@@ -168,6 +174,13 @@ export class Match {
     // the arena being swapped out from under it when a domain opens — which
     // is exactly the case her whole anti-domain role exists for.
     this.newshadowfx = new NewShadowFx(stage.scene);
+    // WARP FX. On the SCENE rather than the match root, because it renders the
+    // scene into its own target and a group inside the thing being captured is
+    // exactly the feedback loop it exists to avoid. The pre-render hook is how
+    // it gets a chance to capture before each eye composites — see
+    // core/stage.js.
+    this.warpfx = new WarpFX(stage.scene, stage.renderer);
+    stage.preRender = cam => this.warpfx.capture(cam);
     // On the MATCH ROOT rather than the scene, like the bubbles above, so a
     // round teardown takes every glyph still in the air with it.
     this.speechfx = new SpeechFX(this.root, stage.camera, this.fx);
@@ -176,6 +189,7 @@ export class Match {
     this.minions = new Minions(this);          // Mahito's transfigured humans
     this.judgemen = new Judgemen(this);        // Higuruma's evidence shikigami
     this.shikigami = new ShikigamiSystem(this); // Megumi's Ten Shadows
+    this.ocean = new OceanSystem(this);        // Dagon's sea shikigami
     // Hanami's terrain layer and Kurourushi's swarm. Both own state that
     // outlives the technique that made it — a root field outlives the cast, a
     // roach outlives the wave — so both are match-scoped like the shikigami.
@@ -540,6 +554,7 @@ export class Match {
       this.minions.update(1 / 60);
       this.judgemen.update(1 / 60);
       this.shikigami.update(1 / 60);
+      this.ocean.update(1 / 60);
       this.flora.update(1 / 60);
       this.swarms.update(1 / 60);
       this.curses.update(1 / 60);
@@ -713,6 +728,35 @@ export class Match {
           this.fx.dashTrail(f);
           // Jogo: the dash leaves burning ground in his wake
           if (f.cfg.dashFire) this.effects.startBurnTrail(f);
+          break;
+        // ---- URO ----------------------------------------------------------
+        case 'reflectStart':
+          this.sfx.skyReflectUp?.();
+          break;
+        case 'reflectUp':
+          // THE SURFACE. It materializes on the frame the window actually
+          // opens rather than on the input, so what the opponent sees IS the
+          // active window — the tell and the hitbox are the same object.
+          this.warpfx.reflectSurface(f, (f.cfg.special.reflect?.active ?? 20) / 60 + 0.10);
+          break;
+        case 'reflectDown':
+          this.sfx.skyReflectDown?.();
+          break;
+        case 'skyReflected':
+          this.hud.cutin(f, 'SKY MANIPULATION', 'SKY REFLECT  天逆鉾');
+          break;
+        case 'hoverStart':
+          this.sfx.hoverStart?.();
+          break;
+        case 'hoverDrop':
+          // out of stamina, out of the sky. Loud on purpose: it is the whole
+          // counterplay to the character and the opponent should hear it land.
+          this.sfx.hoverDrop?.();
+          this.hud.toast(f, 'OUT OF SKY');
+          break;
+        // ---- DAGON --------------------------------------------------------
+        case 'summonCapped':
+          this.hud.toast(f, 'ONE AT A TIME — OUTSIDE THE DOMAIN');
           break;
         case 'overheatStart':
           this.hud.cutin(f, 'DISASTER FLAMES', 'OVERHEAT  奰');
@@ -1661,6 +1705,8 @@ export class Match {
     this._revertSummons();
     this.effects.clear();
     this.minions.clear();
+    this.ocean.clear();
+    this.warpfx.clear();
     this.judgemen.clear();
     // ...and so is every kanji still in the air, every cage still standing
     // round a body, and any command card mid-slam
@@ -1758,6 +1804,20 @@ export class Match {
     // the one shared scene — so a second seat's interior has to count.
     this.arena.update(frameDt, this.cams.map(c => c.cam));
     this.fx.update(frameDt);
+    // URO's refraction. Ticked on REAL frame time rather than on the logic
+    // step: it is entirely visual, and the distortion should keep flowing
+    // through hitstop and slow-motion rather than freezing with the fight.
+    // THE CONSTANT HEAT-HAZE. "A faint constant heat-haze around her body so
+    // she reads as slightly displaced even when idle" — refreshed once a frame
+    // per flying fighter rather than spawned, so it costs one warp item for
+    // the whole round. It intensifies while she is actually hovering, which
+    // makes the passive readable from across the arena without a HUD element.
+    for (const f of this.fighters) {
+      if (!f.cfg.flight || !f.alive || f.eliminated) continue;
+      const k = (f.model?.warpHaze ?? 0.35) + (f.hoverT > 0 ? 0.45 : 0);
+      this.warpfx.haze(f, Math.min(1, k));
+    }
+    this.warpfx.update(frameDt, this.stage.camera);
     // the title card is pure UI and stays on real frame time; the glyphs are
     // not, and are ticked from the logic step in `update`
     this.commandCard.update(frameDt);
@@ -1829,6 +1889,8 @@ export class Match {
     this.minions.clear();
     this.judgemen.clear();
     this.shikigami.clear();
+    this.ocean.clear();
+    this.warpfx.clear();
     this.curses.clear();
     this.freeze.clear();
     this.flora.clear();

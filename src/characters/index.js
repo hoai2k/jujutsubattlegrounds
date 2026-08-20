@@ -24,6 +24,8 @@ import { INUMAKI } from './inumaki.js';
 import { MAKI } from './maki.js';
 import { YUKI } from './yuki.js';
 import { MIWA } from './miwa.js';
+import { URO } from './uro.js';
+import { DAGON } from './dagon.js';
 import { buildGojo } from '../art/models/gojo.js';
 import { buildYuta } from '../art/models/yuta.js';
 import { buildNanami } from '../art/models/nanami.js';
@@ -49,6 +51,8 @@ import { buildInumaki } from '../art/models/inumaki.js';
 import { buildMaki } from '../art/models/maki.js';
 import { buildYuki } from '../art/models/yuki.js';
 import { buildMiwa } from '../art/models/miwa.js';
+import { buildUro } from '../art/models/uro.js';
+import { buildDagon } from '../art/models/dagon.js';
 import { makeClips } from '../art/anim/index.js';
 import {
   variantsOf, hasVariants, variantEntry, resolveVariant, splitPick, joinPick,
@@ -166,7 +170,27 @@ export const ROSTER = {
   // Not badged `spirit`: she is a second-year student at Kyoto Jujutsu High,
   // and her uniform is the Kyoto one rather than the Tokyo one the shipped
   // students wear — see art/models/miwa.js.
-  miwa: { config: MIWA, buildModel: buildMiwa, jp: '三輪霞', accent: 0xa8d8e8, role: 'NEW SHADOW STYLE · SIMPLE DOMAIN' }
+  miwa: { config: MIWA, buildModel: buildMiwa, jp: '三輪霞', accent: 0xa8d8e8, role: 'NEW SHADOW STYLE · SIMPLE DOMAIN' },
+  // THE AERIAL CHARACTER, and the first fighter in this project who is not
+  // obliged to come back down. Her passive is the largest single change to the
+  // movement rules the roster has ever taken — see combat/flight.js — and it
+  // is why the maps grew a ceiling query (arena/bounds.js `ceilingAt`).
+  //
+  // Her accent is DELIBERATELY NOT HER HAIR COLOUR. #cfe8f5 is a near-white
+  // pale blue taken off the sky-cloth, because the brief asks for her warp
+  // effects to be near-colourless distortion rather than a hue, and the accent
+  // drives every callout the game draws for her. Picking the pink would have
+  // promised an energy colour the effects deliberately do not have.
+  //
+  // Not badged `spirit`: she is a Heian-era human sorcerer, incarnated into a
+  // body for the Culling Game. Same ruling Geto and Choso already get.
+  uro: { config: URO, buildModel: buildUro, jp: '烏鷺亨子', accent: 0xcfe8f5, role: 'SKY MANIPULATION · THE REFLECTOR' },
+  // THE DOMAIN SUMMONER — the first character in the game whose domain is a
+  // SPAWNER rather than a damage tick or a lockdown, and the only one who is
+  // deliberately weak until he casts it. Badged `spirit`: he is a special
+  // grade cursed spirit born of the fear of the ocean, so he joins Jogo,
+  // Mahito, Hanami and Kurourushi.
+  dagon: { config: DAGON, buildModel: buildDagon, jp: '陀艮', accent: 0xb8323a, role: 'CAPTIVATING SKANDHA · DOMAIN SUMMONER', spirit: true }
 };
 
 export const hex = n => '#' + n.toString(16).padStart(6, '0');
@@ -188,7 +212,13 @@ export const hex = n => '#' + n.toString(16).padStart(6, '0');
 // MIWA sits next to Yuta — the two sword users — and YUKI next to Todo, which
 // puts the three heavyweights (Panda, Todo, Yuki) in a run and lets the
 // "imposing without bulk" note be read against the one with the bulk.
-export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo', 'yuta', 'miwa', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'todo', 'yuki', 'jogo', 'mahito', 'hanami', 'kurourushi'];
+// URO sits next to Naoya and Kashimo — the movement run. A player comparing
+// "fastest", "never stops" and "does not come down" is comparing the three
+// characters whose whole identity is where their body is, which is the only
+// way the distinction between them reads on a select screen.
+// DAGON sits at the end of the spirits, next to Kurourushi: the two attrition
+// spirits, and the two whose answer to being rushed is to let you.
+export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo', 'uro', 'yuta', 'miwa', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'todo', 'yuki', 'jogo', 'mahito', 'hanami', 'kurourushi', 'dagon'];
 
 // `pick` is 'gojo' (the base) or 'gojo:shinjuku'. A bare character id still
 // works everywhere it used to, which is why nothing outside the select screen

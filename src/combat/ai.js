@@ -11,6 +11,10 @@ import { affordable as speechAffordable, boundKey as speechBoundKey } from './sp
 // whose config does not declare the resource.
 import { awakenAggression } from './awakening.js';
 import { massReady, massFrac } from './mass.js';
+// URO's reflect table. The CPU consults the SAME source of truth the effect
+// system does, so a bot can never put the surface up for something that would
+// not have been reflected.
+import { REFLECTABLE } from './reflect.js';
 
 export class CPU {
   constructor(fighter, opponent, match) {
@@ -1631,6 +1635,21 @@ export class CPU {
       // his throat is spent, because MAX_CE is the only path back to his
       // ultimate and his fists are the only thing that grows it.
       const commander = !!me.cfg.commands;
+      // ---- URO: THE AERIAL ZONER ------------------------------------------
+      // She gets her own flag rather than sharing Jogo's because her plan set
+      // has a vertical axis nobody else's does. The rules, in order:
+      //   1. BE IN THE AIR. If she is grounded and has the stamina, jump.
+      //   2. KEEP DISTANCE. Same instinct as the zoner, executed by drifting.
+      //   3. LAND, ONLY TO RECOVER. Stamina is the leash and the bot respects
+      //      it: below a quarter tank it comes down deliberately and waits
+      //      rather than being dropped out of the sky mid-approach.
+      const flier = !!me.cfg.flight;
+      // ---- DAGON: THE PATIENT ONE -----------------------------------------
+      // The most defensive profile in the game after Higuruma's, and for the
+      // same structural reason: his win condition is not in the exchange, it
+      // is forty seconds away in the domain. He blocks, he soaks, he throws
+      // the volley to keep the bar moving, and he does not chase.
+      const tide = me.cfg.special?.key === 'dagon_summon';
       // ultimate when charged (domain casters look for space first)
       if (me.charged && this.planT <= 0) {
         // ---- GETO: THE ONE ULTIMATE GATE THAT IS NOT ABOUT METER -----------
@@ -1750,6 +1769,29 @@ export class CPU {
             ? (r < 0.60 ? 'punch' : r < 0.76 ? 'ct' : r < 0.90 ? 'orbit' : 'block')
             : (r < 0.52 ? 'punch' : r < 0.86 ? 'orbit' : 'dashin');
         }
+        else if (flier) {
+          // she wants 5-10 m and altitude. `backoff` and `strafe` do the
+          // drifting; `ct` is Thin Ice Breaker, which is her whole neutral.
+          const low = me.res.stamina < me.cfg.stats.stamina * 0.25;
+          if (low && !me.grounded) this.plan = 'backoff';       // come down and breathe
+          else if (dist > 9) this.plan = r < 0.55 ? 'ct' : 'strafe';
+          else if (dist > 4.5) this.plan = r < 0.45 ? 'ct' : r < 0.75 ? 'strafe' : 'backoff';
+          else if (dist > 2.4) this.plan = r < 0.30 ? 'ct' : r < 0.72 ? 'backoff' : 'strafe';
+          // point blank is where she loses. The bot leaves rather than trading.
+          else this.plan = r < 0.62 ? 'backoff' : r < 0.84 ? 'strafe' : 'punch';
+        }
+        else if (tide) {
+          // He does not approach and he does not retreat. He holds a slab of
+          // mid range, blocks whatever comes to him, and spends the whole
+          // early game feeding the bar — which for him is landing the volley
+          // and the occasional string, since `ceGainPerPunch` is 8.4.
+          const hurt2 = me.res.hp < me.cfg.stats.hp * 0.4;
+          if (dist > 8) this.plan = r < 0.62 ? 'ct' : 'approach';
+          else if (dist > 3.4) this.plan = r < 0.42 ? 'ct' : r < 0.70 ? 'approach' : 'block';
+          else this.plan = hurt2
+            ? (r < 0.52 ? 'block' : r < 0.80 ? 'punch' : 'backoff')
+            : (r < 0.46 ? 'punch' : r < 0.78 ? 'block' : r < 0.90 ? 'ct' : 'strafe');
+        }
         else if (harasser) {
           // never stops moving in, and up close it is almost entirely the
           // punch string — his normals are the fastest in the game and the
@@ -1781,6 +1823,31 @@ export class CPU {
         if (foe.state === 'knockdown' && dist < 1.9 && me.res.curCE >= me.cfg[near].cost
           && Math.random() < 0.4) f[near] = true;
       }
+      // ---- URO: GET OFF THE GROUND ---------------------------------------
+      // The one thing a bot Uro has to do that no other profile does, and it
+      // is the first thing it does. Sitting on the floor is not playing the
+      // character: her aerial normals are as good as her grounded ones, her
+      // techniques work in the air, and her guard is the worst in the game, so
+      // there is almost never a reason to be down there.
+      //
+      // The two exceptions are both stamina: it will not take off without
+      // enough in the tank to do something with the altitude, and it will not
+      // take off at all under a quarter, which is when it should be standing
+      // still getting the bar back. That produces the right rhythm on its own —
+      // up, pressure, down, breathe — without a single timer.
+      if (me.cfg.flight && !me.busy && me.grounded) {
+        const st = me.res.stamina, max = me.cfg.stats.stamina;
+        const wantAir = st > max * 0.42
+          && (dist < 3.2 || this.plan === 'backoff' || this.plan === 'strafe' || Math.random() < 0.22);
+        if (wantAir) f.jump = true;
+      }
+      // ...and while she IS up, hold jump to climb whenever she is low, so the
+      // bot does not simply sink back to head height and get punished for it.
+      if (me.cfg.flight && !me.grounded && me.hoverT > 0) {
+        const floor = this.match.arena?.bounds?.floorAt(me.pos.x, me.pos.z, me.pos.y + 0.5) ?? 0;
+        if (me.pos.y - floor < 3.4 && me.res.stamina > me.cfg.stats.stamina * 0.3) f.jump = true;
+      }
+
       // ---- specials: each profile leans on its own signature -------------
       const spKey = me.cfg.special?.key;
       if (spKey && me.specialCD <= 0 && !me.busy) {
@@ -1813,6 +1880,35 @@ export class CPU {
         // face is how he dies.
         if (spKey === 'higuruma_judgeman' && !this.match.judgemen?.aliveFor(me)
           && me.res.curCE >= me.cfg.special.cost && dist > 3.0) f.copy = true;
+        // ---- URO: REFLECT WHEN THEY COMMIT TO A PROJECTILE ----------------
+        // The bot does not guess. It reads the OPPONENT'S ACTUAL STATE and the
+        // live entity list, and puts the surface up only when something is
+        // genuinely in the air or a ranged technique is genuinely committed —
+        // which is exactly the read a human makes, and which means a bot Uro
+        // is punished for it the same way a human is when the opponent baits
+        // with a whiffed cast.
+        if (spKey === 'uro_reflect' && me.res.curCE >= me.cfg.special.cost) {
+          // something already flying at her, close enough to matter
+          let incoming = false;
+          for (const e of this.match.effects?.entities ?? []) {
+            if (!e.pos || e.caster === me) continue;
+            if (!REFLECTABLE[e.type]) continue;
+            if (flatDist(e.pos, me.pos) < 7) { incoming = true; break; }
+          }
+          // ...or they are mid-cast on a technique that produces one, at a
+          // range where it will reach her
+          const committing = foe.state === 'ct' && dist > 3.5 && dist < 16;
+          if ((incoming || (committing && Math.random() < 0.55)) && Math.random() < 0.7) f.copy = true;
+        }
+        // ---- DAGON: KEEP ONE IN THE WATER ---------------------------------
+        // Same instinct as Mahito's — he never fights alone by choice — but
+        // capped at one outside the domain, so the bot only re-summons when
+        // the field is empty. It does it from RANGE: the cast is 26 frames of
+        // standing still and doing it in someone's face is how he dies before
+        // reaching the thing he is playing for.
+        if (spKey === 'dagon_summon'
+          && (this.match.ocean?.countFor(me) ?? 0) < (me.cfg.special.maxOutside ?? 1)
+          && me.res.curCE >= me.cfg.special.cost && dist > 3.2 && Math.random() < 0.45) f.copy = true;
         // mahito: summon IMMEDIATELY — he never fights alone by choice, and he
         // keeps summoning until he is at his cap
         if (spKey === 'mahito_summon'

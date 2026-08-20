@@ -50,13 +50,24 @@ import { INUMAKI_CLIPS, INUMAKI_STANCE } from './inumaki.js';
 import { MAKI_CLIPS, MAKI_STANCE } from './maki.js';
 import { YUKI_CLIPS, YUKI_STANCE } from './yuki.js';
 import { MIWA_CLIPS, MIWA_STANCE } from './miwa.js';
+// THE TWO NEW SETS, and each is at an extreme the project did not have.
+// URO — the only character with TWO COMPLETE MOVEMENT SETS. Everything
+// suffixed `Air` is the hovering version, selected by the same `_clip` swap
+// Kashimo's charged cycles, Inumaki's throat idles, Maki's stage neutrals and
+// Panda's per-stance set already use. Her grounded set is authored on the rule
+// that her hips never sit at zero — she floats even when standing.
+// DAGON — the slowest set in the project by a wide margin, and the only one
+// whose signature feature is animated by NOTHING: ten spring chains carry the
+// barbels, so the file never touches them.
+import { URO_CLIPS, URO_STANCE } from './uro.js';
+import { DAGON_CLIPS, DAGON_STANCE } from './dagon.js';
 // The Mahoraga summon ritual is Megumi's, but it belongs to that feature
 // rather than to his kit, so it is merged in here instead of living in
 // megumi.js. Nothing else changes about his clip set.
 import { RITUAL_CLIPS } from './ritual.js';
 
-const CHAR_CLIPS = { gojo: GOJO_CLIPS, yuta: YUTA_CLIPS, nanami: NANAMI_CLIPS, yuji: YUJI_CLIPS, todo: TODO_CLIPS, jogo: JOGO_CLIPS, mahito: MAHITO_CLIPS, megumi: { ...MEGUMI_CLIPS, ...RITUAL_CLIPS }, mahoraga: MAHORAGA_CLIPS, higuruma: HIGURUMA_CLIPS, hakari: HAKARI_CLIPS, sukuna: SUKUNA_CLIPS, sukuna_vessel: SUKUNA_VESSEL_CLIPS, toji: TOJI_CLIPS, hanami: HANAMI_CLIPS, kurourushi: KUROURUSHI_CLIPS, choso: CHOSO_CLIPS, nobara: NOBARA_CLIPS, geto: GETO_CLIPS, naoya: NAOYA_CLIPS, kashimo: KASHIMO_CLIPS, panda: PANDA_CLIPS, inumaki: INUMAKI_CLIPS, maki: MAKI_CLIPS, yuki: YUKI_CLIPS, miwa: MIWA_CLIPS };
-const CHAR_STANCE = { gojo: GOJO_STANCE, yuta: YUTA_STANCE, nanami: NANAMI_STANCE, yuji: YUJI_STANCE, todo: TODO_STANCE, jogo: JOGO_STANCE, mahito: MAHITO_STANCE, megumi: MEGUMI_STANCE, mahoraga: MAHORAGA_STANCE, higuruma: HIGURUMA_STANCE, hakari: HAKARI_STANCE, sukuna: SUKUNA_STANCE, sukuna_vessel: SUKUNA_VESSEL_STANCE, toji: TOJI_STANCE, hanami: HANAMI_STANCE, kurourushi: KUROURUSHI_STANCE, choso: CHOSO_STANCE, nobara: NOBARA_STANCE, geto: GETO_STANCE, naoya: NAOYA_STANCE, kashimo: KASHIMO_STANCE, panda: PANDA_STANCE, inumaki: INUMAKI_STANCE, maki: MAKI_STANCE, yuki: YUKI_STANCE, miwa: MIWA_STANCE };
+const CHAR_CLIPS = { gojo: GOJO_CLIPS, yuta: YUTA_CLIPS, nanami: NANAMI_CLIPS, yuji: YUJI_CLIPS, todo: TODO_CLIPS, jogo: JOGO_CLIPS, mahito: MAHITO_CLIPS, megumi: { ...MEGUMI_CLIPS, ...RITUAL_CLIPS }, mahoraga: MAHORAGA_CLIPS, higuruma: HIGURUMA_CLIPS, hakari: HAKARI_CLIPS, sukuna: SUKUNA_CLIPS, sukuna_vessel: SUKUNA_VESSEL_CLIPS, toji: TOJI_CLIPS, hanami: HANAMI_CLIPS, kurourushi: KUROURUSHI_CLIPS, choso: CHOSO_CLIPS, nobara: NOBARA_CLIPS, geto: GETO_CLIPS, naoya: NAOYA_CLIPS, kashimo: KASHIMO_CLIPS, panda: PANDA_CLIPS, inumaki: INUMAKI_CLIPS, maki: MAKI_CLIPS, yuki: YUKI_CLIPS, miwa: MIWA_CLIPS, uro: URO_CLIPS, dagon: DAGON_CLIPS };
+const CHAR_STANCE = { gojo: GOJO_STANCE, yuta: YUTA_STANCE, nanami: NANAMI_STANCE, yuji: YUJI_STANCE, todo: TODO_STANCE, jogo: JOGO_STANCE, mahito: MAHITO_STANCE, megumi: MEGUMI_STANCE, mahoraga: MAHORAGA_STANCE, higuruma: HIGURUMA_STANCE, hakari: HAKARI_STANCE, sukuna: SUKUNA_STANCE, sukuna_vessel: SUKUNA_VESSEL_STANCE, toji: TOJI_STANCE, hanami: HANAMI_STANCE, kurourushi: KUROURUSHI_STANCE, choso: CHOSO_STANCE, nobara: NOBARA_STANCE, geto: GETO_STANCE, naoya: NAOYA_STANCE, kashimo: KASHIMO_STANCE, panda: PANDA_STANCE, inumaki: INUMAKI_STANCE, maki: MAKI_STANCE, yuki: YUKI_STANCE, miwa: MIWA_STANCE, uro: URO_STANCE, dagon: DAGON_STANCE };
 
 export function makeClips(charId) {
   const stance = { ...STANCE, ...(CHAR_STANCE[charId] || {}) };

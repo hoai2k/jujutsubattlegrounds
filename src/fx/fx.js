@@ -1399,6 +1399,124 @@ export class FXSystem {
 
   // TODO — RESONANT CLAP. A wall of pink concussion in flight: stacked
   // vertical rings around the wavefront plus a snap bar, in his accent color.
+  // =========================================================================
+  // DAGON — THE SEA
+  // =========================================================================
+  // Everything he throws is WATER, and all of it shares one palette so the
+  // volley, the surge, the spit and the patch read as one substance: a cold
+  // teal body (#2e6f80) with a pale foam highlight (#dff0f4). Deliberately
+  // separate from Choso's red and from Jogo's orange, and deliberately COLD
+  // against Dagon's own crimson body — he should never be mistaken for the
+  // thing he is throwing.
+  seaFishTrail(pos, vel) {
+    this._spawn(pos.clone(), {
+      color: 0x2e6f80, size: rand(0.10, 0.20), life: 0.18, opacity: 0.8,
+      vel: vel.clone().multiplyScalar(-0.18).add(v3(rand(-0.4, 0.4), rand(-0.2, 0.4), rand(-0.4, 0.4)))
+    });
+    if (Math.random() < 0.4) {
+      this._spawn(pos.clone(), {
+        color: 0xdff0f4, size: rand(0.05, 0.11), life: 0.24, opacity: 0.7,
+        vel: v3(rand(-0.6, 0.6), rand(-0.6, 0.2), rand(-0.6, 0.6))
+      });
+    }
+  }
+
+  seaSpitTrail(pos, dir) {
+    const jet = this._spawn(pos.clone(), {
+      color: 0x7fc8d8, size: 0.34, aspect: 0.24, life: 0.12, opacity: 0.9, vel: v3()
+    });
+    this._bb(jet.mesh, Math.atan2(dir.x, dir.z));
+    for (let i = 0; i < 2; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.15, 0.15), rand(-0.15, 0.15), rand(-0.15, 0.15))), {
+        color: i ? 0xdff0f4 : 0x2e6f80, size: rand(0.05, 0.12), life: 0.2, opacity: 0.75,
+        vel: dir.clone().multiplyScalar(-rand(1, 3)).add(v3(rand(-1, 1), rand(0, 1.5), rand(-1, 1)))
+      });
+    }
+  }
+
+  // THE SURGE. A wall of water crossing the ground: a wide low ring plus a
+  // crest of foam thrown up along its leading edge.
+  tidalTick(pos, dir, width) {
+    this._ring(pos.clone().setY(pos.y + 0.10), 0x2e6f80,
+      { size: width * 0.42, growRate: 2.6, life: 0.20, flat: true });
+    const crest = this._spawn(pos.clone().add(v3(0, 0.55, 0)), {
+      color: 0x7fc8d8, size: width * 0.72, aspect: 0.30, life: 0.16, opacity: 0.75, vel: v3()
+    });
+    this._bb(crest.mesh);
+    for (let i = 0; i < 5; i++) {
+      const off = (i / 4 - 0.5) * width * 0.9;
+      const side = v3(dir.z, 0, -dir.x).multiplyScalar(off);
+      this._spawn(pos.clone().add(side).add(v3(0, rand(0.1, 0.7), 0)), {
+        color: i % 2 ? 0xdff0f4 : 0x9fd8e4, size: rand(0.14, 0.34), life: rand(0.24, 0.46),
+        opacity: 0.85, gravity: 12,
+        vel: dir.clone().multiplyScalar(rand(1, 3)).add(v3(rand(-1.2, 1.2), rand(2, 4.5), rand(-1.2, 1.2)))
+      });
+    }
+  }
+
+  // THE PATCH. Placed once when the surge expires — a shallow disc of standing
+  // water with a foam rim, and a slow shimmer on a 0.18 s tick so it stays
+  // visibly WET rather than looking like a painted decal.
+  waterPatch(pos, radius) {
+    this._ring(pos.clone().setY(pos.y + 0.04), 0xdff0f4,
+      { size: radius * 0.5, growRate: radius * 2.2, life: 0.5, flat: true });
+    for (let i = 0; i < 10; i++) {
+      const a = rand(0, Math.PI * 2), r = rand(0, radius);
+      this._spawn(pos.clone().add(v3(Math.cos(a) * r, 0.05, Math.sin(a) * r)), {
+        color: 0x7fc8d8, size: rand(0.16, 0.34), life: rand(0.3, 0.6), opacity: 0.6,
+        vel: v3(rand(-0.8, 0.8), rand(0.4, 1.6), rand(-0.8, 0.8)), gravity: 10
+      });
+    }
+  }
+
+  waterPatchTick(pos, radius) {
+    const a = rand(0, Math.PI * 2), r = rand(0, radius * 0.92);
+    this._ring(pos.clone().add(v3(Math.cos(a) * r, 0.045, Math.sin(a) * r)), 0x9fd8e4,
+      { size: 0.12, growRate: 1.4, life: 0.55, flat: true });
+  }
+
+  // =========================================================================
+  // URO — THE TWO THINGS THE REFRACTION CANNOT DO ON ITS OWN
+  // =========================================================================
+  // fx/warpfx.js owns everything that BENDS. These two are the additive
+  // accents that go with it, and they are deliberately near-colourless: her
+  // whole visual identity is distortion rather than a hue, so nothing here is
+  // allowed to read as an energy colour.
+
+  // The reflect connecting. The BENDING half is fx/warpfx.js `bounce`, called
+  // by the reflect system directly; this is the additive accent that goes with
+  // it — a hard pale flash at the contact point so the RETURN is legible from
+  // across the arena. The opponent has to be able to see that their own attack
+  // is now coming back at them.
+  skyReflectBounce(at, dir) {
+    this._ring(at.clone(), 0xeaf8ff, { size: 0.3, growRate: 9, life: 0.28, flat: false });
+    for (let i = 0; i < 9; i++) {
+      const a = rand(0, Math.PI * 2);
+      this._spawn(at.clone(), {
+        color: i % 3 ? 0xeaf8ff : 0xcfe8f5, size: rand(0.06, 0.18), aspect: 0.4,
+        life: rand(0.16, 0.34), opacity: 0.9,
+        vel: dir.clone().multiplyScalar(rand(2, 6)).add(v3(Math.cos(a) * 2, rand(-1, 2), Math.sin(a) * 2))
+      });
+    }
+  }
+
+  // One shell of the SKY COLLAPSE arriving. The refraction dome is the effect;
+  // this is the impact under it.
+  skyShell(pos, radius) {
+    for (let k = 0; k < 3; k++) {
+      this._ring(pos.clone().setY(pos.y + 0.08 + k * 0.5), k ? 0xcfe8f5 : 0xffffff,
+        { size: radius * (0.2 + k * 0.12), growRate: radius * 3.2, life: 0.42, flat: k === 0 });
+    }
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
+      this._spawn(pos.clone().add(v3(Math.cos(a) * radius * 0.35, rand(0.1, 2.4), Math.sin(a) * radius * 0.35)), {
+        color: i % 4 === 0 ? 0xffffff : 0xdff2ff, size: rand(0.12, 0.32), aspect: 0.5,
+        life: rand(0.3, 0.62), opacity: 0.85,
+        vel: v3(Math.cos(a) * rand(4, 11), rand(-4, 1), Math.sin(a) * rand(4, 11))
+      });
+    }
+  }
+
   clapWaveTick(pos, dir, width) {
     const c = 0xff5fc8;
     for (let k = 0; k < 2; k++) {

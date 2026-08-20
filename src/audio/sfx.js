@@ -212,6 +212,171 @@ export class Sfx {
   }
 
   // ---- jogo ---------------------------------------------------------------
+  // =========================================================================
+  // URO — SKY MANIPULATION
+  // =========================================================================
+  // ALL ORIGINAL AND ALL PROCEDURAL, and built to the brief's four rules:
+  // DETUNED (every tone is a pair a few cents apart, so nothing sits cleanly
+  // in tune), PITCH-BENDING (nothing holds a note), ARRIVING EARLY OR LATE
+  // (the pre-echo below), and with a REVERSED-REVERB TAIL on the warps (a
+  // swell that builds INTO the event instead of decaying out of it).
+  //
+  // The reversed tail is the interesting one and it is a real construction
+  // rather than a filter: a band of noise whose gain ramps UP over its
+  // duration and stops dead, scheduled to END on the frame the visual lands.
+  // That is what a reversed reverb is, and it is why her techniques sound like
+  // they are being un-played.
+  _reverseTail(when = 0.28, gain = 0.16, freq = 2200) {
+    this.ensure(); if (!this.ctx) return;
+    const t0 = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    const len = Math.floor(this.ctx.sampleRate * when);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      // the ramp UP is the whole trick — noise that swells into silence
+      const k = i / len;
+      d[i] = (Math.random() * 2 - 1) * k * k;
+    }
+    src.buffer = buf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 0.8;
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    src.connect(bp); bp.connect(g); g.connect(this.master);
+    src.start(t0);
+    src.stop(t0 + when);
+  }
+
+  // A DETUNED PAIR. Two oscillators a few cents apart, both bending. Nothing
+  // she does is ever in tune with itself.
+  _detuned(f, { to = f, dur = 0.4, gain = 0.1, type = 'sine', cents = 17 } = {}) {
+    const k = Math.pow(2, cents / 1200);
+    this._osc(type, f, { to, dur, gain });
+    this._osc(type, f * k, { to: to * k, dur: dur * 1.06, gain: gain * 0.8 });
+  }
+
+  // THIN ICE BREAKER. The break arrives BEFORE the swell finishes — the
+  // reversed tail is scheduled first and the crack lands on top of it, which
+  // is the "sounds that arrive slightly before or after the visual" note.
+  thinIce() {
+    this.ensure(); if (!this.ctx) return;
+    this._reverseTail(0.22, 0.13, 3000);
+    // the crack: a hard bright transient with almost no body
+    this._noise({ dur: 0.09, gain: 0.30, freq: 5200, q: 3.4 });
+    // ...and the sheet letting go, bending down
+    setTimeout(() => {
+      this._noise({ dur: 0.42, gain: 0.20, freq: 3600, slideTo: 900, q: 1.0 });
+      this._detuned(880, { to: 300, dur: 0.40, gain: 0.10, type: 'triangle', cents: 23 });
+    }, 55);
+    // one late shard, deliberately out of step with the visual
+    setTimeout(() => this._noise({ dur: 0.14, gain: 0.10, freq: 6400, q: 4.0 }), 260);
+  }
+
+  // SPACE WARP STRIKE. A fold: the pitch goes DOWN and then arrives UP, which
+  // is a shape no other cue in the game has, plus a pre-echo of the impact 60
+  // ms before the impact.
+  warpFold() {
+    this.ensure(); if (!this.ctx) return;
+    this._reverseTail(0.30, 0.15, 1400);
+    // the pre-echo — the hit, quietly, before it happens
+    this._noise({ dur: 0.06, gain: 0.09, freq: 1800, q: 2.0 });
+    setTimeout(() => {
+      this._detuned(520, { to: 120, dur: 0.26, gain: 0.13, type: 'sawtooth', cents: 31 });
+    }, 60);
+    setTimeout(() => {
+      this._detuned(160, { to: 940, dur: 0.22, gain: 0.15, type: 'triangle', cents: 19 });
+      this._noise({ dur: 0.16, gain: 0.24, freq: 2400, slideTo: 5200, q: 1.4 });
+    }, 190);
+  }
+
+  // SKY REFLECT going up: a thin held shimmer, detuned so it beats audibly.
+  skyReflectUp() {
+    this.ensure(); if (!this.ctx) return;
+    this._detuned(1320, { to: 1180, dur: 0.42, gain: 0.07, type: 'sine', cents: 11 });
+    this._noise({ dur: 0.20, gain: 0.07, freq: 6800, slideTo: 4200, q: 2.6 });
+  }
+  skyReflectDown() {
+    this.ensure(); if (!this.ctx) return;
+    this._detuned(880, { to: 660, dur: 0.18, gain: 0.05, type: 'sine', cents: 11 });
+  }
+  // ...and the moment it actually turns something around. The bend REVERSES:
+  // the incoming sound is caught, inverted, and thrown back.
+  skyReflect() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.07, gain: 0.26, freq: 4200, q: 3.0 });
+    this._detuned(300, { to: 1500, dur: 0.24, gain: 0.16, type: 'triangle', cents: 27 });
+    this._reverseTail(0.16, 0.12, 2600);
+  }
+
+  // The hover starting, and the moment the stamina runs out and she falls.
+  hoverStart() {
+    this.ensure(); if (!this.ctx) return;
+    this._detuned(440, { to: 620, dur: 0.34, gain: 0.05, type: 'sine', cents: 9 });
+  }
+  hoverDrop() {
+    this.ensure(); if (!this.ctx) return;
+    // the sky letting go of her — a long detuned fall with no landing in it
+    this._detuned(700, { to: 90, dur: 0.62, gain: 0.13, type: 'triangle', cents: 25 });
+    this._noise({ dur: 0.5, gain: 0.10, freq: 1400, slideTo: 260, q: 0.8 });
+  }
+
+  // SKY COLLAPSE. The biggest thing she does, and it is built downward: three
+  // detuned layers all bending toward the floor of the spectrum, over a
+  // reversed swell long enough to be uncomfortable.
+  skyCollapse() {
+    this.ensure(); if (!this.ctx) return;
+    this._reverseTail(0.62, 0.24, 900);
+    setTimeout(() => {
+      this._detuned(240, { to: 40, dur: 1.1, gain: 0.26, type: 'sawtooth', cents: 33 });
+      this._detuned(1600, { to: 220, dur: 0.8, gain: 0.12, type: 'triangle', cents: 21 });
+      this._noise({ dur: 1.0, gain: 0.26, freq: 4200, slideTo: 180, q: 0.6 });
+    }, 580);
+  }
+
+  // =========================================================================
+  // DAGON — THE SEA
+  // =========================================================================
+  // Also original and procedural. The family rule is that everything of his is
+  // WET AND LOW: filtered noise with a long tail and almost no transient,
+  // which is the opposite of Jogo's cracking fire and Kashimo's snap.
+  volley() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.26, gain: 0.16, freq: 900, slideTo: 2400, q: 1.4 });
+    this._osc('sine', 180, { to: 320, dur: 0.22, gain: 0.07 });
+  }
+  tidalSlam() {
+    this.ensure(); if (!this.ctx) return;
+    // the gather, then the surge — a long low swell with a wash over it
+    this._osc('sine', 58, { to: 34, dur: 0.9, gain: 0.30 });
+    this._noise({ dur: 0.85, gain: 0.26, freq: 260, slideTo: 1400, q: 0.7 });
+    setTimeout(() => this._noise({ dur: 0.6, gain: 0.14, freq: 2600, slideTo: 700, q: 0.9 }), 220);
+  }
+  seaEmerge() {
+    this.ensure(); if (!this.ctx) return;
+    // something breaking the surface: a short gulp and a spread of water
+    this._noise({ dur: 0.12, gain: 0.18, freq: 620, slideTo: 1800, q: 2.2 });
+    this._noise({ dur: 0.34, gain: 0.11, freq: 3000, slideTo: 1200, q: 0.8 });
+  }
+  seaSpit() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.16, gain: 0.20, freq: 1600, slideTo: 4200, q: 2.6 });
+  }
+  seaDie() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.24, gain: 0.14, freq: 1800, slideTo: 400, q: 1.2 });
+    this._osc('sine', 220, { to: 90, dur: 0.20, gain: 0.06 });
+  }
+  // THE SHARK ARRIVING. Deliberately the loudest thing in his set and the only
+  // one with a real transient: the player has to know, without looking, that
+  // the rare one just surfaced.
+  sharkRise() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.5, gain: 0.30, freq: 420, slideTo: 2600, q: 0.9 });
+    this._osc('sawtooth', 96, { to: 52, dur: 0.62, gain: 0.24 });
+    setTimeout(() => this._osc('square', 140, { to: 60, dur: 0.18, gain: 0.14 }), 320);
+  }
+
   ember() {
     // a hissing swarm taking wing: crackle + rising flutter
     this.ensure(); if (!this.ctx) return;
@@ -1388,6 +1553,22 @@ export class Sfx {
         // cue in the table: no reverb, no sweep, no impact. A taunt that
         // sounded like a technique would ruin it.
         two(392, 349, 0.12, { type: 'triangle', dur: 0.15, gain: 0.11 });
+        break;
+      case 'uro':                          // she stretches, and space complains
+        // No voice line cue: her taunt HAS a bubble (see combat/taunts.js), so
+        // the audio is the flourish rather than the speech. A detuned pair
+        // that bends up and never resolves — the sound of somebody not
+        // bothering to finish a thought.
+        this._detuned(660, { to: 880, dur: 0.5, gain: 0.06, type: 'sine', cents: 15 });
+        setTimeout(() => this._noise({ dur: 0.22, gain: 0.07, freq: 5400, slideTo: 3200, q: 2.4 }), 380);
+        break;
+      case 'dagon':                        // the sea, briefly, and then nothing
+        // NO BUBBLE — he is a cursed spirit. The cue is the quietest in the
+        // whole table after Inumaki's: a single wet surface break and a long
+        // low swell under it that outlasts the gesture. Nothing resolves.
+        this._noise({ dur: 0.18, gain: 0.10, freq: 700, slideTo: 1600, q: 2.0 });
+        this._osc('sine', 54, { to: 44, dur: 1.6, gain: 0.13 });
+        setTimeout(() => this._noise({ dur: 0.5, gain: 0.06, freq: 2200, slideTo: 900, q: 0.8 }), 900);
         break;
       case 'mahoraga':                     // the wheel: one turn, one clunk
         this._noise({ dur: 0.5, gain: 0.14, freq: 800, slideTo: 300, q: 1.1 });

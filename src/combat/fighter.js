@@ -32,6 +32,15 @@ import {
   canSpeak, affordable, boundCommand, boundKey, bindCommand
 } from './speech.js';
 import { buildCores, resetCores, coresAlive, nextCore, coreIndexOf } from './cores.js';
+// ---- URO: FLIGHT AND SKY REFLECT ----------------------------------------
+// Same import discipline as `charge`, `mass` and `awakening` above: both
+// modules return the identity value for a fighter whose config does not
+// declare them, so every call site below is UNCONDITIONAL and nobody else's
+// physics or state machine grew a branch. See combat/flight.js for why the
+// altitude cap is three separate limits, and combat/reflect.js for the
+// per-tool audit of what the surface does and does not turn around.
+import { hasFlight, hovering, gravityScale, tickFlight, airLocomote, resetFlight } from './flight.js';
+import { reflectDef } from './reflect.js';
 
 const GRAVITY = 26;
 
@@ -432,6 +441,17 @@ export class Fighter {
     // effect dispatcher; this is only the count, for the HUD and the cap check
     this.nailCount = 0;
 
+    // ---- uro: FLIGHT 天使呪法 and SKY REFLECT 天逆鉾 ---------------------
+    // Four fields, and like `charge` and `frozenT` they live on EVERY fighter
+    // and are inert for all but one of them. `cfg.flight` and
+    // `cfg.special.reflect` are what decide whether any of it does anything.
+    // `hoverT` in particular is read by the HUD, the CPU, the camera and the
+    // finisher director, so it has to exist on a body that can never hover.
+    this.hoverT = 0;             // seconds of continuous hover (0 = not flying)
+    this.hoverCeil = Infinity;   // the live altitude cap at her x/z
+    this.reflectLive = 0;        // frames the reflect surface is actually up
+    this.reflectCount = 0;       // successful reflections this round (HUD)
+
     this.domainLock = null;      // 'voided' while inside Unlimited Void
     this.events = [];            // one-tick messages for match to consume
     this.lives = 3;              // stock: lose all three and the match is over
@@ -591,6 +611,12 @@ export class Fighter {
     this.facing = facing ?? this.spawnFacing;
     this.prevFacing = this.facing;
     this.grounded = true;
+    // URO: the hover and the reflect stance are both round-scoped. A round
+    // boundary puts everyone back on the floor, including the one who does not
+    // normally go there.
+    resetFlight(this);
+    this.reflectLive = 0;
+    this.reflectCount = 0;
     this.move = null;
     this.activeHit = null;
     this.punchIndex = 0;
@@ -1146,6 +1172,15 @@ export class Fighter {
     if (this.cfg.mass && massArmor(this)) {
       const swap = { idle: 'idleHeavy', walk: 'walkHeavy' }[name];
       if (swap && this.anim.clips.has(swap)) return swap;
+    }
+    // URO: THE AERIAL SET. Every clip suffixed `Air` is the hovering version.
+    // Same string-built swap as every block above it, and it falls straight
+    // through when a clip has no air variant — which is what lets the reaction
+    // clips deliberately NOT have one (being hit out of a hover should look
+    // like being hit) without this needing to know that.
+    if (this.cfg.flight && hovering(this)) {
+      const a = name + 'Air';
+      if (this.anim.clips.has(a)) return a;
     }
     // PANDA: THE WHOLE ANIMATION SET IS PER-STANCE. Built by string from the
     // core's `clipSuffix` (''/Gor/Tri), exactly the way Toji's per-weapon idles
@@ -1927,6 +1962,51 @@ export class Fighter {
         const move = {
           name: sp.name, kind: 'ct', slot: 'special', effect: null,
           startup: sp.castFrames, active: 1, recovery: 8, clip: sp.clip
+        };
+        this.setState('ct', { move });
+        this._syncMoveAnim(move, sp.clip);
+        return true;
+      }
+
+      // ---- URO: SKY REFLECT 天逆鉾 -----------------------------------------
+      // A stance, not a move: it produces no hitbox and deals no damage. All
+      // it does is put `reflectLive` up for 20 frames, which is what the
+      // effect system's per-projectile check reads. See combat/reflect.js.
+      //
+      // It works in the air exactly as it does on the ground — she is airborne
+      // most of the time and a reflect she had to land for would not exist.
+      case 'uro_reflect': {
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        this._setSpecialCD(sp.cooldown);
+        const rd = reflectDef(this);
+        this._reflectR = rd.radius;
+        this._reflectArc = rd.arc;
+        this.reflectLive = 0;
+        this.setState('skyReflect', { clip: sp.clip });
+        this.play(sp.clip, { fade: 0.07 });
+        this.emit('reflectStart');
+        return true;
+      }
+
+      // ---- DAGON: SUMMON SEA SHIKIGAMI -------------------------------------
+      // ONE persistent ally outside the domain, and the STICK picks which of
+      // the three it is — the same read Jogo's eruption already uses for its
+      // aim, so there is no fourth binding and no wheel to open. The shark is
+      // domain-only; it is the payoff for getting there.
+      case 'dagon_summon': {
+        const sys = ctx.match.ocean;
+        if (!sys) return false;
+        if (sys.countFor(this) >= (sp.maxOutside ?? 1)) { this.emit('summonCapped'); return false; }
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        this._setSpecialCD(sp.cooldown);
+        const mv = input?.move ?? { x: 0, z: 0 };
+        const back = mv.z > 0.5;
+        const side = Math.abs(mv.x) > 0.5;
+        const pick = back ? sp.aim.back : side ? sp.aim.side : sp.aim.neutral;
+        const move = {
+          name: sp.name, kind: 'ct', slot: 'special', effect: 'dagon_summon',
+          startup: sp.castFrames, active: 1, recovery: 16, clip: sp.clip,
+          summonType: pick
         };
         this.setState('ct', { move });
         this._syncMoveAnim(move, sp.clip);
@@ -3645,6 +3725,37 @@ export class Fighter {
       }
 
       case 'jump': case 'fall': {
+        // ---- URO: THE HOVER ------------------------------------------------
+        // The whole of flight, at one site. `tickFlight` returns true if she is
+        // holding herself up this frame; if she is, the air becomes a real
+        // movement state with her own locomotion, her own techniques and her
+        // own normals rather than the brief ballistic arc everyone else gets.
+        //
+        // NOTE WHAT IS NOT HERE: no new state, no new input, and no branch for
+        // anybody else. `tickFlight` returns false for the entire existing
+        // roster on its first line, so the block below is the untouched
+        // original for all twenty-five of them.
+        if (tickFlight(this, input, ctx, dt)) {
+          airLocomote(this, input, ctx, dt);
+          const air = this.cfg.air || {};
+          if (input) {
+            if (input.punchP && air.normals !== false) { this.startPunch(0); break; }
+            if (air.techniques !== false) {
+              if (input.ct1P) { if (this.startCT('ct1', ctx)) break; }
+              if (input.ct2P) { if (this.startCT('ct2', ctx)) break; }
+              if (input.copyP) { if (this.trySpecial(input, ctx)) break; }
+            }
+            if (input.ultP && this.ultReady) { /* handled by the ultimate path */ }
+            if (input.taunt) { if (this.tryTaunt(ctx)) break; }
+          }
+          // She stays in `fall` while hovering so every existing air check in
+          // the game (`airborne`, the launcher's juggle rules, the tech window)
+          // continues to see an airborne fighter — which is correct, and is why
+          // there is no `hover` state.
+          if (S === 'jump') this.setState('fall', { clip: 'fall' });
+          else this.anim.play(this._clip('fall'), { fade: 0.16, restart: false });
+          break;
+        }
         if (input) {
           const fwd = this._moveVec(input.move, ctx.camYaw);
           this.vel.x += fwd.x * 14 * dt;
@@ -3656,6 +3767,33 @@ export class Fighter {
         }
         if (this.vel.y < 0 && S === 'jump') this.setState('fall', { clip: 'fall' });
         if (this.grounded) { this.setState('land', { clip: 'land' }); this.emit('land'); }
+        break;
+      }
+
+      // ---- URO: THE SKY REFLECT STANCE ------------------------------------
+      // Three phases on one frame counter, and the ONLY thing the state does
+      // is decide whether `reflectLive` is above zero — everything else is in
+      // combat/reflect.js, which the effect system consults per projectile.
+      // Keeping the state this thin is deliberate: the reflect has to hold
+      // while she is airborne, while she is drifting, and while the world is
+      // moving her, and a state that also owned her physics would fight all
+      // three.
+      case 'skyReflect': {
+        const rd = reflectDef(this);
+        this._reflectR = rd.radius;
+        this._reflectArc = rd.arc;
+        const live = this.f > rd.startup && this.f <= rd.startup + rd.active;
+        this.reflectLive = live ? 1 : 0;
+        if (this.f === rd.startup + 1) this.emit('reflectUp');
+        if (this.f === rd.startup + rd.active + 1) this.emit('reflectDown');
+        // she keeps her altitude through the stance but cannot steer: the
+        // surface is a plane she is holding still, and a reflect she can walk
+        // behind is not a read.
+        if (hasFlight(this) && !this.grounded) tickFlight(this, null, ctx, dt);
+        if (this.f >= rd.startup + rd.active + rd.recovery) {
+          this.reflectLive = 0;
+          this.setState(this.grounded ? 'idle' : 'fall', { clip: this.grounded ? 'idle' : 'fall' });
+        }
         break;
       }
 
@@ -4470,7 +4608,11 @@ export class Fighter {
     // Velocity is zeroed on entry (FreezeSystem.freeze) rather than here, so a
     // freeze cannot be used to cancel a knockback that was already owed.
     if (this.frozenT > 0) return;
-    if (!this.grounded) this.vel.y -= GRAVITY * dt;
+    // GRAVITY, scaled. `gravityScale` returns 1 for the entire existing roster
+    // and for Uro whenever she is not actually holding herself up — so this is
+    // the same line it has always been for everybody except a hovering Uro,
+    // for whom it is zero. See combat/flight.js.
+    if (!this.grounded) this.vel.y -= GRAVITY * gravityScale(this) * dt;
     const wasFast = Math.hypot(this.vel.x, this.vel.z);
     const before = this.bounds ? { x: this.pos.x, z: this.pos.z } : null;
     // Where the feet started this tick. The floor test below needs it: the

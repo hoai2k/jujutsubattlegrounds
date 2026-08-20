@@ -81,6 +81,23 @@ export const GRADES = {
   // gentle -0.05: at -0.13 the room went with them and the shot was two
   // figures in a void, which is Gojo's domain, not this one.
   sentence: { vignette: 0.90, tint: [1.02, 0.99, 0.96], lift: -0.05, sat: 0.30 },
+  // DAGON. THE ONLY DOMAIN GRADE IN THE GAME THAT IS NOT A THREAT, and the
+  // whole character depends on it staying that way: the horror of Horizon of
+  // the Captivating Skandha is that it looks like somewhere you would want to
+  // be. So it is BRIGHT — the second-most open vignette after Hakari's parlor,
+  // a lift rather than a crush, saturation pushed up, and a warm tropical tint
+  // rather than a cold one. Next to Jogo's furnace and Mahito's drained flesh
+  // it should read as a holiday photograph.
+  //
+  // Two constraints it also has to satisfy, both of them about somebody else:
+  //   · Uro's warp effects are near-colourless, so they have to stay readable
+  //     against a bright, warm, high-saturation frame. The tint is kept under
+  //     1.12 on red for exactly that reason — see the grade audit in the
+  //     delivery report.
+  //   · the shikigami are cold blue-grey against warm sand, and the grade
+  //     must not close that gap. Saturation up rather than tint hard is what
+  //     keeps the creatures legible against the beach.
+  shoreline: { vignette: 0.34, tint: [1.10, 1.04, 0.94], lift: 0.035, sat: 1.20 },
   overtime: { vignette: 0.5, tint: [1.12, 1.02, 0.9], lift: 0, sat: 1.05 },
   ko: { vignette: 0.66, tint: [1.05, 0.95, 0.92], lift: 0, sat: 0.6 }
 };
@@ -273,6 +290,8 @@ export function createStage() {
 
   const api = {
     renderer, scene, camera, lights: { key, rim, hemi },
+    // set by core/match.js — see the note at the call site in `render`
+    preRender: null,
     get splitCamera() { return eyeAt(1).camera; },
     cameraFor(i) { return eyeAt(i).camera; },
     get isSplit() { return views > 1; },
@@ -315,6 +334,14 @@ export function createStage() {
       if (views === 1) {
         applyXray(camera);
         aimBillboards(camera);
+        // ---- THE PRE-RENDER HOOK --------------------------------------------
+        // One optional callback, invoked with the camera about to draw, before
+        // that eye composites. It exists for exactly one customer:
+        // fx/warpfx.js, which has to capture the scene WITHOUT its own
+        // geometry in it so a refracting shard can sample the arena behind
+        // itself. Null for every frame in which nothing is warped, so this
+        // line costs one comparison.
+        api.preRender?.(camera);
         applyGrade(eyes[0]);
         if (quality === 0) {
           renderer.setRenderTarget(null);
@@ -351,6 +378,10 @@ export function createStage() {
         const eye = eyeAt(i);
         applyXray(eye.camera);
         aimBillboards(eye.camera);
+        // split screen captures per eye too, so a warp shard shows the arena
+        // from the viewpoint it is actually being seen from rather than from
+        // player one's
+        api.preRender?.(eye.camera);
         applyGrade(eye);
         eye.composer.renderToScreen = false;
         eye.composer.render();

@@ -220,7 +220,11 @@ export function applyReflect(match, e, r) {
 
   r.reflectCount = (r.reflectCount ?? 0) + 1;
   r.emit('skyReflected', { type: e.type });
-  match.fx.skyReflectBounce?.(e.pos.clone(), back, r);
+  // the bend (real refraction — see fx/warpfx.js) and the flash that makes it
+  // legible are two separate systems, called side by side rather than one
+  // routing through the other
+  match.warpfx?.bounce(e.pos.clone(), back.clone());
+  match.fx.skyReflectBounce?.(e.pos.clone(), back);
   match.sfx.skyReflect?.();
   match.hud?.toast?.(r, '天逆鉾 — RETURNED');
   match.cam?.shake?.(0.28);

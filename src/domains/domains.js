@@ -709,6 +709,34 @@ export class DomainSystem {
       // MALEVOLENT SHRINE — the only domain in the game with no barrier AND a
       // full sure-hit. Everything it does is in _updateShrine.
       this._updateShrine(a, dt);
+    } else if (a.def.sureHit.effect === 'captivating_skandha') {
+      // HORIZON OF THE CAPTIVATING SKANDHA — and this branch is DELIBERATELY
+      // almost empty, which is the whole point of the character.
+      //
+      // No damage tick. No stun. No lockdown. No gauge. The sea and the sky do
+      // nothing at all, and there is no line here that could be mistaken for
+      // an attrition effect. What the domain does is spawn creatures (see
+      // combat/ocean.js, driven from `beginSwarm` in `_activate`), and those
+      // creatures carry the sure-hit on their own strikes — through the same
+      // `sureHit` flag on the same `applyHit` path every other domain payload
+      // in this game uses, which is why Simple Domain, Falling Blossom, the
+      // Inverted Spear and Miwa's circle all answer it without a line here
+      // knowing they exist.
+      //
+      // The two things it DOES do are both about the caster, not the target:
+      a.caster.buffs.domainHaste = 0.2;                       // refreshed each tick
+      a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;  // he moves faster in it
+      // ...and the one courtesy the trapped fighter gets, which is that
+      // BLOSSOM AND SIMPLE DOMAIN ARE VISIBLY DOING SOMETHING. Without a tick
+      // of its own the counter-tools would silently work (each shikigami's hit
+      // is refused at the applyHit guard) and the player would never see why,
+      // so the shroud is answered here once per second exactly as the other
+      // domains answer it.
+      a.blossomT = (a.blossomT ?? 0) + dt;
+      if (a.blossomT >= 1) {
+        a.blossomT = 0;
+        for (const t of trapped) if (blossomHolds(t)) blossomCounter(m, t, a.caster);
+      }
     } else if (a.def.sureHit.effect === 'shadow_garden') {
       // CHIMERA SHADOW GARDEN — no sure-hit tick at all, and that absence IS
       // the mechanic. Nothing is applied to the trapped fighter here; what the
@@ -972,6 +1000,22 @@ export class DomainSystem {
       a.caster.punchDmgMult = a.def.swords.unarmedPunchMult ?? 0.5;
       m.hud.toast(a.caster, '刀雨 SWORD VOLLEY');
     }
+    // ---- DAGON: DEATH SWARM 死累累湧軍 ------------------------------------
+    // The domain's whole payload, handed to the ocean system on the frame the
+    // barrier resolves. Nothing is applied to the trapped fighter HERE and
+    // nothing ever will be: this is the only domain in the game with no
+    // ambient effect of its own, and every point of damage in it comes out of
+    // a creature that can be killed. See the `captivating_skandha` branch in
+    // `update` for the (deliberately near-empty) per-tick.
+    if (a.def.sureHit.effect === 'captivating_skandha') {
+      m.ocean?.beginSwarm(a.caster, a.def);
+      a.caster.model.setSeal?.(true);
+      // He is faster inside his own domain — the SAME `domainHaste` dial
+      // Jogo's furnace already uses, so this needed nothing new.
+      a.caster.buffs.domainHaste = 0.2;
+      a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;
+      m.hud.toast(a.caster, '死累累湧軍 — DEATH SWARM');
+    }
     // IDG: hand the machine over to the gamble system, which owns everything
     // from here — including the part that outlives this barrier.
     if (a.def.sureHit.effect === 'idle_death_gamble') m.gamble?.beginDomain(a.caster);
@@ -1178,6 +1222,29 @@ export class DomainSystem {
     // who tries the break against a second shrine should be told again.
     for (const f of m.fighters) { f.burn.noDecay = false; f._noBarrierToast = false; f._blossomToast = false; }
     a.caster.buffs.domainHaste = 0;
+    // ---- DAGON: EVERYTHING THE BARRIER WAS MAKING STOPS EXISTING ----------
+    // The shikigami are the domain's SURE-HIT PAYLOAD, not summons he paid for
+    // separately — so when the barrier stops existing, so does what it was
+    // producing. Every creature on the field dies on the spot, whichever of
+    // the five exits brought the barrier down: the timer, a Barrier Break, a
+    // domain clash lost, Toji's Inverted Spear, or the caster being killed.
+    //
+    // That ruling is what makes the anti-domain tools MEAN anything against
+    // him. If breaking the barrier left twenty sharks standing, breaking the
+    // barrier would not be a counter to this character — it would be a
+    // formality he had already been paid for. See the audit in the delivery
+    // report; all four counters route through this line.
+    //
+    // Note what SURVIVES: anything he put out with his SPECIAL before casting.
+    // That body is his, he paid cursed energy for it, and the barrier had
+    // nothing to do with it — `endSwarm` only kills creatures flagged `domain`.
+    if (a.def.sureHit.effect === 'captivating_skandha') {
+      const stats = m.ocean?.endSwarm({ kill: true });
+      a.caster.model.setSeal?.(false);
+      if (stats && import.meta.env?.DEV) {
+        console.info('[skandha] spawned', stats.spawned, 'culled', stats.culled, 'peak slots', stats.peakSlots);
+      }
+    }
     // MEGUMI: the restored shikigami were on loan. Anything on the field whose
     // key is still in the loss ledger goes back down with the shadow — it was
     // only ever standing because the domain was.

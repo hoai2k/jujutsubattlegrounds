@@ -11,6 +11,11 @@ import {
   beginForced, inCommandRange, tierDef as throatTierDef, adaptKey
 } from './speech.js';
 import { ARTIFICIAL } from '../arena/terrain.js';
+// URO's reflect. `tryReflect` is consulted once per travelling entity per
+// frame, at the TOP of the update loop below and nowhere else — see the
+// header of combat/reflect.js for why one hook covers every projectile in the
+// game and why a technique added later is safe-by-default.
+import { tryReflect } from './reflect.js';
 
 const TODO_ACCENT = 0xff5fc8; // Boogie Woogie's signature snap color
 
@@ -113,6 +118,25 @@ export const EFFECT_SRC = {
   panda_drum: 'panda_gorilla', panda_slam: 'panda_gorilla',
   panda_gore: 'panda_trike', panda_crestroll: 'panda_trike',
   panda_allcores: null,
+  // URO — THIN ICE BREAKER travels as a PLANE rather than as a thrown object,
+  // so it is not a `projectile`: adapting to Jogo's embers should do nothing
+  // about the sky shattering, which is the same reasoning that keeps Todo's
+  // clap wave on its slot. SPACE WARP STRIKE emerges somewhere else entirely
+  // and is emphatically its own thing. SKY REFLECT deals no damage of its own
+  // — what comes back off it is the ORIGINAL technique with its ORIGINAL
+  // `src` intact, which is the correct ruling: Mahoraga hit by his own
+  // reflected wheel slash should feed the wheel-slash bucket.
+  uro_thin_ice: 'ct1', uro_warp_strike: 'ct2', uro_sky_collapse: 'ultimate',
+  uro_reflect: null,
+  // DAGON — the VOLLEY genuinely flies, so it is the roster's second
+  // `projectile` alongside Jogo's embers. TIDAL SLAM is a surge on its slot.
+  // The SUMMON gesture deals nothing at all; the creatures do, and they are
+  // tagged `summon` where they strike (combat/ocean.js) — the same bucket
+  // Megumi's shikigami and Geto's curses feed, because they are the same KIND
+  // of thing. The DOMAIN's payload is those same creatures, so it too is
+  // `summon` rather than `domain`: adapting to being bitten should work
+  // whether the barrier is up or not.
+  dagon_volley: 'projectile', dagon_tidal_slam: 'ct2', dagon_summon: null,
   // MAHORAGA (mirror match / Yuta's copy of him)
   mahoraga_wheel_slash: 'ct1', mahoraga_world_cut: 'ct2',
   // HAKARI — the base kit sits on its slots. The SHUTTER is defensive and has
@@ -3542,6 +3566,221 @@ export class Effects {
     const chest = t.pos.clone().add(v3(0, 1.25, 0));
 
     switch (entry.key) {
+      // =====================================================================
+      // URO — SKY MANIPULATION
+      // =====================================================================
+
+      // ---- RB · THIN ICE BREAKER 薄氷ブレイカー -----------------------------
+      // She lays a hand on the surface of the sky in front of her and breaks
+      // it. A WIDE FORWARD PLANE — not a projectile and not a cone — resolved
+      // as a box test in her facing, which is why it beats a sidestep and
+      // loses to simply not being in front of her.
+      //
+      // The research half: because the blow lands on the SPACE the target
+      // occupies rather than on the body, cursed-energy reinforcement is much
+      // less effective against it. `pierceGuard` is that, and it is the only
+      // number of its kind in the game — a blocked Thin Ice Breaker still
+      // delivers 45% of its damage, against the roster's usual 15%.
+      case 'uro_thin_ice': {
+        const dir = this._castDir(caster);
+        const width = opts.width ?? 5.2, range = opts.range ?? 9.0;
+        const origin = caster.pos.clone().setY(caster.pos.y + 1.25).addScaledVector(dir, 0.6);
+        m.warpfx?.thinIce(origin.clone().addScaledVector(dir, range * 0.42), dir, {
+          width, height: 3.4, shards: opts.shards ?? 14,
+          crackTime: opts.crackTime ?? 0.16,
+          tint: 0xdff2ff
+        });
+        m.sfx.thinIce?.();
+        m.cam.shake(0.42); m.cam.fovKick(4);
+        m.stage.flash(0.12);
+        // the level takes it too: a shattered plane of space cuts what is in it
+        for (let i = 1; i <= 6; i++) {
+          m.arena?.destruct?.damageAt(origin.clone().addScaledVector(dir, i * (range / 6)), width * 0.5, 26);
+        }
+        for (const f of m.activeFighters) {
+          if (f === caster || !f.alive) continue;
+          const rel = f.pos.clone().sub(caster.pos);
+          const along = rel.x * dir.x + rel.z * dir.z;
+          const perp = Math.abs(rel.x * dir.z - rel.z * dir.x);
+          const pad = f.hurtBox?.radius ?? 0.62;
+          if (!sure && !(along > -0.6 && along < range && perp < width * 0.5 + pad)) continue;
+          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 15) * mult);
+          const r = f.applyHit({
+            ...hitOpts, dmg, kb: opts.kb ?? 4.2, kbY: opts.kbY ?? 1.6,
+            hitstun: opts.hitstun ?? 28, type: 'heavy', dir: dir.clone()
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, f, r, { crit, heavy: true });
+          // *** THE RESEARCH, AS A NUMBER. *** A guard does not stop the sky
+          // breaking under you: the chip already applied by the block path is
+          // topped up to `pierceGuard` of the full damage. Applied through
+          // `takeChip` so every existing ledger — Choso's blood, Nobara's
+          // essence, Maki's awakening, the domain clash tally — sees it.
+          if (r === 'block' && (opts.pierceGuard ?? 0) > 0) {
+            const already = dmg * 0.15 * (f._tune?.('blockChipMult') ?? 1);
+            const want = dmg * opts.pierceGuard;
+            if (want > already) f.takeChip(want - already, 'technique');
+            m.hud.toast(f, '薄氷 — GUARD DOES NOT HOLD');
+          }
+        }
+        break;
+      }
+
+      // ---- RT · SPACE WARP STRIKE 空間歪曲打 --------------------------------
+      // The fold. The animation says "straight ahead"; the hit does not arrive
+      // there. `emergence` is an ORDERED CYCLE (see the config) rather than a
+      // random roll — a random emergence point is unlearnable and therefore
+      // unfair, a cycle is a pattern a good opponent reads after four
+      // exchanges, and that is exactly the amount of counterplay a 34-cost
+      // committed technique should have.
+      //
+      // THE COUNTERPLAY IS SPACING, NOT BLOCKING, and it is structural: the
+      // fold has a maximum span, and outside it the technique produces the
+      // whole animation, spends the whole bar, and does nothing at all.
+      case 'uro_warp_strike': {
+        if (!t?.alive) { m.sfx.warpFold?.(); break; }
+        const reach = opts.reach ?? 8.5;
+        const gap = flatDist(caster.pos, t.pos);
+        // the emergence point, cycled
+        const list = opts.emergence ?? ['behind', 'above', 'left', 'right'];
+        if (caster._warpCycle == null) caster._warpCycle = (Math.random() * list.length) | 0;
+        const where = list[caster._warpCycle % list.length];
+        caster._warpCycle++;
+        const fw = v3(t.pos.x - caster.pos.x, 0, t.pos.z - caster.pos.z);
+        if (fw.lengthSq() < 1e-5) fw.copy(caster.forward());
+        fw.normalize();
+        const right = v3(fw.z, 0, -fw.x);
+        const at = t.pos.clone();
+        let dir = fw.clone();
+        if (where === 'behind') { at.addScaledVector(fw, 1.5); dir = fw.clone().multiplyScalar(-1); }
+        else if (where === 'above') { at.y += 2.4; dir = fw.clone(); }
+        else if (where === 'left') { at.addScaledVector(right, 1.6); dir = right.clone().multiplyScalar(-1); }
+        else { at.addScaledVector(right, -1.6); dir = right.clone(); }
+
+        // THE FOLD ITSELF — the lens between her and the emergence point, with
+        // the two mirrored duplicates of her at the ends.
+        m.warpfx?.fold(
+          caster.pos.clone().setY(caster.pos.y + 1.05),
+          at.clone().setY(at.y + 1.05),
+          { ghosts: opts.ghosts ?? 2, life: opts.lensTime ? opts.lensTime * 2 : 0.44 }
+        );
+        m.sfx.warpFold?.();
+        m.cam.shake(0.5); m.cam.fovKick(7);
+
+        // OUT OF RANGE: the fold does not reach, and nothing happens. This is
+        // the counterplay and it is deliberately loud rather than silent.
+        if (gap > reach) {
+          m.hud.toast(caster, '歪曲 — OUT OF REACH');
+          break;
+        }
+        m.hitstop(9);
+        const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 26) * mult);
+        const r = t.applyHit({
+          ...hitOpts, dmg, kb: opts.kb ?? 5.6, kbY: opts.kbY ?? 3.2,
+          hitstun: opts.hitstun ?? 34, type: 'heavy', dir
+        }, m.ctxFor(caster));
+        hitFeedback(m, caster, t, r, { crit, heavy: true });
+        if (r === 'hit' || r === 'otg') m.hud.toast(caster, '歪曲打 — ' + where.toUpperCase());
+        m.arena?.destruct?.damageAt(at.clone().setY(Math.max(0.4, at.y)), 1.9, 34);
+        break;
+      }
+
+      // ---- D-PAD RIGHT · SKY COLLAPSE 天蓋崩落 ------------------------------
+      // *** ORIGINAL, NOT RESEARCHED. *** She has a Domain Expansion in canon
+      // whose name, interior and sure-hit are all unknown — see the research
+      // note at the top of characters/uro.js. This is the brief's stated
+      // fallback and it is built as one: she takes hold of the sky and pulls
+      // it down on the arena.
+      //
+      // Three closing shells rather than one blast, so the damage arrives in a
+      // shape the player can see coming down at them.
+      case 'uro_sky_collapse': {
+        const u = caster.cfg.ultimate;
+        const centre = caster.pos.clone();
+        m.warpfx?.skyCollapse(centre, { radius: u.radius, life: (u.bendTime ?? 1.9) });
+        m.sfx.skyCollapse?.();
+        m.stage.flash(0.62);
+        m.cam.shake(1.5); m.cam.fovKick(16);
+        m.hitstop(14);
+        m.slowmo?.(0.5, 0.45);
+        for (let k = 0; k < (u.rings ?? 3); k++) {
+          this.entities.push({
+            type: 'skyShell', caster, sure,
+            pos: centre.clone(), t: k * (u.ringGap ?? 0.34),
+            radius: u.radius * (1 - k * 0.22),
+            dmg: (u.dmg ?? 62) * mult / (u.rings ?? 3),
+            kb: u.kb ?? 9, kbY: u.kbY ?? 5, hitstun: u.hitstun ?? 48,
+            hitOpts, dealt: new Set()
+          });
+        }
+        break;
+      }
+
+      // =====================================================================
+      // DAGON — HORIZON OF THE CAPTIVATING SKANDHA
+      // =====================================================================
+
+      // ---- RB · SHIKIGAMI VOLLEY 式神一斉 -----------------------------------
+      // A small school of fish that home loosely. His neutral tool: low damage
+      // each, good chip, and cheap enough to throw while the bar fills.
+      // Genuinely PROJECTILES — which means Uro reflects them, correctly.
+      case 'dagon_volley': {
+        const count = opts.count ?? 5;
+        const spd = opts.speed ?? 11.5;
+        const dir0 = this._castDir(caster);
+        for (let i = 0; i < count; i++) {
+          const spread = (i - (count - 1) / 2) * 0.22;
+          const dir = dir0.clone().applyAxisAngle(v3(0, 1, 0), spread);
+          this.entities.push({
+            type: 'seaFish', caster, sure,
+            pos: caster.pos.clone().add(v3(0, 1.55, 0)).addScaledVector(dir, 0.8)
+              .add(v3(rand(-0.3, 0.3), rand(-0.3, 0.4), rand(-0.3, 0.3))),
+            vel: dir.multiplyScalar(spd * rand(0.88, 1.12)),
+            spd, homing: opts.homing ?? 2.0,
+            dmg: (opts.dmg ?? 3.2) * mult,
+            kb: opts.kb ?? 0.9, hitstun: opts.hitstun ?? 10,
+            life: (opts.range ?? 14) / spd, delay: i * 0.045, fxT: 0, hitOpts
+          });
+        }
+        m.sfx.volley?.();
+        break;
+      }
+
+      // ---- RT · TIDAL SLAM 潮撃 ---------------------------------------------
+      // A heavy forward surge of water: wide, slow, high damage, and it washes
+      // them back. What it leaves behind is the interesting half — a shallow
+      // water patch that slows anyone standing in it. He is immune to his own;
+      // a slow character who slowed himself would never press the button.
+      case 'dagon_tidal_slam': {
+        const dir = this._castDir(caster);
+        this.entities.push({
+          type: 'tidalSurge', caster, sure,
+          pos: caster.pos.clone().setY(caster.pos.y + 0.35).addScaledVector(dir, 1.0),
+          dir, spd: opts.surgeSpeed ?? 13,
+          width: opts.width ?? 4.6, range: opts.range ?? 8.5, travelled: 0,
+          dmg: (opts.dmg ?? 24) * mult,
+          kb: opts.kb ?? 8.5, kbY: opts.kbY ?? 1.2, hitstun: opts.hitstun ?? 34,
+          patch: opts.patch, fxT: 0, hitOpts
+        });
+        m.sfx.tidalSlam?.();
+        m.cam.shake(0.7); m.cam.fovKick(8);
+        break;
+      }
+
+      // ---- B · SUMMON SEA SHIKIGAMI ----------------------------------------
+      // The gesture deals nothing. The creature does, and it is owned by
+      // combat/ocean.js — the same system the domain drives, with the
+      // guarantee switched off and two multipliers applied. See the header of
+      // that file for why it is one system rather than two.
+      case 'dagon_summon': {
+        const type = opts.summonType ?? caster.cfg.special.aim?.neutral ?? 'eel';
+        const made = m.ocean?.summonFor(caster, type);
+        if (made) {
+          m.sfx.seaEmerge?.();
+          m.hud.toast(caster, '式神 — ' + (caster.cfg.ocean.defs[type]?.short ?? ''));
+        }
+        break;
+      }
+
       case 'divergent_fist': {
         const { dmg } = computeDamage(caster, entry.dmg, { canCrit: false });
         const r = t.applyHit({ ...hitOpts, dmg, kb: 1.2, kbY: 0, hitstun: 22, type: 'heavy' }, m.ctxFor(caster));
@@ -3692,11 +3931,158 @@ export class Effects {
     const m = this.match;
     for (let i = this.entities.length - 1; i >= 0; i--) {
       const e = this.entities[i];
+      // ---- SKY REFLECT ---------------------------------------------------
+      // ONE LINE, BEFORE THE PER-TYPE BRANCH. `tryReflect` swaps the entity's
+      // `caster` and mirrors its heading, and the per-type code below then
+      // carries it onward in the new direction with no knowledge that anything
+      // happened — which is the entire reason the reflect did not require ten
+      // edits. It returns false immediately for every entity type that is not
+      // in the REFLECTABLE table and whenever nobody is holding a surface, so
+      // this costs one lookup a frame in every match without a Uro in it.
+      if (tryReflect(m, e)) continue;
       // ================================================================
       // THE OVERHAULED TECHNIQUES. Travelling waves, constructs and
       // volleys — each one draws itself at the position it tests, so the
       // picture and the hitbox can never disagree.
       // ================================================================
+      // =================================================================
+      // DAGON'S AND URO'S TRAVELLING ENTITIES
+      // =================================================================
+      // DAGON — the volley. Loose homing, like Jogo's embers and deliberately
+      // slacker: these are fish, not guided missiles, and they should be
+      // walkable at range and unavoidable up close.
+      if (e.type === 'seaFish') {
+        if (e.delay > 0) { e.delay -= dt; continue; }
+        e.life -= dt;
+        const tgt = this.other(e.caster);
+        if (tgt?.alive) {
+          const to = v3(tgt.pos.x - e.pos.x, tgt.pos.y + 1.15 - e.pos.y, tgt.pos.z - e.pos.z);
+          if (to.lengthSq() > 1e-5) {
+            to.normalize().multiplyScalar(e.spd);
+            e.vel.lerp(to, Math.min(1, e.homing * dt));
+          }
+        }
+        e.pos.addScaledVector(e.vel, dt);
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.035; m.fx.seaFishTrail?.(e.pos, e.vel); }
+        if (tgt?.alive && (e.sure || e.pos.distanceTo(tgt.pos.clone().add(v3(0, 1.15, 0))) < 0.72 + (tgt.hurtBox?.pad ?? 0))) {
+          const { dmg } = computeDamage(e.caster, e.dmg, { canCrit: false });
+          const dir = e.vel.clone().setY(0).normalize();
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: 0, hitstun: e.hitstun, type: 'light',
+            dir, sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, {});
+          m.fx._ring(e.pos.clone(), 0x7fc8d8, { size: 0.22, growRate: 5, life: 0.2, flat: false });
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.life <= 0) this.entities.splice(i, 1);
+        continue;
+      }
+      // DAGON — the eel-serpent's spit. Spawned by combat/ocean.js rather than
+      // by a cast, and reflectable exactly like anything else that travels.
+      if (e.type === 'seaSpit') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.03; m.fx.seaSpitTrail?.(e.pos, e.dir); }
+        const tgt = this.other(e.caster);
+        if (tgt?.alive && (e.sure || e.pos.distanceTo(tgt.pos.clone().add(v3(0, 1.15, 0))) < 0.78 + (tgt.hurtBox?.pad ?? 0))) {
+          const { dmg } = computeDamage(e.caster, e.dmg, { canCrit: false });
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: 0, hitstun: e.hitstun, type: 'light',
+            dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, {});
+          m.arena?.splash?.(e.pos.x, e.pos.z, 0.5);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled >= e.range) this.entities.splice(i, 1);
+        continue;
+      }
+      // DAGON — the tidal surge, and the shallow patch it leaves behind.
+      if (e.type === 'tidalSurge') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.03; m.fx.tidalTick?.(e.pos, e.dir, e.width); }
+        m.arena?.splash?.(e.pos.x, e.pos.z, 1.4);
+        const tgt = this.other(e.caster);
+        if (tgt?.alive && !e.dealt
+          && (e.sure || flatDist(e.pos, tgt.pos) < e.width * 0.55 + (tgt.hurtBox?.radius ?? 0.62))) {
+          e.dealt = true;
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'heavy', dir: e.dir.clone(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, { crit, heavy: true });
+          m.cam.shake(0.5);
+        }
+        if (e.travelled >= e.range) {
+          // THE PATCH. A lingering ground zone that slows anyone standing in
+          // it. It is an entity rather than a terrain edit so it expires
+          // cleanly on a round reset with everything else.
+          if (e.patch) {
+            this.entities.push({
+              type: 'waterPatch', caster: e.caster,
+              pos: e.pos.clone().setY(m.arena?.bounds?.floorAt(e.pos.x, e.pos.z, e.pos.y + 1) ?? 0),
+              t: e.patch.duration, radius: e.patch.radius, slow: e.patch.slow, fxT: 0
+            });
+            m.fx.waterPatch?.(e.pos.clone(), e.patch.radius);
+          }
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+      if (e.type === 'waterPatch') {
+        e.t -= dt;
+        e.fxT -= dt;
+        if (e.fxT <= 0) { e.fxT = 0.18; m.fx.waterPatchTick?.(e.pos, e.radius); }
+        for (const f of m.activeFighters) {
+          if (!f.alive) continue;
+          // HE IS IMMUNE TO HIS OWN. A slow character who slowed himself would
+          // simply never press the button.
+          if (f === e.caster) continue;
+          if (!f.grounded) continue;
+          if (flatDist(f.pos, e.pos) > e.radius) continue;
+          // `sleepT`/`sleepMult` is the existing roster-wide slow channel —
+          // Cursed Speech's SLEEP already uses it and `speedMult` already
+          // reads it, so the patch needed no new movement plumbing at all.
+          f.sleepT = Math.max(f.sleepT, 0.15);
+          f.sleepMult = Math.min(f.sleepMult ?? 1, e.slow);
+        }
+        if (e.t <= 0) this.entities.splice(i, 1);
+        continue;
+      }
+      // URO — one closing shell of the SKY COLLAPSE. Each shell fires once, at
+      // its own delay, and damages everything inside its radius.
+      if (e.type === 'skyShell') {
+        e.t -= dt;
+        if (e.t > 0) continue;
+        m.fx.skyShell?.(e.pos.clone(), e.radius);
+        m.cam.shake(0.8);
+        m.arena?.destruct?.damageAt(e.pos.clone().setY(1.2), e.radius * 0.6, 90, { kind: 'body' });
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive || e.dealt.has(f)) continue;
+          if (!e.sure && flatDist(f.pos, e.pos) > e.radius) continue;
+          e.dealt.add(f);
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const down = v3(f.pos.x - e.pos.x, 0, f.pos.z - e.pos.z);
+          if (down.lengthSq() < 1e-5) down.copy(e.caster.forward());
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'knockdown', dir: down.normalize(), sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true, knockdown: true });
+        }
+        this.entities.splice(i, 1);
+        continue;
+      }
       // TODO — RESONANT CLAP: the wall of shock in flight. On arrival it
       // drags the body TOWARD Todo (kb dir points back at him), which is
       // the Vice Grab dinner bell.

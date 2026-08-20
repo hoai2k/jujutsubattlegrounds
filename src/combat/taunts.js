@@ -178,6 +178,32 @@ export const TAUNTS = {
     cue: 'todo', ref: 'The question. The only question Todo has ever asked anyone'
   }],
 
+  // ---- URO — ARROGANT, CASUAL, AND NOT STANDING ON ANYTHING ---------------
+  // Researched personality, not guessed: "Takako enjoys toying with her
+  // enemies and has sadistic tendencies", with pride rooted in having been
+  // sacrificed as a proxy in her original life. So the taunt is not a threat
+  // and not a boast — it is INDIFFERENCE. She hovers, stretches, sets her hair
+  // straight, and only looks at you on the last beat.
+  //
+  // *** THE LINE IS NOT A QUOTE, AND THIS NOTE IS THE POINT. *** The brief
+  // asks for a line "if a suitable one exists in the source; verify it rather
+  // than inventing dialogue." I could not verify a short, self-contained,
+  // in-character line of hers in the available research — her dialogue in the
+  // Sendai Colony fight is conversational and situational rather than
+  // quotable, and nothing of the "Nah, I'd win" or "Know your place" shape
+  // exists for her. So this is WRITTEN, in character, and flagged as written
+  // rather than presented as canon. It is deliberately the least aggressive
+  // line on the roster: she is not telling you she will win, she is telling
+  // you she is not in a hurry.
+  //
+  // The warp flourish is real and is driven from the same `_tauntFlourish`
+  // hook every other character's is (core/match.js) — even her taunt bends
+  // space slightly, which is the one thing about her that never switches off.
+  uro: [{
+    clip: 'taunt', dur: 3.3, say: "Take your time. I'm not going anywhere.", at: 1.62, hold: 1.4,
+    cue: 'uro', ref: 'WRITTEN, NOT QUOTED — see the note above. Built from her researched personality: she toys with people, and the flex is that she does not need the ground'
+  }],
+
   // ---- THE SPIRITS — NO BUBBLES -------------------------------------------
   // Every one of these is a physical taunt: a gesture, a body reaction or an
   // effect on the ground. None of them gets a bubble, and that is the point —
@@ -200,6 +226,26 @@ export const TAUNTS = {
   kurourushi: [{
     clip: 'taunt', dur: 3.3, say: null, cue: 'kurourushi',
     ref: 'Insect business — the mandibles, an antenna groomed with a foreleg, and the swarm answering'
+  }],
+
+  // DAGON — a cursed spirit, so a PHYSICAL taunt and no bubble, exactly like
+  // Jogo, Hanami and Kurourushi. Played entirely against the horror of his
+  // domain rather than with it: something small, calm, and disturbingly
+  // serene.
+  //
+  // He turns and gestures out toward the horizon with an almost WELCOMING
+  // motion — the gesture an usher makes — while a single small shikigami
+  // surfaces beside him and goes back under. Then he holds it, for three
+  // quarters of a second in which nothing at all happens, and lowers his arm
+  // as though none of it occurred.
+  //
+  // The register is the whole thing. Every other spirit's taunt is a display
+  // of what they are (Jogo erupts, Kurourushi grooms an antenna, Hanami grows
+  // something). His is an INVITATION, and it is the only taunt in the game
+  // that is polite.
+  dagon: [{
+    clip: 'taunt', dur: 3.2, say: null, cue: 'dagon',
+    ref: 'The beach. He is not threatening you with the domain — he is offering it to you, which is worse'
   }],
 
   // Not selectable (he is a summon), but he is a Fighter like any other and
@@ -256,6 +302,12 @@ export const TAUNT_WEIGHT = {
   todo: 1.0, naoya: 1.0, kashimo: 0.9, hakari: 0.85, sukuna: 0.8, gojo: 0.75, nobara: 0.7,
   mahito: 0.65, geto: 0.5, jogo: 0.5, yuji: 0.45, choso: 0.4, kurourushi: 0.35,
   toji: 0.3, hanami: 0.3, panda: 0.75, megumi: 0.25, yuta: 0.2, mahoraga: 0.2,
+  // URO is high — toying with people is the researched personality, and a CPU
+  // that never showed off would be playing somebody else. DAGON is the lowest
+  // number in the table: the taunt only works if it is rare, and a spirit who
+  // invited you to the beach every fifteen seconds would be a running joke
+  // rather than an unsettling one.
+  uro: 0.85, dagon: 0.12,
   nanami: 0.1, higuruma: 0.1,
   // Rare on purpose. The joke does not survive repetition, and a CPU that
   // said "salmon" every ten seconds would kill the one gag this character has.
