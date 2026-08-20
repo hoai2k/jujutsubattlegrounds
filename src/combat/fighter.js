@@ -443,6 +443,14 @@ export class Fighter {
     // and stamina drain, so it lives on the victim rather than on the attacker.
     this.melt = null;            // {t, chip, stamina}
 
+    // URO'S DOMAIN — the rotation applied to this fighter's MOVEMENT stick, in
+    // radians. Written by domains/domains.js while THE WARPED FIRMAMENT holds
+    // and read by `_moveVec`. It is declared here rather than left implicit
+    // because a stale twist is the one way this mechanic could follow someone
+    // out of the barrier, and a field that is always a number is much harder
+    // to leave stale than one that is sometimes undefined.
+    this.coordTwist = 0;
+
     // ---- choso ---------------------------------------------------------
     // BLOOD. The second resource: it fills as he DEALS damage and as he TAKES
     // it, and every technique he owns spends it on top of cursed energy. Round
@@ -821,6 +829,7 @@ export class Fighter {
     this.growthStage = 0;
     this.growthHpBonus = 0;
     this.melt = null;
+    this.coordTwist = 0;         // never survives a round boundary
     this._mawT = 0;
     this._wingT = 0;
     this.model.setGrowth?.(1);
@@ -1388,7 +1397,17 @@ export class Fighter {
     }
 
     const wasCharged = this.charged; // must be read BEFORE the cost is paid
-    if (!this.spendCE(def.cost)) { this.emit('noCE'); return false; }
+    // ---- URO: TOTAL ENVIRONMENTAL CONTROL --------------------------------
+    // Inside her own domain she shapes the sky "without needing to make direct
+    // physical contact with her hands", and what that buys is COST and
+    // COMMITMENT: her techniques are free and their wind-up collapses. Same
+    // shape as Megumi's garden (`startShikigami` above), read off the same
+    // `isMyDomain` test, and gated on `cfg.domain.control` so it can only ever
+    // apply to a character who declares it — which is her and nobody else.
+    const ctrl = ctx?.domains?.isMyDomain?.(this) ? this.cfg.domain?.control : null;
+    if (!this.spendCE(Math.round(def.cost * (ctrl?.techCostMult ?? 1)))) {
+      this.emit('noCE'); return false;
+    }
     // Blood is committed on the PRESS, unlike Essence: his techniques all
     // produce their blood on the way out, so an interrupted Blood Edge has
     // already cost him the material. (Essence is committed on the activation
@@ -1397,6 +1416,13 @@ export class Fighter {
     // Gojo charged: casting Blue opens the Hollow Purple window
     if (this.cfg.id === 'gojo' && slot === 'ct2' && wasCharged) this.purpleWindow = this.cfg.purple.windowFrames;
     const move = { ...def, kind: 'ct', slot, isCT: true };
+    // ...and the other half of TOTAL ENVIRONMENTAL CONTROL: the wind-up. Only
+    // `startup` is scaled, never `active` or `recovery` — she casts without
+    // the gesture, she does not get to cancel out of what she cast. A floor of
+    // 4 frames keeps the move from becoming literally unreactable.
+    if (ctrl?.techStartupMult != null) {
+      move.startup = Math.max(4, Math.round(move.startup * ctrl.techStartupMult));
+    }
     // SUKUNA — FINGER STACKS shorten technique startup. Applied HERE rather
     // than in the effect dispatcher because startup is consumed by the state
     // machine long before any effect fires; the damage and range halves of the
@@ -4576,7 +4602,20 @@ export class Fighter {
   // up is "away from the camera", and _faceOpponent turns the fighter to match.
   // Without this the two halves disagree and unlocked movement is unusable.
   _moveVec(move, camYaw) {
-    const yaw = this.lockOn || camYaw == null ? this.facing : camYaw;
+    // ---- URO'S DOMAIN: THE COORDINATES ARE ROTATED ------------------------
+    // `coordTwist` is written every tick by domains/domains.js while THE
+    // WARPED FIRMAMENT holds, and cleared to 0 on collapse for every fighter.
+    // Adding it to the yaw here — and ONLY here — is what makes it a
+    // disorientation rather than a handicap: this function converts the stick
+    // into a world direction and nothing else. Facing, aim, technique
+    // direction and the camera all read `this.facing` directly and are
+    // untouched, so the trapped fighter still attacks exactly where they are
+    // looking. What has moved is the ground under the stick.
+    //
+    // Zero for everyone who is not in that domain, which is everyone, almost
+    // always — so this is one addition of 0 on the common path.
+    const twist = this.coordTwist ?? 0;
+    const yaw = (this.lockOn || camYaw == null ? this.facing : camYaw) + twist;
     const sin = Math.sin(yaw), cos = Math.cos(yaw);
     const fwd = -move.z;     // stick up (-z) = advance
     const strafe = move.x;   // stick right = strafe to the fighter's right

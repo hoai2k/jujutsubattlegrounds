@@ -1781,8 +1781,17 @@ export class CPU {
         else if (flier) {
           // she wants 5-10 m and altitude. `backoff` and `strafe` do the
           // drifting; `ct` is Thin Ice Breaker, which is her whole neutral.
-          const low = me.res.stamina < me.cfg.stats.stamina * 0.25;
-          if (low && !me.grounded) this.plan = 'backoff';       // come down and breathe
+          // ---- INSIDE HER OWN FIRMAMENT ------------------------------------
+          // Everything the neutral profile is built around stops applying: the
+          // hover is free, the techniques are free, and the sure-hit is doing
+          // the damage on its own. So the bot stops managing a stamina bar it
+          // is no longer spending and simply holds altitude and throws — which
+          // is also the correct read, because coming down inside her own
+          // domain is the only way she can lose it.
+          const myDomain = !!this.match.domains?.isMyDomain?.(me);
+          const low = !myDomain && me.res.stamina < me.cfg.stats.stamina * 0.25;
+          if (myDomain) this.plan = r < 0.50 ? 'ct' : r < 0.80 ? 'strafe' : 'backoff';
+          else if (low && !me.grounded) this.plan = 'backoff';  // come down and breathe
           else if (dist > 9) this.plan = r < 0.55 ? 'ct' : 'strafe';
           else if (dist > 4.5) this.plan = r < 0.45 ? 'ct' : r < 0.75 ? 'strafe' : 'backoff';
           else if (dist > 2.4) this.plan = r < 0.30 ? 'ct' : r < 0.72 ? 'backoff' : 'strafe';

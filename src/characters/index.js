@@ -184,7 +184,7 @@ export const ROSTER = {
   //
   // Not badged `spirit`: she is a Heian-era human sorcerer, incarnated into a
   // body for the Culling Game. Same ruling Geto and Choso already get.
-  uro: { config: URO, buildModel: buildUro, jp: '烏鷺亨子', accent: 0xcfe8f5, role: 'SKY MANIPULATION · THE REFLECTOR' },
+  uro: { config: URO, buildModel: buildUro, jp: '烏鷺亨子', accent: 0xcfe8f5, role: 'SKY MANIPULATION · FLIGHT · DOMAIN' },
   // THE DOMAIN SUMMONER — the first character in the game whose domain is a
   // SPAWNER rather than a damage tick or a lockdown, and the only one who is
   // deliberately weak until he casts it. Badged `spirit`: he is a special

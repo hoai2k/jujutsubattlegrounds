@@ -938,8 +938,18 @@ export class Sfx {
   }
 
   // ---- domains ------------------------------------------------------------
-  domainCast() {
+  domainCast(id) {
     this.ensure(); if (!this.ctx) return;
+    // URO — the cast RISES instead of falling. Every other domain in the game
+    // descends on you; hers opens above you, so the two sweeps invert and a
+    // reversed tail arrives BEFORE the barrier does. Same trick her warps use.
+    if (id === 'uro') {
+      this._osc('sine', 42, { to: 128, dur: 1.7, gain: 0.5 });
+      this._detuned(196, { to: 392, dur: 1.5, gain: 0.10, type: 'triangle', cents: 21 });
+      this._noise({ dur: 1.5, gain: 0.16, freq: 90, slideTo: 2600, q: 0.6, type: 'bandpass' });
+      this._reverseTail(1.1, 0.20);
+      return;
+    }
     this._osc('sine', 55, { to: 30, dur: 1.6, gain: 0.6 });
     this._osc('triangle', 220, { to: 110, dur: 1.4, gain: 0.14 });
     this._osc('triangle', 227, { to: 113, dur: 1.4, gain: 0.12 });
@@ -949,8 +959,11 @@ export class Sfx {
     this.ensure(); if (!this.ctx) return;
     this._noise({ dur: 0.8, gain: 0.4, freq: 4000, slideTo: 200, q: 0.4 });
     this._osc('sine', 40, { to: 28, dur: 1.4, gain: 0.7 });
-    // the shrine sits lowest of all of them — it is the biggest thing in the game
-    this.startDrone(env === 'void' ? 36 : env === 'shrine' ? 30 : 52);
+    // the shrine sits lowest of all of them — it is the biggest thing in the game.
+    // URO'S FIRMAMENT SITS HIGHEST, and is the only one above the others: it is
+    // an open sky rather than a weight overhead, and a 52 Hz rumble under it
+    // would say "underground" when the whole interior says the opposite.
+    this.startDrone(env === 'void' ? 36 : env === 'shrine' ? 30 : env === 'firmament' ? 96 : 52);
   }
   startDrone(freq = 36) {
     this.stopDrone();

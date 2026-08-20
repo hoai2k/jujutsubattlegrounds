@@ -133,7 +133,7 @@ export const EFFECT_SRC = {
   // — what comes back off it is the ORIGINAL technique with its ORIGINAL
   // `src` intact, which is the correct ruling: Mahoraga hit by his own
   // reflected wheel slash should feed the wheel-slash bucket.
-  uro_thin_ice: 'ct1', uro_warp_strike: 'ct2', uro_sky_collapse: 'ultimate',
+  uro_thin_ice: 'ct1', uro_warp_strike: 'ct2',
   uro_reflect: null,
   // DAGON — the VOLLEY genuinely flies, so it is the roster's second
   // `projectile` alongside Jogo's embers. TIDAL SLAM is a surge on its slot.
@@ -3571,36 +3571,6 @@ export class Effects {
         break;
       }
 
-      // ---- D-PAD RIGHT · SKY COLLAPSE 天蓋崩落 ------------------------------
-      // *** ORIGINAL, NOT RESEARCHED. *** She has a Domain Expansion in canon
-      // whose name, interior and sure-hit are all unknown — see the research
-      // note at the top of characters/uro.js. This is the brief's stated
-      // fallback and it is built as one: she takes hold of the sky and pulls
-      // it down on the arena.
-      //
-      // Three closing shells rather than one blast, so the damage arrives in a
-      // shape the player can see coming down at them.
-      case 'uro_sky_collapse': {
-        const u = caster.cfg.ultimate;
-        const centre = caster.pos.clone();
-        m.warpfx?.skyCollapse(centre, { radius: u.radius, life: (u.bendTime ?? 1.9) });
-        m.sfx.skyCollapse?.();
-        m.stage.flash(0.62);
-        m.cam.shake(1.5); m.cam.fovKick(16);
-        m.hitstop(14);
-        m.slowmo?.(0.5, 0.45);
-        for (let k = 0; k < (u.rings ?? 3); k++) {
-          this.entities.push({
-            type: 'skyShell', caster, sure,
-            pos: centre.clone(), t: k * (u.ringGap ?? 0.34),
-            radius: u.radius * (1 - k * 0.22),
-            dmg: (u.dmg ?? 62) * mult / (u.rings ?? 3),
-            kb: u.kb ?? 9, kbY: u.kbY ?? 5, hitstun: u.hitstun ?? 48,
-            hitOpts, dealt: new Set()
-          });
-        }
-        break;
-      }
 
       // =====================================================================
       // DAGON — HORIZON OF THE CAPTIVATING SKANDHA
@@ -4088,30 +4058,6 @@ export class Effects {
           f.sleepMult = Math.min(f.sleepMult ?? 1, e.slow);
         }
         if (e.t <= 0) this.entities.splice(i, 1);
-        continue;
-      }
-      // URO — one closing shell of the SKY COLLAPSE. Each shell fires once, at
-      // its own delay, and damages everything inside its radius.
-      if (e.type === 'skyShell') {
-        e.t -= dt;
-        if (e.t > 0) continue;
-        m.fx.skyShell?.(e.pos.clone(), e.radius);
-        m.cam.shake(0.8);
-        m.arena?.destruct?.damageAt(e.pos.clone().setY(1.2), e.radius * 0.6, 90, { kind: 'body' });
-        for (const f of m.activeFighters) {
-          if (f === e.caster || !f.alive || e.dealt.has(f)) continue;
-          if (!e.sure && flatDist(f.pos, e.pos) > e.radius) continue;
-          e.dealt.add(f);
-          const { dmg, crit } = computeDamage(e.caster, e.dmg);
-          const down = v3(f.pos.x - e.pos.x, 0, f.pos.z - e.pos.z);
-          if (down.lengthSq() < 1e-5) down.copy(e.caster.forward());
-          const r = f.applyHit({
-            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
-            type: 'knockdown', dir: down.normalize(), sureHit: e.sure
-          }, m.ctxFor(e.caster));
-          hitFeedback(m, e.caster, f, r, { crit, heavy: true, knockdown: true });
-        }
-        this.entities.splice(i, 1);
         continue;
       }
       // TODO — RESONANT CLAP: the wall of shock in flight. On arrival it

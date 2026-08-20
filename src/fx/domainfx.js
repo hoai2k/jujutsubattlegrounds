@@ -7,7 +7,7 @@ import { makeGlowMat } from '../arena/arena.js';
 import { toonMaterial } from '../art/shaders/toon.js';
 import { rand, v3 } from '../core/mathutil.js';
 
-const ENV_COLOR = { void: 0x4f7fff, swordfield: 0x8fe8b0, volcano: 0xff6a2f, flesh: 0x9fb0bd, shadow: 0x8fb6d8, pachinko: 0xffc93c, courtroom: 0xd8c78a, shrine: 0xff2f45, shoreline: 0x7fd8c8 };
+const ENV_COLOR = { void: 0x4f7fff, swordfield: 0x8fe8b0, volcano: 0xff6a2f, flesh: 0x9fb0bd, shadow: 0x8fb6d8, pachinko: 0xffc93c, courtroom: 0xd8c78a, shrine: 0xff2f45, shoreline: 0x7fd8c8, firmament: 0xa9d6ee };
 const CONTACT_Y = 2.9;   // height of the clash contact point, above both heads
 
 export class DomainFX {
@@ -67,6 +67,7 @@ export class DomainFX {
     else if (kind === 'pachinko') this._buildPachinko(g);
     else if (kind === 'courtroom') this._buildCourtroom(g);
     else if (kind === 'shoreline') this._buildShoreline(g, caster);
+    else if (kind === 'firmament') this._buildFirmament(g, caster);
     else this._buildSwordField(g, caster);
     // A domain replaces the level, so it inherits the level's rule: anything
     // standing between an eye and the fighter it follows dissolves rather than
@@ -582,6 +583,124 @@ export class DomainFX {
     halo.position.y = 24;
     halo.rotation.x = Math.PI / 2;
     g.add(halo);
+  }
+
+  // ---- URO: THE WARPED FIRMAMENT 天蓋歪曲界 -------------------------------
+  // The inside of a sky that has been taken apart and put back wrong.
+  //
+  // THE ONE RULE THIS INTERIOR IS BUILT ON: it must SHOW THE ROTATION. The
+  // domain turns the coordinates of the space the trapped fighter is standing
+  // in (domains/domains.js, `warped_firmament`), and a control effect the
+  // player cannot see coming is indistinguishable from a broken controller.
+  // So every horizon in here lives under `twist`, and `setFirmamentTwist`
+  // turns that group to exactly the angle the stick is about to be turned by.
+  // The world leans, and then the ground goes with it — in that order, because
+  // `easeTime` is 0.7 s and the lean is the tell.
+  //
+  // Everything else follows from "up and down do not agree":
+  //   · the floor is SKY, not ground — the same cloud deck as overhead, so
+  //     there is no visual cue for which way is down except your own feet
+  //   · SIX horizon rings at six different tilts, none of them level, so no
+  //     single one of them can be read as the true horizon
+  //   · cloud banks at contradictory angles
+  //   · thin-ice shards hanging in the air, which is where the sure-hit comes
+  //     from and which pre-announce the technique before it ever fires
+  _buildFirmament(g, caster) {
+    // MEASURED AND RETUNED. The first version of this palette was built around
+    // 0xbcd6ea / 0xdcebf6 and rendered as an almost uniform white sheet: with
+    // bloom on top of a +0.075 grade lift, every ring, cloud and shard in here
+    // was invisible and the interior had no depth at all. Deepened across the
+    // board, and the grade's lift cut with it (core/stage.js). It still reads
+    // as an overexposed sky; it now also reads as having things IN it.
+    this.scene.background = new THREE.Color(0x84acd0);
+    const PALE = 0xc6dcec, DEEP = 0x3f6a95, ICE = 0x7ab8dd;
+
+    // THE TWIST GROUP. Everything whose orientation is a lie goes in here.
+    const twist = this.firmamentTwist = new THREE.Group();
+    g.add(twist);
+
+    // ---- the floor, which is sky ------------------------------------------
+    // Not a mirror and deliberately not: a true reflection gives the eye a
+    // symmetry to lock onto, and the point is that there is nothing to lock
+    // onto. It is simply another cloud deck, lit the same, facing up.
+    const deck = new THREE.Mesh(new THREE.CircleGeometry(15, 56),
+      new THREE.MeshBasicMaterial({ color: 0x9dc0dc, transparent: true, opacity: 0.62 }));
+    deck.rotation.x = -Math.PI / 2;
+    g.add(deck);
+    // a faint grid on it — the COORDINATES, drawn. It is the only straight
+    // reference in the interior, and it is the thing that visibly turns.
+    const grid = new THREE.GridHelper(30, 24, DEEP, DEEP);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.62;
+    grid.material.depthWrite = false;
+    grid.position.y = 0.02;
+    twist.add(grid);
+
+    // ---- six horizons, none of them level ---------------------------------
+    this.firmamentRings = [];
+    for (let i = 0; i < 6; i++) {
+      // pulled IN from 34-69 m to 20-45 m: at the old radii they were outside
+      // the camera's useful range and contributed nothing but a faint smear
+      const r = 20 + i * 5;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.16 + i * 0.04, 6, 96),
+        makeGlowMat(i % 2 ? ICE : DEEP, 0.85 - i * 0.07));
+      ring.rotation.x = Math.PI / 2 + rand(-0.42, 0.42);
+      ring.rotation.z = rand(-0.42, 0.42);
+      ring.position.y = rand(-9, 13);
+      this.firmamentRings.push({ mesh: ring, sp: rand(-0.13, 0.13), tilt: rand(-0.3, 0.3) });
+      twist.add(ring);
+    }
+
+    // ---- cloud banks at contradictory angles ------------------------------
+    this.firmamentClouds = [];
+    for (let i = 0; i < 22; i++) {
+      const w = rand(7, 19), h = rand(3.5, 9);
+      const c = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({
+          color: i % 3 ? PALE : ICE, transparent: true,
+          opacity: rand(0.38, 0.72), depthWrite: false, side: THREE.DoubleSide
+        }));
+      const a = rand(0, Math.PI * 2), rr = rand(14, 40);
+      c.position.set(Math.sin(a) * rr, rand(-16, 26), Math.cos(a) * rr);
+      c.rotation.set(rand(-1.2, 1.2), a + rand(-0.8, 0.8), rand(-1.2, 1.2));
+      this.firmamentClouds.push({ mesh: c, sp: rand(0.02, 0.11), a, rr });
+      twist.add(c);
+    }
+
+    // ---- the thin ice, hanging ---------------------------------------------
+    // Shards of already-broken space, drifting. They are the domain telling
+    // you what its sure-hit is before it uses it.
+    this.firmamentShards = [];
+    for (let i = 0; i < 34; i++) {
+      const s = rand(0.5, 2.3);
+      const sh = new THREE.Mesh(new THREE.PlaneGeometry(s, s * rand(0.5, 1.5)),
+        new THREE.MeshBasicMaterial({
+          color: ICE, transparent: true, opacity: rand(0.45, 0.85),
+          depthWrite: false, side: THREE.DoubleSide
+        }));
+      const a = rand(0, Math.PI * 2), rr = rand(4, 17);
+      sh.position.set(Math.sin(a) * rr, rand(0.6, 13), Math.cos(a) * rr);
+      sh.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
+      this.firmamentShards.push({
+        mesh: sh, rx: rand(-0.5, 0.5), ry: rand(-0.5, 0.5),
+        bob: rand(0.3, 0.9), ph: rand(0, 6.3), y0: sh.position.y
+      });
+      twist.add(sh);
+    }
+
+    // a cold sun directly overhead, with no warmth in it at all
+    const sun = new THREE.Mesh(new THREE.CircleGeometry(6, 40), makeGlowMat(0xf2fbff, 0.22));
+    sun.position.y = 30;
+    sun.rotation.x = Math.PI / 2;
+    g.add(sun);
+  }
+
+  // Called every tick by domains/domains.js with the CURRENT coordinate angle.
+  // The interior leads the stick: the same number that will rotate the trapped
+  // fighter's movement is applied here first, and `easeTime` is what turns that
+  // into a warning rather than a simultaneity.
+  setFirmamentTwist(angle) {
+    if (this.firmamentTwist) this.firmamentTwist.rotation.y = angle;
   }
 
   _buildSwordField(g, caster) {
@@ -1460,6 +1579,13 @@ export class DomainFX {
     }
     if (this.envKind === 'swordfield') this.fx.rikaManifest(false);
     this.envKind = null;
+    // URO — dropped with the group above. `firmamentTwist` is nulled with the
+    // rest so a later `setFirmamentTwist(0)` from the domain's collapse path
+    // cannot touch a group that is no longer in the scene.
+    this.firmamentTwist = null;
+    this.firmamentRings = null;
+    this.firmamentClouds = null;
+    this.firmamentShards = null;
     this.open = false;
     this.ash = null;
     this.soot = null;
@@ -1509,6 +1635,28 @@ export class DomainFX {
         pos.array[i * 3 + 2] = Math.cos(m.a) * m.r;
       }
       pos.needsUpdate = true;
+    }
+    if (this.envKind === 'firmament') {
+      // Nothing in here holds still and nothing in here agrees. The rings
+      // counter-rotate at their own rates so no two of them ever line up, the
+      // clouds drift on their own arcs, and the shards tumble and bob.
+      // All of it is UNDER the twist group, so `setFirmamentTwist` turns the
+      // whole disagreeing mess at once.
+      for (const r of this.firmamentRings || []) {
+        r.mesh.rotation.z += r.sp * dt;
+        r.mesh.rotation.x += r.tilt * dt * 0.18;
+      }
+      for (const c of this.firmamentClouds || []) {
+        c.a += c.sp * dt;
+        c.mesh.position.x = Math.sin(c.a) * c.rr;
+        c.mesh.position.z = Math.cos(c.a) * c.rr;
+        c.mesh.rotation.y += c.sp * dt * 0.5;
+      }
+      for (const s of this.firmamentShards || []) {
+        s.mesh.rotation.x += s.rx * dt;
+        s.mesh.rotation.y += s.ry * dt;
+        s.mesh.position.y = s.y0 + Math.sin(this.t * s.bob + s.ph) * 0.5;
+      }
     }
     if (this.envKind === 'volcano') {
       // ash falls, embers rise; both wrap vertically

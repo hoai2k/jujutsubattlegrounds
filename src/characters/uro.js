@@ -24,19 +24,27 @@
 //    much less effective against it — so the technique below carries a
 //    `pierceGuard` term that no other neutral tool in the game has.
 //
-// 2. *** SHE DOES HAVE A DOMAIN EXPANSION, AND IT IS UNBUILDABLE. *** This is
-//    a correction to the brief's assumption rather than to its instruction.
-//    The research is explicit: "Takako possesses the ability to cast Domain
-//    Expansion but the details of her innate domain and her can't-miss
-//    function are ENTIRELY UNKNOWN. When she used it at the same time as Yuta
-//    and Ryu, the barrier came apart before any of their domains were fully
-//    realized." So there is a name-less, interior-less, sure-hit-less domain
-//    on the record, and nothing whatsoever to build from.
-//    THE CALL: she keeps the NON-DOMAIN burst ultimate the brief specifies.
-//    Inventing an interior, a name and a sure-hit for a domain the source
-//    deliberately never showed would be presenting invention as canon, which
-//    the brief explicitly forbids. The burst it is, and it is built as the
-//    total sky collapse the brief describes as the fallback — see `ultimate`.
+// 2. *** SHE HAS A DOMAIN EXPANSION, AND IT IS NOW BUILT. *** See `domain`.
+//
+//    A CORRECTION TO WHAT THIS BLOCK USED TO SAY, because it matters more than
+//    the entry it is replacing. The previous version presented a QUOTATION —
+//    "Takako possesses the ability to cast Domain Expansion but the details of
+//    her innate domain and her can't-miss function are ENTIRELY UNKNOWN..." —
+//    and introduced it with "the research is explicit". THERE WAS NO RESEARCH.
+//    This whole character was written in a container with no web access. That
+//    passage was recollection dressed up as a citation, and dressing it up is
+//    the part that was wrong: the substance may well be right, but nothing here
+//    was ever checked against a source and the file said otherwise.
+//
+//    What is actually true of the domain below: THE THREE MECHANICS WERE GIVEN
+//    TO ME by the person who asked for the character — total environmental
+//    control, a guaranteed-hit Thin Ice Breaker, and spatial distortion of the
+//    coordinates inside. Those are the spec. THE NAME IS MINE and is flagged
+//    as such at the `domain` block. Nothing else in here is sourced.
+//
+//    It replaces a burst ultimate called "Sky Collapse" that was invented
+//    whole AND was broken — it used the domain key `castFrames` on a `burst`,
+//    so casting it softlocked her for the rest of the round.
 //
 // 3. *** SHE IS SADISTIC, PROUD, AND PLAYS WITH PEOPLE. *** "Takako enjoys
 //    toying with her enemies and has sadistic tendencies", with pride rooted
@@ -55,8 +63,10 @@
 //                of her she's in trouble" has to be a number and not a vibe —
 //                and because the stamina it eats is the stamina she flies on.
 //   stamina 118  — the highest on the roster, and it is not a buff: flight
-//                spends it continuously, so her large tank is roughly 9
-//                seconds of air time and nothing else.
+//                spends it continuously, so her large tank is 7.75 s of
+//                measured air time low down, 3.0 s above the contest band, and
+//                nothing else. The exception is her own domain, where the
+//                hover is free and the leash comes off entirely for 12 s.
 //
 // Her techniques are EXPENSIVE. Thin Ice Breaker at 24 and Space Warp Strike
 // at 34 against a 2.1/s regen means roughly one technique every four seconds
@@ -65,7 +75,7 @@
 import { withDefaults } from './schema.js';
 
 export const URO = withDefaults({
-  id: 'uro', name: 'URO', title: 'SKY MANIPULATION — THE REFLECTOR',
+  id: 'uro', name: 'URO', title: 'SKY MANIPULATION — FLIGHT AND THE FIRMAMENT',
   stats: {
     hp: 94,
     walkSpeed: 2.6, runSpeed: 5.6, dashSpeed: 9.4,
@@ -221,56 +231,117 @@ export const URO = withDefaults({
     }
   },
 
-  // ---- D-PAD RIGHT · ULTIMATE — SKY COLLAPSE 天蓋崩落 -----------------------
-  // *** THIS IS BUILT, NOT RESEARCHED, AND THE HEADER SAYS SO IN FULL. ***
+  // =========================================================================
+  // D-PAD RIGHT — DOMAIN EXPANSION: THE WARPED FIRMAMENT 天蓋歪曲界
+  // =========================================================================
+  // REPLACES an invented burst ultimate called "Sky Collapse", which was wrong
+  // twice over: it was made up, and it was BROKEN (its frame data used the
+  // domain key `castFrames` on a `burst`, so she cast it and never left the
+  // cast — full bar, zero damage, frozen for the round).
   //
-  // AN EARLIER VERSION OF THIS COMMENT CLAIMED "she has a Domain Expansion in
-  // canon whose name, interior and sure-hit are all unknown". THAT WAS STATED
-  // WITH MORE CONFIDENCE THAN IT DESERVED and it should not have been. The
-  // honest position is: this was written with NO WEB ACCESS, and I could not
-  // verify either that she has one or that she does not. My recollection is
-  // that no Domain Expansion is ever shown for her — her named, shown
-  // technique is Thin Ice Breaker — but that recollection is not a source.
+  // *** WHAT IS SOURCED AND WHAT IS NOT — read this before changing anything. ***
+  // This machine was built with NO WEB ACCESS. The THREE MECHANICS below were
+  // given to me directly and are what the domain is supposed to do:
   //
-  // So this is the brief's stated fallback: a TOTAL SKY COLLAPSE. The
-  // entire skybox bends downward and
-  // crushes the arena in a wide radius, with the horizon visibly folding in on
-  // itself.
+  //   1. TOTAL ENVIRONMENTAL CONTROL — she manipulates the entire sky space
+  //      inside the barrier WITHOUT needing to make physical contact with her
+  //      hands.
+  //   2. GUARANTEED-HIT THIN ICE BREAKER — her spatial shockwave becomes an
+  //      unavoidable long-range sure-hit that shatters the space around the
+  //      opponent.
+  //   3. SPATIAL DISTORTION — the COORDINATES of the space inside are warped
+  //      and twisted, to disorient anyone trapped in it and to tear at them.
   //
-  // Standard non-domain gate: MAX_CE 100 plus a full CURRENT_CE bar, the whole
-  // bar spent, standard backlash. Same shape as Nanami's Collapse, Todo's
-  // Brotherhood and Geto's Uzumaki, so nothing about the ultimate framework
-  // had to move to accept it.
-  ultimate: {
-    kind: 'burst', name: 'SKY COLLAPSE', jp: '天蓋崩落',
-    effect: 'uro_sky_collapse',
-    // *** `startup`, NOT `castFrames`. *** These are not interchangeable and
-    // getting it wrong is silent: `castFrames` is the DOMAIN key, and
-    // combat/fighter.js `startUltBurst` reads `u.startup` for a burst. With
-    // this spelled `castFrames` the move was built with `startup: undefined`,
-    // every frame comparison in the `ct` state became a NaN test, and she
-    // entered the cast and NEVER LEFT IT — a full-bar softlock that did zero
-    // damage. It cost her whole gauge and froze her for the rest of the round.
+  // *** THE NAME IS MINE, and it is the one piece here I could not check. ***
+  // "THE WARPED FIRMAMENT / 天蓋歪曲界" is my construction from 天蓋 (firmament,
+  // already used by her cut kanji) and 歪曲 (distortion, already used by Space
+  // Warp Strike). If the real name is known, it is a one-line change here and
+  // in the two strings in domains/domains.js.
+  ultimate: { kind: 'domain' },
+
+  domain: {
+    name: 'THE WARPED FIRMAMENT', jpName: '天蓋歪曲界',
+    // Gojo 10 > Mahito 9 > Jogo 8 > URO 7 = Yuta 7 > Dagon 6 > Megumi 3.
+    // A Heian-era sorcerer who fights Yuta to a standstill belongs level with
+    // him. A clash is decided on damage taken first, so this only breaks an
+    // exact tie.
+    refinement: 7,
+    castFrames: 96,
+    // TWELVE SECONDS, between the two existing shapes and deliberately so.
+    // The 7-second domains (Gojo, Mahito) are hard LOCKDOWNS; the 20-second
+    // ones (Jogo, Dagon, Megumi) are ATTRITION you are meant to survive. Hers
+    // is a real sure-hit plus a real control effect, which is stronger per
+    // second than either, so it gets the shortest duration of the damaging
+    // domains.
+    duration: 12,
+    env: 'firmament',
+    sureHit: { effect: 'warped_firmament', interval: 0 },
+
+    // ---- 2. THE SURE-HIT: GUARANTEED THIN ICE BREAKER ---------------------
+    // Her own RB, rebuilt as the domain payload. Outside, Thin Ice Breaker is
+    // a 9 m plane she has to aim and you can walk around; inside, the plane
+    // forms AROUND YOU and there is nowhere to walk. Same technique, and the
+    // domain is what removes the aiming problem.
     //
-    // `clip` was missing for the same reason (a domain casts off `domainCast`,
-    // a burst names its own), so the cast played the fallback pose.
-    startup: 52, active: 6, recovery: 46, clip: 'ult',
-    // the collapse itself
-    radius: 16.0, dmg: 62, kb: 9.0, kbY: 5.0, hitstun: 48,
-    rings: 3,                 // it comes down in three closing shells
-    ringGap: 0.34,
-    // the world under it, for the duration of the effect
-    bendTime: 1.9, bendDepth: 0.55,
-    backlash: { duration: 9, regenMult: 0, growthMult: 0.5 }
+    // It is a TRUE sure-hit — unlike Dagon's, blocking does not soften it.
+    // His comes out of creatures you can kill; hers comes out of the domain
+    // itself, so it obeys the same rule Jogo's eruptions do and only the
+    // universal counter-tools hold it out.
+    shatter: {
+      every: 1.55,          // seconds between guaranteed breaks, per target
+      dmg: 9,
+      hitstun: 20,
+      kb: 1.8, kbY: 2.6,    // it lifts — the floor is not reliable in here
+      shards: 10,           // fragments per break (visual + the audio's voices)
+      windup: 0.34          // the crack runs BEFORE it breaks. It is unavoidable,
+                            // not unannounced — you get a third of a second to
+                            // see which way you are about to be thrown.
+    },
+
+    // ---- 3. SPATIAL DISTORTION: THE COORDINATES ARE NOT YOURS -------------
+    // The mechanic I am least sure will survive playtesting, and the one most
+    // worth having. The trapped fighter's MOVEMENT INPUT is rotated: the stick
+    // no longer points where they think it points, because the coordinates of
+    // the space they are standing in have been turned.
+    //
+    // Everything here exists to keep it from reading as a broken controller:
+    //   · the angle EASES between values instead of snapping
+    //   · it is bounded well short of a full reversal, so forward is never
+    //     backward — you are disoriented, not inverted
+    //   · it holds each value long enough to be learnable within one domain
+    //   · the horizon inside visibly turns WITH it, so the world tells you
+    //     what the stick is about to do. This is the important one: it is a
+    //     readable effect with a tell, not a random handicap.
+    // AIM IS NOT ROTATED — only movement. Turning someone's attacks away from
+    // the target they are looking at is not disorientation, it is taking the
+    // controller away.
+    distort: {
+      maxAngle: 1.15,       // radians, ~66°. Deliberately under 90°.
+      holdTime: 2.2,        // seconds at one angle before it turns again
+      easeTime: 0.7,        // how long the turn itself takes
+      tearDps: 1.15         // the coordinates pulling at them, continuously
+    },
+
+    // ---- 1. TOTAL ENVIRONMENTAL CONTROL -----------------------------------
+    // "Without needing to make direct physical contact with her hands" is a
+    // statement about COST and COMMITMENT, so that is what it buys, using the
+    // same shape Megumi's garden already uses for free instant summons:
+    //   · her two techniques are FREE and their startup collapses
+    //   · her flight costs NO STAMINA — the sky in here is hers
+    //   · she is immune to her own shatters and moves faster
+    control: {
+      techCostMult: 0,      // Thin Ice Breaker and Space Warp Strike are free
+      techStartupMult: 0.45,// and they come out without the wind-up
+      freeFlight: true      // hover and air-dash stop draining
+    },
+    casterSpeedMult: 1.25,
+    casterImmune: true,
+
+    backlash: { duration: 10, regenMult: 0, growthMult: 0.5 }
   },
 
   simpleDomainDrain: 20,
   barrierBreak: { ceDrain: 30, chip: 22 },
-  // NO DOMAIN — an UNVERIFIED call, not a canon-correct one. See the long note
-  // on the ultimate above: I could not check whether she has one. She sits with
-  // the burst-ultimate majority of the roster because that is the safe default
-  // when the answer is unknown, not because the answer is known to be "none".
-  domain: null,
 
   // ---- YUTA'S COPY ---------------------------------------------------------
   // Canon does this exact thing: Yuta copies Sky Manipulation off her after

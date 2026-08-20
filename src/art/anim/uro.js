@@ -327,23 +327,38 @@ export const URO_CLIPS = {
     ]
   },
 
-  // ---- D-PAD RIGHT · SKY COLLAPSE -----------------------------------------
-  // Both arms go up, wide, palms open to the sky — she TAKES HOLD of it — and
-  // then she closes her hands and pulls down, and her whole body comes down
-  // with them. The longest, slowest, most committed thing she does.
-  ult: {
-    dur: 2.40, loop: false, keys: [
+  // ---- D-PAD RIGHT · DOMAIN EXPANSION: THE WARPED FIRMAMENT ---------------
+  // REPLACES the pull-down cast that belonged to the cut "Sky Collapse" burst.
+  // That one ended with her almost on the floor, which was the right shape for
+  // bringing a sky down and the wrong shape entirely for this: a domain cast
+  // ends OPEN, in the pose the barrier resolves around, and she in particular
+  // should never finish an ultimate on the ground.
+  //
+  // The gesture is a TURN, not a pull, because that is what the domain does —
+  // it rotates the coordinates of the space inside it.
+  //
+  //   0.00-0.55  both arms rise wide and slow, palms up, and she rises with
+  //              them (Hips_pos climbs the whole way and never comes back
+  //              down — she casts this in the air, off the floor).
+  //   0.55-0.95  the hands close. The only place in her whole set they do.
+  //   0.95-1.45  THE TURN. Hips, spine and chest counter-rotate against the
+  //              arms — the body says the world moved, not her. This is the
+  //              beat the interior's twist is built to echo.
+  //   1.45-1.90  she opens her hands again and holds, arms wide, head level,
+  //              looking straight ahead at somebody whose floor has just
+  //              stopped being theirs. Nothing about it is triumphant.
+  domainCast: {
+    dur: 1.90, loop: false, keys: [
       K(0, {}),
-      K(0.50, { UpArmL: [-160, 8, 34], LoArmL: [-14, 8, 0], HandL: [-40, 16, 0], UpArmR: [-158, -6, -36], LoArmR: [-12, -8, 0], HandR: [-40, -14, 0], Spine: [-22, -6, 0], Chest: [-16, -9, 0], Neck: [-6, -4, 0], Head: [-26, -6, 0], Hips_pos: [0, 0.20, 0], ThighL: [-30, -5, 0], ShinL: [34, 0, 0], ThighR: [-20, 6, 0], ShinR: [30, 0, 0], FootL: [52, -10, 0], FootR: [56, 8, 0] }, 'out'),
-      // the grip — the only place her hands close
-      K(0.92, { UpArmL: [-166, 4, 26], LoArmL: [-10, 6, 0], HandL: [-56, 10, 0], UpArmR: [-164, -2, -28], LoArmR: [-8, -6, 0], HandR: [-56, -10, 0], Spine: [-24, -6, 0], Head: [-28, -4, 0], Hips_pos: [0, 0.225, 0] }, 'hold'),
-      K(1.34, { UpArmL: [-150, 10, 40], UpArmR: [-148, -8, -42], Spine: [-18, -6, 0], Hips_pos: [0, 0.195, 0], Head: [-22, -6, 0] }, 'in'),
-      // THE PULL. Everything comes down at once and she ends up almost on the
-      // floor, which for this character is the single most violent thing in
-      // the set — she is never on the floor.
-      K(1.52, { UpArmL: [-10, 14, 12], LoArmL: [-96, 18, 0], HandL: [-14, 66, 0], UpArmR: [-6, -12, -14], LoArmR: [-100, -16, 0], HandR: [-14, -64, 0], Spine: [34, -6, 0], Chest: [22, -9, 0], Head: [26, -6, 0], Hips_pos: [0, -0.075, 0], ThighL: [-52, -5, 0], ShinL: [64, 0, 0], ThighR: [-40, 6, 0], ShinR: [58, 0, 0], FootL: [8, -10, 0], FootR: [12, 8, 0] }, 'snap'),
-      K(1.78, { Spine: [30, -6, 0], Chest: [19, -9, 0], Hips_pos: [0, -0.060, 0], UpArmL: [-16, 14, 14], UpArmR: [-12, -12, -16] }, 'hold'),
-      K(2.40, {})
+      K(0.55, { UpArmL: [-152, 14, 40], LoArmL: [-16, 10, 0], HandL: [-38, 18, 0], UpArmR: [-150, -12, -42], LoArmR: [-14, -10, 0], HandR: [-38, -16, 0], Spine: [-18, -6, 0], Chest: [-13, -9, 0], Neck: [-5, -4, 0], Head: [-20, -6, 0], Hips_pos: [0, 0.205, 0], ThighL: [-26, -5, 0], ShinL: [30, 0, 0], ThighR: [-18, 6, 0], ShinR: [26, 0, 0], FootL: [48, -10, 0], FootR: [52, 8, 0] }, 'out'),
+      // the grip
+      K(0.95, { UpArmL: [-158, 8, 30], LoArmL: [-12, 8, 0], HandL: [-56, 12, 0], UpArmR: [-156, -6, -32], LoArmR: [-10, -8, 0], HandR: [-56, -12, 0], Spine: [-20, -6, 0], Head: [-22, -5, 0], Hips_pos: [0, 0.232, 0] }, 'hold'),
+      // THE TURN — arms one way, body the other
+      K(1.24, { UpArmL: [-146, 40, 22], LoArmL: [-20, 26, 0], HandL: [-52, 34, 0], UpArmR: [-144, 16, -24], LoArmR: [-18, 10, 0], HandR: [-52, 8, 0], Hips: [0, -26, 0], Spine: [-16, 22, 0], Chest: [-11, 26, 0], Neck: [-4, 10, 0], Head: [-16, 20, 0], Hips_pos: [0, 0.246, 0] }, 'in'),
+      K(1.45, { UpArmL: [-148, -14, 26], LoArmL: [-18, -8, 0], HandL: [-50, -10, 0], UpArmR: [-146, -40, -28], LoArmR: [-16, -24, 0], HandR: [-50, -30, 0], Hips: [0, 24, 0], Spine: [-16, -20, 0], Chest: [-11, -24, 0], Neck: [-4, -9, 0], Head: [-16, -18, 0], Hips_pos: [0, 0.252, 0] }, 'snap'),
+      // open, level, still up
+      K(1.70, { UpArmL: [-104, 12, 58], LoArmL: [-10, 8, 0], HandL: [-16, 22, 0], UpArmR: [-102, -10, -60], LoArmR: [-8, -8, 0], HandR: [-16, -20, 0], Hips: [0, 0, 0], Spine: [-6, -6, 0], Chest: [-4, -9, 0], Neck: [0, -4, 0], Head: [-2, -6, 0], Hips_pos: [0, 0.244, 0], ThighL: [-20, -5, 0], ShinL: [24, 0, 0], ThighR: [-14, 6, 0], ShinR: [20, 0, 0], FootL: [44, -10, 0], FootR: [48, 8, 0] }, 'out'),
+      K(1.90, { UpArmL: [-100, 12, 60], UpArmR: [-98, -10, -62], Spine: [-6, -6, 0], Head: [-2, -6, 0], Hips_pos: [0, 0.240, 0], ThighL: [-20, -5, 0], ShinL: [24, 0, 0], ThighR: [-14, 6, 0], ShinR: [20, 0, 0] })
     ]
   },
 

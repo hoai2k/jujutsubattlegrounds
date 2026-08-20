@@ -262,8 +262,22 @@ export function tickFlight(f, input, ctx, dt) {
   const under2 = b2 ? b2.floorAt(f.pos.x, f.pos.z, f.pos.y + 0.5) : 0;
   const high = (f.pos.y - under2) > (fl.contestHeight ?? 2.8);
   f.hoverHigh = high;
-  const rate = high ? (fl.highDrain ?? 34) : climbing ? fl.climbDrain : fl.drain;
-  f.res.stamina = Math.max(0, f.res.stamina - rate * dt);
+  // ---- TOTAL ENVIRONMENTAL CONTROL: THE SKY IN HERE IS HERS --------------
+  // Inside her own domain the hover costs NOTHING — no cruise drain, no climb
+  // drain and no altitude tax. This is the single largest thing the domain
+  // gives her and it is the point of it: for twelve seconds the leash that
+  // defines the character comes off, so the contest band stops existing and
+  // she can simply live at the ceiling.
+  //
+  // It is bounded by the domain's own duration and by the full bar it costs to
+  // open, which is why it can be this absolute. Note it does NOT raise
+  // `maxHeight` — she gets unlimited TIME up there, not unlimited altitude, so
+  // `ceilingAt` still keeps her under every roof in the game.
+  const free = !!ctx?.match?.domains?.isMyDomain?.(f) && f.cfg.domain?.control?.freeFlight;
+  const rate = free ? 0
+    : high ? (fl.highDrain ?? 34) : climbing ? fl.climbDrain : fl.drain;
+  f.hoverFree = free;
+  if (rate) f.res.stamina = Math.max(0, f.res.stamina - rate * dt);
 
   if (f.pos.y > cap) { f.pos.y = cap; if (f.vel.y > 0) f.vel.y = 0; }
 
@@ -283,7 +297,10 @@ export function airLocomote(f, input, ctx, dt) {
   const mag = Math.hypot(m.x, m.z);
   const dashing = !!input?.dash && f.res.stamina > 1 && mag > 0.1;
   const speed = (dashing ? fl.airDashSpeed : fl.airSpeed) * f.speedMult;
-  if (dashing) f.res.stamina = Math.max(0, f.res.stamina - fl.airDashDrain * dt);
+  // free inside her own domain, same rule as the hover above — and read off
+  // `hoverFree`, which `tickFlight` set this frame, rather than asking the
+  // domain system a second time
+  if (dashing && !f.hoverFree) f.res.stamina = Math.max(0, f.res.stamina - fl.airDashDrain * dt);
   const k = Math.min(1, fl.airAccel * dt);
   f.vel.x += (m.x * speed - f.vel.x) * k;
   f.vel.z += (m.z * speed - f.vel.z) * k;

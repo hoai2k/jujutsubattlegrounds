@@ -98,6 +98,16 @@ export const GRADES = {
   //     must not close that gap. Saturation up rather than tint hard is what
   //     keeps the creatures legible against the beach.
   shoreline: { vignette: 0.34, tint: [1.10, 1.04, 0.94], lift: 0.035, sat: 1.20 },
+  // URO — THE WARPED FIRMAMENT. The palest grade in the game and the only one
+  // that LIFTS as hard as it does: the interior is an overexposed sky, so the
+  // blacks come up until there are almost none left. Cool tint, low saturation
+  // (there is no colour up there), and the lightest vignette of any domain,
+  // because a dark frame edge would give the eye an anchor and the whole
+  // interior is built on not having one.
+  // RETUNED after looking at it: lift 0.075 on top of bloom blew the whole
+  // interior to flat white and hid everything in it. 0.018 keeps the "there is
+  // no black in the sky" reading without erasing the contents.
+  firmament: { vignette: 0.36, tint: [0.94, 1.00, 1.12], lift: 0.018, sat: 0.92 },
   overtime: { vignette: 0.5, tint: [1.12, 1.02, 0.9], lift: 0, sat: 1.05 },
   ko: { vignette: 0.66, tint: [1.05, 0.95, 0.92], lift: 0, sat: 0.6 }
 };

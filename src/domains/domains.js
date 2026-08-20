@@ -737,6 +737,93 @@ export class DomainSystem {
         a.blossomT = 0;
         for (const t of trapped) if (blossomHolds(t)) blossomCounter(m, t, a.caster);
       }
+    } else if (a.def.sureHit.effect === 'warped_firmament') {
+      // THE WARPED FIRMAMENT 天蓋歪曲界 — Uro. Three mechanics, and they are
+      // deliberately kept apart from each other so each can be tuned or cut
+      // without touching the others.
+      //
+      // 1. TOTAL ENVIRONMENTAL CONTROL. Caster-side only. The free/instant
+      //    techniques are read in combat/fighter.js `startCT` off the same
+      //    `isMyDomain` test Megumi's garden uses; the free flight is read in
+      //    combat/flight.js. Nothing about them is applied to the target, so
+      //    none of it belongs in this loop — all that lives here is the haste
+      //    dial every other domain sets.
+      a.caster.buffs.domainHaste = 0.2;
+      a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;
+
+      const sh = a.def.shatter, ds = a.def.distort;
+      a.shatterT = (a.shatterT ?? sh.every * 0.55) - dt;
+      const breakNow = a.shatterT <= 0;
+      if (breakNow) a.shatterT = sh.every;
+
+      // 3. SPATIAL DISTORTION — the angle is a property of the DOMAIN, not of
+      //    each victim, so everyone trapped in it is turned the same way. Two
+      //    people disoriented differently reads as two bugs; one turned world
+      //    reads as a turned world.
+      a.distortT = (a.distortT ?? 0) + dt;
+      const cycle = ds.holdTime + ds.easeTime;
+      const phase = a.distortT % cycle;
+      const step = Math.floor(a.distortT / cycle);
+      // A deterministic per-step target, so a replay and both halves of a
+      // split screen agree without threading an RNG through.
+      //
+      // `n + 1`, NOT `n`. FOUND BY PLAYING IT: at `n` the very first step is
+      // `sin(0) = 0`, so the domain opened and then did nothing at all for its
+      // first 2.9 seconds — a quarter of its whole duration spent not using
+      // its own signature mechanic. The offset costs nothing and guarantees
+      // step 0 has a real angle.
+      const targetOf = n => Math.sin((n + 1) * 12.9898) * ds.maxAngle;
+      const from = step === 0 ? 0 : targetOf(step - 1);
+      const to = targetOf(step);
+      const k = phase < ds.easeTime ? phase / ds.easeTime : 1;
+      const e = k * k * (3 - 2 * k);                 // smoothstep, never a snap
+      a.distortAngle = from + (to - from) * e;
+      // the interior turns WITH it — this is the tell that makes the mechanic
+      // fair rather than a random handicap
+      m.domainfx?.setFirmamentTwist?.(a.distortAngle);
+
+      for (const t of trapped) {
+        const blossom = blossomHolds(t);
+        if (blossom && breakNow) blossomCounter(m, t, a.caster);
+        const prot = sdHolds(t) || blossom;
+        // The coordinate rotation is written onto the fighter and read by
+        // `_moveVec`. Clearing it under protection is what makes Simple Domain
+        // visibly answer this half too, rather than only the damage.
+        t.coordTwist = (!t.alive || prot) ? 0 : a.distortAngle;
+        if (!t.alive || prot) continue;
+        // the coordinates pulling at them — small, continuous, unblockable
+        t.takeChip(ds.tearDps * dt, 'domain');
+        if (!breakNow) continue;
+        // 2. GUARANTEED-HIT THIN ICE BREAKER. A TRUE sure-hit: `sureHit` and
+        //    `unblockable` together, the same pair Jogo's eruptions use, so
+        //    blocking does not soften it the way it softens Dagon's swarm.
+        //    The barrier-break channel is exempt for the same reason it is
+        //    exempt from the eruptions — an interrupt every 1.55 s would make
+        //    the counter unusable rather than costly.
+        if (t.state === 'barrierBreak') continue;
+        // THE SAME REFRACTION HER RB USES — fx/warpfx.js `thinIce`, not a
+        // bespoke domain visual. That is the point of the sure-hit: it is
+        // literally Thin Ice Breaker, so it has to LOOK literally like Thin
+        // Ice Breaker. The only difference is where it forms — the plane is
+        // built on the victim and faces the caster, rather than being aimed.
+        //
+        // Inside the domain this reads better than it does outside, because
+        // what the shards refract is the firmament interior: broken sky seen
+        // through broken sky.
+        const away = v3(t.pos.x - a.caster.pos.x, 0, t.pos.z - a.caster.pos.z);
+        if (away.lengthSq() < 1e-4) away.set(0, 0, 1);
+        m.warpfx?.thinIce(t.pos.clone().setY(1.1), away.normalize(), {
+          width: 3.6, height: 3.0, shards: sh.shards, crackTime: sh.windup, life: 0.8
+        });
+        m.sfx.thinIce?.();
+        t.applyHit({
+          dmg: sh.dmg, kb: sh.kb, kbY: sh.kbY, hitstun: sh.hitstun,
+          type: 'launcher', attacker: a.caster,
+          sureHit: true, unblockable: true, src: 'domain',
+          dir: v3(rand(-1, 1), 0, rand(-1, 1)).normalize()
+        }, m.ctxFor(a.caster));
+        m.cam.shake(0.3);
+      }
     } else if (a.def.sureHit.effect === 'shadow_garden') {
       // CHIMERA SHADOW GARDEN — no sure-hit tick at all, and that absence IS
       // the mechanic. Nothing is applied to the trapped fighter here; what the
@@ -1016,6 +1103,18 @@ export class DomainSystem {
       a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;
       m.hud.toast(a.caster, '死累累湧軍 — DEATH SWARM');
     }
+    // ---- URO: THE WARPED FIRMAMENT 天蓋歪曲界 ------------------------------
+    // Everything the domain does to the trapped fighter is per-tick, so this
+    // only opens the caster's half of it and announces the thing the player
+    // most needs to know, which is that the ground they are standing on has
+    // stopped agreeing with their stick.
+    if (a.def.sureHit.effect === 'warped_firmament') {
+      a.caster.buffs.domainHaste = 0.2;
+      a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;
+      a.distortT = 0;
+      a.distortAngle = 0;
+      m.hud.toast(a.caster, '天蓋歪曲界 — THE WARPED FIRMAMENT');
+    }
     // IDG: hand the machine over to the gamble system, which owns everything
     // from here — including the part that outlives this barrier.
     if (a.def.sureHit.effect === 'idle_death_gamble') m.gamble?.beginDomain(a.caster);
@@ -1263,6 +1362,16 @@ export class DomainSystem {
     if (a.def.sureHit.effect === 'malevolent_shrine') {
       for (const f of m.fighters) { f._noBarrierToast = false; }
       m.hud.toast(a.caster, 'THE SHRINE FALLS');
+    }
+    // URO: give everyone their coordinates back. This MUST be unconditional
+    // over all fighters rather than over `trapped`, and must not depend on the
+    // domain ending cleanly: a fighter who walked out of the barrier, or who
+    // was protected on the last tick, or who died in there, still has a stale
+    // `coordTwist` written on them, and a rotated stick that outlives the
+    // domain is the worst bug this mechanic could possibly have.
+    if (a.def.sureHit.effect === 'warped_firmament') {
+      for (const f of m.fighters) f.coordTwist = 0;
+      m.domainfx?.setFirmamentTwist?.(0);
     }
     // release every trapped fighter: void lock + lingering neurological debuff
     for (const t of this.trapped(a.caster)) {
