@@ -51,6 +51,13 @@ import * as THREE from 'three';
 import { v3, rand, yawBetween, flatDist, clamp } from '../core/mathutil.js';
 import { computeDamage, hitFeedback } from './hits.js';
 import { OCEAN_BUILDERS } from '../art/models/oceanshikigami.js';
+// The two universal anti-domain predicates. `sdHolds` covers BOTH kinds of
+// Simple Domain — the universal STATE every trapped fighter can hold, and
+// Miwa's free-standing circle — and `blossomHolds` is Shinjuku Gojo's shroud.
+// Asking the same two predicates every other domain payload in the game asks
+// is the entire reason the counters work here without any of them knowing this
+// character exists.
+import { sdHolds, blossomHolds, blossomCounter } from '../domains/domains.js';
 
 // Above this many live creatures, per-creature cosmetic particles stop.
 const FX_BUDGET = 9;
@@ -219,6 +226,26 @@ class Sea {
   _strike(t, dmg, opts = {}) {
     const m = this.match;
     if (!t?.alive) return;
+
+    // ---- THE GUARANTEE IS NOT ABSOLUTE ------------------------------------
+    // *** SIMPLE DOMAIN NEUTRALISES IT, AND DOES NOT MAKE YOU INVINCIBLE. ***
+    // That is the honest reading of what the technique is: it nullifies a
+    // domain's SURE-HIT, not the existence of the thing attacking you. So
+    // inside a Simple Domain — the universal state, or Miwa's circle, which
+    // `sdHolds` covers together — a shikigami's bite stops being guaranteed
+    // and becomes an ordinary attack: blockable, dodgeable, i-frameable,
+    // refusable on a downed body, and answerable by armour.
+    //
+    // That is a genuinely large improvement (the swarm goes from unavoidable
+    // to merely numerous) and it is still not a solution, because there are
+    // twenty of them and one of you. Exactly the shape the brief asks for:
+    // "killing shikigami buys time but never solves it".
+    //
+    // FALLING BLOSSOM EMOTION nullifies the hit outright and answers it, the
+    // same as it does against every other domain in the game.
+    const sd = sdHolds(t);
+    if (blossomHolds(t)) { blossomCounter(m, t, this.owner); return 'blossom'; }
+    const sure = this.sure && !sd;
     const { dmg: d } = computeDamage(this.owner, dmg * this.dmgMult, { canCrit: false });
     const dir = v3(t.pos.x - this.pos.x, 0, t.pos.z - this.pos.z);
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
@@ -236,8 +263,22 @@ class Sea {
       // carries it. `otgOk` rides with it because a sure-hit that refused a
       // downed target would let the opponent opt out of the domain by lying on
       // the floor, which is the one thing an attrition domain cannot allow.
-      sureHit: this.sure || undefined,
-      otgOk: this.sure || undefined,
+      sureHit: sure || undefined,
+      otgOk: sure || undefined,
+      // *** THE HALF OF THE GUARANTEE THAT IS NOT ABSOLUTE. *** The brief asks
+      // that blocking MITIGATE the shikigami's attacks without preventing
+      // them, and a plain sure-hit skips the block branch entirely — so the
+      // guard would have been worth nothing at all. `mitigable` is the flag
+      // that opens the softened-block path in Fighter._applyHit, and it is set
+      // HERE and nowhere else, so no other domain payload in the game is
+      // affected by its existence.
+      //
+      // 0.45 is deliberately worse than an ordinary block (0.15) and far
+      // better than nothing: guarding through the swarm roughly triples your
+      // survival time and still loses, which is exactly the shape of an
+      // attrition domain.
+      mitigable: sure || undefined,
+      mitigateBlock: 0.45,
       dir: dir.normalize()
     }, m.ctxFor(this.owner));
     hitFeedback(m, this.owner, t, r, { heavy: opts.heavy });

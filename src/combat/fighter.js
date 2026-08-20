@@ -2911,6 +2911,48 @@ export class Fighter {
       this.emit('guardBreak');
       return 'guardbreak';
     }
+    // ---- A SURE-HIT THAT A GUARD STILL SOFTENS -----------------------------
+    // The brief for Dagon's domain, quoted: "route their damage through the
+    // existing sure-hit path so blocking MITIGATES BUT NEVER PREVENTS."
+    //
+    // The sure-hit path as it stood did neither half of that: it skipped the
+    // block branch entirely, so a guard against a domain payload was worth
+    // exactly nothing. That was correct for every domain that existed — being
+    // told a bar of information by Unlimited Void or being cooked by the Iron
+    // Mountain are not things a raised forearm has an opinion about — but it is
+    // wrong for a creature physically biting you, which is what makes his
+    // domain different from all four of them.
+    //
+    // So: a hit that carries BOTH `sureHit` and `mitigable` still lands, still
+    // cannot be dodged, i-framed, armoured through or refused on a downed body
+    // — every guard above this line is untouched — but a raised block takes
+    // `mitigateBlock` of its damage instead of all of it. `mitigable` is set by
+    // exactly one caller (combat/ocean.js), so every existing domain payload in
+    // the game reaches this line with it absent and behaves precisely as it
+    // always has.
+    if (blocking && hit.sureHit && hit.mitigable) {
+      const soft = hit.mitigateBlock ?? 0.45;
+      const melted = this.melt && this.melt.t > 0;
+      const dealt = hit.dmg * soft * (this._tune('blockChipMult') ?? 1)
+        * awakenBlockChip(this) * (melted ? this.melt.chip : 1);
+      this.res.hp -= dealt;
+      this.res.stamina -= 10 * (this._tune('blockStaminaMult') ?? 1);
+      ctx?.match?.judgemen?.evidenceFromHit(this, true);
+      this.setState('blockstun', { clip: 'blockHit' });
+      const fwd0 = hit.dir || atk?.forward() || v3();
+      this.vel.x += fwd0.x * hit.kb * 0.35;
+      this.vel.z += fwd0.z * hit.kb * 0.35;
+      // A guard can still be BROKEN by it — which is what stops "hold block for
+      // twenty seconds" from being the answer to the domain.
+      if (this.res.stamina <= 0) {
+        this.res.stamina = 0;
+        this.setState('guardBreak', { clip: 'guardBreak' });
+        this.emit('guardBreak');
+        return 'guardbreak';
+      }
+      this._feedGauges?.(hit, 'block', this.res.hp + dealt);
+      return 'block';
+    }
     if (blocking && !hit.unblockable && !hit.sureHit) {
       // heavy guards (Mahoraga, Hanami) take a fraction of the usual chip.
       // GUARD MELT (Kurourushi's corrosive spray) multiplies both halves —
