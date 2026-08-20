@@ -3422,150 +3422,6 @@ export class Effects {
         break;
       }
 
-      case 'nanami_collapse': {
-        m.fx.cleaveArc(caster, true);
-        m.sfx.cleave(true);
-        m.cam.shake(0.35);
-        if (sure || inArc(caster, t, opts.reach ?? 2.6, opts.arc ?? 2.2)) {
-          // every Collapse hit lands on the 7:3 point — guaranteed crit
-          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 9) * mult, { forceCrit: true });
-          const r = t.applyHit({ ...hitOpts, dmg, kb: 2.5, kbY: 0.8, hitstun: 20, type: 'heavy', unblockable: false }, m.ctxFor(caster));
-          hitFeedback(m, caster, t, r, { crit, heavy: true });
-        }
-        break;
-      }
-    }
-  }
-
-  // ---- RESONANCE, THE ACTUAL DELIVERY --------------------------------------
-  // Shared by Resonance and Full Release so the two can never drift apart on
-  // the one thing that matters about them: HOW they reach.
-  //
-  // States that belong to another system's cinematic get the damage without
-  // the state change — see the long note on the `nobara_resonance` case. Every
-  // other target takes an ordinary sure-hit, which is the same object the
-  // domains already send and therefore automatically beats blocking, i-frames,
-  // armour, Simple Domain, a standing barrier, and distance.
-  _resonate(caster, target, dmg, k = 0.5, src = 'ct2', ult = false) {
-    const m = this.match;
-    if (!target || !target.alive) return 'dead';
-    const chest = target.pos.clone().add(v3(0, 1.25, 0));
-    // frozen cinematic states owned by domains / sentencing / devour
-    const FROZEN = ['transfigured', 'sentenced', 'executing', 'devoured'];
-    if (FROZEN.includes(target.state)) {
-      target.takeChip(dmg, src);
-      if (ult) m.fx.fullReleaseHit(chest, 1); else m.fx.resonanceHit(chest, k);
-      m.hud.toast(target, '共鳴 — IT REACHES ANYWAY');
-      return 'chip';
-    }
-    const r = target.applyHit({
-      dmg, kb: ult ? (caster.cfg.ultimate.kb ?? 7) : 0.8,
-      kbY: ult ? (caster.cfg.ultimate.kbY ?? 3) : 0,
-      hitstun: ult ? (caster.cfg.ultimate.hitstun ?? 44) : (14 + Math.round(k * 20)),
-      type: ult ? 'knockdown' : 'heavy',
-      attacker: caster, isCT: true,
-      // THE BYPASS. Exactly the flags a domain sure-hit carries — this is the
-      // existing path, not a second one.
-      sureHit: true, unblockable: true, otgOk: true,
-      dir: v3(target.pos.x - caster.pos.x, 0, target.pos.z - caster.pos.z).normalize(),
-      src,
-      // Essence is TAKEN by the hit that gathers it; a Resonance is Essence
-      // being spent, so it must not refund any. Explicit zero rather than
-      // relying on the tier table.
-      essence: 0
-    }, m.ctxFor(caster));
-    if (ult) m.fx.fullReleaseHit(chest, 1); else m.fx.resonanceHit(chest, k);
-    hitFeedback(m, caster, target, r, { heavy: true, knockdown: ult, crit: ult });
-    return r;
-  }
-
-  // called by the fighter FSM at a move's activation frame
-  fire(caster, move, ctx, isRepeat = false) {
-    if (!move) return;
-    const key = move.effect;
-    if (!key) return;
-    // Copy: Opponent's CT (sword roll) mirrors the last technique they fired
-    if (key !== 'sword_slash') caster.lastCT = key;
-    const opts = { ...move, powerMult: move.powerMult ?? 1 };
-    if (move.slot === 'copy') opts.powerMult = 1; // copy dmg already reduced in def
-    this.applyTechnique(caster, key === 'nanami_collapse' || !isRepeat ? key : key, opts);
-  }
-
-  // ---- BLACK FLASH ----------------------------------------------------------
-  // The timing input landed: cursed energy strikes within 0.000001s of the
-  // fist. ~2.5x the connecting hit, black-red distortion, the works. Also
-  // Yuji's engine: refunds CURRENT_CE and spikes MAX_CE.
-  blackFlash(caster) {
-    const m = this.match;
-    const t = this.other(caster);
-    const bf = caster.cfg.blackFlash;
-    if (!t.alive || !inArc(caster, t, bf.reach ?? 2.4, 2.6)) return;
-    caster.bfChain++;
-    caster.res.maxCE = Math.min(100, caster.res.maxCE + (bf.maxSpike ?? 8));
-    caster.res.curCE = Math.min(caster.res.maxCE, caster.res.curCE + (bf.ceRefund ?? 25));
-    // NOBARA: hers pays in ESSENCE and a short damage window instead of a big
-    // cursed-energy refund. Yuji's config has no `bonus`, so his payout above
-    // is exactly what it was and nothing below runs for him.
-    if (bf.bonus) {
-      caster.gainEssence(bf.bonus.essence ?? 0, 'blackFlash');
-      caster.buffs.bfCharge = Math.max(caster.buffs.bfCharge, bf.bonus.duration ?? 8);
-    }
-    const { dmg } = computeDamage(caster, (caster.bfBase || 5) * (bf.dmgMult ?? 2.5), { canCrit: false });
-    const r = t.applyHit({
-      dmg, kb: 2.5, kbY: 0.5, hitstun: 32, type: 'heavy', attacker: caster,
-      isCT: false, unblockable: true, otgOk: true, dir: caster.forward(),
-      // Black Flash is the same fist arriving twice — it adapts with punches
-      src: 'punch'
-    }, m.ctxFor(caster));
-    // black core + red lightning, space visibly denting
-    const chest = t.pos.clone().add(v3(0, 1.25, 0));
-    for (let k = 0; k < 20; k++) {
-      const a = rand(0, Math.PI * 2);
-      m.fx._spawn(chest, {
-        color: k % 3 === 0 ? 0x14090c : 0xff2038, size: rand(0.15, 0.45), life: rand(0.25, 0.45),
-        vel: v3(Math.cos(a) * rand(4, 11), rand(-2, 7), Math.sin(a) * rand(4, 11)), gravity: 4
-      });
-    }
-    m.fx._ring(chest, 0xff2038, { size: 0.4, growRate: 13, life: 0.35, flat: false });
-    m.fx._ring(chest, 0x14090c, { size: 0.25, growRate: 8, life: 0.3, flat: false });
-    m.fx.buffAura(caster, 3.5, 0xff2038); // the chain aura stacks per Flash
-    caster.anim.play('bfImpact', { fade: 0.03, restart: true });
-    m.hitstop(16);
-    m.slowmo(0.3, 0.4);
-    m.cam.shake(0.9);
-    m.cam.fovKick(10);
-    m.stage.flash(0.55);
-    m.sfx.blackFlash();
-    m.hud.toast(caster, '黒閃 BLACK FLASH' + (caster.bfChain > 1 ? ' ×' + caster.bfChain : ''));
-  }
-
-  // ---- sword-domain rolled techniques --------------------------------------
-  // The roll already landed (sure-hit): everything here applies in full —
-  // unblockable, ignores i-frames, OTG-capable. Fired after the reveal beat.
-  queueSwordPayoff(caster, entry, delay) {
-    this.entities.push({ type: 'swordPayoff', t: delay, caster, entry });
-  }
-
-  // HAKARI — the RCT counter's answer, held back a beat from the absorb so the
-  // two events read as cause and effect rather than as one hit.
-  queueCounterPunish(caster, target, def, delay) {
-    this.entities.push({ type: 'counterPunish', t: delay, caster, target, def });
-  }
-
-  applySwordTech(caster, entry) {
-    const m = this.match;
-    const t = this.other(caster);
-    if (!t.alive) return;
-    const hitOpts = {
-      attacker: caster, isCT: false, sureHit: true, unblockable: true,
-      otgOk: true, dir: caster.forward(),
-      // every rolled payload is the DOMAIN doing it, whatever technique the
-      // roll happened to name — that is the category Mahoraga adapts to
-      src: 'domain'
-    };
-    const chest = t.pos.clone().add(v3(0, 1.25, 0));
-
-    switch (entry.key) {
       // =====================================================================
       // URO — SKY MANIPULATION
       // =====================================================================
@@ -3781,6 +3637,150 @@ export class Effects {
         break;
       }
 
+      case 'nanami_collapse': {
+        m.fx.cleaveArc(caster, true);
+        m.sfx.cleave(true);
+        m.cam.shake(0.35);
+        if (sure || inArc(caster, t, opts.reach ?? 2.6, opts.arc ?? 2.2)) {
+          // every Collapse hit lands on the 7:3 point — guaranteed crit
+          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 9) * mult, { forceCrit: true });
+          const r = t.applyHit({ ...hitOpts, dmg, kb: 2.5, kbY: 0.8, hitstun: 20, type: 'heavy', unblockable: false }, m.ctxFor(caster));
+          hitFeedback(m, caster, t, r, { crit, heavy: true });
+        }
+        break;
+      }
+    }
+  }
+
+  // ---- RESONANCE, THE ACTUAL DELIVERY --------------------------------------
+  // Shared by Resonance and Full Release so the two can never drift apart on
+  // the one thing that matters about them: HOW they reach.
+  //
+  // States that belong to another system's cinematic get the damage without
+  // the state change — see the long note on the `nobara_resonance` case. Every
+  // other target takes an ordinary sure-hit, which is the same object the
+  // domains already send and therefore automatically beats blocking, i-frames,
+  // armour, Simple Domain, a standing barrier, and distance.
+  _resonate(caster, target, dmg, k = 0.5, src = 'ct2', ult = false) {
+    const m = this.match;
+    if (!target || !target.alive) return 'dead';
+    const chest = target.pos.clone().add(v3(0, 1.25, 0));
+    // frozen cinematic states owned by domains / sentencing / devour
+    const FROZEN = ['transfigured', 'sentenced', 'executing', 'devoured'];
+    if (FROZEN.includes(target.state)) {
+      target.takeChip(dmg, src);
+      if (ult) m.fx.fullReleaseHit(chest, 1); else m.fx.resonanceHit(chest, k);
+      m.hud.toast(target, '共鳴 — IT REACHES ANYWAY');
+      return 'chip';
+    }
+    const r = target.applyHit({
+      dmg, kb: ult ? (caster.cfg.ultimate.kb ?? 7) : 0.8,
+      kbY: ult ? (caster.cfg.ultimate.kbY ?? 3) : 0,
+      hitstun: ult ? (caster.cfg.ultimate.hitstun ?? 44) : (14 + Math.round(k * 20)),
+      type: ult ? 'knockdown' : 'heavy',
+      attacker: caster, isCT: true,
+      // THE BYPASS. Exactly the flags a domain sure-hit carries — this is the
+      // existing path, not a second one.
+      sureHit: true, unblockable: true, otgOk: true,
+      dir: v3(target.pos.x - caster.pos.x, 0, target.pos.z - caster.pos.z).normalize(),
+      src,
+      // Essence is TAKEN by the hit that gathers it; a Resonance is Essence
+      // being spent, so it must not refund any. Explicit zero rather than
+      // relying on the tier table.
+      essence: 0
+    }, m.ctxFor(caster));
+    if (ult) m.fx.fullReleaseHit(chest, 1); else m.fx.resonanceHit(chest, k);
+    hitFeedback(m, caster, target, r, { heavy: true, knockdown: ult, crit: ult });
+    return r;
+  }
+
+  // called by the fighter FSM at a move's activation frame
+  fire(caster, move, ctx, isRepeat = false) {
+    if (!move) return;
+    const key = move.effect;
+    if (!key) return;
+    // Copy: Opponent's CT (sword roll) mirrors the last technique they fired
+    if (key !== 'sword_slash') caster.lastCT = key;
+    const opts = { ...move, powerMult: move.powerMult ?? 1 };
+    if (move.slot === 'copy') opts.powerMult = 1; // copy dmg already reduced in def
+    this.applyTechnique(caster, key === 'nanami_collapse' || !isRepeat ? key : key, opts);
+  }
+
+  // ---- BLACK FLASH ----------------------------------------------------------
+  // The timing input landed: cursed energy strikes within 0.000001s of the
+  // fist. ~2.5x the connecting hit, black-red distortion, the works. Also
+  // Yuji's engine: refunds CURRENT_CE and spikes MAX_CE.
+  blackFlash(caster) {
+    const m = this.match;
+    const t = this.other(caster);
+    const bf = caster.cfg.blackFlash;
+    if (!t.alive || !inArc(caster, t, bf.reach ?? 2.4, 2.6)) return;
+    caster.bfChain++;
+    caster.res.maxCE = Math.min(100, caster.res.maxCE + (bf.maxSpike ?? 8));
+    caster.res.curCE = Math.min(caster.res.maxCE, caster.res.curCE + (bf.ceRefund ?? 25));
+    // NOBARA: hers pays in ESSENCE and a short damage window instead of a big
+    // cursed-energy refund. Yuji's config has no `bonus`, so his payout above
+    // is exactly what it was and nothing below runs for him.
+    if (bf.bonus) {
+      caster.gainEssence(bf.bonus.essence ?? 0, 'blackFlash');
+      caster.buffs.bfCharge = Math.max(caster.buffs.bfCharge, bf.bonus.duration ?? 8);
+    }
+    const { dmg } = computeDamage(caster, (caster.bfBase || 5) * (bf.dmgMult ?? 2.5), { canCrit: false });
+    const r = t.applyHit({
+      dmg, kb: 2.5, kbY: 0.5, hitstun: 32, type: 'heavy', attacker: caster,
+      isCT: false, unblockable: true, otgOk: true, dir: caster.forward(),
+      // Black Flash is the same fist arriving twice — it adapts with punches
+      src: 'punch'
+    }, m.ctxFor(caster));
+    // black core + red lightning, space visibly denting
+    const chest = t.pos.clone().add(v3(0, 1.25, 0));
+    for (let k = 0; k < 20; k++) {
+      const a = rand(0, Math.PI * 2);
+      m.fx._spawn(chest, {
+        color: k % 3 === 0 ? 0x14090c : 0xff2038, size: rand(0.15, 0.45), life: rand(0.25, 0.45),
+        vel: v3(Math.cos(a) * rand(4, 11), rand(-2, 7), Math.sin(a) * rand(4, 11)), gravity: 4
+      });
+    }
+    m.fx._ring(chest, 0xff2038, { size: 0.4, growRate: 13, life: 0.35, flat: false });
+    m.fx._ring(chest, 0x14090c, { size: 0.25, growRate: 8, life: 0.3, flat: false });
+    m.fx.buffAura(caster, 3.5, 0xff2038); // the chain aura stacks per Flash
+    caster.anim.play('bfImpact', { fade: 0.03, restart: true });
+    m.hitstop(16);
+    m.slowmo(0.3, 0.4);
+    m.cam.shake(0.9);
+    m.cam.fovKick(10);
+    m.stage.flash(0.55);
+    m.sfx.blackFlash();
+    m.hud.toast(caster, '黒閃 BLACK FLASH' + (caster.bfChain > 1 ? ' ×' + caster.bfChain : ''));
+  }
+
+  // ---- sword-domain rolled techniques --------------------------------------
+  // The roll already landed (sure-hit): everything here applies in full —
+  // unblockable, ignores i-frames, OTG-capable. Fired after the reveal beat.
+  queueSwordPayoff(caster, entry, delay) {
+    this.entities.push({ type: 'swordPayoff', t: delay, caster, entry });
+  }
+
+  // HAKARI — the RCT counter's answer, held back a beat from the absorb so the
+  // two events read as cause and effect rather than as one hit.
+  queueCounterPunish(caster, target, def, delay) {
+    this.entities.push({ type: 'counterPunish', t: delay, caster, target, def });
+  }
+
+  applySwordTech(caster, entry) {
+    const m = this.match;
+    const t = this.other(caster);
+    if (!t.alive) return;
+    const hitOpts = {
+      attacker: caster, isCT: false, sureHit: true, unblockable: true,
+      otgOk: true, dir: caster.forward(),
+      // every rolled payload is the DOMAIN doing it, whatever technique the
+      // roll happened to name — that is the category Mahoraga adapts to
+      src: 'domain'
+    };
+    const chest = t.pos.clone().add(v3(0, 1.25, 0));
+
+    switch (entry.key) {
       case 'divergent_fist': {
         const { dmg } = computeDamage(caster, entry.dmg, { canCrit: false });
         const r = t.applyHit({ ...hitOpts, dmg, kb: 1.2, kbY: 0, hitstun: 22, type: 'heavy' }, m.ctxFor(caster));

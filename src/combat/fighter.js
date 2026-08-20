@@ -105,6 +105,27 @@ const TECH_RISE_FRAMES = 15; // length of the kip-up before you can act
 // wheel by accident, short enough that a deliberate hold feels instant.
 const TAP_MAX = 0.17;
 
+// ---------------------------------------------------------------------------
+// URO: THE STATES THAT TAKE THE SKY AWAY FROM HER
+// ---------------------------------------------------------------------------
+// A hovering fighter keeps hovering through her own actions — techniques,
+// normals, the reflect stance, blocking — and stops hovering the moment
+// something else owns her body. That is the counterplay to the entire
+// character stated as a list: LAND A HIT AND SHE FALLS.
+//
+// `castDomain` is absent because she has no domain; it is listed anyway so the
+// rule is complete if one is ever added. `simpleDomain` and `barrierBreak` ARE
+// here — both are stationary channels, and channelling one in mid-air would
+// make the two universal anti-domain options strictly better on her than on
+// anybody else.
+const NO_HOVER = [
+  'hitLight', 'hitHeavy', 'launched', 'knockdown', 'getup', 'techRise',
+  'guardBreak', 'ko', 'victory', 'defeat', 'intro',
+  'stunned', 'frozen', 'voided', 'rooted',
+  'transfigured', 'sentenced', 'executing', 'devoured',
+  'simpleDomain', 'barrierBreak', 'castDomain'
+];
+
 export class Fighter {
   constructor({ config, model, clips, index = 0, arenaRadius, bounds = null, spawn, facing, pick = null }) {
     this.cfg = config;
@@ -3300,7 +3321,20 @@ export class Fighter {
       // which is what makes the drain figure honest — 26/s against a pool
       // that is not refilling is about five seconds, not indefinite.
       const sdHalt = this._sdZone?.live && this._sdZone.def.haltRegen;
-      if (!sdHalt) {
+      // ---- FLIGHT HALTS REGEN, EXACTLY AS MIWA'S CIRCLE DOES ---------------
+      // FOUND BY PLAYING IT, and it was the difference between a leash and no
+      // leash at all. Hovering drains 13 stamina/s and her regen is 19/s, so
+      // with the regen still running she gained six a second in mid-air and
+      // could stay up for the entire round — the whole balance of the character
+      // undone by one line that was never written.
+      //
+      // With it halted, the numbers in characters/uro.js mean what they say:
+      // ~9.0 s of holding station and ~5.6 s of continuous climbing on a full
+      // bar, and she has to come down and stand still to get it back. It uses
+      // the same shape Miwa's `haltRegen` already established one line up,
+      // which is why there is no third mechanism here.
+      const flightHalt = hovering(this);
+      if (!sdHalt && !flightHalt) {
         const sk = awakenStamina(this);
         this.res.stamina = Math.min(this.cfg.stats.stamina * sk,
           this.res.stamina + this.cfg.stats.staminaRegen * sk * dt);
@@ -3478,6 +3512,22 @@ export class Fighter {
     if (input?.lockP) {
       this.lockOn = !this.lockOn;
       this.emit('lockToggle', { on: this.lockOn });
+    }
+
+    // ---- URO: THE HOVER IS A PROPERTY OF THE BODY, NOT OF A STATE --------
+    // FOUND BY PLAYING IT. The first version ticked flight only inside the
+    // `jump`/`fall` branch, which meant she held herself up in neutral and
+    // then SANK through every technique, every normal and the reflect stance —
+    // a character who fell out of the sky the moment she did anything, which
+    // is the opposite of the design.
+    //
+    // So it is ticked HERE, above the state machine, for every state that is
+    // not one of the ones below. The list is short and every entry is
+    // deliberate: they are the states in which she has LOST CONTROL of her own
+    // body, and losing the sky with it is the counterplay. Getting hit drops
+    // her, and that is the whole answer to the character.
+    if (hasFlight(this) && !this.grounded && !NO_HOVER.includes(S)) {
+      tickFlight(this, input, ctx, dt);
     }
 
     // ---- THE SUMMON RITUAL (Megumi) ---------------------------------------
@@ -3735,7 +3785,9 @@ export class Fighter {
         // anybody else. `tickFlight` returns false for the entire existing
         // roster on its first line, so the block below is the untouched
         // original for all twenty-five of them.
-        if (tickFlight(this, input, ctx, dt)) {
+        // `hovering` rather than `tickFlight`: the tick already ran above, for
+        // every state rather than only for this one.
+        if (hovering(this)) {
           airLocomote(this, input, ctx, dt);
           const air = this.cfg.air || {};
           if (input) {
@@ -3786,10 +3838,10 @@ export class Fighter {
         this.reflectLive = live ? 1 : 0;
         if (this.f === rd.startup + 1) this.emit('reflectUp');
         if (this.f === rd.startup + rd.active + 1) this.emit('reflectDown');
-        // she keeps her altitude through the stance but cannot steer: the
-        // surface is a plane she is holding still, and a reflect she can walk
-        // behind is not a read.
-        if (hasFlight(this) && !this.grounded) tickFlight(this, null, ctx, dt);
+        // She keeps her altitude through the stance — the tick above handles
+        // it — but she cannot STEER: the surface is a plane she is holding
+        // still, and a reflect she can walk behind is not a read. That falls
+        // out of not calling `airLocomote` here rather than needing a flag.
         if (this.f >= rd.startup + rd.active + rd.recovery) {
           this.reflectLive = 0;
           this.setState(this.grounded ? 'idle' : 'fall', { clip: this.grounded ? 'idle' : 'fall' });

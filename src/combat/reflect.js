@@ -100,14 +100,36 @@ import { v3, flatDist } from '../core/mathutil.js';
 export const REFLECTABLE = {
   ember: true,          // JOGO — ember insects (and the Overheat maximum swarm)
   bloodEdge: true,      // CHOSO — Blood Edge
-  crescent: true,       // YUJI — the 卍 crescent off the Manji Kick
+  // YUJI — the 卍 crescent thrown off the Manji Kick's heel. BOTH KEYS are
+  // listed because the effect system produces `manji` from the kick itself and
+  // `crescent` from the copied version, and an audit that only covered one of
+  // them would have been wrong in exactly the way that never shows up until
+  // somebody plays the matchup. (Found by running the audit: the table said
+  // `crescent` and the technique emits `manji`.)
+  manji: true,
+  crescent: true,
   ghostFist: true,      // YUJI — the whiffed Divergent Fist's discharged ghost
   clapWave: true,       // TODO — Resonant Clap's wall of shock
   ratioWave: true,      // NANAMI — the Ratio wave
   dismantleWave: true,  // SUKUNA — Dismantle
   bolt: true,           // KASHIMO — the lightning bolt, and the Amber fan
   nail: true,           // NOBARA — a hairpin nail in flight
-  woodenBall: true      // HANAMI — the thrown wooden ball
+  woodenBall: true,     // HANAMI — the thrown wooden ball
+  // GOJO — RED 赫. Since the technique overhaul it does not fire a cone, it
+  // flies a core of stored repulsion down the lane and lets go on contact —
+  // which makes it a travelling object by the only test this file applies.
+  // Added after the audit run showed it producing a `redOrb` entity that the
+  // table did not cover. BLUE is deliberately NOT here: it is an ATTRACTOR
+  // placed in the world that pulls things toward itself, not something thrown
+  // at her, and "reflecting" a point of convergence has no meaning.
+  redOrb: true,
+  // DAGON — both of his. The volley is a school of fish in flight and the
+  // eel-serpent's spit is a pressurised jet, and it would be incoherent for
+  // her to bend Jogo's insects back and not his. The TIDAL SURGE is not here:
+  // it is a wall of water crossing the ground, the same shape as Hanami's
+  // roots, and it is closer to terrain than to a projectile.
+  seaFish: true,
+  seaSpit: true
 };
 
 // A projectile may be turned around exactly once. See the mirror-match note.

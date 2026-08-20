@@ -79,6 +79,7 @@ export const FLIGHT_DEFAULTS = {
   climbDrain: 21,       // stamina/s climbing
   enterCost: 6,         // one-off, on the frame she takes to the air
   minStamina: 5,        // below this she cannot start a hover at all
+  takeoff: 0.55,        // metres of clearance before the hover takes over
   airSpeed: 4.9,        // horizontal top speed while hovering
   airAccel: 17,
   airDashSpeed: 9.2,
@@ -138,9 +139,10 @@ export function ceilingFor(f, ctx) {
 // ---------------------------------------------------------------------------
 // THE PER-FRAME RULE
 // ---------------------------------------------------------------------------
-// Called from the `jump` / `fall` branch of the state machine and from nowhere
-// else. Returns true if she is holding herself up this frame, which is what
-// tells the caller to stay in the aerial states instead of landing.
+// Called ONCE PER FRAME from the top of `_stateLogic`, for every state that is
+// not in that file's `NO_HOVER` list — NOT from the `jump`/`fall` branch, which
+// is what the first version did and which made her sink through every one of
+// her own techniques. Returns true if she is holding herself up this frame.
 export function tickFlight(f, input, ctx, dt) {
   if (!hasFlight(f)) return false;
   const fl = { ...FLIGHT_DEFAULTS, ...(f.cfg.flight || {}) };
@@ -154,6 +156,24 @@ export function tickFlight(f, input, ctx, dt) {
   //   · a hostile domain that has frozen her (same)
   //   · Cursed Speech, whose forced-movement states own her legs and her sky
   const starting = f.hoverT <= 0;
+
+  // ---- THE TAKE-OFF GAP --------------------------------------------------
+  // FOUND BY PLAYING IT. Without this the hover engaged on the frame after the
+  // jump button, which overwrote `jumpVel` with the hover's own vertical speed
+  // and deleted the leap entirely: she left the floor and was simply, instantly
+  // at hover speed. It reads as a bug even though it is not one.
+  //
+  // So the hover does not take over until she is genuinely clear of the ground
+  // — `takeoff` metres above whatever is under her. Below that the ordinary
+  // jump arc runs, which is what makes taking off look like a push rather than
+  // like a state change. Once she is up, this test is irrelevant: `hoverT`
+  // is already running and the branch is skipped.
+  if (starting) {
+    const b = ctx?.match?.arena?.bounds ?? f.bounds;
+    const under = b ? b.floorAt(f.pos.x, f.pos.z, f.pos.y + 0.5) : 0;
+    if (f.pos.y - under < (fl.takeoff ?? 0.55) && f.vel.y > 0) return false;
+  }
+
   const floor = f.res.stamina;
   if (starting && floor < fl.minStamina) return false;
   if (floor <= 0) {

@@ -286,7 +286,13 @@ export const DAGON = withDefaults({
       ],
       // The shark is rare by weight AND by a hard floor, so an unlucky early
       // roll cannot put one on the beach in the first five seconds.
-      sharkNotBefore: 0.42,
+      // MEASURED AND RETUNED. At 0.42 the first shark arrived at t=18.5 of 20
+      // in a full-length test run — 1.5 seconds before the barrier came down,
+      // which is not "appears late as a serious threat", it is "appears at the
+      // credits". 0.34 puts the earliest possible shark at t=6.8 and the
+      // typical first one around t=12-14, which is late enough to be an
+      // escalation and early enough to be a problem.
+      sharkNotBefore: 0.34,
       sharkMinGap: 5.5,
 
       // Where they come from. `fromSea` is the fraction that rise out of the

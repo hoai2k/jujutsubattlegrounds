@@ -98,6 +98,7 @@ export const URO = withDefaults({
     climbDrain: 21,     // ~5.6 s of continuous climbing
     enterCost: 6,
     minStamina: 5,
+    takeoff: 0.55,      // the jump's own arc runs below this — see flight.js
     airSpeed: 4.9,      // deliberately SLOWER than her 5.6 run
     airAccel: 17,
     airDashSpeed: 9.2,
