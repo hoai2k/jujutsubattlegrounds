@@ -45,6 +45,11 @@ is done. **Esc** returns early. It runs the shipped director against a real
 match on a real map, so what you see there is what the game plays. `?edit=`
 selects the bench; `finishers` is the default and currently the only one.
 
+Visitor stats (who is playing, and from where):
+**http://localhost:5173/stats/** — a live dashboard over the anonymous visit
+rows the game writes. Off in a dev build unless you add `?stats=1`. See
+[docs/stats.md](docs/stats.md) for what is collected and what is not.
+
 Production build / preview:
 
 ```bash
