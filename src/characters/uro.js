@@ -323,15 +323,35 @@ export const URO = withDefaults({
     },
 
     // ---- 1. TOTAL ENVIRONMENTAL CONTROL -----------------------------------
-    // "Without needing to make direct physical contact with her hands" is a
-    // statement about COST and COMMITMENT, so that is what it buys, using the
-    // same shape Megumi's garden already uses for free instant summons:
-    //   · her two techniques are FREE and their startup collapses
-    //   · her flight costs NO STAMINA — the sky in here is hers
-    //   · she is immune to her own shatters and moves faster
+    // "Without needing to make direct physical contact with her hands" is
+    // first a statement about the GESTURE, so the startup collapse is the
+    // faithful half: her techniques come out without the wind-up.
+    //
+    // *** THE COST IS A TUNING DECISION AND IT WAS RETUNED. *** The first
+    // version had `techCostMult: 0` — genuinely free. MEASURED, that gave her
+    // an 0.67 s Thin Ice Breaker loop with no resource attached at all: 18
+    // casts in the domain's life, 270 damage, on top of the 86 the sure-hit
+    // and the tear do on their own. 356 against a roster whose fighters have
+    // 223-294 HP — a kill from full, from one button, held.
+    //
+    // Two things were wrong with that and only one of them was the number. A
+    // domain whose optimal play is "hold RB until it ends" HAS NO DECISION IN
+    // IT, which is the opposite of what her kit is about: the whole character
+    // is a spacing puzzle, and the domain was deleting the puzzle rather than
+    // sharpening it.
+    //
+    // So: techniques cost a QUARTER, and the domain feeds her a bar to spend.
+    // 4.5 CE/s over 12 s is 54 CE, against 6 for Thin Ice Breaker and 9 for
+    // Space Warp Strike — about nine casts, or fewer and stronger ones. She
+    // now has to choose between them, and running the bar dry inside her own
+    // domain is possible. Total ceiling lands near 221, which is most of a
+    // health bar and not all of it.
+    //
+    // ONE LINE TO REVERT: set `techCostMult: 0` and drop `casterCERegen`.
     control: {
-      techCostMult: 0,      // Thin Ice Breaker and Space Warp Strike are free
-      techStartupMult: 0.45,// and they come out without the wind-up
+      techCostMult: 0.25,   // Thin Ice Breaker 6 CE, Space Warp Strike 9
+      casterCERegen: 4.5,   // and the sky pays for them, at a rate she can spend
+      techStartupMult: 0.45,// they come out without the wind-up — the "no hands"
       freeFlight: true      // hover and air-dash stop draining
     },
     casterSpeedMult: 1.25,

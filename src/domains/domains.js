@@ -750,6 +750,14 @@ export class DomainSystem {
       //    dial every other domain sets.
       a.caster.buffs.domainHaste = 0.2;
       a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;
+      // ...and the bar her quarter-price techniques are spent out of. Same
+      // shape as Hakari's `casterCERegen`, and gated on `backlash` for the
+      // same reason his is: a caster already paying for a spent domain does
+      // not also get fed by one.
+      if (a.def.control?.casterCERegen && a.caster.backlash <= 0) {
+        a.caster.res.curCE = Math.min(a.caster.res.maxCE,
+          a.caster.res.curCE + a.def.control.casterCERegen * dt);
+      }
 
       const sh = a.def.shatter, ds = a.def.distort;
       a.shatterT = (a.shatterT ?? sh.every * 0.55) - dt;
