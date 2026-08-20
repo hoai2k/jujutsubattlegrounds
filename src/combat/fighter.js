@@ -3784,15 +3784,23 @@ export class Fighter {
         // to build. It enters its own state and waits.
         if (input.ct2P && this._def('ct2')?.effect === 'miwa_stance' && this.grounded) {
           this.stanceHold = 0;
+          this._stanceTierShown = -1;
           this.setState('stance', { clip: this._def('ct2').enterClip ?? 'stanceEnter' });
           this.emit('miwaStance');
           break;
         }
-        // ...and RB is REFUSED from neutral. Her one big hit only exists out
-        // of the stance, which is what makes it the most committal move in
-        // the game and what forces the circle-then-charge gameplan.
-        if (input.ct1P && this._def('ct1')?.requireStance) {
-          this.emit('needStance');
+        // ---- RB FROM NEUTRAL ENTERS THE STANCE ----------------------------
+        // It used to be refused outright, which meant a player pressing RB saw
+        // nothing happen and reasonably concluded she had no RB. The draw
+        // still only exists out of the stance — that commitment is the
+        // character — but the button now TAKES YOU THERE instead of scolding
+        // you, so the relationship between the two is discoverable by pressing
+        // them. A second RB from inside the stance draws.
+        if (input.ct1P && this._def('ct1')?.requireStance && this.grounded) {
+          this.stanceHold = 0;
+          this._stanceTierShown = -1;
+          this.setState('stance', { clip: this._def('ct2').enterClip ?? 'stanceEnter' });
+          this.emit('miwaStance');
           break;
         }
         if (input.ct1P) { if (this.startCT('ct1', ctx)) break; }
@@ -4031,15 +4039,43 @@ export class Fighter {
       // the perimeter for her.
       case 'stance': {
         const d = this._def('ct2');
-        // holding RT sustains it; letting go drops back to neutral WITHOUT
-        // drawing. A stance that fired on release would make every entry a
-        // committed attack and delete the bluff.
-        if (!input || !input.ct2) {
+        // ---- IT IS A TOGGLE, NOT A HOLD -----------------------------------
+        // The first version required RT to be HELD, and that was the wrong
+        // call twice over. Mechanically it was fragile — see the `keepState`
+        // note on `_locomote`, which was ejecting her every frame — and even
+        // once that was fixed it was UNDISCOVERABLE: every other technique in
+        // this game is a press, so a player tapping RT saw a single frame of
+        // nothing and concluded the button was dead. Which is exactly what
+        // happened.
+        //
+        // Now: RT enters and STAYS. The charge climbs on its own. RT again
+        // leaves it, RB draws out of it, and being hit drops it. The bluff the
+        // hold version was protecting still exists — entering the stance and
+        // NOT drawing is still a real thing to do — and it no longer costs the
+        // player a finger to stay in it.
+        if (!input) { this.stanceHold = 0; this.setState('idle', { clip: 'idle' }); break; }
+        if (input.ct2P && this.f > 6) {
           this.stanceHold = 0;
           this.setState('idle', { clip: 'idle' });
+          this.emit('miwaStanceExit');
+          break;
+        }
+        // guard, jump and dash all leave it, because a posture you cannot get
+        // out of defensively is a trap rather than a stance
+        if (input.block || input.jumpP || input.dash) {
+          this.stanceHold = 0;
+          this.setState(input.block ? 'block' : 'idle', { clip: input.block ? 'block' : 'idle' });
           break;
         }
         this.stanceHold = Math.min(d.maxHoldFrames ?? 102, (this.stanceHold ?? 0) + 1);
+        // announce each tier as it is reached, so the player can see what they
+        // are buying without reading the config
+        {
+          const tiers = d.tiers ?? [];
+          let t = 0;
+          for (let i = 0; i < tiers.length; i++) if (this.stanceHold >= tiers[i].at) t = i;
+          if (t !== this._stanceTierShown) { this._stanceTierShown = t; this.emit('stanceTier', { tier: t, def: tiers[t] }); }
+        }
         // the entry clip runs once, then she settles into the still one
         if (this.f === Math.round((d.enterFrames ?? 16))) this.play(d.clip ?? 'stance', { fade: 0.12 });
         // ---- RB DRAWS -------------------------------------------------------
@@ -4057,8 +4093,9 @@ export class Fighter {
           break;
         }
         // she can shuffle, barely, to fix her line — but nowhere near enough
-        // to escape anything
-        this._locomote(input.move, false, ctx, dt);
+        // to escape anything. `keepState` is what lets her do that without
+        // locomotion dragging her out of the posture.
+        this._locomote(input.move, false, ctx, dt, { keepState: true });
         break;
       }
 
@@ -4599,7 +4636,13 @@ export class Fighter {
     this.emit('dashBurst');
   }
 
-  _locomote(move, dashHeld, ctx, dt) {
+  // `opts.keepState` writes the VELOCITY but leaves the state alone. Normally
+  // locomotion owns the idle/walk/run/dash transitions, which is right for
+  // every state that is "standing around" — but a state that is a POSTURE
+  // (Miwa's sheathe stance) still wants to be able to shuffle its feet, and
+  // calling this without the flag ejected her back to `idle` on the very next
+  // frame. That bug is why she appeared to have no RB or RT at all.
+  _locomote(move, dashHeld, ctx, dt, opts = {}) {
     // `this.stats` — see the getter. Identical to `cfg.stats` for everyone
     // except Panda, whose three cores each carry their own movement numbers.
     const stats = this.stats;
@@ -4659,7 +4702,7 @@ export class Fighter {
     speed *= this.speedMult;
     this.vel.x = damp(this.vel.x, m.x * speed, 14, dt);
     this.vel.z = damp(this.vel.z, m.z * speed, 14, dt);
-    if (next !== this.state) {
+    if (next !== this.state && !opts.keepState) {
       const clip = next === 'dash' ? 'dash' : next === 'idle' ? 'idle' : next;
       this.setState(next, { clip, fade: 0.14 });
       if (next === 'dash') {

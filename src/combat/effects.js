@@ -6,6 +6,13 @@ import { applyBurn } from './burn.js';
 import { gainEvidence } from './judgeman.js';
 import { gainCharge, spendCharge, chargeSize } from './charge.js';
 import { spendMass, massOnEvent } from './mass.js';
+// The three new characters' technique GEOMETRY. Everything in here is a real
+// oriented mesh rather than a camera-facing card — see the header of
+// fx/newfx.js for the freeze-frame test each construct has to pass.
+import {
+  cloudArc, soulCleave, awakenBurst, massField, massSlamCone, singularity,
+  iaiLine, cutRibbon
+} from '../fx/newfx.js';
 import {
   spend as spendThroat, spendVoice, durationFor, damageFor, resistOf,
   beginForced, inCommandRange, tierDef as throatTierDef, adaptKey
@@ -2663,6 +2670,11 @@ export class Effects {
       // of the level on the way through.
       case 'maki_cloud_crush': {
         m.fx.staffSlamCrack?.(caster, caster.forward(), opts.reach ?? 2.6);
+        // the overhead gets the DOWNWARD cone: weight arriving, not an
+        // explosion leaving
+        massSlamCone(m.fx,
+          caster.pos.clone().addScaledVector(caster.forward(), 1.7).setY(caster.pos.y),
+          0.5, 0x5fae7a);
         m.sfx.impact?.();
         m.cam.shake(0.55);
         m.cam.fovKick(6);
@@ -2716,6 +2728,10 @@ export class Effects {
       // deliberately: two soul-cut debuffs on one multiplier would have been
       // the degenerate case.
       case 'maki_split_soul': {
+        // THE SOUL CUT: two planes, offset, the second arriving late and in a
+        // colder colour — the whole fiction is that it hits something the body
+        // is not, so the second one is not quite where the first one was.
+        soulCleave(m.fx, caster, { reach: opts.reach ?? 2.8, color: 0x8fe0b4 });
         m.fx.soulSlashArc(caster, true);
         this._sweepBlade(caster, (opts.reach ?? 2.8) * 1.15, true);
         m.sfx.cleave();
@@ -2771,7 +2787,11 @@ export class Effects {
       // the PLAYER feels how much they just cashed.
       case 'yuki_mass_slam': {
         const ms = spendMass(caster, { fraction: 1 });
-        const at = caster.pos.clone().addScaledVector(caster.forward(), 1.7).setY(0.4);
+        const at = caster.pos.clone().addScaledVector(caster.forward(), 1.7).setY(caster.pos.y);
+        // THE CONE, scaled by the spend — a full-mass slam drops a visibly
+        // bigger volume of compressed ground than an unloaded one, which is
+        // how the player reads what they just cashed without a number
+        massSlamCone(m.fx, at, ms.k, 0x6f7fd0);
         m.fx.staffSlamCrack?.(caster, caster.forward(), opts.reach ?? 2.6);
         m.fx.quakeTick?.(at, 1 + ms.k);
         m.sfx.impact?.();
@@ -2854,10 +2874,16 @@ export class Effects {
         // her the health as well as the bar
         caster.res.hp = Math.max(1, caster.res.hp - (u.selfDmg ?? 18));
         m.hud.toast(caster, '星の怒り・極');
+        // THE SINGULARITY ITSELF: a dark core over an accretion disc under a
+        // lensing ring. The core is drawn with NORMAL blending over an
+        // additive disc, so the middle is genuinely darker than the world
+        // behind it — which is the one thing in this project that a particle
+        // system cannot do at all.
+        const core = singularity(m.fx, at, (u.pullDuration ?? 1.35) + 0.2, 0x6f7fd0);
         this.entities.push({
           type: 'blackHole', caster, pos: at, t: 0,
           dur: u.pullDuration ?? 1.35, def: u, mult, fired: false,
-          debris: []
+          core, debris: []
         });
         break;
       }
@@ -2879,10 +2905,11 @@ export class Effects {
         const fw = caster.forward();
         const from = caster.pos.clone().setY(caster.pos.y + 1.1);
         const to = from.clone().addScaledVector(fw, reach);
-        // the cut, drawn as one clean white line down its whole length
-        m.fx.cleaveArc?.(caster);
-        m.fx._ring(from.clone().addScaledVector(fw, reach * 0.5), 0xffffff,
-          { size: 0.2, growRate: 26, life: 0.16, flat: false });
+        // ---- THE CUT: ONE PLANE, HELD ---------------------------------
+        // No sweep, no particles, no second layer. An iai cut has already
+        // happened by the time you can see it, and every extra element would
+        // be the effect explaining itself. See fx/newfx.js `iaiLine`.
+        iaiLine(m.fx, from, fw, reach, { tier: opts.drawTier ?? 0 });
         m.sfx.cleave();
         m.cam.shake(0.30 + (opts.drawTier ?? 0) * 0.16);
         m.hitstop(4 + (opts.drawTier ?? 0) * 4);
@@ -2938,8 +2965,12 @@ export class Effects {
         m.hitstop(22);
         m.cam.shake(0.5);
         m.stage.flash(0.42);
-        // ONE LINE. A single ring at the perimeter and nothing else — the
-        // restraint IS the effect, and a burst here would make her Todo.
+        // ONE LINE, at full circle width, plus a single ring leaving the
+        // perimeter. The restraint IS the effect — a burst here would make her
+        // Todo, and the whole design brief for this ultimate is that it is the
+        // opposite of Todo's.
+        iaiLine(m.fx, origin.clone().addScaledVector(caster.forward(), -r).setY(origin.y + 1.1),
+          caster.forward(), r * 2, { tier: 3 });
         m.fx._ring(origin.clone().setY(0.9), 0xffffff,
           { size: r * 0.25, growRate: r * 3.2, life: 0.34, flat: true });
         if (t?.alive && flatDist(t.pos, origin) <= r) {
@@ -4700,8 +4731,16 @@ export class Effects {
           // `staffSpinTick(caster, radius, ang)` — the bar is drawn at an
           // ANGLE around the caster, and the two sweeps of hers go opposite
           // ways, so the side flips the angle rather than being passed as one
-          if (e.type === 'makiSweep') m.fx.staffSpinTick?.(c, e.reach, c.facing + e.side * 0.7);
-          else m.fx.soulSlashArc(c);
+          // THE SWEPT ARC, in the plane she actually swung in — see
+          // fx/newfx.js. The old `staffSpinTick` billboard stays underneath it
+          // for the bright core, because the two read as one object and the
+          // spark is doing work the geometry is deliberately not.
+          if (e.type === 'makiSweep') {
+            cloudArc(m.fx, c, { reach: e.reach, side: e.side, color: 0x5fae7a });
+            m.fx.staffSpinTick?.(c, e.reach, c.facing + e.side * 0.7);
+          } else {
+            soulCleave(m.fx, c, { reach: e.reach, color: 0x5fae7a });
+          }
           const { dmg, crit } = computeDamage(c, e.dmg);
           const r = t.applyHit({
             ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY ?? 0, hitstun: e.hitstun,
@@ -4775,7 +4814,8 @@ export class Effects {
         t.pos.lerp(hold, Math.min(1, dt * 14));
         t.vel.set(0, 0, 0);
         if (e.t > 0) continue;
-        const at = t.pos.clone().setY(t.pos.y + 0.2);
+        const at = t.pos.clone().setY(t.pos.y);
+        massSlamCone(m.fx, at, e.ms.k * 1.2, 0x6f7fd0);
         m.fx.staffSlamCrack?.(c, e.dir, 1.4);
         m.fx.quakeTick?.(at, 1 + e.ms.k);
         m.sfx.impact?.();
@@ -4810,13 +4850,18 @@ export class Effects {
         const c = e.caster;
         const t = this.other(c);
         // the singularity itself: a dark core with a bright accretion ring
+        // The singularity's own geometry (fx/newfx.js) is doing the core, the
+        // disc and the lensing ring, so this tick is only the infalling
+        // streaks — the thin bright lines being drawn in from the edge, which
+        // are cheap and read as matter falling rather than as an aura.
         if ((e.fxT = (e.fxT ?? 0) - dt) <= 0) {
-          e.fxT = 1 / 30;
-          m.fx._ring(e.pos.clone(), 0x6f7fd0,
-            { size: 2.6 * (1 - k * 0.7), growRate: -6, life: 0.22, flat: false });
-          m.fx._spawn(e.pos.clone(), {
-            color: 0x0a0a16, size: 1.8 + k * 1.4, life: 0.12, vel: v3()
-          });
+          e.fxT = 1 / 45;
+          const a = rand(0, Math.PI * 2);
+          const rr = (u.pullRadius ?? 14) * rand(0.25, 0.7);
+          m.fx._spawn(
+            e.pos.clone().add(v3(Math.cos(a) * rr, rand(-1.5, 2.5), Math.sin(a) * rr)),
+            { color: 0xb8c4f0, size: rand(0.5, 1.3), aspect: 0.06,
+              life: 0.28, vel: v3(-Math.cos(a) * rr * 2.2, 0, -Math.sin(a) * rr * 2.2) });
         }
         // 1 — THE PULL
         if (t?.alive) {

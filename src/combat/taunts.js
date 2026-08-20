@@ -253,6 +253,36 @@ export const TAUNTS = {
   mahoraga: [{
     clip: 'taunt', dur: 3.4, say: null, cue: 'mahoraga',
     ref: 'The wheel. It turns once, clunks, and he tilts his head at you — adaptation, as a shrug'
+  }],
+
+  // ---- THE THREE NEW ONES --------------------------------------------------
+  // These clips existed from the day the characters shipped; what was missing
+  // was the ENTRY, and `tauntsFor` returns an empty list for an unlisted
+  // character, so `tryTaunt` bailed silently and all three appeared to have a
+  // dead D-pad Left. The lesson is in `test/roster.mjs`, which now walks every
+  // selectable pick and fails if any of them cannot taunt.
+
+  // Not a boast — a correction. She is the one who was told her whole life she
+  // was worthless because she could not see curses, and the line is aimed at
+  // the clan rather than at the opponent in front of her.
+  maki: [{
+    clip: 'taunt', dur: 3.2, say: "I don't need to see it to cut it.", at: 1.5, hold: 1.4,
+    cue: 'maki', ref: 'The knuckle pushing the glasses up — the gesture she loses when the glasses go'
+  }],
+
+  // Relaxed to the point of rudeness, and completely without aggression. The
+  // question is genuine, which is what makes it worse.
+  yuki: [{
+    clip: 'taunt', dur: 3.4, say: 'So — what do you weigh?', at: 1.7, hold: 1.5,
+    cue: 'yuki', ref: 'Star Rage stated as small talk. She rolls her shoulders out and asks.'
+  }],
+
+  // THE ONLY TAUNT IN THE GAME THAT RETREATS. She points the sword, holds it
+  // for a beat, realises what she has done, and lowers it — and the bubble
+  // arrives on the way back down, so the line reads as the apology it is.
+  miwa: [{
+    clip: 'taunt', dur: 3.0, say: 'Sorry! Sorry — I mean it, though.', at: 1.35, hold: 1.4,
+    cue: 'miwa', ref: 'Kasumi Miwa, who would like everyone to get along, holding a sword'
   }]
 };
 
@@ -309,6 +339,10 @@ export const TAUNT_WEIGHT = {
   // rather than an unsettling one.
   uro: 0.85, dagon: 0.12,
   nanami: 0.1, higuruma: 0.1,
+  // MAKI is low and MIWA is the lowest on the roster: one of them is working
+  // and the other one is apologising. YUKI sits high with Todo and Naoya
+  // because she genuinely does not take any of this seriously.
+  maki: 0.2, yuki: 0.8, miwa: 0.15,
   // Rare on purpose. The joke does not survive repetition, and a CPU that
   // said "salmon" every ten seconds would kill the one gag this character has.
   inumaki: 0.3

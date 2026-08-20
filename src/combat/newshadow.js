@@ -69,6 +69,7 @@
 //   · core/match.js            construction, per-frame update, round reset
 import { v3, flatDist } from '../core/mathutil.js';
 import { computeDamage, hitFeedback } from './hits.js';
+import { cutRibbon } from '../fx/newfx.js';
 
 // ---------------------------------------------------------------------------
 // WHAT COUNTS AS A PROJECTILE FOR THE CUT
@@ -163,6 +164,15 @@ class SimpleDomainZone {
     // acting rather than as her attacking.
     const at = target.pos.clone().setY(target.pos.y + 1.0);
     this.fx?.cutAt(at, this.origin);
+    // ONE STROKE, in real geometry, along the tangent of the circle at the
+    // crossing point — see fx/newfx.js. The ring's own flash (above) marks
+    // WHERE they came in; this is the cut itself.
+    {
+      const d = at.clone().sub(this.origin).setY(0);
+      if (d.lengthSq() < 1e-4) d.set(1, 0, 0);
+      d.normalize();
+      cutRibbon(m.fx, at, v3(-d.z, 0, d.x), { color: this.def.ringHot, len: 2.1 });
+    }
     m.sfx.swordSwing?.();
     m.hitstop(3);
 

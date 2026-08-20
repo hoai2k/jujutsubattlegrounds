@@ -1574,6 +1574,32 @@ export class Sfx {
         this._noise({ dur: 0.5, gain: 0.14, freq: 800, slideTo: 300, q: 1.1 });
         setTimeout(() => this._osc('square', 130, { to: 44, dur: 0.24, gain: 0.3 }), 480);
         break;
+      // ---- THE THREE NEW ONES ---------------------------------------------
+      // MAKI — the glasses go up, and the cue is the little metallic tick of
+      // the frame against her knuckle plus one flat, unimpressed note. Kin to
+      // Toji's in having almost no melody, which is the point: the two
+      // Heavenly Restrictions should sound related.
+      case 'maki':
+        this._noise({ dur: 0.06, gain: 0.13, freq: 5200, q: 3.0 });
+        setTimeout(() => two(294, 262, 0.12, { type: 'triangle', dur: 0.18, gain: 0.15 }), 90);
+        break;
+      // YUKI — a rising, easy two-note question with a heavy low body under
+      // it. The melody is casual; the weight underneath is not, which is the
+      // whole character in one cue.
+      case 'yuki':
+        two(392, 523, 0.16, { type: 'triangle', dur: 0.22, gain: 0.17 });
+        this._osc('sine', 58, { to: 44, dur: 0.9, gain: 0.16 });
+        setTimeout(() => this._osc('sine', 98, { to: 73, dur: 0.5, gain: 0.08 }), 260);
+        break;
+      // MIWA — the only cue in the table that goes UP and then comes back
+      // DOWN, because the taunt itself retreats: the blade rings out bright,
+      // and then the melody apologises. Quiet, and a semitone flatter than it
+      // started.
+      case 'miwa':
+        this._osc('sine', 1760, { to: 2093, dur: 0.14, gain: 0.10 });
+        setTimeout(() => two(659, 494, 0.14, { type: 'triangle', dur: 0.2, gain: 0.12 }), 150);
+        setTimeout(() => this._osc('sine', 466, { to: 440, dur: 0.4, gain: 0.07 }), 430);
+        break;
       default:
         two(440, 587, 0.1, { type: 'triangle', dur: 0.16, gain: 0.14 });
     }

@@ -2173,6 +2173,204 @@ export const FINISHERS_BY_PICK = {
         heroShot: S.faceWin({ d: 1.35, side: 0.5, y: -0.10 }), heroDof: 0.85
       })
     ]
+  },
+
+  // =========================================================================
+  // MAKI — 釈魂刀 THE SOUL CUT
+  // The Zenin compound, the night she stops being the family's failure. She
+  // takes the whole exchange standing — the awakening is not something that
+  // happens TO her mid-fight, it is something she has already finished doing
+  // by the time this starts — and the kill is one committed cut she watches
+  // land.
+  //
+  // Authored to be read against Toji's, which is the same weapon family and
+  // the opposite performance: he kills side-on, bored, without looking, and
+  // walks away. She kills square, tracks it, and RESETS TO GUARD.
+  // =========================================================================
+  maki: {
+    id: 'maki_soul_cut',
+    moment: 'She takes two, does not go down, swaps to the katana and cuts once — and comes back to guard.',
+    color: '#5fae7a', grade: 'ko', chord: 'cold', root: 116.5,
+    actions: [
+      // ---- SHE EATS THE FIRST TWO -----------------------------------------
+      // and that is the character: her meter fills from being hit, so the
+      // opening of her own finisher is her LOSING, on purpose.
+      { op: 'fCross', strike: 'op', hit: true, react: 'rSnapHead', win: null, shot: S.otsLose(), power: 0.85, knock: 0.5 },
+      { op: 'fKnee', strike: 'op', hit: true, react: 'rFoldGut', win: null, shot: S.hitR(), power: 1.0, knock: 0.6 },
+      // ---- AND STANDS UP ---------------------------------------------------
+      // The hinge, and there is no strike in it. Held close: she straightens,
+      // the glasses come off, and the model steps to full awakening in shot.
+      {
+        win: 'taunt', op: 'fGuardUp', span: 1.30,
+        shot: S.faceWin({ d: 1.25, side: 0.5 }), dofBase: 0.9,
+        fx: d => {
+          d.win.model.setStage?.(3);
+          d.sfx.charged?.();
+          d.audio.accent(233, { gain: 0.09 });
+          d.fx._ring(d.win.pos.clone().setY(1.15), 0x5fae7a, { size: 0.5, growRate: 7, life: 0.5, flat: false });
+        }
+      },
+      // the staff comes off her back, and it is the wrong weapon on purpose —
+      // she throws one sweep with it to make room
+      {
+        win: 'ct1Cloud', strike: 'win', hit: true, react: 'rSpin', op: 'fGuardUp',
+        span: 0.95, power: 1.3, knock: 1.2, shot: S.hitL(), impact: 0.12,
+        fx: d => { d.win.model.setWeapon?.('playful_cloud'); d.sfx.swordSwing?.(); },
+        onContact: (d, at) => d.fx.impactBloom(at, 0x5fae7a, 0.75)
+      },
+      { op: 'fCross', strike: 'op', hit: false, miss: true, win: 'fSlip', shot: S.dollyR() },
+      // ---- THE SWAP --------------------------------------------------------
+      // Two weapons, not four. The staff goes to her back and the katana comes
+      // off it in one motion, which is the whole distinction from his wheel.
+      {
+        win: 'swap', op: 'fGuardUp', span: 0.70,
+        shot: two({ d: 2.4, side: -1, y: 1.42, fov: 37, push: 0.35 }), dofBase: 0.55,
+        fx: d => { d.win.model.setWeapon?.('split_soul'); d.sfx.swordGrab?.(); d.audio.accent(175, { gain: 0.08 }); }
+      },
+      // ---- THE CUT ---------------------------------------------------------
+      {
+        win: 'makiSoulCut', strike: 'win',
+        blast: { at: 0.44, aim: 'chest', power: 1.7, kind: 'blade' },
+        hit: true, react: 'rSplit', op: null, span: 1.25,
+        power: 1.7, knock: 1.5, shot: S.bigHit(), impact: 0.18,
+        fx: d => d.sfx.cleave?.(),
+        onContact: (d, at) => {
+          d.fx.impactBloom(at, 0x8fe0b4, 1.1);
+          d.fx.soulRip?.(at);
+        }
+      },
+      ...OUTRO('idle', {
+        fallSpan: 1.15, fallShot: S.lowL(1.7),
+        // she is back on guard over the body. Nobody else's outro does that.
+        heroClip: 'victory', heroShot: S.hero({ d: 4.4, from: 0.55, sweep: 0.45 }), heroSpan: 1.5
+      })
+    ]
+  },
+
+  // =========================================================================
+  // YUKI — 星の怒り THE COMMAND GRAB
+  // She walks through everything they have, catches them by the throat, holds
+  // it long enough to be rude, and puts them through the floor. The whole
+  // finisher is ONE IDEA — that nothing they do moves her — and the armour is
+  // shown rather than stated: she takes two clean hits without a flinch clip
+  // anywhere in the sequence.
+  // =========================================================================
+  yuki: {
+    id: 'yuki_star_rage',
+    moment: 'They land two. She does not react to either. Then she picks them up.',
+    color: '#6f7fd0', grade: 'ko', chord: 'low', root: 87.3,
+    // dust drawn INWARD for the whole cinematic — the only ambient in the file
+    // that travels the wrong way, which is the only honest way to draw gravity
+    ambient: (d, t) => {
+      if ((t * 60 | 0) % 4) return;
+      const a = t * 2.3, r = 2.6;
+      d.fx._spawn(
+        d.win.pos.clone().add({ x: Math.cos(a) * r, y: 0.5 + (a % 1.7), z: Math.sin(a) * r }),
+        { color: 0xb8c4f0, size: 0.10, life: 0.42,
+          vel: { x: -Math.cos(a) * 5.5, y: 0.4, z: -Math.sin(a) * 5.5 } });
+    },
+    actions: [
+      // ---- THEY HIT HER TWICE AND NOTHING HAPPENS -------------------------
+      // `react: null` on a connected hit is the whole point: there is no
+      // flinch clip, so the armour is a fact about the footage rather than a
+      // number on a HUD.
+      { op: 'fCross', strike: 'op', hit: true, react: null, win: 'fGuardUp', shot: S.otsLose(), power: 0.8, knock: 0 },
+      { op: 'fUpper', strike: 'op', hit: true, react: null, win: 'fGuardUp', shot: S.faceWin({ d: 1.4 }), dofBase: 0.8, power: 1.0, knock: 0 },
+      // ---- SHE TAKES A STEP ------------------------------------------------
+      {
+        win: 'massCharge', op: 'fGuardUp', span: 1.05,
+        shot: two({ d: 3.0, side: 1, y: 1.5, fov: 40, push: 0.4 }), dofBase: 0.5,
+        fx: d => {
+          d.win.model.setMass?.(1);
+          d.sfx.techCharge?.();
+          d.audio.accent(87, { gain: 0.11 });
+        }
+      },
+      // one long jab, purely so the reach reads before the grab
+      {
+        win: 'punch1', strike: 'win', hit: true, react: 'rSnapHead', op: null,
+        span: 0.85, power: 1.2, knock: 0.9, shot: S.hitR(),
+        onContact: (d, at) => d.fx.impactBloom(at, 0x6f7fd0, 0.8)
+      },
+      // ---- THE GRAB --------------------------------------------------------
+      {
+        win: 'yukiGrabSlam', strike: 'win',
+        blast: { at: 0.34, aim: 'head', power: 1.2, kind: 'grab' },
+        hit: true, react: 'rThroat', op: null, span: 1.55,
+        power: 2.0, knock: 0.2, shot: S.crane(), impact: 0.22,
+        fx: d => d.sfx.grab?.() ?? d.sfx.impact?.(),
+        onContact: (d, at) => {
+          d.fx.impactBloom(at, 0x6f7fd0, 1.3);
+          d.fx.quakeTick?.(at, 3.0);
+          d.cam.shake(1.2);
+        }
+      },
+      ...OUTRO('idle', {
+        // the react already put them on the floor
+        fall: null,
+        heroClip: 'taunt', heroShot: S.hero({ d: 5.0, from: 0.6, sweep: 0.55 }), heroSpan: 1.6,
+        heroFx: d => d.win.model.setMass?.(0)
+      })
+    ]
+  },
+
+  // =========================================================================
+  // MIWA — 簡易領域・抜刀 THE CIRCLE AND ONE CUT
+  // The quietest finisher in the game, and deliberately the opposite of Todo's
+  // and Yuki's. She loses the exchange, retreats, puts the circle down, and
+  // then does not move for a second and a half while they walk into it.
+  //
+  // The kill is ONE FRAME OF CONTACT. There is no follow-up, no second hit and
+  // no flourish — and the last thing she does is apologise, which is the only
+  // outro on the roster where the winner is embarrassed.
+  // =========================================================================
+  miwa: {
+    id: 'miwa_simple_domain',
+    moment: 'She backs off, draws the circle, and waits. They step in. One cut.',
+    color: '#a8d8e8', grade: 'ko', chord: 'cold', root: 130.8,
+    actions: [
+      // ---- SHE IS LOSING ---------------------------------------------------
+      { op: 'fHook', strike: 'op', hit: true, react: 'rSnapHead', win: null, shot: S.otsLose(), power: 1.0, knock: 0.7 },
+      { op: 'fRound', strike: 'op', hit: false, win: 'fParry', shot: S.hitL(), power: 0.9,
+        fx: d => d.sfx.guard?.() },
+      // ---- THE CIRCLE ------------------------------------------------------
+      // Inscribed, in shot, in one sweep of the blade — the ring is DRAWN
+      // rather than spawned, which is the whole visual thesis of the ability.
+      {
+        win: 'special', op: 'fStepThrough', span: 1.15,
+        shot: S.crane(), dofBase: 0.35,
+        fx: d => {
+          d.sfx.simpleDomain?.();
+          d.audio.accent(261, { gain: 0.08 });
+          d.fx._ring(d.win.pos.clone().setY(0.06), 0xa8d8e8, { size: 0.4, growRate: 9, life: 0.9, flat: true });
+        }
+      },
+      // ---- AND SHE WAITS ---------------------------------------------------
+      // No strike, no movement, no camera move. A second and a half of a
+      // teenage girl standing perfectly still while somebody walks at her.
+      {
+        win: 'stance', op: 'fStepThrough', span: 1.50,
+        shot: two({ d: 3.4, side: -1, y: 1.35, fov: 34, push: 0.15 }), dofBase: 0.7,
+        fx: d => d.audio.accent(196, { gain: 0.05 })
+      },
+      // ---- ONE CUT ---------------------------------------------------------
+      {
+        win: 'miwaIai', strike: 'win',
+        blast: { at: 0.60, aim: 'chest', power: 1.8, kind: 'blade' },
+        hit: true, react: 'rSplit', op: null, span: 1.85,
+        power: 1.8, knock: 1.1, shot: S.faceWin({ d: 2.0, side: 0.35 }), dofBase: 0.6, impact: 0.24,
+        fx: d => d.sfx.cleave?.(),
+        // ONE LINE and nothing else. No bloom, no debris, no shake beyond the
+        // impact the director already applies.
+        onContact: (d, at) => d.fx._ring(at, 0xffffff, { size: 0.2, growRate: 22, life: 0.2, flat: false })
+      },
+      ...OUTRO('idle', {
+        fallSpan: 1.25, fallShot: S.wideR(),
+        // she sheathes it properly — the one thing she is unambiguously good
+        // at — and then immediately looks like she wants to say sorry.
+        heroClip: 'victory', heroShot: S.hero({ d: 4.0, from: 0.5, sweep: 0.35 }), heroSpan: 1.7
+      })
+    ]
   }
 };
 
