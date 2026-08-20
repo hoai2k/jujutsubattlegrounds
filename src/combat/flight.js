@@ -38,11 +38,48 @@
 // second thing to watch and would have let her be airborne AND evasive at the
 // same time, which is precisely the degenerate version.
 //
-// Two rates, because holding station and climbing are not the same effort:
-//   HOLD   `drain`     — hovering in place or drifting
-//   CLIMB  `climbDrain`— while the jump button is held and she is rising
+// THREE rates, because holding station, climbing, and being SOMEWHERE NOBODY
+// CAN REACH are not the same effort:
+//   HOLD   `drain`      — hovering in place or drifting, under the contest band
+//   CLIMB  `climbDrain` — while the jump button is held and she is rising
+//   HIGH   `highDrain`  — above `contestHeight`, whatever else she is doing
 // She falls out of the sky when the bar empties, and the fall is a real
 // `fall` state with real gravity: getting her stamina to zero is a win.
+//
+// ---------------------------------------------------------------------------
+// *** THE CONTEST BAND — THE FIX FOR THE MATCHUP THAT WAS ACTUALLY BROKEN ***
+// ---------------------------------------------------------------------------
+// THE MEASUREMENT THAT FOUND IT. Every melee character's jump apex, taken from
+// their own `jumpVel` against the shared GRAVITY of 26:
+//     Yuki 1.23 m · Todo 1.29 m · Panda 1.36 m · Miwa 1.42 m ·
+//     Yuji 1.49 m · Nanami 1.49 m · Maki 1.56 m
+// A grounded swing originates at roughly chest height and the melee capsule
+// test forgives 1.45 m of vertical separation, so the highest a melee
+// character can put a hitbox on a hovering body is about 2.85 m of HER FEET,
+// jumping, at the top of the arc.
+//
+// An earlier version of this file capped her at 7.0 m and the comment in
+// characters/uro.js claimed that was "inside every one of those" reaches. IT
+// WAS NOT — the claim was asserted without being measured, and it was wrong by
+// a factor of two and a half. At 7 m Todo, Yuki, Maki and Miwa could not touch
+// her at any point in the round, which is precisely the degenerate character
+// the brief warned about.
+//
+// THE FIX IS NOT A LOWER CEILING. She keeps 7 m, because a character who
+// cannot cross a rooftop or rise over an ultimate is not the aerial character
+// the brief asked for. What changes is what it COSTS:
+//
+//   BELOW 2.8 m   `drain` (13/s). She is airborne, she is fighting, and she is
+//                 reachable by a jumping melee character. This is where she
+//                 actually lives.
+//   ABOVE 2.8 m   `highDrain` (34/s). Nobody on the ground can touch her, and
+//                 with regen halted a full 118 bar buys THREE AND A HALF
+//                 SECONDS of it — enough to cross a gap, escape a launcher or
+//                 sit out a committed technique, nowhere near enough to camp.
+//
+// So the unreachable altitude exists, it is genuinely powerful, and it is
+// rationed by the same bar her dash comes out of. The honest assessment of
+// whether that is enough is in the delivery report.
 //
 // ---------------------------------------------------------------------------
 // THE CEILING — THE PART THAT ACTUALLY TOOK THE WORK
@@ -80,6 +117,12 @@ export const FLIGHT_DEFAULTS = {
   enterCost: 6,         // one-off, on the frame she takes to the air
   minStamina: 5,        // below this she cannot start a hover at all
   takeoff: 0.55,        // metres of clearance before the hover takes over
+  // ---- THE CONTEST BAND, and the most important pair of numbers here ----
+  // See the long note below. Above `contestHeight` metres off the local floor
+  // she is out of every melee character's reach, and up there the drain is
+  // `highDrain` instead of `drain`.
+  contestHeight: 2.8,
+  highDrain: 34,
   airSpeed: 4.9,        // horizontal top speed while hovering
   airAccel: 17,
   airDashSpeed: 9.2,
@@ -110,6 +153,7 @@ export function airSpeedOf(f) {
 
 export function resetFlight(f) {
   f.hoverT = 0;
+  f.hoverHigh = false;
   f.hoverCeil = Infinity;
   f._hoverEnter = false;
 }
@@ -193,14 +237,34 @@ export function tickFlight(f, input, ctx, dt) {
   const climbing = !!input?.jump && f.pos.y < cap - 0.02;
   if (climbing) {
     f.vel.y = fl.climbSpeed;
-    f.res.stamina = Math.max(0, f.res.stamina - fl.climbDrain * dt);
   } else {
     // NOT zero. A dead-still hover reads as a bug — a character standing on
     // nothing. A slow settle plus the idle clip's own bob is what makes it
     // read as holding position rather than as being pinned there.
     f.vel.y = -fl.sinkSpeed;
-    f.res.stamina = Math.max(0, f.res.stamina - fl.drain * dt);
   }
+
+  // ---- ONE DRAIN RATE PER FRAME, CHOSEN, NOT ACCUMULATED -----------------
+  // Three rates and exactly one applies, picked in priority order. It is a
+  // choice rather than a sum on purpose: an earlier version charged the climb
+  // rate AND the altitude tax together, which came to 55/s and made the top of
+  // her range unreachable in practice — she ran out of bar on the way up.
+  //
+  //   HIGH    above the contest band. Nobody on the ground can touch her, and
+  //           this is what that costs, climbing or not.
+  //   CLIMB   under the band, rising.
+  //   HOLD    under the band, holding station or drifting.
+  //
+  // `hoverHigh` is exposed for the HUD and the CPU: the opponent should be
+  // able to see that she is burning the bar, and the bot should know to come
+  // down before it is dropped.
+  const b2 = ctx?.match?.arena?.bounds ?? f.bounds;
+  const under2 = b2 ? b2.floorAt(f.pos.x, f.pos.z, f.pos.y + 0.5) : 0;
+  const high = (f.pos.y - under2) > (fl.contestHeight ?? 2.8);
+  f.hoverHigh = high;
+  const rate = high ? (fl.highDrain ?? 34) : climbing ? fl.climbDrain : fl.drain;
+  f.res.stamina = Math.max(0, f.res.stamina - rate * dt);
+
   if (f.pos.y > cap) { f.pos.y = cap; if (f.vel.y > 0) f.vel.y = 0; }
 
   return true;

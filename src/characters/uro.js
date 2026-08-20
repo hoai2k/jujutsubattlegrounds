@@ -82,13 +82,21 @@ export const URO = withDefaults({
   // Read by combat/flight.js and by nothing else. See that file's header for
   // the whole design; the numbers here are the tuning.
   //
-  // maxHeight 7.0 is the single most important number in this config and it is
-  // NOT arbitrary — it is set from the melee matchups. The tallest reach in the
-  // game is Yuki's commanded Garuda dive and Todo's launcher, both of which
-  // top out around 7.6 m of vertical threat from the ground; a launcher into
-  // an air string covers 7.8. At 7.0 m she is inside every one of those, so
-  // there is no altitude at which a melee character simply cannot touch her.
-  // See the honest assessment in the delivery report.
+  // *** A CORRECTION TO AN EARLIER VERSION OF THIS COMMENT. *** It used to
+  // claim that 7.0 m was "inside every melee character's reach" and cited a
+  // 7.6 m figure for Todo's and Yuki's vertical threat. THAT NUMBER WAS NEVER
+  // MEASURED AND IT IS WRONG. Measured properly, every melee jump apex in the
+  // game is between 1.23 m (Yuki) and 1.56 m (Maki), and the highest a
+  // grounded character can put a hitbox on a hovering body is about 2.85 m of
+  // her feet. At a flat 7 m ceiling she was untouchable by four characters for
+  // the entire round.
+  //
+  // `maxHeight` is still 7.0 — she needs the altitude to cross a rooftop, to
+  // clear an ultimate, and to be the aerial character at all. What carries the
+  // balance instead is `contestHeight` and `highDrain`: above 2.8 m the drain
+  // triples, so the unreachable band exists and lasts about three and a half
+  // seconds on a full bar. See the long note in combat/flight.js, and the
+  // honest assessment of whether that is enough in the delivery report.
   flight: {
     maxHeight: 7.0,
     headroom: 0.55,
@@ -99,6 +107,10 @@ export const URO = withDefaults({
     enterCost: 6,
     minStamina: 5,
     takeoff: 0.55,      // the jump's own arc runs below this — see flight.js
+    // THE CONTEST BAND. Above this height off the local floor nothing on the
+    // ground can reach her, and up there the bar goes three times as fast.
+    contestHeight: 2.8,
+    highDrain: 34,      // ~3.5 s of being untouchable on a full 118 bar
     airSpeed: 4.9,      // deliberately SLOWER than her 5.6 run
     airAccel: 17,
     airDashSpeed: 9.2,
