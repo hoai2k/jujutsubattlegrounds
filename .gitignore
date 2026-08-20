@@ -5,3 +5,5 @@ shots/
 # dev scratch: headless model probes and the Playwright viewer driver
 .probe*.mjs
 .shots.mjs
+.t*.js
+.play.mjs
