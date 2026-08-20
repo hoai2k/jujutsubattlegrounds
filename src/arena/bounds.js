@@ -199,6 +199,36 @@ export class Bounds {
     return best;
   }
 
+  // ---- THE CEILING -------------------------------------------------------
+  // The lowest walkable surface strictly ABOVE a point — i.e. what is over your
+  // head. Returns Infinity under open sky.
+  //
+  // WHY THIS EXISTS AT ALL. Nothing in this project could fly until Uro, so
+  // "what is above me" was never a question anyone had to ask: a jump peaks in
+  // half a second and comes back down, and the swept floor test in
+  // combat/fighter.js `_physics` handles passing THROUGH a mezzanine on the way
+  // up. A fighter who can hold altitude indefinitely turns every interior in
+  // the game into a problem — the hall at Jujutsu High has a roof deck at
+  // 4.6 m, and without this she would hover up through the ceiling and stand on
+  // the roof of a room she is supposed to be trapped inside.
+  //
+  // Deliberately CONSERVATIVE. It reports any live platform overhead, including
+  // ones she could legitimately reach by going around; the flight system uses
+  // it as a soft cap on rise, not as a hard collider, so a low awning never
+  // traps her — she simply cannot rise through it from underneath.
+  //
+  // Nothing existing calls this. It is additive.
+  ceilingAt(x, z, y) {
+    let best = Infinity;
+    for (const p of this._query(this._pGrid, x, z)) {
+      if (!p.live) continue;
+      if (x < p.x0 || x > p.x1 || z < p.z0 || z > p.z1) continue;
+      const py = p.ramp ? rampY(p, x, z) : p.y;
+      if (py > y + STEP_UP && py < best) best = py;
+    }
+    return best;
+  }
+
   // Which platform (if any) the point is standing on — used by the maps to
   // decide interior vs exterior for culling.
   platformAt(x, z, y) {

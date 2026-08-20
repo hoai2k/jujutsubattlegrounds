@@ -1,3 +1,7 @@
 node_modules/
 dist/
 shots/
+
+# dev scratch: headless model probes and the Playwright viewer driver
+.probe*.mjs
+.shots.mjs

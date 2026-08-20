@@ -399,7 +399,13 @@ export function buildYuki() {
       // the fringe in a solid curtain. The reference has them in front of the
       // SHOULDERS, outboard of the jaw — so they frame the face rather than
       // covering it, and the `restDir` now leans outward as well as down.
-      localOffset: v3(s * headR * 1.02, headC.y - headR * 0.10, headC.z + headR * 0.06),
+      // BUG FIX, found while building models/uro.js and identical to the one
+      // in models/miwa.js: `localOffset` is BONE-LOCAL and this was written in
+      // the world convention the rest of the file uses for `bag.add`, so all
+      // four of her sprung locks hung 1.7 m above her head. Subtracting the
+      // Head joint puts them where the pass-2 note above intended.
+      localOffset: v3(s * headR * 1.02, headC.y - headR * 0.10, headC.z + headR * 0.06)
+        .sub(joints.get('Head')),
       restDir: v3(s * 0.30, -1, 0.06).normalize(),
       segments: [{ len: headR * 1.20, mesh: seg1 }, { len: headR * 1.05, mesh: seg2 }],
       stiffness: 46, damping: 0.82, gravity: 7.0
@@ -416,7 +422,9 @@ export function buildYuki() {
       hairDkMat, HAIR_DK, { color: 0x0b0a12, thickness: 0.014 });
     springs.push({
       bone: 'Head',
-      localOffset: v3(s * headR * 0.44, headC.y - headR * 0.24, headC.z - headR * 0.86),
+      // same bone-local fix as the tufts above
+      localOffset: v3(s * headR * 0.44, headC.y - headR * 0.24, headC.z - headR * 0.86)
+        .sub(joints.get('Head')),
       restDir: v3(s * 0.16, -1, -0.20).normalize(),
       segments: [{ len: headR * 1.40, mesh: seg1 }, { len: headR * 1.30, mesh: seg2 }],
       // the lowest stiffness and the highest damping in the project: heavy

@@ -27,6 +27,13 @@ import { buildInumaki } from '../art/models/inumaki.js';
 import { buildMaki } from '../art/models/maki.js';
 import { buildYuki } from '../art/models/yuki.js';
 import { buildMiwa } from '../art/models/miwa.js';
+import { buildUro } from '../art/models/uro.js';
+import { buildDagon } from '../art/models/dagon.js';
+// DAGON'S FOUR — not humanoids and not Megumi's, so they load through the
+// CREATURES path with the rest of the summons.
+import {
+  buildPiranhaShoal, buildArmouredCrab, buildEelSerpent, buildGreatShark
+} from '../art/models/oceanshikigami.js';
 // GARUDA is not a humanoid and has no clip set, so it loads through the
 // CREATURES path below rather than through BUILDERS — same as the shikigami.
 import { buildGaruda } from '../art/models/garuda.js';
@@ -65,6 +72,7 @@ const BUILDERS = { gojo: buildGojo, yuta: buildYuta, megumi: buildMegumi, nanami
   hanami: buildHanami, kurourushi: buildKurourushi, choso: buildChoso, nobara: buildNobara,
   geto: buildGeto, naoya: buildNaoya, kashimo: buildKashimo, panda: buildPanda,
   inumaki: buildInumaki, maki: buildMaki, yuki: buildYuki, miwa: buildMiwa,
+  uro: buildUro, dagon: buildDagon,
   // VARIANTS. They are separate models with their own geometry, so they get
   // their own viewer entries — a variant you cannot load on the bench is a
   // variant nobody iterates on, which is how a palette swap ships.
@@ -77,6 +85,11 @@ const BUILDERS = { gojo: buildGojo, yuta: buildYuta, megumi: buildMegumi, nanami
 // him on the shared camera. Anything listed here gets its own default rig.
 const FRAMING = {
   mahoraga: { dist: 8.6, height: 1.95 },
+  // URO's silhouette is 2.26 m tall on a 1.72 m body — the crest needs the
+  // extra height or the bench crops it, which is precisely the detail the
+  // bench exists to check.
+  uro: { dist: 4.9, height: 1.30 },
+  dagon: { dist: 6.0, height: 1.35 },
   hanami: { dist: 5.4, height: 1.25 },
   kurourushi: { dist: 5.6, height: 1.30 }
 };
@@ -98,6 +111,27 @@ const CREATURES = {
   // is not a humanoid: no rig, no clip set, a procedural animator. `mass` is
   // the Star Rage charge poured through the bone, which is the one state worth
   // having on the bench because it is the only thing that changes its colour.
+  // ---- DAGON'S OCEAN SHIKIGAMI ---------------------------------------------
+  // The four that fill Horizon of the Captivating Skandha. Each exposes the
+  // states its own animator actually reads, so the bench shows the wind-up on
+  // the two with a tell (the eel's throat swell, the shark's jaw) rather than
+  // only the swim cycle.
+  'sea·piranha': {
+    build: () => buildPiranhaShoal(14),
+    states: { swarm: { speed: 4 }, hold: { speed: 0 }, bite: { speed: 3, action: 'bite', actionK: 0.7 }, hurt: { hurt: true } }
+  },
+  'sea·crab': {
+    build: buildArmouredCrab,
+    states: { idle: { speed: 0 }, scuttle: { speed: 2.6 }, snap: { speed: 0, action: 'snap', actionK: 0.8 }, ram: { speed: 3, action: 'ram', actionK: 0.7 }, hurt: { hurt: true } }
+  },
+  'sea·eel': {
+    build: buildEelSerpent,
+    states: { swim: { speed: 3 }, 'spit·wind': { speed: 1, action: 'spit', actionK: 0.6 }, 'spit·fire': { speed: 1, action: 'spit', actionK: 0.95 }, hurt: { hurt: true } }
+  },
+  'sea·shark': {
+    build: buildGreatShark,
+    states: { cruise: { speed: 2 }, 'bite·open': { speed: 2, action: 'bite', actionK: 0.6 }, 'bite·close': { speed: 2, action: 'bite', actionK: 0.95 }, hurt: { hurt: true } }
+  },
   garuda: {
     build: buildGaruda,
     states: {

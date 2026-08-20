@@ -532,7 +532,18 @@ export function buildMiwa() {
       hairMat, HAIR_DK, { color: 0x0a0d14, thickness: 0.012 });
     springs.push({
       bone: 'Head',
-      localOffset: v3(s * headR * 0.56, headC.y - headR * 0.16, headC.z - headR * 0.92),
+      // BUG FIX, found while building models/uro.js. A SpringChain's
+      // `localOffset` is parented straight onto the bone, so it is in
+      // BONE-LOCAL space — but every `bag.add` in this file authors geometry
+      // in WORLD space, and this line was written in the world convention like
+      // its neighbours. `headC.y` is 1.54 m and the Head bone already sits at
+      // 1.45 m, so the two stacked: both of her sprung back strands hung in
+      // the air 1.5 m above her head, visible in any render framed wide enough
+      // to include them (which the bench's default framing is not — which is
+      // why it shipped). Subtracting the Head joint's own position puts them
+      // on the back of her head, where the rest of the hair is.
+      localOffset: v3(s * headR * 0.56, headC.y - headR * 0.16, headC.z - headR * 0.92)
+        .sub(joints.get('Head')),
       restDir: v3(s * 0.10, -1, -0.16).normalize(),
       segments: [{ len: headR * 1.05, mesh: seg1 }, { len: headR * 0.90, mesh: seg2 }],
       // stiffer and lighter than Maki's cape: this is hair, so it should
