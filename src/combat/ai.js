@@ -6,6 +6,11 @@ import { tauntWeight } from './taunts.js';
 // Cursed speech, for the one profile that has to decide what a button IS
 // before it decides whether to press it. Both helpers are pure reads.
 import { affordable as speechAffordable, boundKey as speechBoundKey } from './speech.js';
+// The three new profiles each ask their own system exactly one question. Every
+// one of these is a pure read and returns a sensible default for a fighter
+// whose config does not declare the resource.
+import { awakenAggression } from './awakening.js';
+import { massReady, massFrac } from './mass.js';
 
 export class CPU {
   constructor(fighter, opponent, match) {
@@ -495,6 +500,268 @@ export class CPU {
       }
       // the domain, when it is up and there is room to cast it
       if (me.ultReady && !me.busy && dist > 3 && !this.match.domains.state) f.ult = true;
+      this._edges(f);
+      return f;
+    }
+
+    // ---- MAKI: PLAY FOR THE AWAKENING --------------------------------------
+    // "Maki plays for awakening and gets more aggressive as she scales."
+    //
+    // The profile is ONE NUMBER — `awakenAggression`, 0 at the start of the
+    // round and 1 at maximum — and everything below is that number driving a
+    // dial. What makes it interesting rather than a ramp is the thing her
+    // meter does that nothing else does: TAKING DAMAGE FEEDS IT. So an early
+    // Maki bot is not simply passive, it is willing to TRADE. It will stand in
+    // a hit to land one, because the trade is profitable for her in a way it
+    // is not for anybody else in this file, and that is the character.
+    //
+    // Four rules:
+    //   1. EARLY, TRADE. Stay in range, throw the fast weapon, accept hits.
+    //   2. LATE, COMMIT. The heavy weapon, the slow techniques, and pressure.
+    //   3. SWAP ON PURPOSE. The katana in neutral (fast, unblockable RT), the
+    //      staff when they are guarding (it has the guard break).
+    //   4. THE ULTIMATE IS THE WHOLE ROUND. Once stage 3 lands it fires at
+    //      the first opportunity — it is once per round and holding it is
+    //      strictly worse than using it.
+    if (me.cfg.awakening) {
+      const agg = awakenAggression(me);
+      const c1 = me._def('ct1'), c2 = me._def('ct2');
+      const armed = me.weapon ?? me.cfg.arsenal.default;
+      const guarding = foe.state === 'block' || foe.state === 'blockstun';
+
+      // 4 — the ultimate, the moment it exists
+      if (!me.busy && me.cfg.ultimate?.kind === 'awakening'
+        && me.awakenStage >= (me.cfg.ultimate.requireStage ?? 3)
+        && (me.awakenUses ?? 0) < (me.cfg.ultimate.uses ?? 1)
+        && dist < 4.5 && me.grounded) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+
+      // 3 — the swap. Deliberately on a long-ish timer rather than reactive:
+      // a bot that swapped the instant they blocked would be swapping twice a
+      // second, and the swap has a real vulnerable window.
+      this.makiSwapT = (this.makiSwapT ?? 0) - 1 / 30;
+      if (!me.busy && me.specialCD <= 0 && this.makiSwapT <= 0 && dist > 2.2) {
+        const want = guarding ? 'playful_cloud' : 'split_soul';
+        if (armed !== want) {
+          f.copy = true;                 // B — the swap
+          this.makiSwapT = 2.4;
+          this._edges(f);
+          return f;
+        }
+      }
+
+      if (!me.busy) {
+        // 1 / 2 — the approach. Closes hard at every stage; what changes is
+        // how willing she is to sit inside their range once she is there.
+        // MOVEMENT IS CHARACTER-RELATIVE and -z ADVANCES along the facing
+        // axis — see the `toward` constant in the shared plan switch at the
+        // bottom of this file. Getting this sign wrong makes a bot that runs
+        // away from the fight while believing it is charging.
+        f.move.z = dist > 2.4 ? -1 : (agg > 0.5 ? 0 : 0.15);
+        f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * (0.3 - agg * 0.2);
+        f.dash = dist > 6 && me.res.stamina > 40;
+        if (dist < (c1?.reach ?? 2.6) && me.specialCD <= 0) {
+          // the technique rate scales with the stage — at base she throws them
+          // sparingly because they are slow and she is weak, and at maximum
+          // she throws them constantly because they are fast and she is not
+          if (Math.random() < 0.10 + agg * 0.30) {
+            // the guard break when they are holding a guard; otherwise the
+            // unblockable, which is the better neutral tool
+            f.ct2 = guarding && armed === 'playful_cloud';
+            f.ct1 = !f.ct2 && armed === 'playful_cloud';
+            if (armed === 'split_soul') { f.ct2 = Math.random() < 0.45; f.ct1 = !f.ct2; }
+          }
+        }
+        if (!f.ct1 && !f.ct2 && dist < (me.cfg.punches[0].reach + 0.5) && this.punchT <= 0) {
+          f.punch = true;
+          this.punchT = rand(0.12, 0.30);
+        }
+        // ---- THE TRADE, AND IT IS THE WHOLE PROFILE ------------------------
+        // Guard rate FALLS as she awakens, from 30% down to 6%. That is
+        // backwards for every other bot in this file and correct for her:
+        // early, a hit taken is a hit converted into meter, so refusing to
+        // block is profitable; late, she does not need to trade because she
+        // wins the exchange outright.
+        if (dist < 2.6 && (foe.state === 'attack' || foe.state === 'ct')
+          && Math.random() < 0.30 - agg * 0.24) {
+          f.block = true; f.punch = false; f.ct1 = false; f.ct2 = false;
+        }
+      }
+      this._edges(f);
+      return f;
+    }
+
+    // ---- YUKI: BUILD MASS, WALK THROUGH HITS, HUNT THE GRAB ----------------
+    // "Yuki builds mass, walks through hits, and hunts the command grab."
+    //
+    // The profile is a two-state machine and the state is `massReady` — am I
+    // above the armour threshold:
+    //
+    //   LIGHT (below the threshold)  hold range, charge the slam whenever
+    //                                there is a window, and do NOT commit. She
+    //                                loses every trade here and knows it.
+    //   HEAVY (above it)             walk forward in a straight line, through
+    //                                whatever they throw, and grab. This is
+    //                                the scary state and it is the one the
+    //                                whole character is for.
+    //
+    // The single most important line is that she does NOT block in the heavy
+    // state. She has armour; guarding would waste it, and a bot that armoured
+    // up and then hid behind a guard would never show the player what the
+    // mechanic is.
+    if (me.cfg.mass) {
+      const heavy = massReady(me);
+      const c2 = me._def('ct2');
+      const g = this.match.garuda?.forOwner(me);
+
+      // GARUDA, on cooldown, whenever they are at a distance she cannot cover.
+      // It is her only ranged option and the profile treats it as one.
+      if (!me.busy && me.specialCD <= 0 && g && !g.stunned
+        && dist > 3.4 && dist < 11 && me.res.curCE >= (me.cfg.special.cost ?? 0)) {
+        f.copy = true;
+        this._edges(f);
+        return f;
+      }
+
+      if (!me.busy) {
+        if (heavy) {
+          // ---- THE HEAVY STATE -------------------------------------------
+          // Straight forward. No strafing, no dashing (her dash is the worst
+          // in the game and worse still at high mass), no guard.
+          f.move.z = -1;               // -z advances; see the note in Maki's block
+          f.move.x = 0;
+          f.dash = false;
+          // THE GRAB, at its own range. It whiffs on an airborne target, so
+          // the bot checks — a bot that grabbed at a jumping opponent would
+          // teach the player the wrong lesson about the move.
+          if (dist < (c2?.reach ?? 2.4) && foe.grounded && me.res.curCE >= (c2?.cost ?? 0)) {
+            f.ct2 = true;
+          } else if (dist < 2.9 && this.punchT <= 0) {
+            // the long jab has armour on its first hit, so it is the correct
+            // thing to throw INTO their pressure
+            f.punch = true;
+            this.punchT = rand(0.18, 0.36);
+          }
+        } else {
+          // ---- THE LIGHT STATE -------------------------------------------
+          // Hold the range her enormous normals own, and charge whenever they
+          // are not on top of her. The charge is held by keeping RB down,
+          // which for the bot means asserting ct1 across several frames.
+          f.move.z = dist > 4.2 ? -0.6 : dist < 2.6 ? 0.5 : 0;
+          f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * 0.3;
+          this.yukiChargeT = (this.yukiChargeT ?? 0) - 1 / 30;
+          if (dist > 3.4 && me.res.curCE >= (me._def('ct1')?.cost ?? 0)) {
+            // hold the charge for a real length of time — this is the bot
+            // visibly making the trade the player has to learn
+            if (this.yukiChargeT <= 0) this.yukiChargeT = rand(0.9, 1.5);
+            f.ct1 = true;
+          } else if (this.yukiChargeT > 0 && dist < 3.0) {
+            // they closed while she was charging: release it into them
+            this.yukiChargeT = 0;
+          }
+          if (dist < 2.9 && this.punchT <= 0 && !f.ct1) {
+            f.punch = true;
+            this.punchT = rand(0.20, 0.40);
+          }
+          // she guards ONLY in the light state — see the header
+          if (dist < 3.0 && (foe.state === 'attack' || foe.state === 'ct')
+            && Math.random() < 0.34) {
+            f.block = true; f.punch = false; f.ct1 = false; f.ct2 = false;
+          }
+        }
+      }
+      if (me.ultReady && !me.busy && dist < 8 && dist > 2) f.ult = true;
+      this._edges(f);
+      return f;
+    }
+
+    // ---- MIWA: PLACE THE CIRCLE AND BAIT — AND NEVER, EVER CHASE -----------
+    // "The CPU must not chase, since chasing defeats her entire design."
+    //
+    // That is not a preference, it is a hard constraint, and it is enforced
+    // structurally rather than by tuning: THERE IS NO BRANCH IN THIS PROFILE
+    // THAT SETS `f.move.z` POSITIVE WHILE A CIRCLE IS UP. She physically
+    // cannot advance out of her own trap, because the code that would tell her
+    // to does not exist. That is the only way to be sure — a probability would
+    // eventually roll.
+    //
+    // The plan, in priority order:
+    //   1. THE CIRCLE, placed when they are close enough to be tempted but not
+    //      yet inside. Placing it across the arena just burns the clock;
+    //      placing it while they are already on top of her wastes the counter.
+    //   2. INSIDE IT: CHARGE THE DRAW AND WAIT. This is the whole character —
+    //      circle down, stance up, and dare them to come in. The auto-counter
+    //      is watching the perimeter, so the charge is safe in a way it is
+    //      nowhere else.
+    //   3. THEY CAME IN → draw. At whatever tier is bought.
+    //   4. NO CIRCLE → play a normal, cautious, weak swordswoman: hold
+    //      mid-range, poke, parry, step back. She is the worst character in
+    //      the game here and the bot plays like it.
+    if (me.cfg.simpleDomainZone) {
+      const sys = this.match.newshadow;
+      const z = sys?.zoneFor(me) ?? null;
+      const inCircle = !!z;
+      const theyreIn = !!(z && z.contains(foe.pos));
+      const c2 = me._def('ct2');
+
+      // 1 — place it
+      if (!me.busy && !inCircle && sys?.shouldCast(me, dist)) {
+        f.copy = true;                   // B
+        this._edges(f);
+        return f;
+      }
+
+      if (inCircle && !me.busy) {
+        // 3 — they came in. Draw, and let the tier be whatever was bought.
+        if (theyreIn && me.state === 'stance') {
+          f.ct2 = true;                  // keep holding the stance...
+          f.ct1 = true;                  // ...and release the draw
+        } else if (theyreIn) {
+          // caught out of stance: the fast string still cannot miss in here
+          if (this.punchT <= 0) { f.punch = true; this.punchT = rand(0.10, 0.22); }
+        } else {
+          // 2 — HOLD THE STANCE AND WAIT. This is the branch that makes her
+          // work, and it is also the branch that must never move forward.
+          f.ct2 = true;
+        }
+        // THE CONSTRAINT, stated as code: never advance while the circle is
+        // up. Small backward drift only, to stay centred in her own ring.
+        const off = flatDist(me.pos, z.origin);
+        f.move.z = 0;
+        f.move.x = 0;
+        if (off > z.radius * 0.55) {
+          // drift back toward the middle so she does not wander out of it —
+          // leaving drops the circle, which would be the bot beating itself
+          const to = z.origin.clone().sub(me.pos);
+          const fwd = me.forward();
+          const along = to.x * fwd.x + to.z * fwd.z;
+          f.move.z = along > 0 ? -0.35 : 0.35;
+        }
+        f.dash = false;
+        this._edges(f);
+        return f;
+      }
+
+      // 4 — no circle: cautious mid-range poking, and a real guard
+      if (!me.busy) {
+        f.move.z = dist > 4.6 ? -0.5 : dist < 2.4 ? 0.6 : 0.1;
+        f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * 0.4;
+        f.dash = dist > 7 && me.res.stamina > 40;
+        if (dist < 2.0 && this.punchT <= 0) {
+          f.punch = true;
+          this.punchT = rand(0.10, 0.24);
+        }
+        // she has a real parry and the bot uses it — a tight, well-timed
+        // guard rather than a held one, which is the whole difference
+        if (dist < 2.8 && (foe.state === 'attack' || foe.state === 'ct')
+          && Math.random() < 0.42) {
+          f.block = true; f.punch = false;
+        }
+      }
+      if (me.ultReady && !me.busy && dist < 9) f.ult = true;
       this._edges(f);
       return f;
     }

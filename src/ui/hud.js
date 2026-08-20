@@ -265,6 +265,21 @@ export class HUD {
           <div class="bar bar-bud"><div class="fill"></div></div>
           <span class="bud-cleanse"></span>
         </div>
+        <div class="awk-row">
+          <span class="awk-key">天与</span>
+          <div class="bar bar-awk"><div class="fill"></div><div class="awk-ticks"></div></div>
+          <span class="awk-stage"></span>
+        </div>
+        <div class="mass-row">
+          <span class="ms-key">質量</span>
+          <div class="bar bar-ms"><div class="fill"></div><div class="ms-armor"></div></div>
+          <span class="ms-num"></span>
+        </div>
+        <div class="sd-row">
+          <span class="sd-key">簡易領域</span>
+          <div class="bar bar-sd"><div class="fill"></div></div>
+          <span class="sd-state"></span>
+        </div>
         <div class="blood-row">
           <span class="bl-key">血</span>
           <div class="bar bar-bl"><div class="fill"></div></div>
@@ -405,6 +420,42 @@ export class HUD {
       // OPPONENT needs more than Nobara does — it is how much of themselves
       // she is currently holding, and it is the number that decides whether
       // disengaging is safe.
+      // ---- MAKI: THE AWAKENING METER --------------------------------------
+      // Built ONCE here like the charge ticks and the throat tiers, and only
+      // widths and classes touched per frame. The ticks matter more on this
+      // bar than on any other in the game, because the LAST one is also the
+      // ultimate gate: she has no cursed energy and therefore no MAX CE badge
+      // to light, so this bar reaching the end is the only "your ultimate is
+      // ready" signal she has. It is drawn heavier (`ult`) for exactly that
+      // reason — the player should be chasing it all round.
+      //
+      // Visible to BOTH players, like every other second resource here: her
+      // stage is the opponent's most important piece of information and a
+      // counterplay you cannot see is not one.
+      const awkRow = plate.querySelector('.awk-row');
+      awkRow.style.display = f.cfg.awakening ? '' : 'none';
+      if (f.cfg.awakening) {
+        const a = f.cfg.awakening;
+        awkRow.querySelector('.awk-ticks').innerHTML = a.thresholds
+          .map((t, i) => `<i class="${i === a.thresholds.length - 1 ? 'ult' : ''}" style="left:${(t / a.max * 100).toFixed(1)}%"></i>`)
+          .join('');
+      }
+      // ---- YUKI: THE MASS METER -------------------------------------------
+      // One tick, and it is the ARMOUR THRESHOLD — the single number that
+      // decides whether she is currently the immovable object. Both players
+      // need it: hers to know when to walk in, theirs to know when hitting her
+      // stops working.
+      const msRow = plate.querySelector('.mass-row');
+      msRow.style.display = f.cfg.mass ? '' : 'none';
+      if (f.cfg.mass) {
+        msRow.querySelector('.ms-armor').style.left = (f.cfg.mass.armorAt / f.cfg.mass.max * 100) + '%';
+      }
+      // ---- MIWA: THE CIRCLE'S CLOCK ---------------------------------------
+      // Shown only while a circle is up or cooling. It is a STAMINA readout
+      // rather than a resource of its own, and that is the point: the honest
+      // question for both players is "how much longer can she hold this", and
+      // the answer is her stamina bar filtered through the drain rate.
+      plate.querySelector('.sd-row').style.display = f.cfg.simpleDomainZone ? '' : 'none';
       plate.querySelector('.blood-row').style.display = f.cfg.blood ? '' : 'none';
       const esRow = plate.querySelector('.ess-row');
       esRow.style.display = f.cfg.essence ? '' : 'none';
@@ -689,6 +740,61 @@ export class HUD {
       plate.querySelector('.b-sukuna').classList.toggle('on', f.buffs.sukuna > 0);
       plate.querySelector('.b-redscale').classList.toggle('on', f.buffs.redScale > 0);
       // ---- BLOOD (Choso) ---------------------------------------------------
+      // ---- AWAKENING, per frame -------------------------------------------
+      if (f.cfg.awakening) {
+        const a = f.cfg.awakening;
+        const row = plate.querySelector('.awk-row');
+        const pct = Math.max(0, Math.min(100, (f.awaken ?? 0) / a.max * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        const st = a.stages[f.awakenStage ?? 0];
+        row.querySelector('.awk-stage').textContent = st ? st.jp : '';
+        row.dataset.stage = f.awakenStage ?? 0;
+        // MAX and USED are different states and read differently: at maximum
+        // awakening the row lights and says READY; once the once-per-round
+        // ultimate has been spent it goes quiet again, because a bar that
+        // stays lit after the button stops working is a lie.
+        const maxed = (f.awakenStage ?? 0) >= a.stages.length - 1;
+        const spent = (f.awakenUses ?? 0) >= (f.cfg.ultimate?.uses ?? 1);
+        row.classList.toggle('maxed', maxed && !spent);
+        row.classList.toggle('spent', maxed && spent);
+      }
+      // ---- MASS, per frame -------------------------------------------------
+      if (f.cfg.mass) {
+        const row = plate.querySelector('.mass-row');
+        const pct = Math.max(0, Math.min(100, (f.mass ?? 0) / f.cfg.mass.max * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        row.querySelector('.ms-num').textContent = Math.round(f.mass ?? 0);
+        // ARMOURED is the state that matters and it gets its own class rather
+        // than being inferred from the width — the threshold is a rule, not a
+        // percentage, and it should read as one.
+        row.classList.toggle('armored', (f.mass ?? 0) >= f.cfg.mass.armorAt);
+        row.classList.toggle('full', (f.mass ?? 0) >= f.cfg.mass.max - 0.5);
+      }
+      // ---- SIMPLE DOMAIN, per frame ---------------------------------------
+      if (f.cfg.simpleDomainZone) {
+        const row = plate.querySelector('.sd-row');
+        const live = !!(f._sdZone && f._sdZone.live);
+        const cd = f.sdCooldown ?? 0;
+        row.style.display = (live || cd > 0) ? '' : 'none';
+        if (live) {
+          // how much longer she can hold it: stamina divided by the drain,
+          // shown as a fraction of the longest hold a full tank would buy
+          const d = f.cfg.simpleDomainZone;
+          const secs = f.res.stamina / d.drain;
+          const maxSecs = f.cfg.stats.stamina / d.drain;
+          row.querySelector('.fill').style.width =
+            Math.max(0, Math.min(100, secs / maxSecs * 100)) + '%';
+          row.querySelector('.sd-state').textContent = secs.toFixed(1) + 's';
+          row.classList.toggle('low', secs < 1.2);
+          row.classList.remove('cooling');
+        } else if (cd > 0) {
+          row.querySelector('.fill').style.width =
+            (100 - cd / f.cfg.special.cooldown * 100) + '%';
+          row.querySelector('.sd-state').textContent = cd.toFixed(1) + 's';
+          row.classList.add('cooling');
+          row.classList.remove('low');
+        }
+      }
       if (f.cfg.blood) {
         const row = plate.querySelector('.blood-row');
         const pct = Math.max(0, Math.min(100, f.blood / f.cfg.blood.max * 100));

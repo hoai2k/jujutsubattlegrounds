@@ -5,6 +5,7 @@ import { computeDamage, inArc, hitFeedback, openBlackFlash } from './hits.js';
 import { applyBurn } from './burn.js';
 import { gainEvidence } from './judgeman.js';
 import { gainCharge, spendCharge, chargeSize } from './charge.js';
+import { spendMass, massOnEvent } from './mass.js';
 import {
   spend as spendThroat, spendVoice, durationFor, damageFor, resistOf,
   beginForced, inCommandRange, tierDef as throatTierDef, adaptKey
@@ -2600,6 +2601,348 @@ export class Effects {
       // marker telegraphs it — because the two are the roster's two ground
       // traps and a player who has learned one should read the other. Where
       // it differs: it LAUNCHES, and the ground it comes out of matters.
+      // (That header belongs to `hanami_roots`, which is a few hundred lines
+      // below now — the three new characters were inserted between the two.)
+
+      // =====================================================================
+      // MAKI ZENIN — THE TWO CURSED TOOLS
+      // =====================================================================
+      // Both weapons are Toji's, inherited, so the FX are deliberately his
+      // too: `staffSpinTick` / `staffSlamCrack` for the Playful Cloud and
+      // `soulSlashArc` / `_sweepBlade` for the katana. What differs is the
+      // TIMING and the SHAPE of every one of them, which is the "she swings
+      // it differently" note in the brief, and the timing lives in the frame
+      // data and the clips rather than here.
+
+      // PLAYFUL CLOUD SWEEP — two committed level arcs she steps into. Where
+      // Toji's Cloud Cyclone is a spin AROUND him resolved as a radius test,
+      // hers is a WIDE FORWARD ARC resolved as an arc test: same weapon,
+      // different intent, and the hitbox says so.
+      case 'maki_cloud_sweep': {
+        const hits = opts.hits ?? 2;
+        m.sfx.swordSwing();
+        m.cam.shake(0.22);
+        for (let k = 0; k < hits; k++) {
+          this.entities.push({
+            type: 'makiSweep', caster, t: k * 0.16, sure,
+            reach: opts.reach ?? 3.1, arc: opts.arc ?? 2.4,
+            dmg: (opts.dmg ?? 8) * mult, kb: opts.kb ?? 3.0, kbY: opts.kbY ?? 0.3,
+            hitstun: opts.hitstun ?? 18, guardDamage: opts.guardDamage ?? 22,
+            hitOpts, side: k % 2 ? -1 : 1
+          });
+        }
+        break;
+      }
+
+      // CRUSHING ARC — the overhead. Breaks a guard outright, which is what
+      // "guard pressure" means on the descriptor, and takes a real bite out
+      // of the level on the way through.
+      case 'maki_cloud_crush': {
+        m.fx.staffSlamCrack?.(caster, caster.forward(), opts.reach ?? 2.6);
+        m.sfx.impact?.();
+        m.cam.shake(0.55);
+        m.cam.fovKick(6);
+        m.arena?.destruct?.damageAt(
+          caster.pos.clone().addScaledVector(caster.forward(), 1.8).setY(0.4),
+          2.4, opts.destruct ?? 42);
+        if (sure || inArc(caster, t, opts.reach ?? 2.6, opts.arc ?? 1.5)) {
+          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 19) * mult);
+          const r = t.applyHit({
+            ...hitOpts, dmg, kb: opts.kb ?? 5.4, kbY: 0,
+            hitstun: opts.hitstun ?? 32, type: 'heavy', guardBreak: true
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, t, r, { crit, heavy: true });
+        }
+        break;
+      }
+
+      // SLASHING STRING — three cuts on one breath. The one move of hers that
+      // is SUPPOSED to feel like Toji's, and it is deliberately the closest
+      // thing in either kit to the other: same weapon, same intent, one extra
+      // hit and less damage per hit.
+      case 'maki_soul_string': {
+        const hits = opts.hits ?? 3;
+        m.fx.soulSlashArc(caster);
+        this._sweepBlade(caster, (opts.reach ?? 2.5) * 1.1, false);
+        m.sfx.swordSwing();
+        for (let k = 0; k < hits; k++) {
+          this.entities.push({
+            type: 'makiCut', caster, t: k * 0.09, sure,
+            reach: opts.reach ?? 2.5, arc: opts.arc ?? 1.8,
+            dmg: (opts.dmg ?? 5) * mult, kb: opts.kb ?? 1.9,
+            hitstun: opts.hitstun ?? 15, hitOpts
+          });
+        }
+        break;
+      }
+
+      // ---- SPLIT SOUL STRIKE 釈魂 ------------------------------------------
+      // Her signature, and the mirror of Toji's Soul Cut rather than a copy of
+      // it. Both are unblockable soul cuts that leave a lingering debuff, and
+      // the debuffs point in OPPOSITE DIRECTIONS:
+      //
+      //   TOJI's `soulCut`   multiplies the victim's damage OUTPUT down. It
+      //                      makes them weaker.
+      //   MAKI's `soulSplit` multiplies the victim's damage INTAKE up. It
+      //                      makes them softer.
+      //
+      // They read on `dmgMult` and `incomingMult` respectively, so the two
+      // never touch the same number and stacking both is additive rather than
+      // multiplicative in the dangerous direction. That was checked
+      // deliberately: two soul-cut debuffs on one multiplier would have been
+      // the degenerate case.
+      case 'maki_split_soul': {
+        m.fx.soulSlashArc(caster, true);
+        this._sweepBlade(caster, (opts.reach ?? 2.8) * 1.15, true);
+        m.sfx.cleave();
+        m.cam.shake(0.34);
+        m.hitstop(6);
+        if (sure || inArc(caster, t, opts.reach ?? 2.8, opts.arc ?? 1.5)) {
+          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 15) * mult);
+          const r = t.applyHit({
+            ...hitOpts, dmg, kb: opts.kb ?? 2.6, kbY: 0,
+            hitstun: opts.hitstun ?? 26, type: 'heavy', unblockable: true
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, t, r, { crit, heavy: true });
+          if (r === 'hit' || r === 'armor') {
+            const d = opts.debuff ?? { duration: 8, incomingMult: 1.22 };
+            t.soulSplit = { t: d.duration, mult: d.incomingMult };
+            m.fx.soulRip(t.pos.clone());
+            m.hud.toast(t, '釈魂 SOUL SPLIT');
+          }
+        }
+        break;
+      }
+
+      // ---- BEYOND THE ZENIN — the awakening ultimate ----------------------
+      // A single overwhelming committed assault with both weapons. Gated on
+      // maximum awakening rather than on a bar (she has none), usable once a
+      // round, and it is the thing the whole meter has been climbing toward.
+      case 'maki_beyond': {
+        const u = caster.cfg.ultimate;
+        m.cam.shake(0.9);
+        m.cam.fovKick(12);
+        m.stage.flash(0.30);
+        m.sfx.ultimate?.();
+        this.entities.push({
+          type: 'makiAssault', caster, t: 0,
+          frames: (u.active ?? 90), seq: u.sequence.map(x => ({ ...x, done: false })),
+          reach: u.reach ?? 3.0, arc: u.arc ?? 1.6, destruct: u.destruct ?? 70, mult
+        });
+        break;
+      }
+
+      // =====================================================================
+      // YUKI TSUKUMO — STAR RAGE
+      // =====================================================================
+      // Both techniques SPEND MASS, and the spend is taken here — on the
+      // activation frame — rather than at the press. An interrupted Mass Slam
+      // should cost the cursed energy (spent on the press like every other
+      // technique) and NOT the mass, because the mass was never released.
+      // Same ruling combat/effects.js already applies to Kashimo's Discharge
+      // Strike, and for the same reason.
+
+      // MASS SLAM — the heavy overhead, chargeable. Cracks the ground and the
+      // destructible geometry, and the screen shake is scaled to the spend so
+      // the PLAYER feels how much they just cashed.
+      case 'yuki_mass_slam': {
+        const ms = spendMass(caster, { fraction: 1 });
+        const at = caster.pos.clone().addScaledVector(caster.forward(), 1.7).setY(0.4);
+        m.fx.staffSlamCrack?.(caster, caster.forward(), opts.reach ?? 2.6);
+        m.fx.quakeTick?.(at, 1 + ms.k);
+        m.sfx.impact?.();
+        m.cam.shake(0.5 * ms.shake);
+        m.cam.fovKick(6 * ms.shake);
+        if (ms.k > 0.5) m.stage.flash(0.10 * ms.k);
+        m.hitstop(Math.round(6 + 10 * ms.k));
+        // THE GROUND. Scaled by the spend, so a full-mass slam takes a
+        // genuine bite out of the level rather than scuffing it.
+        m.arena?.destruct?.damageAt(at, (opts.quakeRadius ?? 3.4) * (1 + ms.k * 0.5),
+          (opts.destruct ?? 62) * ms.destruct);
+        if (sure || inArc(caster, t, opts.reach ?? 2.6, opts.arc ?? 1.7)) {
+          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 20) * ms.dmg * mult);
+          const r = t.applyHit({
+            ...hitOpts, dmg, kb: (opts.kb ?? 5.0) * ms.kb, kbY: opts.kbY ?? 0,
+            hitstun: opts.hitstun ?? 32, type: ms.k > 0.6 ? 'knockdown' : 'heavy',
+            guardDamage: 20 * ms.guard
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, t, r, { crit, heavy: true, knockdown: ms.k > 0.6 });
+        }
+        break;
+      }
+
+      // ---- COMMAND GRAB ---------------------------------------------------
+      // The roster's proper grappler tool. Unblockable, and it whiffs
+      // entirely on an airborne target — jumping is the primary counterplay
+      // and it has to be a HARD miss rather than a reduced hit, or the
+      // counterplay would only be a damage reduction.
+      case 'yuki_command_grab': {
+        const airborne = t && !t.grounded;
+        const reachable = t && flatDist(caster.pos, t.pos) < (opts.reach ?? 2.4) + 0.4;
+        if (!t || !t.alive || airborne || (!sure && !reachable)) {
+          // THE WHIFF. Announced, because a 26-frame unblockable that misses
+          // silently reads as a bug rather than as the punish window it is.
+          m.hud.toast(caster, airborne ? 'GRAB WHIFFED' : 'GRAB MISSED');
+          m.sfx.whiff?.();
+          break;
+        }
+        const ms = spendMass(caster, { fraction: 1 });
+        m.sfx.grab?.() ?? m.sfx.impact?.();
+        m.hitstop(10);
+        m.cam.shake(0.35 * ms.shake);
+        // the catch, then the slam. Two hits so the cinematic has a shape and
+        // so an armour check happens once rather than twice.
+        const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 22) * ms.dmg * mult);
+        const dir = v3(t.pos.x - caster.pos.x, 0, t.pos.z - caster.pos.z).normalize();
+        const r = t.applyHit({
+          ...hitOpts, dmg, kb: 0, kbY: 0, hitstun: opts.hitstun ?? 44,
+          type: 'heavy', unblockable: true
+        }, m.ctxFor(caster));
+        hitFeedback(m, caster, t, r, { crit, heavy: true });
+        if (r === 'hit' || r === 'armor' || r === 'block') {
+          this.entities.push({
+            type: 'yukiSlam', caster, target: t, t: (opts.grabFrames ?? 46) / 120,
+            dmg: (opts.slamDmg ?? 16) * ms.dmg * mult, ms, dir,
+            destruct: (opts.destruct ?? 54) * ms.destruct, hitOpts
+          });
+        }
+        break;
+      }
+
+      // ---- BLACK HOLE — the ultimate ---------------------------------------
+      // Star Rage at maximum output, past its own safety limits, until the
+      // accumulated virtual mass collapses. In canon this kills her; here it
+      // costs `selfDmg`, which is the largest self-damage number in the game
+      // and the honest reading of a technique that is a suicide move.
+      //
+      // The signature is that it MOVES THE LEVEL. Nothing else in this game
+      // does — destructible geometry is torn off the map and pulled in, which
+      // is why the effect looks unlike anything else here.
+      case 'yuki_black_hole': {
+        const u = caster.cfg.ultimate;
+        const at = caster.pos.clone().addScaledVector(caster.forward(), u.offset ?? 3.2);
+        at.y = caster.pos.y + 1.6;
+        m.sfx.ultimate?.();
+        m.cam.shake(1.4);
+        m.cam.fovKick(-18);           // the FOV pulls IN, not out — it is a well
+        m.stage.flash(0.16);
+        // she pays for it immediately, so an interrupted collapse still cost
+        // her the health as well as the bar
+        caster.res.hp = Math.max(1, caster.res.hp - (u.selfDmg ?? 18));
+        m.hud.toast(caster, '星の怒り・極');
+        this.entities.push({
+          type: 'blackHole', caster, pos: at, t: 0,
+          dur: u.pullDuration ?? 1.35, def: u, mult, fired: false,
+          debris: []
+        });
+        break;
+      }
+
+      // =====================================================================
+      // KASUMI MIWA — NEW SHADOW STYLE
+      // =====================================================================
+
+      // ---- THE DRAW --------------------------------------------------------
+      // One line, one frame of contact. Resolved as a LINE rather than an arc
+      // — the blade goes THROUGH, and the same line test Toji's Vacuum Lance
+      // uses means the picture and the hitbox are the same object.
+      //
+      // `drawTier` was stamped onto the move by `startCT` at the moment of the
+      // press; the damage and reach on `opts` already carry the multiplier, so
+      // nothing here has to look back at a timer that has been cleared.
+      case 'miwa_draw': {
+        const reach = opts.reach ?? 3.2;
+        const fw = caster.forward();
+        const from = caster.pos.clone().setY(caster.pos.y + 1.1);
+        const to = from.clone().addScaledVector(fw, reach);
+        // the cut, drawn as one clean white line down its whole length
+        m.fx.cleaveArc?.(caster);
+        m.fx._ring(from.clone().addScaledVector(fw, reach * 0.5), 0xffffff,
+          { size: 0.2, growRate: 26, life: 0.16, flat: false });
+        m.sfx.cleave();
+        m.cam.shake(0.30 + (opts.drawTier ?? 0) * 0.16);
+        m.hitstop(4 + (opts.drawTier ?? 0) * 4);
+        if (opts.drawTierName) m.hud.toast(caster, opts.drawTierName);
+        m.arena?.destruct?.damageAt(to.clone().setY(0.4), 1.6, opts.destruct ?? 40);
+        // ---- THE GUARANTEE -----------------------------------------------
+        // Inside her circle the line test is skipped entirely and the hit is
+        // flagged `sureHit`. Outside it, this is an ordinary — if long —
+        // sword swing that can be blocked like anybody's.
+        const guaranteed = m.newshadow?.shouldGuarantee(caster, t, 'miwa_draw') ?? false;
+        // the same along/perpendicular decomposition `toji_spear_thrust` uses,
+        // so the two line techniques in this file resolve identically
+        let online = false;
+        if (t) {
+          const rel = t.pos.clone().sub(caster.pos);
+          const along = rel.x * fw.x + rel.z * fw.z;
+          const perp = Math.abs(rel.x * fw.z - rel.z * fw.x);
+          online = along > -0.3 && along < reach
+            && perp < (opts.width ?? 1.05) + (t.hurtBox?.radius ?? 0.62);
+        }
+        if (sure || guaranteed || online) {
+          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 34) * mult);
+          const r = t.applyHit({
+            ...hitOpts, dmg, kb: opts.kb ?? 6.0, kbY: 0,
+            hitstun: opts.hitstun ?? 34, type: 'knockdown',
+            sureHit: sure || guaranteed, unblockable: guaranteed || undefined
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, t, r, { crit, heavy: true, knockdown: true });
+        }
+        break;
+      }
+
+      // RT is a POSTURE, not a technique — it has no hitbox and no payload, so
+      // this case exists only so the dispatcher has an entry for the key and
+      // nothing ever falls through silently. The state machine owns the stance
+      // entirely (see combat/fighter.js `case 'stance'`).
+      case 'miwa_stance': break;
+
+      // ---- THE MAXIMUM DRAW — the ultimate ---------------------------------
+      // "The circle expands dramatically, she draws once, and everything
+      // inside is cut in a single stroke. One frame of contact, one clean
+      // line, then the aftermath."
+      //
+      // So: NO sequence, NO multi-hit, NO expanding shell. The expansion runs
+      // across the STARTUP as the telegraph, this case fires on the last frame
+      // of it, and everything inside takes exactly one hit.
+      case 'miwa_max_draw': {
+        const u = caster.cfg.ultimate;
+        const z = m.newshadow?.zoneFor(caster);
+        const r = z ? z.radius : (u.radius ?? 11.4);
+        const origin = z ? z.origin.clone() : caster.pos.clone();
+        m.sfx.cleave();
+        m.hitstop(22);
+        m.cam.shake(0.5);
+        m.stage.flash(0.42);
+        // ONE LINE. A single ring at the perimeter and nothing else — the
+        // restraint IS the effect, and a burst here would make her Todo.
+        m.fx._ring(origin.clone().setY(0.9), 0xffffff,
+          { size: r * 0.25, growRate: r * 3.2, life: 0.34, flat: true });
+        if (t?.alive && flatDist(t.pos, origin) <= r) {
+          const { dmg, crit } = computeDamage(caster, (u.dmg ?? 62) * mult);
+          const res = t.applyHit({
+            ...hitOpts, dmg, kb: u.kb ?? 7.0, kbY: u.kbY ?? 0,
+            hitstun: u.hitstun ?? 44, type: 'knockdown',
+            sureHit: true, unblockable: true
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, t, res, { crit, heavy: true, knockdown: true });
+        }
+        // ---- IT CUTS SUMMONS TOO --------------------------------------------
+        // The one place her restraint is expressed as BREADTH rather than as
+        // damage: Garuda, shikigami, curses and minions inside the circle all
+        // take it. Everything else she owns ignores summons entirely.
+        if (u.cutsSummons) {
+          m.minions?.hurtAt?.(origin, r, u.summonDmg ?? 40, caster);
+          m.shikigami?.hurtAt?.(origin, r, u.summonDmg ?? 40, caster);
+          m.curses?.hurtAt?.(origin, r, u.summonDmg ?? 40, caster);
+          m.garuda?.hurtAt?.(origin, r, u.summonDmg ?? 40, caster);
+        }
+        m.arena?.destruct?.damageAt(origin.clone().setY(0.5), r * 0.7, u.destruct ?? 80);
+        // the big circle collapses — the ultimate is not also a free re-cast
+        m.newshadow?.endUltimate(caster);
+        break;
+      }
+
       case 'hanami_roots': {
         // ROOT ERUPTION — unchanged, and deliberately so: it is the good one.
         // Aim with the left stick, neutral leads the opponent's feet, and the
@@ -3952,6 +4295,214 @@ export class Effects {
           continue;
         }
         if (e.travelled >= e.range) this.entities.splice(i, 1);
+        continue;
+      }
+      // =====================================================================
+      // MAKI — the delayed hits of her two strings, and the ultimate assault
+      // =====================================================================
+      // Both strings are authored as a run of scheduled ticks rather than as
+      // one multi-hit window, because her whole animation identity is that she
+      // RESETS between swings: a single window with `hits` would land them all
+      // on one pose. One entity per hit, each with its own delay, is what lets
+      // the third cut of the Slashing String land on the third cut of the clip.
+      if (e.type === 'makiSweep' || e.type === 'makiCut') {
+        e.t -= dt;
+        if (e.t > 0) continue;
+        const c = e.caster;
+        const t = this.other(c);
+        if (c.alive && t?.alive && (e.sure || inArc(c, t, e.reach, e.arc))) {
+          // `staffSpinTick(caster, radius, ang)` — the bar is drawn at an
+          // ANGLE around the caster, and the two sweeps of hers go opposite
+          // ways, so the side flips the angle rather than being passed as one
+          if (e.type === 'makiSweep') m.fx.staffSpinTick?.(c, e.reach, c.facing + e.side * 0.7);
+          else m.fx.soulSlashArc(c);
+          const { dmg, crit } = computeDamage(c, e.dmg);
+          const r = t.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY ?? 0, hitstun: e.hitstun,
+            type: e.type === 'makiSweep' ? 'heavy' : 'light',
+            guardDamage: e.guardDamage, sureHit: e.sure
+          }, m.ctxFor(c));
+          hitFeedback(m, c, t, r, { crit, heavy: e.type === 'makiSweep' });
+        }
+        this.entities.splice(i, 1);
+        continue;
+      }
+      // BEYOND THE ZENIN — the ultimate assault. A scheduled sequence of
+      // strikes alternating between the two weapons, each firing once at its
+      // own point through the window. `at` is a FRACTION of the window rather
+      // than a frame count, so retuning the ultimate's length does not
+      // re-time the sequence.
+      if (e.type === 'makiAssault') {
+        e.t += dt * 60;
+        const k = Math.min(1, e.t / Math.max(1, e.frames));
+        const c = e.caster;
+        const t = this.other(c);
+        for (const st of e.seq) {
+          if (st.done || k < st.at) continue;
+          st.done = true;
+          const both = st.weapon === 'both';
+          if (both) {
+            m.fx.soulSlashArc(c, true);
+            m.fx.staffSlamCrack?.(c, c.forward(), e.reach);
+            m.cam.shake(0.8);
+            m.hitstop(16);
+            m.stage.flash(0.24);
+            m.arena?.destruct?.damageAt(
+              c.pos.clone().addScaledVector(c.forward(), 1.6).setY(0.4), 3.0, e.destruct);
+          } else if (st.weapon === 'split_soul') {
+            m.fx.soulSlashArc(c);
+            m.sfx.cleave();
+            m.cam.shake(0.22);
+          } else {
+            m.fx.staffSpinTick?.(c, e.reach, c.facing);
+            m.sfx.swordSwing();
+            m.cam.shake(0.22);
+          }
+          if (t?.alive && inArc(c, t, e.reach, e.arc)) {
+            const { dmg, crit } = computeDamage(c, st.dmg * e.mult);
+            const r = t.applyHit({
+              attacker: c, isCT: true, src: 'ult', dir: c.forward(),
+              dmg, kb: both ? 8.5 : 1.6, kbY: 0,
+              hitstun: both ? 44 : 20, type: both ? 'knockdown' : 'heavy',
+              unblockable: st.unblockable || undefined
+            }, m.ctxFor(c));
+            hitFeedback(m, c, t, r, { crit, heavy: true, knockdown: both });
+          }
+        }
+        if (k >= 1) this.entities.splice(i, 1);
+        continue;
+      }
+      // =====================================================================
+      // YUKI — the command grab's slam, and the black hole
+      // =====================================================================
+      // THE SLAM. The second half of the grab, delayed so the cinematic has a
+      // shape. The victim is HELD in place across the window — position is
+      // written every frame — which is what makes it a grab rather than a
+      // two-hit string they could fall out of.
+      if (e.type === 'yukiSlam') {
+        e.t -= dt;
+        const c = e.caster;
+        const t = e.target;
+        if (!c.alive || !t?.alive) { this.entities.splice(i, 1); continue; }
+        // held, and dragged around in front of her
+        const hold = c.pos.clone().addScaledVector(c.forward(), 1.3);
+        t.pos.lerp(hold, Math.min(1, dt * 14));
+        t.vel.set(0, 0, 0);
+        if (e.t > 0) continue;
+        const at = t.pos.clone().setY(t.pos.y + 0.2);
+        m.fx.staffSlamCrack?.(c, e.dir, 1.4);
+        m.fx.quakeTick?.(at, 1 + e.ms.k);
+        m.sfx.impact?.();
+        m.cam.shake(0.9 * e.ms.shake);
+        m.cam.fovKick(10);
+        m.hitstop(Math.round(10 + 12 * e.ms.k));
+        m.arena?.destruct?.damageAt(at, 3.0, e.destruct);
+        const { dmg, crit } = computeDamage(c, e.dmg);
+        const r = t.applyHit({
+          ...e.hitOpts, dmg, kb: 3.0, kbY: 0, hitstun: 48,
+          type: 'knockdown', unblockable: true, sureHit: true
+        }, m.ctxFor(c));
+        hitFeedback(m, c, t, r, { crit, heavy: true, knockdown: true });
+        this.entities.splice(i, 1);
+        continue;
+      }
+      // ---- BLACK HOLE ------------------------------------------------------
+      // The pull, and then the detonation. Two things make this look unlike
+      // anything else in the game:
+      //
+      //   1. EVERYTHING IS DRAGGED TOWARD ONE POINT, including the caster's
+      //      opponent mid-air, and the force is stronger the closer you are —
+      //      inside `innerRadius` it is inescapable.
+      //   2. THE LEVEL IS TORN OFF AND PULLED IN. Destructible geometry inside
+      //      `debrisRadius` is damaged and a run of debris motes is spawned
+      //      travelling INWARD. Nothing else in this project moves level
+      //      geometry, and it is the whole visual signature.
+      if (e.type === 'blackHole') {
+        const u = e.def;
+        e.t += dt;
+        const k = Math.min(1, e.t / e.dur);
+        const c = e.caster;
+        const t = this.other(c);
+        // the singularity itself: a dark core with a bright accretion ring
+        if ((e.fxT = (e.fxT ?? 0) - dt) <= 0) {
+          e.fxT = 1 / 30;
+          m.fx._ring(e.pos.clone(), 0x6f7fd0,
+            { size: 2.6 * (1 - k * 0.7), growRate: -6, life: 0.22, flat: false });
+          m.fx._spawn(e.pos.clone(), {
+            color: 0x0a0a16, size: 1.8 + k * 1.4, life: 0.12, vel: v3()
+          });
+        }
+        // 1 — THE PULL
+        if (t?.alive) {
+          const to = e.pos.clone().sub(t.pos).setY(0);
+          const d = Math.max(0.4, to.length());
+          if (d < u.pullRadius) {
+            to.normalize();
+            // inverse-ish falloff, and irresistible inside innerRadius
+            const near = d < (u.innerRadius ?? 3.0);
+            const force = u.pullForce * (near ? 1.6 : Math.max(0.15, 1 - d / u.pullRadius));
+            t.vel.x += to.x * force * dt;
+            t.vel.z += to.z * force * dt;
+            if (near) t.vel.y += 6 * dt;      // lifted off their feet at the core
+          }
+        }
+        // 2 — THE LEVEL, TORN OFF AND PULLED IN
+        if (!e.debrisDone && k > 0.12) {
+          e.debrisDone = true;
+          m.arena?.destruct?.damageAt(e.pos.clone().setY(0.5), u.debrisRadius, 90);
+          for (let n = 0; n < (u.debrisCount ?? 26); n++) {
+            const a = (n / (u.debrisCount ?? 26)) * Math.PI * 2 + rand(-0.2, 0.2);
+            const rr = rand(u.debrisRadius * 0.35, u.debrisRadius);
+            e.debris.push({
+              pos: e.pos.clone().add(v3(Math.cos(a) * rr, rand(-1.2, 1.4), Math.sin(a) * rr)),
+              // `_spawn` returns a handle whose mesh this can move every frame.
+              // `fx.debris` spawns a burst and returns nothing, so it is the
+              // wrong tool for geometry that has to travel to a destination.
+              node: m.fx._spawn(
+                e.pos.clone().add(v3(Math.cos(a) * rr, rand(0.2, 1.6), Math.sin(a) * rr)),
+                { color: n % 3 ? 0x8a8fa0 : 0xd8d2c4, size: rand(0.22, 0.62), aspect: 0.7,
+                  life: (u.pullDuration ?? 1.35) + 0.3, vel: v3(), spin: rand(-5, 5) }
+              )?.mesh ?? null,
+              spd: rand(5, 13)
+            });
+          }
+        }
+        for (const d of e.debris) {
+          const to = e.pos.clone().sub(d.pos);
+          const dist = to.length();
+          if (dist > 0.25) d.pos.addScaledVector(to.normalize(), Math.min(dist, d.spd * dt * (1 + k * 2)));
+          if (d.node) d.node.position.copy(d.pos);
+          // a chunk arriving with somebody in it hurts
+          if (t?.alive && dist < 0.6 && !d.spent && flatDist(t.pos, e.pos) < 2.0) {
+            d.spent = true;
+            t.res.hp -= (u.debrisDmg ?? 3);
+          }
+        }
+        // 3 — THE DETONATION
+        if (k >= 1 && !e.fired) {
+          e.fired = true;
+          m.fx.supernovaBurst?.(e.pos.clone(), u.radius ?? 6.4);
+          m.fx._ring(e.pos.clone(), 0xb8c4f0, { size: 0.5, growRate: 34, life: 0.5, flat: false });
+          m.sfx.explode?.();
+          m.cam.shake(2.0);
+          m.cam.fovKick(24);
+          m.stage.flash(0.55);
+          m.hitstop(20);
+          m.arena?.destruct?.damageAt(e.pos.clone().setY(0.5), u.radius ?? 6.4, u.destruct ?? 100);
+          for (const d of e.debris) if (d.node) m.fx.dropProp?.(d.node);
+          if (t?.alive && flatDist(t.pos, e.pos) < (u.radius ?? 6.4)) {
+            const dir = v3(t.pos.x - e.pos.x, 0, t.pos.z - e.pos.z);
+            if (dir.lengthSq() < 1e-4) dir.copy(c.forward());
+            const { dmg, crit } = computeDamage(c, (u.dmg ?? 52) * e.mult);
+            const r = t.applyHit({
+              attacker: c, isCT: true, src: 'ult', dir: dir.normalize(),
+              dmg, kb: u.kb ?? 11, kbY: u.kbY ?? 6.5, hitstun: u.hitstun ?? 46,
+              type: 'knockdown', unblockable: true
+            }, m.ctxFor(c));
+            hitFeedback(m, c, t, r, { crit, heavy: true, knockdown: true });
+          }
+          this.entities.splice(i, 1);
+        }
         continue;
       }
       // TOJI — the Split Soul Katana's phantom echo: the same cut arriving
