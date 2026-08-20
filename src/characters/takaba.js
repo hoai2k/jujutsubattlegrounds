@@ -144,52 +144,63 @@ export const TAKABA = withDefaults({
     startup: 6
   },
 
-  // ---- D-pad Right — THE GAME SHOW -----------------------------------------
+  // ---- D-pad Right — THE SET -----------------------------------------------
   // Non-domain, standard gate (MAX_CE 100 + full CURRENT_CE), full bar cost,
   // standard backlash. 32-frame startup, in the non-domain band.
   //
-  // The arena becomes a game show and the OPPONENT is the contestant. Three
-  // minigames, drawn from a pool of six, played back to back with both fighters
-  // frozen. Everything about how it runs is in combat/gameshow.js; this is the
-  // data, and every number here was tuned by playing it.
+  // *** THIS IS NOT A DOMAIN EXPANSION. *** He does not have one and he still
+  // does not: no barrier, no sure-hit, no refinement, no clash, and it appears
+  // nowhere in domains.js. It is a burst ultimate that happens to build a room.
+  //
+  // The arena is replaced by a pocket world and the opponent has to physically
+  // GET TO THE EXIT of three scenes drawn from a pool of six. Both fighters
+  // play the whole time — nothing is frozen and nothing is a button prompt.
+  // Everything about how it runs is in combat/theset.js and the scenes
+  // themselves are in art/models/setpieces.js; this is the data.
   ultimate: {
-    kind: 'burst', name: 'THE GAME SHOW', jpName: '公開収録',
+    kind: 'burst', name: 'THE SET', jpName: '持ちネタ',
     startup: 32, active: 1, recovery: 26,
-    effect: 'takaba_gameshow', clip: 'ult',
+    effect: 'takaba_theset', clip: 'ult',
     show: {
-      rounds: 3,
-      // ---- THE TEN SECOND BUDGET ------------------------------------------
-      // This is an ultimate, not an interruption, and the brief holds the line
-      // at ten seconds INCLUDING transitions and the result. The worst case is
-      // every round timing out:
-      //   opening card 0.60 + 3 x (title 0.50 + play <=2.00 + settle 0.22)
-      //                     + result 1.45  =  8.21 s
-      // and the measured worst case in a live match is 8.4 s with the cast
-      // frames included. A round the contestant passes early ends on the pass,
-      // so the common case is nearer 6.5 s.
-      openCard: 0.60, titleCard: 0.50, settle: 0.22, result: 1.45,
-      playCap: 2.00,
-      // Chip damage when they pass all three. It is not nothing — they still
-      // spent his whole bar's worth of time being humiliated — but it is not a
-      // punish either.
-      damage: { pass3: 6, pass2: 34, pass1: 62, pass0: 'INSTANT_KO' },
-      // ---- CPU CONTESTANT ---------------------------------------------------
-      // Base per-round pass probability when the CPU is the one playing, before
-      // the difficulty tier's modifier. It MUST be able to both pass and fail:
-      // a CPU that always passes makes the ultimate worthless and one that
-      // always fails makes it an auto-win.
+      scenes: 3,
+      // ---- THE CLOCK ---------------------------------------------------------
+      // The QTE version this replaced was held to ten seconds because it was an
+      // INTERRUPTION — both players were frozen behind a panel and every extra
+      // second was a second of not playing. This one is the opposite: it IS the
+      // playing, so the honest comparison is the domain band rather than the
+      // burst band (Gojo 7 s, Higuruma 20 s, Megumi 30 s).
       //
-      // MEASURED, 40 sampled shows per tier, in-engine (test harness in the
-      // delivery notes), as [fail-all, pass 1, pass 2, pass 3]:
-      //     OPEN MIC     5% / 5%    / 40% / 50%
-      //     WARMING UP 7.5% / 32.5% / 35% / 25%
-      //     KILLING   22.5% / 40%   / 20% / 17.5%
-      // which is the shape the brief asks for at both ends: never worthless
-      // (a CPU at OPEN MIC walks away clean half the time) and never automatic
-      // (a CPU at KILLING still survives more than three quarters of them).
-      cpuBase: 0.72,
-      cpuTier: { cold: 0.08, warm: -0.06, killing: -0.24 },
-      cpuJitter: 0.10
+      //   opening 1.10 + 3 x (title 0.80 + run <=6.00 + settle 0.55) + result 1.60
+      //   = 24.75 s absolute worst case, ~15 s measured in practice, because a
+      //   scene ENDS THE MOMENT THEY REACH THE EXIT.
+      openCard: 1.10, titleCard: 0.80, settle: 0.55, result: 1.60,
+      // ---- WHAT A HAZARD DOES -------------------------------------------------
+      // A taxi shoves and chips. It is deliberately NOT lethal: the damage in
+      // this ultimate is supposed to come from failing scenes, and a hazard
+      // that could kill would make the outcome table below a lie.
+      // A HIT COSTS TEMPO, NOT THE RUN. The first pass pushed at 9.0 with a
+      // 2.2x multiplier on the cabs, which threw the contestant back PAST the
+      // start line — measured, a bot that clipped one taxi finished the scene
+      // at 0% progress. Losing a second is a punishment; losing the whole run
+      // to one clip is a coin flip.
+      hazard: { chip: 3.0, push: 5.6, pushY: 2.4, hitstun: 16 },
+      // ---- THE OUTCOME --------------------------------------------------------
+      damage: { clear3: 6, clear2: 34, clear1: 62, clear0: 'INSTANT_KO' },
+      // ---- THE CPU CONTESTANT -------------------------------------------------
+      // It genuinely runs the course. `reaction` is how often it re-reads the
+      // scene and `accuracy` is how often it actually commits to the dodge it
+      // decided on — both per difficulty tier. It must be able to clear and to
+      // fail. MEASURED, 33 runs / 99 scenes in-engine, scenes cleared:
+      //   OPEN MIC 94%  ·  WARMING UP 71%  ·  KILLING 37%
+      // as run outcomes [0 of 3 / 1 / 2 / 3]:
+      //   OPEN MIC     0% /  6% /  6% / 88%
+      //   WARMING UP  13% / 13% / 25% / 50%
+      //   KILLING     44% / 11% / 33% / 11%
+      // Full table, per scene and with the caveats, in the delivery notes.
+      cpu: {
+        reaction: [0.16, 0.24, 0.34],
+        accuracy: [0.88, 0.66, 0.46]
+      }
     }
   },
 

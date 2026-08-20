@@ -184,6 +184,38 @@ export class Bounds {
     return true;
   }
 
+  // ---- RUNTIME-AUTHORED GEOMETRY -----------------------------------------
+  // `remove` above is for DESTRUCTION: the collider stays in the arrays with
+  // `live = false` so `restore` can bring it back, which is right for a map
+  // that is authored once and then damaged.
+  //
+  // This is for geometry a SYSTEM authors mid-match and tears down again —
+  // Takaba's THE SET builds a real traversable scene out of platforms and
+  // walls three times per cast. Left to `remove`, both spatial grids would
+  // grow without bound across a long session for scenery nobody can ever walk
+  // on again. `drop` takes the objects `platform()` / `wall()` handed back and
+  // unlinks them completely.
+  drop(items) {
+    if (!items || !items.length) return 0;
+    const set = new Set(items);
+    let n = 0;
+    for (const it of set) { it.live = false; n++; }
+    this.platforms = this.platforms.filter(p => !set.has(p));
+    this.walls = this.walls.filter(w => !set.has(w));
+    this.terrains = this.terrains.filter(t => !set.has(t));
+    for (const grid of [this._pGrid, this._wGrid, this._tGrid]) {
+      for (const [k, list] of grid) {
+        const kept = list.filter(x => !set.has(x));
+        if (kept.length) grid.set(k, kept); else grid.delete(k);
+      }
+    }
+    for (const [id, list] of this.byId) {
+      const kept = list.filter(x => !set.has(x));
+      if (kept.length) this.byId.set(id, kept); else this.byId.delete(id);
+    }
+    return n;
+  }
+
   // ---- queries ------------------------------------------------------------
   // Highest walkable surface at (x,z) that is at or below `ceil`. Returns the
   // map's ground plane when nothing else qualifies, so a fighter can never

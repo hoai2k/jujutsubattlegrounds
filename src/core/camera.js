@@ -187,6 +187,38 @@ export class FightCamera {
       this.pos.x = damp(this.pos.x, targetPos.x, 6, dt);
       this.pos.y = damp(this.pos.y, targetPos.y, 6, dt);
       this.pos.z = damp(this.pos.z, targetPos.z, 6, dt);
+    } else if (this.mode === 'corridor') {
+      // ---- THE SET'S CAMERA -------------------------------------------------
+      // A fixed-bearing platformer camera, looking straight down the corridor
+      // Takaba's ultimate builds (world +X). It exists because that ultimate is
+      // the only thing in the game where the stick has to mean "toward the
+      // exit" rather than "toward the opponent" — the contestant is running
+      // AWAY from the other fighter, and the fight-line camera below would
+      // point their forward input at exactly the wrong end of the room.
+      //
+      // The yaw is -PI/2 and that number is load-bearing: `_moveVec` turns a
+      // stick-up into `v3(sin(camYaw), 0, cos(camYaw))` where `camYaw` is this
+      // rig's `moveYaw`, i.e. `yaw + PI`. At yaw = -PI/2 that is exactly +X.
+      const yaw = -Math.PI / 2;
+      this.yaw = yaw;
+      // PULLED WELL BACK, and that is tuned rather than taste: at the first
+      // pass's 1.25x the contestant was standing on top of the door bank in
+      // PICK A DOOR and could not see which one was lit, and could not see the
+      // gaps ahead on DO NOT LOOK DOWN. A course you cannot read is not a
+      // course. It is also raised and pitched down, because everything the
+      // player has to judge in here is on the floor.
+      const dist = this.dist * this.distScale * 1.75;
+      const pitch = this.pitch + 0.22;
+      const deck = this._deck(p1Pos, dt);
+      const h = deck + 2.9 + Math.sin(pitch) * dist * 0.9;
+      targetPos.set(
+        p1Pos.x + Math.sin(yaw) * dist * Math.cos(pitch),
+        h,
+        p1Pos.z + Math.cos(yaw) * dist * Math.cos(pitch) - 1.2);
+      targetLook.set(p1Pos.x + 4.4, deck + 1.30, p1Pos.z * 0.45);
+      this.pos.x = damp(this.pos.x, targetPos.x, 6, dt);
+      this.pos.y = damp(this.pos.y, targetPos.y, 6, dt);
+      this.pos.z = damp(this.pos.z, targetPos.z, 6, dt);
     } else if (this.locked) {
       const mid = p1Pos.clone().add(p2Pos).multiplyScalar(0.5);
       const yaw = yawBetween(p2Pos, p1Pos) + this.yawOffset; // behind P1 axis

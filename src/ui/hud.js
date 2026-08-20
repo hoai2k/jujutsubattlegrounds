@@ -127,22 +127,22 @@ export class HUD {
         <div class="duel-clock"><div class="fill"></div><div class="duel-time"></div></div>
         <div class="duel-foot"></div>
       </div>
-      <!-- THE GAME SHOW. One panel, six stagings, and the staging class is
-           what changes the furniture — the contest itself is always the same
-           three elements: a title card, a play area and a scoreboard. -->
-      <div class="gshow">
-        <div class="gs-card">
-          <div class="gs-tier"></div>
-          <div class="gs-name"></div>
-          <div class="gs-jp"></div>
+      <!-- THE SET. A title card that comes and goes, a thin run band that
+           only exists while a scene is live, and three lamps. See _theset
+           for why this is deliberately small. -->
+      <div class="tset">
+        <div class="ts-card">
+          <div class="ts-tier"></div>
+          <div class="ts-name"></div>
+          <div class="ts-jp"></div>
+          <div class="ts-blurb"></div>
         </div>
-        <div class="gs-stage">
-          <div class="gs-prompt"></div>
-          <div class="gs-play"></div>
-          <div class="gs-clock"><div class="fill"></div></div>
+        <div class="ts-run">
+          <span class="ts-lab">EXIT</span>
+          <div class="ts-prog"><div class="fill"></div><i class="ts-goal"></i></div>
+          <span class="ts-clock"></span>
         </div>
-        <div class="gs-score"></div>
-        <div class="gs-foot"></div>
+        <div class="ts-score"></div>
       </div>
       <div class="crawl"></div>
       <div class="blackout"></div>
@@ -1384,7 +1384,7 @@ export class HUD {
 
     this._duel(duel);
     this._trial(trial);
-    this._gameshow(this.gameshow?.snapshot?.() ?? null);
+    this._theset(this.theset?.snapshot?.() ?? null);
     if (this.blackT > 0) {
       this.blackT -= dt;
       if (this.blackT <= 0) this.q('.blackout').classList.remove('on');
@@ -1511,138 +1511,61 @@ export class HUD {
       : `${t.pleaded ? 'PLEA IN' : 'DEFENDANT CHOOSING'} · ${t.guessed ? 'CALL IN' : 'HIGURUMA CHOOSING'}`;
   }
 
-  // ---- THE GAME SHOW -------------------------------------------------------
-  // ONE PANEL, SIX STAGINGS. The contest is always the same three elements —
-  // a title card, a play area and a scoreboard — and the `staging` class is
-  // what changes the FURNITURE around them: a prize wheel, a quiz podium, a
-  // dunk tank, a conveyor belt, a buzzer, a row of arrows. That split is
-  // deliberate: the comedy is in the dressing, and the thing the contestant
-  // has to READ has to be identical every time or the challenge becomes
-  // "find the UI" instead of "do the thing".
-  //
-  // It is drawn for BOTH players. The contestant needs it to play; Takaba's
-  // player needs it to know whether the joke is landing.
-  _gameshow(g) {
-    const el = this.q('.gshow');
-    if (!g) { el.classList.remove('on'); this._gsKey = null; return; }
+  // ---- THE SET -------------------------------------------------------------
+  // DELIBERATELY A THIN BAND, NOT A PANEL. The QTE version this replaced owned
+  // the middle of the screen, because the contest WAS the UI. Here the contest
+  // is the room, so the HUD's whole job is to say four things and then get out
+  // of the way: which scene this is, how far along the corridor they are, how
+  // long is left, and how many they have cleared. Anything larger would be
+  // covering the thing the player is trying to jump over.
+  _theset(g) {
+    const el = this.q('.tset');
+    if (!g) { el.classList.remove('on'); this._tsKey = null; return; }
     el.classList.add('on');
     el.dataset.phase = g.phase;
     el.dataset.tier = g.tierKey;
     el.style.setProperty('--gs', '#' + g.tierColor.toString(16).padStart(6, '0'));
 
-    // the title card
-    el.querySelector('.gs-tier').textContent = 'DIFFICULTY — ' + g.tier;
-    el.querySelector('.gs-name').textContent = g.game ? g.game.name : 'THE GAME SHOW';
-    el.querySelector('.gs-jp').textContent = g.game ? g.game.jp : '公開収録';
+    const card = el.querySelector('.ts-card');
+    card.classList.toggle('on', g.phase === 'open' || g.phase === 'title' || g.phase === 'result');
+    if (g.phase === 'open') {
+      el.querySelector('.ts-tier').textContent = 'DIFFICULTY — ' + g.tier;
+      el.querySelector('.ts-name').textContent = 'THE SET';
+      el.querySelector('.ts-jp').textContent = '持ちネタ';
+      el.querySelector('.ts-blurb').textContent = g.contestant + ' IS TODAY\'S CONTESTANT';
+    } else if (g.scene && g.phase !== 'result') {
+      el.querySelector('.ts-tier').textContent = 'SCENE ' + (g.index + 1) + ' OF ' + g.scenes + ' — ' + g.tier;
+      el.querySelector('.ts-name').textContent = g.scene.name;
+      el.querySelector('.ts-jp').textContent = g.scene.jp;
+      el.querySelector('.ts-blurb').textContent = g.scene.blurb;
+    } else if (g.phase === 'result') {
+      el.querySelector('.ts-tier').textContent = g.cleared + ' OF ' + g.scenes + ' CLEARED';
+      el.querySelector('.ts-name').textContent =
+        g.outcome === 'ko' ? 'NOBODY GOT OUT'
+          : g.outcome === 'escaped' ? 'THEY GOT OUT'
+            : g.killRefused ? g.killRefused : 'CURTAIN';
+      el.querySelector('.ts-jp').textContent = '';
+      el.querySelector('.ts-blurb').textContent = '';
+    }
 
-    // the scoreboard — three lamps, filled as they resolve
-    const score = Array.from({ length: g.rounds }, (_, i) => {
+    // the run band: a progress rail with the exit at the far end, and a clock
+    const run = el.querySelector('.ts-run');
+    const live = g.phase === 'run' && g.scene;
+    run.classList.toggle('on', !!live);
+    if (live) {
+      run.querySelector('.ts-prog .fill').style.width = (g.scene.progress * 100) + '%';
+      const left = Math.max(0, g.scene.time - g.scene.t);
+      run.querySelector('.ts-clock').textContent = left.toFixed(1);
+      run.classList.toggle('critical', left < g.scene.time * 0.3);
+    }
+
+    // three lamps, filled as scenes resolve
+    const lamps = Array.from({ length: g.scenes }, (_, i) => {
       const r = g.results[i];
-      return `<i class="gsp${r ? (r.result === 'pass' ? ' pass' : ' fail') : ''}"></i>`;
+      return `<i class="tsp${r ? (r.cleared ? ' pass' : ' fail') : ''}"></i>`;
     }).join('');
-    const scoreEl = el.querySelector('.gs-score');
-    if (scoreEl.dataset.k !== score) { scoreEl.dataset.k = score; scoreEl.innerHTML = score; }
-
-    const stage = el.querySelector('.gs-stage');
-    const play = el.querySelector('.gs-play');
-    const gm = g.game;
-    stage.style.display = (g.phase === 'play' || g.phase === 'settle') && gm ? '' : 'none';
-    if (gm && stage.style.display === '') {
-      stage.dataset.staging = gm.staging;
-      el.querySelector('.gs-prompt').textContent = gm.prompt;
-      const key = gm.key + ':' + (gm.seq?.join('') ?? '') + ':' + (gm.need ?? '');
-      if (this._gsKey !== key) {
-        this._gsKey = key;
-        play.innerHTML = this._gsMarkup(gm);
-      }
-      this._gsPaint(play, gm);
-      const c = el.querySelector('.gs-clock');
-      c.querySelector('.fill').style.width = Math.max(0, 1 - gm.t / gm.limit) * 100 + '%';
-      c.classList.toggle('critical', gm.t / gm.limit > 0.7);
-      play.classList.toggle('hit', !!gm.hit);
-      play.classList.toggle('wrong', !!gm.wrong);
-      play.classList.toggle('resolved', !!gm.result);
-      play.dataset.result = gm.result ?? '';
-    }
-
-    el.querySelector('.gs-foot').textContent =
-      g.phase === 'result'
-        ? (g.outcome === 'ko' ? 'NO SCORE.' : g.outcome === 'survived' ? 'A PERFECT SCORE — ' + g.contestant + ' SURVIVES'
-          : g.killRefused ? g.killRefused : g.passed + ' OF ' + g.rounds)
-        : g.contestant + ' IS TODAY\'S CONTESTANT   ·   HOST: ' + g.host;
-  }
-
-  // The furniture, per staging. Built once per round.
-  _gsMarkup(gm) {
-    switch (gm.key) {
-      case 'wheel':
-        return `<div class="gsw"><div class="gsw-track"><div class="gsw-zone"></div><div class="gsw-mark"></div></div>
-                <div class="gsw-btn">X</div></div>`;
-      case 'podium':
-      case 'belt':
-        return `<div class="gsq">${gm.seq.map(k => `<b>${k}</b>`).join('')}</div>`;
-      case 'dunk':
-        return `<div class="gsd"><div class="gsd-bar"><div class="fill"></div></div><div class="gsd-n"></div></div>`;
-      case 'buzzer':
-        return `<div class="gsb"><div class="gsb-lamp">WAIT</div></div>`;
-      case 'arrows':
-        return `<div class="gsa">${gm.seq.map(k => `<b>${k}</b>`).join('')}</div>`;
-      default: return '';
-    }
-  }
-
-  // The per-frame paint. Deliberately writes only STYLE and CLASS, never
-  // innerHTML — a DOM rebuild inside a two-second contest is exactly the wrong
-  // place to spend the frame budget, which is the same rule the execution
-  // duel's prompt row already follows.
-  _gsPaint(play, gm) {
-    switch (gm.key) {
-      case 'wheel': {
-        const z = play.querySelector('.gsw-zone');
-        z.style.left = ((gm.mark - gm.window) * 100) + '%';
-        z.style.width = (gm.window * 200) + '%';
-        play.querySelector('.gsw-mark').style.left = (gm.pos * 100) + '%';
-        break;
-      }
-      case 'podium': {
-        const chips = play.querySelectorAll('.gsq b');
-        for (let i = 0; i < chips.length; i++) {
-          chips[i].classList.toggle('done', i < gm.idx);
-          chips[i].classList.toggle('now', i === gm.idx);
-        }
-        break;
-      }
-      case 'belt': {
-        const chips = play.querySelectorAll('.gsq b');
-        // THE WHOLE GAME: the prompts are visible, and then they are not.
-        play.classList.toggle('hidden', !!gm.hidden);
-        for (let i = 0; i < chips.length; i++) {
-          chips[i].classList.toggle('done', gm.hidden && i < gm.idx);
-          chips[i].classList.toggle('now', gm.hidden && i === gm.idx);
-        }
-        break;
-      }
-      case 'dunk': {
-        play.querySelector('.gsd-bar .fill').style.width =
-          Math.min(100, (gm.presses / gm.need) * 100) + '%';
-        play.querySelector('.gsd-n').textContent = gm.presses + ' / ' + gm.need;
-        break;
-      }
-      case 'buzzer': {
-        const lamp = play.querySelector('.gsb-lamp');
-        lamp.classList.toggle('live', !!gm.shown);
-        lamp.textContent = gm.shown ? 'X' : 'WAIT';
-        break;
-      }
-      case 'arrows': {
-        const chips = play.querySelectorAll('.gsa b');
-        for (let i = 0; i < chips.length; i++) {
-          chips[i].classList.toggle('done', i < gm.idx);
-          chips[i].classList.toggle('now', i === gm.idx);
-        }
-        break;
-      }
-    }
+    const sc = el.querySelector('.ts-score');
+    if (sc.dataset.k !== lamps) { sc.dataset.k = lamps; sc.innerHTML = lamps; }
   }
 
   _duel(d) {

@@ -89,7 +89,7 @@ export class DebugOverlay {
       }).join('  ')
       : '—';
     const sm = match.swarms;
-    const gs = match.gameshow?.snapshot?.() ?? null;
+    const gs = match.theset?.snapshot?.() ?? null;
     this.el.textContent =
       `FPS ${timing.fps.toFixed(0)}  logic ${timing.logicMs.toFixed(2)}ms  ts=${match.timeScale.toFixed(2)} hitstop=${match.hitstopFrames}
 TERRAIN: ${terr}
@@ -100,8 +100,8 @@ DOMAIN: ${d ? `${d.def.name} ${d.phase} t=${(d.timer ?? 0).toFixed(1)} integ=${d
 CLASH : ${cl ? `${(cl.dur - cl.t).toFixed(1)}s left  ${cl.a.cfg.id}=${cl.dmgA.toFixed(1)} dmg  ${cl.b.cfg.id}=${cl.dmgB.toFixed(1)} dmg` : '—'}${sw ? `
 SWORDS: ${sw.live ? `${sw.remaining} embedded${sw.falling ? ' +falling' : ''}` : 'inactive'}  carried=${sw.carried ? 'YES' : 'no'}  last=${sw.last ?? '—'}  seed=${sw.seed ?? '—'}
 ROLLS : force=${sw.forced ?? 'off'} (F6 cycles)  weights: ${sw.weights}` : ''}${gs ? `
-GSHOW : ${gs.phase} round=${gs.round + 1}/${gs.rounds} passed=${gs.passed} tier=${gs.tier}  contestant=${gs.contestant}${gs.game ? `
-  GAME: ${gs.game.key} t=${gs.game.t.toFixed(2)}/${gs.game.limit.toFixed(2)}${gs.game.mark != null ? ` mark=${gs.game.mark.toFixed(3)} pos=${(gs.game.pos ?? 0).toFixed(3)} win=±${gs.game.window}` : ''}${gs.game.seq ? ` seq=${gs.game.seq.join('')} idx=${gs.game.idx}` : ''}${gs.game.need ? ` mash=${gs.game.presses}/${gs.game.need}` : ''}` : ''}  (F9 forces)` : ''}`;
+THE SET: ${gs.phase} scene=${gs.index + 1}/${gs.scenes} cleared=${gs.cleared} tier=${gs.tier}  contestant=${gs.contestant}${gs.scene ? `
+  SCENE: ${gs.scene.key} t=${gs.scene.t.toFixed(2)}/${gs.scene.time.toFixed(2)} progress=${(gs.scene.progress * 100).toFixed(0)}%` : ''}  (F9 forces)` : ''}`;
     for (const h of this.hitSpheres) {
       const f = h.fighter;
       if (h.hurt) {

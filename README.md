@@ -939,35 +939,66 @@ column and the meter tilts only how *enormous* the outcome looks. A Takaba who
 is rolling gets more absurd, not more dangerous. Nothing is ever weighted to
 zero — a cold Takaba can still roll a piano, it is just rare.
 
-### D-pad Right — THE GAME SHOW 公開収録
+### D-pad Right — THE SET 持ちネタ
 
-The arena becomes a game show and **the opponent is the contestant**. Three
-minigames drawn from a pool of six, played back to back, both fighters frozen,
-Takaba hosting. The whole sequence lands in **under ten seconds** (measured: 7.6
-average, 8.65 worst case).
+Not a cutscene and not a quick-time event. **The arena goes away and the
+opponent is somewhere else**, on foot, with the controller still in their hands.
 
-The pool: a **prize wheel** (stop the marker in the green), a **quiz podium**
-(input the sequence, no mistakes), a **dunk tank** (mash), a **conveyor belt**
-(watch a pattern, then repeat it back), a **buzzer round** (press it the instant
-it lights — pressing *early* loses), and an **arrow belt** (flick the stick to
-match). Four of the six are the game's own existing contests re-dressed: Nanami's
-7:3 sweep, Higuruma's execution sequence, the barrier-break mash and Hakari's
-reach.
+> *"Takaba's cursed technique brings him and his opponent into imaginary
+> scenarios manifested from his imagination... reviving a dead goldfish at a
+> hospital, participating in a game show in a valley, or playing with water on
+> the beach. Any damage incurred to his opponent will persist, but damage done
+> to Takaba are nothing but simulations to him."*
 
-**Difficulty is his COMEDY METER at the moment he casts it** — a set that is
-going well presents harder challenges, and the tier is printed on the title
-card.
+That last line is the whole design. Inside the set Takaba **takes no damage and
+deals none** — he is in there with you, in a bow tie, jogging alongside and
+getting in the way, and none of it is real to him. It is not a Domain Expansion:
+there is no barrier, no sure-hit, no domain UI, and it refuses to open on top of
+somebody else's domain with the line **SOMEBODY ELSE'S WORLD**.
+
+**Three scenes drawn from a pool of six**, back to back, each a real 26 m
+corridor you have to physically run, jump and dodge your way down to a lit exit
+arch before its clock runs out. The camera swings to a fixed side-on platformer
+bearing, lock-on is suspended, and the stick means *toward the exit* instead of
+*toward the opponent*.
+
+| scene | 場面 | what it is | panel |
+| --- | --- | --- | --- |
+| **PICK A DOOR** | 二択 | three banks of five doors; exactly one opens, and it lights a beat before it unlocks. A read under a clock. | ch.242, the quiz |
+| **MIND THE TRAFFIC** | 横断歩道 | four lanes of taxis sliding across the corridor. There is a cat sitting in lane three, because there is a cat in the panel. | ch.242, the cat in the road |
+| **CODE BLUE** | 病棟 | a hospital corridor; gurneys come out of the side rooms across your line, and the goldfish plinth is a 1.1 m step you go **over**. | ch.242, the dead goldfish |
+| **IT IS RISING** | 波 | the floor floods on a clock and the rafts behind you go under first. The most vertical of the six. | ch.242, drowning while Kenjaku paddles out |
+| **THE WRONG WAY** | 工場 | a conveyor running against you with crates dropping onto it. The only scene that punishes standing still directly. | the oldest gag in physical comedy |
+| **DO NOT LOOK DOWN** | 屋上 | five rooftops with real gaps, and his own enormous foam finger sweeping across the middle three. | his RT, turned into level geometry |
+
+Every scene is built to the game's actual movement numbers rather than by eye:
+jump velocity 8.6 against gravity 26 gives a 1.42 m apex and 0.66 s of airtime,
+so **nothing steps up more than 1.20 m and no gap is wider than 2.20 m**. A
+scene you cannot physically clear is a bug, not a challenge. Everything that
+moves is a hazard entity, never a collider — getting clipped by a cab costs chip
+damage and throws you back down the corridor, it does not end the run. Only the
+clock does.
+
+**Difficulty is his COMEDY METER at the moment he casts it.** The tier sets the
+clock on every scene (5.0–6.0 s cold, 3.8–4.6 s at KILLING) and is printed on
+the title card.
 
 | score | outcome |
 | --- | --- |
-| **pass 3** | they survive. 6 chip damage, applause, and Takaba visibly sulks. |
-| **pass 2** | 34 damage |
-| **pass 1** | 62 damage — likely near death |
-| **pass 0** | **INSTANT KO** — routed through the shared category, so it bypasses Hakari's Jackpot healing and is resisted *by chance* by Mahoraga's adaptation, exactly as Mahito's transfiguration and Higuruma's execution already are. Confetti, a fanfare, and Takaba genuinely delighted. |
+| **3 of 3** | they got out. 6 chip damage, applause, and Takaba visibly sulks. |
+| **2 of 3** | 34 damage |
+| **1 of 3** | 62 damage — likely near death |
+| **0 of 3** | **INSTANT KO** — routed through the shared category, so it bypasses Hakari's Jackpot healing and is resisted *by chance* by Mahoraga's adaptation, exactly as Mahito's transfiguration and Higuruma's execution already are. Confetti, a fanfare, and Takaba genuinely delighted. |
 
-**It is a skill check the opponent can win outright.** Measured against the CPU
-contestant: at OPEN MIC it kills one time in twenty and half of them walk away
-clean; at KILLING it kills better than one in five and only one in six is clean.
+**It is a movement check the opponent can win outright**, and unlike a domain
+there is nothing to break — you just have to run. The whole run is scored on the
+HUD live: a progress bar down the corridor, the scene clock, and three lamps.
+
+Measured against the CPU contestant over 99 scenes: at OPEN MIC it has never
+killed and nearly nine in ten walk out clean; at WARMING UP it kills one time in
+eight and half get out; at KILLING it kills a bit under half the time and one in
+nine still gets out. A human who has seen the scenes should do better than the
+bot at all three, which is the direction a skill check ought to be wrong in.
 
 ## Stages
 

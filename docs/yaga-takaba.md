@@ -1,8 +1,13 @@
 # YAGA MASAMICHI & TAKABA FUMIHIKO — delivery notes
 
 Two new playable characters. Nothing about an existing character's behaviour
-changed; every edit to an existing file is an addition, and the four reused
-minigame implementations plus Yuta's domain roll are byte-identical.
+changed; every edit to an existing file is an addition, and Yuta's domain roll
+is byte-identical.
+
+**Takaba's ultimate was rebuilt after the first delivery.** It shipped as three
+quick-time events behind a full-screen panel; it is now THE SET 持ちネタ, a
+traversable pocket world with three parkour scenes in it. Section 3 is the new
+one — the QTE tables it replaced are gone, along with `combat/gameshow.js`.
 
 ---
 
@@ -149,36 +154,91 @@ Meter shifts.
 
 ---
 
-## 3 · THE SIX MINIGAMES AND THEIR TIMING WINDOWS
+## 3 · THE SET — THE SIX SCENES
 
-Difficulty tier = Takaba's Comedy Meter *at the moment of activation*, shown on
-the title card.
+The ultimate is **not** a cutscene, a domain, or a quick-time event. The arena
+is hidden the way a closed domain hides it, a 26 m corridor is built in its
+place, and both fighters are physically put in it with the controls live. The
+opponent has to *run out*. Takaba is in there with them and neither takes nor
+deals damage while it is up, which is canon rather than a balance dial:
 
-| # | game | staging | reused from | OPEN MIC | WARMING UP | KILLING |
-|---|---|---|---|---|---|---|
-| 1 | **TIMING BAR** — stop the marker in the green | prize wheel | **Nanami's 7:3 sweep** | 2.00 s limit, 1.05 s sweep, window **±11.5%** | 1.85 s, 0.82 s sweep, **±8.0%** | 1.70 s, 0.62 s sweep, **±5.5%** |
-| 2 | **BUTTON SEQUENCE** — in order, no mistakes | quiz podium | **Higuruma's execution duel** | 2.00 s, **3** inputs, wrong = −0.45 s | 1.95 s, **4**, −0.55 s | 1.90 s, **5**, −0.70 s |
-| 3 | **MASH** — fill the bar | dunk tank | **the barrier-break / duel mash** | 2.00 s, **14** presses, cap 12/s | 1.90 s, **19**, cap 12/s | 1.80 s, **23**, cap 12/s |
-| 4 | **SIMON SAYS** — repeat it back | conveyor belt | *new* | 2.00 s, **3** shown for 0.85 s | 2.00 s, **4**, 0.80 s | 1.95 s, **5**, 0.72 s |
-| 5 | **QUICK DRAW** — don't jump the gun | buzzer round | **Hakari's reach**, in shape | cue at 0.55–1.10 s, **0.62 s** to react | 0.55–1.30 s, **0.46 s** | 0.60–1.45 s, **0.34 s** |
-| 6 | **DIRECTION DODGE** — match the arrows | arrow belt | *new* | 1.95 s, **3** arrows, deadzone 0.55 | 1.95 s, **4**, 0.60 | 1.85 s, **5**, 0.66 |
+> "Any damage incurred to his opponent will persist, but damage done to Takaba
+> are nothing but simulations to him."
 
-Notes on the four lifts — the logic is genuinely the original's, reimplemented
-against this feature's own state object rather than by calling into it:
+Three scenes are drawn from a pool of six, no repeats, off the caster's own
+seeded stream so a debug seed reproduces the whole run.
 
-* the **timing bar** is `|pos − mark| ≤ window`, exactly Nanami's
-  `_ratioResolve`, with `mark` randomised per round instead of pinned at 0.7;
-* the **button sequence** keeps Higuruma's no-two-in-a-row generation, his
-  "one press per tick so a two-button mash cannot skip ahead" break, and his
-  rule that a wrong press costs *time* rather than the round;
-* the **mash** keeps the per-second budget (`capPerSec`) that is the whole
-  reason the original exists in the shape it does — a turbo controller cannot
-  delete the challenge;
-* **QUICK DRAW** is Hakari's reach *in shape*: one committed input at a moment
-  you do not choose, where going early loses.
+| # | scene | 場面 | what it is | panel |
+|---|---|---|---|---|
+| 1 | **PICK A DOOR** | 二択 | three banks of five doors; exactly one opens, and its lamp fires a beat before its collider drops. A read under a clock, not a guess. The four shut ones shove. | ch.242, the quiz |
+| 2 | **MIND THE TRAFFIC** | 横断歩道 | four lanes of taxis sliding across the corridor, with real kerbs at 0.35 m (inside `STEP_UP`, so never an invisible wall). There is a cat in lane three because there is a cat in the panel. | ch.242, the cat in the road |
+| 3 | **CODE BLUE** | 病棟 | a hospital corridor; gurneys come out of the side rooms across your line and the goldfish plinth is a 1.1 m step you go **over**. | ch.242, the dead goldfish |
+| 4 | **IT IS RISING** | 波 | the floor floods on a clock and the rafts behind you go under first. The most vertical of the six, and the only one whose failure state is the ground itself. | ch.242, drowning while Kenjaku paddles out |
+| 5 | **THE WRONG WAY** | 工場 | a belt running against you with crates dropping onto it from a hopper. The only scene that punishes hesitation directly rather than through a hazard. | the oldest gag in physical comedy |
+| 6 | **DO NOT LOOK DOWN** | 屋上 | five roofs with real gaps and a void under them, and his own enormous foam finger sweeping across the middle three. | his own RT, turned into level geometry |
 
-Two are new because the brief asks for six and the game contains four. Both are
-built out of the same pieces (a prompt list, an input edge, a per-round clock).
+### The rules the six share
+
+* **One corridor, one grammar.** Every scene runs x = −13 → +13, 12 m wide in z,
+  with the same deck, the same side walls and the same lit exit arch. The
+  contestant learns the grammar once and then only has to read what is new.
+* **Sized against the real movement numbers, not by eye.** Jump velocity 8.6
+  against gravity 26 is a 1.42 m apex and 0.66 s of airtime, so **nothing steps
+  up more than 1.20 m and no gap is wider than 2.20 m**. A scene you cannot
+  physically clear is a bug, not a difficulty setting.
+* **Nothing that moves is a collider.** Cabs, gurneys, crates, rafts, the foam
+  finger and the shut doors are hazard records `{x,y,z,r,kind,push}` tested
+  against the fighters each frame — the same way every other moving danger in
+  the game works. Getting clipped costs 3 chip damage and throws you back down
+  the corridor; **only the clock ends a scene**.
+* **Static geometry is real `bounds` collider work** and is tracked, so the
+  teardown is exact. `bounds.drop()` was added for this: it unlinks runtime
+  colliders from `platforms`/`walls`/`terrains`, all three spatial grids and
+  `byId`. Measured over six build/teardown cycles: platforms 46 → 46, walls
+  54 → 54, zero leak.
+
+### The clock, per tier
+
+Difficulty is his Comedy Meter at the moment of activation, printed on the title
+card. It buys time, not obstacles — the scene is the same, you have less of it.
+
+| scene | OPEN MIC | WARMING UP | KILLING |
+|---|---|---|---|
+| PICK A DOOR | 5.0 s (tell 0.85, gap 2.4) | 4.4 s (0.60, 2.2) | 3.8 s (0.42, 2.0) |
+| MIND THE TRAFFIC | 5.2 s | 4.6 s | 4.0 s |
+| CODE BLUE | 5.0 s | 4.4 s | 3.8 s |
+| IT IS RISING | 6.0 s | 5.2 s | 4.6 s |
+| THE WRONG WAY | 5.4 s | 4.8 s | 4.2 s |
+| DO NOT LOOK DOWN | 5.6 s (gap 1.7) | 4.8 s (2.0) | 4.2 s (2.2) |
+
+### The camera, and the one bug worth writing down
+
+The set swings the camera to a fixed-bearing `corridor` mode (yaw −π/2) and
+suspends lock-on for both fighters, because `_moveVec` ignores the camera
+entirely while a fighter is soft-locked — a contestant with lock-on held would
+still be steering relative to Takaba while running away from him.
+
+That yaw is load-bearing: under it, stick-up resolves to world +X. The first
+version of the CPU contestant wrote **world** coordinates into the stick
+(`frame.move.x = 1`) and consequently pushed sideways into a wall and never
+moved. It now writes `move.z = -1` for forward and `move.x` for the lateral
+swerve, which is exactly what the human on the other pad is doing.
+
+### The CPU contestant
+
+It genuinely plays: runs at the exit, jumps gaps and steps it can see through
+`bounds.floorAt`, and swerves around the nearest hazard ahead — with a reaction
+delay (0.16 / 0.24 / 0.34 s) and a swerve accuracy (0.88 / 0.66 / 0.46) that
+scale with the tier. A bot that dodged perfectly would make the ultimate
+worthless, so the swerve only fires `accuracy` of the time and is otherwise a
+shrug.
+
+One scene needed an extra hook. In PICK A DOOR the opening is a *hole in a wall*
+— static geometry, not a hazard — so the bot had nothing to steer at, treated
+the bank as four things to dodge, and lost **every run at every tier**. Scenes
+may now expose an optional `aim(pos)`; the doors return the lit door's z, and
+the plan prefers it over a straight line at the exit. That is a bot that could
+not see, fixed, rather than a scene that was too hard.
 
 ---
 
@@ -235,7 +295,7 @@ blockChipMult 0.74 / staminaMult 0.80 / **5 frames to raise the guard**.
 | **A Bit (RB)** | table | 13 | 3 | 22 | 6.5 m, 12 CE |
 | **The Big One (RT)** | table | 27 | 4 | 36 | 4.2 m, 30 CE |
 | **Riff (B)** | — | 6 | 1.35 s stance | — | free, **5.5 s cooldown** |
-| **The Game Show (D-R)** | see below | 32 | 1 | 26 | full bar |
+| **The Set (D-R)** | see below | 32 | 1 | 26 | full bar |
 
 His string is `PUNCH_DEFAULTS` with 6 cm taken off the reach — he is the only
 character on the roster who takes the shared defaults essentially untouched, and
@@ -262,23 +322,27 @@ Nothing is ever weighted to zero: a cold Takaba can still roll a piano, it is
 just rare. "This cannot happen right now" is a worse feeling in a random
 character than "this almost never happens."
 
-### THE GAME SHOW — damage and duration
+### THE SET — damage and duration
 
-* **Pass 3 → 6 chip damage.** Pass 2 → **34**. Pass 1 → **62**.
-  Pass 0 → **INSTANT KO** through the shared category.
-* **Duration, measured in-engine over 120 shows: average 7.6–7.9 s, worst case
-  8.65 s**, including the opening card, three title cards, three rounds, the
-  settles and the result. Under ten, as briefed. (Wall-clock in the software-
-  rendered test browser is roughly double; the figures above are game time,
-  counted in logic ticks, because a stopwatch there measures the renderer.)
-* Budget: opening card 0.60 · per round (title 0.50 + play ≤2.00 + settle 0.22)
-  · result 1.45.
+* **3 of 3 → 6 chip damage.** 2 of 3 → **34**. 1 of 3 → **62**.
+  0 of 3 → **INSTANT KO** through the shared category.
+* **Duration is no longer a fixed budget** — it is however long the contestant
+  takes, capped by the three clocks. Worst case (every scene timed out at OPEN
+  MIC) is 5.0 + 5.2 + 6.0 = 16.2 s of scene plus 1.10 open + 3 × 0.80 title +
+  3 × 0.55 settle + 1.60 result = **21.9 s**; at KILLING the same worst case is
+  **17.5 s**, and a contestant who clears cleanly is well under both. The brief's
+  original "under ten seconds" was written for a panel nobody was playing
+  through; **it does not apply to a level you traverse**, and holding to it would
+  have meant scenes too short to be places. This is the one place the rebuild
+  knowingly departs from the brief's numbers.
+* (Game time, counted in logic ticks. Wall clock in the software-rendered test
+  browser is roughly double and measures the renderer, not the feature.)
 
 ---
 
 ## 5 · FILES
 
-### Added (12)
+### Added (13)
 
 ```
 src/characters/yaga.js              config, tiers, research note
@@ -291,11 +355,12 @@ src/art/anim/yaga.js                18 clips incl. the construction loop
 src/art/anim/takaba.js              38 clips incl. 14 bits + the host set
 src/combat/construction.js          the meter, the corpses, the anti-summon audit
 src/combat/comedy.js                the meter + the reused weighted roll
-src/combat/gameshow.js              the six minigames and the sequence
+src/combat/theset.js                the pocket world, its phases, the CPU contestant
+src/art/models/setpieces.js         the six scenes, as real corridors
 src/fx/comedyfx.js                  every prop, as real toon-shaded geometry
 ```
 
-### Touched (18) — every one an addition
+### Touched (20) — every one an addition
 
 ```
 src/characters/index.js     two roster entries + two ROSTER_IDS slots
@@ -314,6 +379,8 @@ src/core/match.js           two systems, the show's tick ownership, the craft
                             motes and spotlight, 16 event handlers, isCPU
 src/core/game.js            three debug keys (F8/F9/F10)
 src/core/stage.js           one colour grade (`gameshow`)
+src/core/camera.js          one mode (`corridor`)
+src/arena/bounds.js         one method (`drop`), for exact scene teardown
 src/domains/domains.js      ONE WORD: `offField` added to the void's
                             non-interruptible list
 src/finishers/registry.js   two finishers + the bandanna prop
@@ -347,12 +414,13 @@ diff at all. His roll runs through his own `swordRoll` stream and his own
 share only `weightedPick` from `core/mathutil.js` — the same relationship every
 other pair of systems has with a mathutil helper.
 
-**The four reused minigames are untouched.** `git diff --stat` over
+**Every other character's systems are untouched.** `git diff --stat` over
 `domains/sentencing.js`, `characters/higuruma.js`, `characters/nanami.js`,
 `characters/hakari.js`, `characters/yuta.js`, `characters/yuta_swords.js`,
 `domains/jackpot.js` and `combat/instantko.js` reports **no changes to any of
-them**. `gameshow.js` reimplements their logic against its own state; it does
-not call into them.
+them**. The rebuilt ultimate borrows nothing from their minigames — it is level
+geometry now — and still routes its kill through `instantko.js` rather than
+writing a second one.
 
 `node test/roster.mjs` passes: every pick has a taunt, a finisher, the full clip
 contract and every button.
@@ -469,25 +537,42 @@ damage source funnels through** (`Fighter.applyHit` returns `'miss'` while
   (`sentenced`, `executing`, `transfigured`, `devoured`, `voided`, `ko`) — two
   owners for one body is the bug this prevents.
 
-### The Game Show's state audit — VERIFIED
+### THE SET's state audit — VERIFIED
 
-* **Another cinematic is running** → refused with a line. One test covers
-  Higuruma's execution, Megumi's ritual, a finisher and a second Game Show,
-  because they all set the same flags.
-* **Mid-domain** → allowed, and **the domain stays up**. The show suspends the
-  systems that tick it rather than collapsing it; it resumes on the frame the
-  show ends. A domain the opponent paid for is not deleted by a minigame.
+The QTE version froze the field and let almost everything coexist with it. The
+rebuild **replaces the level**, so the audit changed shape: what used to be
+"does it freeze correctly?" is now "who owns the environment?"
+
+* **Another cinematic is running** (Higuruma's execution, Megumi's ritual, a
+  finisher, a second set) → **refused with a line**, `NOT NOW`. They all set the
+  same flags and one test covers them.
+* **Any domain is standing** — the caster's, the victim's, anybody's → **refused
+  with a line**, `SOMEBODY ELSE'S WORLD`. This is a deliberate reversal of the
+  QTE version's ruling. Two systems each convinced they own the environment is
+  not a thing to paper over, and it is also the correct *reading*: a domain is a
+  sealed space, and a comedian does not get to build a stage inside somebody
+  else's sealed space.
 * **Mid-transformation** (Sukuna surfacing, Maki's awakening, Kashimo's Amber)
-  → allowed; those are states with timers and the timers freeze with everything
-  else.
-* **Frozen by Naoya** → allowed, and the freeze is subsumed. They were not going
-  to act either way.
+  → allowed. Those are states on a body, and the body is what gets moved; the
+  contestant runs the corridor transformed.
+* **Frozen by Naoya** → allowed. The set re-places both fighters on its own
+  spawn marks, and a contestant who is still frozen when the clock starts simply
+  loses the scene, which is the correct outcome of being frozen.
 * **Holding Miwa's circle** → allowed. Simple Domain is a barrier against
-  sure-hit *domain* effects; the Game Show is a burst ultimate, and no other
-  burst ultimate in the game is stopped by it either.
-* **Summons on the field** → allowed, and they freeze too. A contestant whose
-  shikigami keeps hitting the host during the quiz is a bug; one whose shikigami
-  keeps hitting *them* is worse.
+  sure-hit *domain* effects; the set has no barrier and no sure-hit, and no
+  other burst ultimate in the game is stopped by it either.
+* **Summons on the field** → **every family is cleared on open** — `minions`,
+  `construction`, `ocean`, `curses` and loose effect entities, the same way a
+  finisher clears the field before its cinematic. A shikigami chasing the
+  contestant through a scene is a bug and one chasing the *host* is worse, and
+  with the arena hidden there is nowhere for them to be standing anyway.
+* **The world comes back exactly.** The arena group and the fog are restored,
+  the colour grade is restored, the camera mode and both fighters' lock-on flags
+  are restored, `domainRadius` is cleared on both, and the scene's colliders are
+  dropped. Measured over six cycles: platforms 46 → 46, walls 54 → 54.
+* **Both fighters are re-placed before the world returns.** Coming out of the
+  set standing inside a wall is the single worst bug this feature could have, so
+  `_exitPlacement` runs before the restore rather than after.
 
 **The instant KO routes through the shared category and both consequences were
 measured, not assumed:**
@@ -541,32 +626,64 @@ it. The one thing that would make it frustrating — a bit that lands with no
 explanation — cannot occur, because the callout fires on the roll rather than on
 the connect.
 
-## 8b · DOES THE GAME SHOW SIT BETWEEN "ALWAYS SURVIVABLE" AND "GUARANTEED KILL"?
+## 8b · DOES THE SET SIT BETWEEN "ALWAYS SURVIVABLE" AND "GUARANTEED KILL"?
 
-**Yes, and here are the numbers.** 40 sampled shows per tier, CPU contestant,
-in-engine, as [fail all three / pass 1 / pass 2 / pass 3]:
+**Yes, and here are the numbers — remeasured for the rebuild.** The QTE version's
+table was a probability model; this one is a bot actually running the corridors,
+so it had to be measured again from scratch. Method: each scene forced three
+times in a row per run (so a run is three samples of one scene), one run per
+scene per tier, repeated where the harness survived the reload. **33 runs, 99
+scenes, in-engine, CPU contestant.**
 
-| tier | INSTANT KO | pass 1 (62 dmg) | pass 2 (34 dmg) | pass 3 (survive) |
-|---|---|---|---|---|
-| OPEN MIC | **5%** | 5% | 40% | **50%** |
-| WARMING UP | **7.5%** | 32.5% | 35% | **25%** |
-| KILLING | **22.5%** | 40% | 20% | **17.5%** |
+Per-scene clear rate, cleared / attempted:
 
-That is the shape asked for at both ends. At OPEN MIC it kills one time in
-twenty and half the contestants walk away clean — a full bar spent on the
-easiest version of the challenge is a bad trade, which is why the CPU Takaba
-will not fire it below 45% meter. At KILLING it kills better than one time in
-five and only one contestant in six is clean — genuinely dangerous, and still
-not a guarantee.
+| scene | OPEN MIC | WARMING UP | KILLING |
+|---|---|---|---|
+| PICK A DOOR | 9/9 | 5/6 | 2/3 |
+| MIND THE TRAFFIC | 6/9 | **1/6** | **0/6** |
+| CODE BLUE | 9/9 | 3/3 | 4/6 |
+| IT IS RISING | 9/9 | 3/3 | 1/6 |
+| THE WRONG WAY | 6/6 | 2/3 | 0/3 |
+| DO NOT LOOK DOWN | 6/6 | 3/3 | 3/3 |
+| **all scenes** | **45/48 — 94%** | **17/24 — 71%** | **10/27 — 37%** |
 
-**The one thing I could not measure is a human.** These are the CPU contestant's
-rates, driven by `cpuBase 0.72` with per-tier modifiers, and the *human* windows
-are the table in section 3. My honest expectation from the window sizes is that
-a focused human clears OPEN MIC nearly every time and clears KILLING maybe one
-show in four — i.e. the human curve is shifted one tier easier than the CPU's.
-If that turns out to be too easy in play, the dial to turn is the **KILLING**
-column only: the timing bar's ±5.5% window and the quick draw's 0.34 s reaction
-are the two that would bite first.
+And the outcome that actually matters, by run:
+
+| tier | runs | INSTANT KO (0 of 3) | 1 of 3 (62 dmg) | 2 of 3 (34 dmg) | 3 of 3 (survive) |
+|---|---|---|---|---|---|
+| OPEN MIC | 16 | **0%** | 6% | 6% | **88%** |
+| WARMING UP | 8 | **13%** | 13% | 25% | **50%** |
+| KILLING | 9 | **44%** | 11% | 33% | **11%** |
+
+That is the shape the brief asked for, and it is a **steeper** curve than the QTE
+version's — the meter matters more now, because a second of clock is worth more
+than a percentage point of timing window. At OPEN MIC it has never killed in
+measurement and nearly nine in ten walk out clean; a full bar spent there is a
+bad trade and the CPU Takaba still will not fire it below 45% meter. At KILLING
+it kills a bit under half the time, which is the most dangerous ultimate in the
+game and is *supposed* to be — it costs the bar, it costs 82% of a meter that
+only fills by landing bits, and it can still be walked out of.
+
+**Three honest caveats.**
+
+* **The scenes are not equally hard, and MIND THE TRAFFIC is the outlier.** It
+  is 1/6 at WARMING UP and 0/6 at KILLING while DO NOT LOOK DOWN is 3/3 at every
+  tier. That is a two-tier spread inside one difficulty setting, and it means a
+  draw that happens to contain the crossing is meaningfully deadlier than one
+  that does not. If one number gets retuned it is the crossing's clock (+0.4 s
+  across the board) or its lane spacing — not the tier tilt, which is doing its
+  job everywhere else.
+* **These are a bot's rates and the bot is worse than a person at exactly the
+  thing the scenes test.** It reads one hazard ahead, cannot plan a route, and
+  swerves on a coin flip weighted by tier. A human who has seen a scene twice
+  should clear KILLING far more often than 37%, which is the *correct* direction
+  for a skill check to be wrong in, and is the opposite of the QTE version, where
+  a human's reaction time was directly comparable to the bot's roll.
+* **Sample sizes are small** — 9 runs at KILLING, not 40. Playwright's software
+  renderer takes about a minute of wall clock per run and the harness lost two
+  passes to reload timeouts under load. The per-tier ordering is solid; the
+  individual percentages are indicative, and I would not tune a number off a
+  single cell of that first table.
 
 ## 9 · IS YAGA'S CONSTRUCTION VIABLE? — HONESTLY, AND THIS IS THE HARD ONE
 
@@ -757,24 +874,25 @@ Inumaki, Naoya, Todo or a domain never went through the release path**, so
 `holding` stayed set forever and a partial sat at full value for the rest of the
 round. Writing the interruption table honestly is what surfaced it.
 
-**3 · An ultimate that hands control to the opponent breaks an assumption the
-whole engine makes,** which is that a fighter's input drives that fighter. The
-Game Show has to read the *victim's* real frame while handing both fighters a
-neutral one. Doing that inside the fighters would have meant teaching the state
-machine about a contest; it is done in `match._logicTick` instead, which is
-where Higuruma's duel already established the pattern.
+**3 · An ultimate that replaces the level breaks an assumption the arena
+makes,** which is that colliders are authored once at load. `bounds` had
+`remove`/`restore` for scripted destruction but no way to *unauthor* geometry,
+so a set that built and tore down six times would have left six corridors' worth
+of dead colliders in the spatial grids. `drop()` is the addition: it unlinks a
+runtime collider from the list it lives in, from `_pGrid`/`_wGrid`/`_tGrid` and
+from `byId`. Nine lines, and the reason the feature is safe to open twice.
 
 Two things about it are still uncomfortable and worth saying:
 
-* **It is the only move in the game a player can lose to by being bad at
-  something that is not the fighting game.** That is the brief's intent and I
-  think it lands, but it is a genuinely different skill and a player who is good
-  at neutral and bad at reaction tests will feel robbed the first time.
-* **Freezing "everything" is a claim, not a fact**, and the honest version is
-  that it freezes everything *the systems inside the fight block tick*. I
-  audited the six states the brief names and each one holds, but a future system
-  ticked outside that block would not be covered by anything structural. The
-  audit is in `gameshow.js` so the next person has a list.
+* **It is long.** Worst case 21.9 s, common case nearer 15. That is three times
+  the QTE version it replaced and well past the brief's ten-second ceiling. It
+  sits in the band the domains already occupy, and I think a place has to be
+  given time to be a place — but it is a real cost the brief did not ask for.
+* **Takaba is invulnerable for the whole of it.** It is canon and it is stated
+  in the source line the feature is built on, and it is still fifteen-plus
+  seconds in which one fighter cannot be touched. It is bounded by his dealing
+  no damage either, and by the refusal to open on top of a domain — but a future
+  character able to interrupt it from outside would find nothing to interrupt.
 
 **4 · The fire hose was paying the meter five times** and I only found it by
 instrumenting the meter delta of all fourteen outcomes and noticing one number

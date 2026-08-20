@@ -32,7 +32,7 @@ import { ConstructionSystem, tierFor as corpseTierFor } from '../combat/construc
 // TAKABA. The Comedy Meter, and the Game Show, which is the only system in the
 // project that hands control of the round to the opponent.
 import { gainComedy, tierOf as comedyTierOf } from '../combat/comedy.js';
-import { GameShow } from '../combat/gameshow.js';
+import { TheSet } from '../combat/theset.js';
 import { spotlight as comedySpotlight, confetti as comedyConfetti, craftMotes, corpseDeploy, commandPulse } from '../fx/comedyfx.js';
 import { awakenBurst, massField } from '../fx/newfx.js';
 import { GarudaSystem } from '../combat/garuda.js';
@@ -205,8 +205,9 @@ export class Match {
     // putting a fifth list beside the four that already exist is the whole
     // integration.
     this.construction = new ConstructionSystem(this);
-    // TAKABA'S GAME SHOW. Owns the freeze while it runs — see `_logicTick`.
-    this.gameshow = new GameShow(this);
+    // TAKABA'S THE SET. It does NOT freeze the fighters — it replaces the world
+    // and both of them keep playing inside it. See combat/theset.js.
+    this.theset = new TheSet(this);
     // Hanami's terrain layer and Kurourushi's swarm. Both own state that
     // outlives the technique that made it — a root field outlives the cast, a
     // roach outlives the wave — so both are match-scoped like the shikigami.
@@ -283,7 +284,7 @@ export class Match {
     this.hud.shikigami = this.shikigami;
     this.hud.curses = this.curses;
     this.hud.construction = this.construction;
-    this.hud.gameshow = this.gameshow;
+    this.hud.theset = this.theset;
     this.hud.domains = this.domains;
     this.hud.gamble = this.gamble;
     this.hud.flora = this.flora;
@@ -522,28 +523,6 @@ export class Match {
       }
       this.inputs.set(f, inp);
     });
-    // ---- THE GAME SHOW OWNS THE TICK WHILE IT RUNS ------------------------
-    // Same contract Higuruma's execution duel already has and for the same
-    // reason: gameplay is frozen for both fighters and the ONLY thing reading
-    // input is the contest itself. It is done here rather than inside the
-    // fighters because the show has to read the victim's REAL frame while
-    // handing the fighters a neutral one — a contestant who could still walk
-    // would be playing two games at once.
-    //
-    // Nothing is destroyed by the freeze: every timer the two of them own —
-    // a standing domain, a transformation, Naoya's freeze, Miwa's circle, a
-    // shikigami's lifespan — simply does not advance, because the systems that
-    // advance them are inside the `fight` block below and it does not run.
-    if (this.gameshow?.freezing) {
-      const raw = new Map(this.inputs);
-      for (const f of this.fighters) this.inputs.set(f, null);
-      for (const f of this.fighters) f.update(null, this.ctxFor(f));
-      this.gameshow.update(1 / 60, raw);
-      for (const f of this.fighters) this._drainEvents(f);
-      this.bubbles.update(1 / 60);
-      return;
-    }
-
     for (const f of this.fighters) f.update(this.inputs.get(f), this.ctxFor(f));
 
     // a fighter whose HP hit zero while the round carries on (3-4 players)
@@ -601,6 +580,11 @@ export class Match {
       this.speechfx.update(1 / 60);
       this.minions.update(1 / 60);
       this.construction.update(1 / 60);   // Yaga's corpses
+      // THE SET runs INSIDE the fight tick rather than replacing it: both
+      // fighters keep moving, attacking and taking hazards the whole time,
+      // which is the entire difference between this and the QTE version it
+      // replaced. It only advances its own scenes and clocks here.
+      this.theset.update(1 / 60);
       this.judgemen.update(1 / 60);
       this.shikigami.update(1 / 60);
       this.ocean.update(1 / 60);
@@ -900,8 +884,21 @@ export class Match {
         case 'showRefused':
           this.hud.toast(f, e.label);
           break;
-        case 'showEnded':
-          if (e.outcome === 'survived') this.hud.toast(f, 'TOUGH CROWD');
+        case 'setOpen':
+          this.sfx.showTitle?.(0);
+          break;
+        case 'setScene':
+          this.hud.techFlash(e.def.name, 0xff4d7a);
+          break;
+        case 'setCleared':
+          this.hud.toast(f, 'THEY GOT THROUGH IT');
+          break;
+        case 'setFailed':
+          break;
+        case 'setHazard':
+          break;
+        case 'setEnded':
+          if (e.outcome === 'escaped') this.hud.toast(f, 'TOUGH CROWD');
           break;
 
         // ---- URO ----------------------------------------------------------
@@ -1669,6 +1666,14 @@ export class Match {
   // Last fighter standing takes the round; everyone knocked out loses a stock.
   // With two fighters this is the original behaviour exactly.
   _startKO() {
+    // ---- THE SET MUST NOT SURVIVE THE ROUND -------------------------------
+    // It hides the arena and clamps both fighters into a corridor, so a KO
+    // landing mid-set (a hazard finishing somebody, or Takaba himself dying to
+    // a corpse that outlived the cast) would otherwise leave the level
+    // invisible and the win pose playing inside a set piece. `clear()` puts
+    // the world back unconditionally, which is the only reason a system that
+    // hides the arena is safe to write at all.
+    this.theset?.clear?.();
     this.phase = 'ko';
     this.phaseT = 0;
     const survivors = this.fighters.filter(f => f.alive);
@@ -1936,7 +1941,7 @@ export class Match {
     this.effects.clear();
     this.minions.clear();
     this.construction.clear();
-    this.gameshow.clear();
+    this.theset.clear();
     this.ocean.clear();
     this.warpfx.clear();
     this.judgemen.clear();
@@ -2119,7 +2124,7 @@ export class Match {
     this.ritual.abort();
     this.finishers.abort();
     this.construction.clear();
-    this.gameshow.clear();
+    this.theset.clear();
     this.minions.clear();
     this.judgemen.clear();
     this.shikigami.clear();
