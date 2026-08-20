@@ -123,6 +123,46 @@ for (const pick of allPicks()) {
 }
 
 // ---------------------------------------------------------------------------
+// THE SLOT CONVENTION — advisory, not an assertion
+// ---------------------------------------------------------------------------
+// RB holds the furthest-reaching technique of the pair and RT the strongest
+// (schema.js, THE SLOT CONVENTION). This prints both slots' reach and damage
+// so a NEW character's pair can be checked against it at author time.
+//
+// It does NOT fail the run, and that is deliberate rather than a missing
+// assertion. Four shapes on the roster break the rule on purpose — the
+// strongest move that is also the furthest, an RT that is a stance or a buff
+// rather than an attack, slots filled from a wheel, a hold that changes the
+// move — and the numbers here cannot tell those apart from a mistake: a
+// Soul Wound and a Cursed Bud are worth more than the `dmg` they carry, and
+// Sukuna's 40 m Fire Arrow is not in the config at all. A check that cried
+// wolf on a third of the roster would be read past, which is worse than a
+// table somebody looks at. Read the exception list in schema.js before
+// concluding a row is wrong.
+const reachOf = d => Math.max(d?.range ?? 0, d?.reach ?? 0, d?.aimRange ?? 0,
+  d?.travel ?? 0, d?.radius ?? 0, ...(d?.rangeByTier ?? [0]));
+const dmgOf = d => (d?.dmg ?? 0) + (d?.dmg2 ?? 0);
+const slotRows = [];
+for (const id of ROSTER_IDS) {
+  const cfg = ROSTER[id].config;
+  const sets = [];
+  // Panda keeps the stance bodies in `stances`; Toji and Maki theirs in the
+  // arsenal. Where a character has those, the top-level ct1/ct2 are a copy of
+  // one of them (see the note in panda.js) and would just print twice.
+  const owned = { ...(cfg.arsenal?.weapons ?? {}), ...(cfg.stances ?? {}) };
+  for (const [k, w] of Object.entries(owned)) if (w.ct1 && w.ct2) sets.push([k, w.ct1, w.ct2]);
+  if (!sets.length && cfg.ct1 && cfg.ct2) sets.push(['', cfg.ct1, cfg.ct2]);
+  for (const [tag, a, b] of sets) {
+    const r1 = reachOf(a), r2 = reachOf(b), d1 = dmgOf(a), d2 = dmgOf(b);
+    // a wheel slot carries no move of its own, so there is nothing to compare
+    const wheel = !r1 && !r2 && !d1 && !d2;
+    const mark = wheel ? 'wheel'
+      : (r1 >= r2 ? '' : 'reach') + (d2 >= d1 ? '' : (r1 >= r2 ? 'dmg' : '+dmg'));
+    slotRows.push({ id: id + (tag ? ':' + tag : ''), a, b, r1, r2, d1, d2, mark: mark || 'ok' });
+  }
+}
+
+// ---------------------------------------------------------------------------
 const pad = (v, n) => String(v).padEnd(n);
 console.log(pad('CHARACTER', 12), pad('TAUNT', 7), pad('CLIPS', 6), 'FINISHER');
 for (const r of rows) {
@@ -130,6 +170,14 @@ for (const r of rows) {
     r.issues.length ? '   <-- ' + r.issues.join(' · ') : '');
 }
 console.log(`\n${rows.length} characters · ${allPicks().length} selectable picks`);
+
+console.log('\nSLOT CONVENTION — RB should reach furthest, RT should hit hardest');
+console.log(' ', pad('CHARACTER', 20), pad('RB · ct1', 34), pad('RT · ct2', 34));
+for (const r of slotRows) {
+  const L = `${r.a.name} (${r.r1} m, ${r.d1})`, R = `${r.b.name} (${r.r2} m, ${r.d2})`;
+  console.log(' ', pad(r.id, 20), pad(L, 34), pad(R, 34), r.mark === 'ok' ? '' : '<-- ' + r.mark);
+}
+console.log('  (advisory only — see THE SLOT CONVENTION in src/characters/schema.js)');
 
 if (problems.length) {
   console.error('\nFAILED:\n  ' + problems.join('\n  '));

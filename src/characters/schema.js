@@ -17,6 +17,9 @@
 //                        // the knockdown swing — see HEAVY_DEFAULT below
 //   ct1 / ct2: { name, cost, startup, active, recovery, effect, dmg, ... , clip },
 //                        // effect = key into the match effect dispatcher
+//                        // WHICH MOVE GOES IN WHICH SLOT IS A CONVENTION —
+//                        // see THE SLOT CONVENTION below. Read it before
+//                        // authoring a new pair.
 //   ultimate: { kind: 'domain' | 'burst', name, ... },
 //   domain: null | {     // null = canon has no domain (Nanami)
 //     name, jpName, refinement,          // refinement decides domain clashes
@@ -33,6 +36,51 @@
 //   barrierBreak: { ceDrain, chip },     // per-second while channeling a break
 //   copyEffect: { effect, dmg }          // what Yuta's Copy yields from this char
 // }
+
+// ===========================================================================
+// THE SLOT CONVENTION — which move goes on which button
+// ===========================================================================
+// The button map is FIXED for the whole roster (src/input/input.js owns it);
+// what a character chooses is only what to put in each slot:
+//
+//   X   punch      the 3-hit string          Y   heavy    the knockdown swing
+//   RB  ct1        THE FURTHEST-REACHING TECHNIQUE OF THE PAIR
+//   RT  ct2        THE STRONGEST TECHNIQUE OF THE PAIR
+//   B   special    the signature ability — and, for a summoner, the summon
+//                  (directly, as Mahito and Higuruma do, or as the wheel that
+//                  selects what RB/RT then throw, as Geto and Megumi do)
+//   D-pad Right    the ultimate
+//
+// RB/RT IS THE ONE THAT NEEDS SAYING, because both slots take a technique and
+// nothing in the code enforces the order. A player who has learned one
+// character should be able to guess the other twenty: RB is the button you
+// press to touch someone standing away from you, RT is the button you press
+// when you want the exchange to hurt. Author a new pair that way round.
+//
+// It applies per SET, not per character: a stance or weapon that owns its own
+// ct1/ct2 (Toji's arsenal, Panda's cores, Maki's weapons) follows the rule
+// inside each set, so the grip means the same thing in every stance.
+//
+// WHERE IT CANNOT HOLD, SAY SO IN THE CONFIG. Four shapes break it, and each
+// one is written up where it lives rather than being quietly wrong:
+//
+//   · THE STRONGEST IS ALSO THE FURTHEST — Choso (Piercing Blood), Mahoraga
+//     (World-Cutting Slash), Gojo (Red), Hakari (Pachinko Volley). One rule
+//     has to give; the roster keeps the move where its character reads best
+//     and states which rule it is paying.
+//   · RT IS NOT AN ATTACK — Nanami (Overtime), Higuruma (Confiscation),
+//     Miwa (Sheathe Stance). "Strongest" means the bigger commitment, not the
+//     bigger damage number.
+//   · THE SLOTS ARE A WHEEL — Megumi, Geto, Inumaki. What is in them is bound
+//     at runtime, so the convention is a rule about the WHEEL's content, not
+//     about the config.
+//   · A HOLD CHANGES THE MOVE — Sukuna's RT charges into Fire Arrow at 40 m,
+//     the longest reach in the game. The slot obeys the rule; the hold does
+//     not, and that is the telegraph it is priced on.
+//
+// A new character that fits none of those has no excuse: put the ranged one
+// on RB. `test/roster.mjs` prints the reach and damage of both slots per
+// character so a new pair can be eyeballed against this at author time.
 
 import { applyHealthScale } from '../combat/balance.js';
 
