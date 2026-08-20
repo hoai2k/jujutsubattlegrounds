@@ -1416,6 +1416,160 @@ export class Sfx {
   //   · a cue is short (<0.9s) and sits UNDER the bubble's pop, not over it
   // A missing key falls through to the neutral flourish rather than throwing,
   // so a half-added taunt is silent-ish instead of broken.
+  // =========================================================================
+  // YAGA — THE WORKSHOP
+  // =========================================================================
+  // Every cue here is WOODEN and DRY. Nothing he does has a tail on it,
+  // because a workshop is a room full of small hard sounds and no reverb, and
+  // that is what separates him from every other summoner in the game (whose
+  // cues are all wet: shadow, water, flesh).
+  buildStart() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.14, gain: 0.16, freq: 620, q: 2.2 });
+    this._osc('triangle', 147, { to: 165, dur: 0.28, gain: 0.10 });
+  }
+  // ONE STEP UP THE LADDER PER TIER. Same figure, a fifth higher each time, so
+  // a player learns the pitch and can hear how far he has got without looking.
+  buildTier(key) {
+    this.ensure(); if (!this.ctx) return;
+    const f = { scrap: 196, standard: 262, refined: 349, masterwork: 466 }[key] ?? 262;
+    this._osc('triangle', f, { to: f * 1.5, dur: 0.22, gain: 0.20 });
+    this._osc('sine', f * 2, { dur: 0.34, gain: 0.09, a: 0.05 });
+    this._noise({ dur: 0.10, gain: 0.12, freq: f * 5, q: 2.6 });
+    if (key === 'masterwork') this._osc('sine', f * 3, { dur: 0.7, gain: 0.07, a: 0.10 });
+  }
+  buildKnock() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.08, gain: 0.22, freq: 420, q: 2.0 });
+    this._osc('triangle', 131, { to: 110, dur: 0.16, gain: 0.13 });
+  }
+  // THE WORK COMING APART. A cluster of dry cracks with no pitch centre —
+  // deliberately ugly, because losing four seconds should sound like it.
+  buildBreak() {
+    this.ensure(); if (!this.ctx) return;
+    for (let i = 0; i < 5; i++) {
+      setTimeout(() => this._noise({ dur: 0.07, gain: 0.20 - i * 0.02, freq: 300 + Math.random() * 900, q: 2.4 }), i * 45);
+    }
+    this._osc('sawtooth', 98, { to: 62, dur: 0.5, gain: 0.16 });
+  }
+  buildFail() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('triangle', 220, { to: 147, dur: 0.30, gain: 0.14 });
+    this._noise({ dur: 0.12, gain: 0.08, freq: 500, q: 1.4 });
+  }
+  // THE DEPLOY. Lashings pulling tight, then the core lighting. Scaled by
+  // tier, so a MASTERWORK arriving is audibly a different event.
+  corpseDeploy(key = 'standard') {
+    this.ensure(); if (!this.ctx) return;
+    const k = { scrap: 0.5, standard: 0.8, refined: 1.1, masterwork: 1.5 }[key] ?? 1;
+    this._noise({ dur: 0.22 * k, gain: 0.18, freq: 700, slideTo: 260, q: 1.2 });
+    this._osc('triangle', 110 * (1 + k * 0.2), { to: 82, dur: 0.4 * k, gain: 0.20 });
+    setTimeout(() => this._osc('sine', 440 * k, { dur: 0.6 * k, gain: 0.10 * k, a: 0.06 }), 140);
+    if (k > 1.2) { this._osc('sawtooth', 55, { to: 41, dur: 0.9, gain: 0.18 }); this.theme?.duck(0.5, 0.6); }
+  }
+  corpseCollapse() {
+    this.ensure(); if (!this.ctx) return;
+    for (let i = 0; i < 4; i++) {
+      setTimeout(() => this._noise({ dur: 0.09, gain: 0.16 - i * 0.03, freq: 260 + Math.random() * 600, q: 2.0 }), i * 60);
+    }
+  }
+  // COMMAND. A short two-note order, and it does not ask.
+  corpseCommand(n = 1) {
+    this.ensure(); if (!this.ctx) return;
+    if (!n) { this._osc('triangle', 147, { to: 131, dur: 0.16, gain: 0.09 }); return; }
+    this._osc('square', 330, { dur: 0.07, gain: 0.14 });
+    setTimeout(() => this._osc('square', 247, { dur: 0.13, gain: 0.16 }), 80);
+  }
+
+  // =========================================================================
+  // TAKABA — THE SET
+  // =========================================================================
+  // The whole family is BRIGHT, MAJOR and PERCUSSIVE against a game whose
+  // audio is otherwise low, wet and minor. That contrast is the character.
+  riff() {
+    this.ensure(); if (!this.ctx) return;
+    [392, 494, 587].forEach((f, i) => setTimeout(() => this._osc('triangle', f, { dur: 0.11, gain: 0.12 }), i * 70));
+  }
+  comedyTier(tier, up) {
+    this.ensure(); if (!this.ctx) return;
+    const seq = up ? [523, 659, 784] : [659, 523, 392];
+    seq.forEach((f, i) => setTimeout(() => this._osc('square', f, { dur: 0.10, gain: 0.13 }), i * 65));
+    if (up && tier === 2) setTimeout(() => this._noise({ dur: 0.7, gain: 0.16, freq: 7000, slideTo: 3800, q: 0.4 }), 200);
+  }
+  // ONE CUE PER BIT. Each is a tiny piece of sound design that means the
+  // object, not a generic "technique" noise — a spring, a wooden thock, a
+  // slip, a tin bucket, a wet splat, a whip, a hollow drop, glass.
+  bitCue(key) {
+    this.ensure(); if (!this.ctx) return;
+    switch (key) {
+      case 'glove': this._osc('square', 180, { to: 900, dur: 0.20, gain: 0.16 }); this._noise({ dur: 0.10, gain: 0.14, freq: 1800, q: 1.6 }); break;
+      case 'mallet': this._noise({ dur: 0.10, gain: 0.26, freq: 380, q: 2.6 }); this._osc('triangle', 147, { to: 98, dur: 0.22, gain: 0.18 }); break;
+      case 'banana': this._osc('sine', 900, { to: 300, dur: 0.26, gain: 0.13 }); break;
+      case 'bucket': this._noise({ dur: 0.30, gain: 0.20, freq: 1400, q: 5.5 }); this._osc('sine', 660, { to: 640, dur: 0.6, gain: 0.08 }); break;
+      case 'pie': this._noise({ dur: 0.14, gain: 0.22, freq: 700, slideTo: 300, q: 0.8 }); break;
+      case 'rake': this._osc('square', 1200, { to: 260, dur: 0.14, gain: 0.14 }); this._noise({ dur: 0.08, gain: 0.18, freq: 900, q: 2.2 }); break;
+      case 'trapdoor': this._noise({ dur: 0.16, gain: 0.20, freq: 260, q: 1.8 }); this._osc('sine', 82, { to: 49, dur: 0.5, gain: 0.16 }); break;
+      case 'stagelight': this._osc('sine', 1568, { to: 1568, dur: 0.4, gain: 0.07 }); setTimeout(() => { this._noise({ dur: 0.20, gain: 0.28, freq: 2600, q: 1.2 }); this._osc('sawtooth', 110, { to: 62, dur: 0.4, gain: 0.18 }); }, 420); break;
+      case 'anvil': this._osc('triangle', 262, { to: 247, dur: 0.9, gain: 0.22 }); this._osc('sine', 1046, { dur: 1.1, gain: 0.10, a: 0.01 }); this._noise({ dur: 0.14, gain: 0.24, freq: 500, q: 2.0 }); break;
+      case 'safe': this._osc('sawtooth', 73, { to: 49, dur: 0.7, gain: 0.26 }); this._noise({ dur: 0.20, gain: 0.24, freq: 340, q: 1.6 }); break;
+      case 'curtain': this._noise({ dur: 0.55, gain: 0.16, freq: 900, slideTo: 320, q: 0.7 }); break;
+      case 'firehose': this._noise({ dur: 0.85, gain: 0.20, freq: 2400, slideTo: 1400, q: 0.6 }); break;
+      case 'foamfinger': this._noise({ dur: 0.24, gain: 0.16, freq: 600, slideTo: 240, q: 0.8 }); this._osc('sine', 196, { to: 147, dur: 0.3, gain: 0.12 }); break;
+      case 'piano': [262, 311, 370, 440].forEach((f, i) => this._osc('triangle', f, { to: f * 0.98, dur: 1.5 - i * 0.15, gain: 0.16 - i * 0.02, a: 0.002 })); this._osc('sawtooth', 55, { to: 41, dur: 1.0, gain: 0.22 }); this.theme?.duck(0.5, 0.9); break;
+      default: this._osc('triangle', 440, { dur: 0.12, gain: 0.12 });
+    }
+  }
+  // ---- THE GAME SHOW ------------------------------------------------------
+  showFanfare() {
+    this.ensure(); if (!this.ctx) return;
+    [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this._osc('square', f, { dur: 0.16, gain: 0.15 }), i * 90));
+    this.theme?.duck(0.35, 1.2);
+  }
+  showTitle(round = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const f = [523, 587, 659][round % 3];
+    this._osc('square', f, { dur: 0.10, gain: 0.15 });
+    setTimeout(() => this._osc('square', f * 1.5, { dur: 0.16, gain: 0.13 }), 90);
+  }
+  // BA-DUM-TSS. The same figure the taunt uses, because it is the same joke.
+  showRimshot() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.06, gain: 0.20, freq: 900, q: 1.1 });
+    setTimeout(() => this._noise({ dur: 0.08, gain: 0.20, freq: 700, q: 1.0 }), 120);
+    setTimeout(() => this._noise({ dur: 0.45, gain: 0.16, freq: 7200, slideTo: 4200, q: 0.4 }), 250);
+  }
+  showPass() {
+    this.ensure(); if (!this.ctx) return;
+    [784, 1046].forEach((f, i) => setTimeout(() => this._osc('sine', f, { dur: 0.14, gain: 0.16 }), i * 80));
+  }
+  // THE BUZZER. Deliberately the ugliest sound in the game.
+  showFail() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sawtooth', 110, { to: 104, dur: 0.55, gain: 0.24 });
+    this._osc('sawtooth', 116, { to: 110, dur: 0.55, gain: 0.20 });
+  }
+  showApplause() {
+    this.ensure(); if (!this.ctx) return;
+    for (let i = 0; i < 16; i++) {
+      setTimeout(() => this._noise({ dur: 0.10, gain: 0.05 + Math.random() * 0.05, freq: 1800 + Math.random() * 2600, q: 0.8 }), Math.random() * 900);
+    }
+  }
+  showJackpot() {
+    this.ensure(); if (!this.ctx) return;
+    this.theme?.duck(0.25, 1.6);
+    [523, 659, 784, 1046, 1319].forEach((f, i) => setTimeout(() => this._osc('square', f, { dur: 0.22, gain: 0.17 }), i * 70));
+    this._noise({ dur: 1.2, gain: 0.14, freq: 6000, slideTo: 2400, q: 0.4 });
+  }
+  audienceLaugh(k = 0.5) {
+    this.ensure(); if (!this.ctx) return;
+    const n = 5 + Math.round(k * 7);
+    for (let i = 0; i < n; i++) {
+      setTimeout(() => this._osc('triangle', 300 + Math.random() * 500, { to: 200 + Math.random() * 300, dur: 0.12, gain: 0.035 + Math.random() * 0.03 }), Math.random() * 500);
+    }
+  }
+  audienceApplause() { this.showApplause(); }
+  uiBad() { this.ensure(); this._osc('square', 220, { to: 165, dur: 0.14, gain: 0.11 }); }
+
   taunt(cue) {
     this.ensure();
     if (!this.ctx) return;
@@ -1452,6 +1606,22 @@ export class Sfx {
         this._noise({ dur: 0.07, gain: 0.3, freq: 2600, q: 2.4 });
         setTimeout(() => this._noise({ dur: 0.06, gain: 0.24, freq: 3100, q: 2.6 }), 90);
         this._osc('sine', 96, { to: 70, dur: 0.5, gain: 0.09 });
+        break;
+      // YAGA — a single low, flat, closed note. No movement, no shimmer, no
+      // second beat. It is the sound of a door being shut, which is what "sit
+      // down" is when a headmaster says it.
+      case 'yaga':
+        this._osc('sine', 110, { to: 104, dur: 0.55, gain: 0.20 });
+        this._noise({ dur: 0.10, gain: 0.10, freq: 320, q: 1.6 });
+        break;
+      // TAKABA — A LITERAL RIMSHOT. The only cue in this table that is a
+      // PERCUSSION FIGURE rather than a melodic one: two snare hits and a
+      // cymbal, ba-dum-tss, which is the sound the entire character is built
+      // on. It is deliberately the least "cursed technique" noise in the game.
+      case 'takaba':
+        this._noise({ dur: 0.07, gain: 0.26, freq: 900, q: 1.1 });
+        setTimeout(() => this._noise({ dur: 0.09, gain: 0.26, freq: 700, q: 1.0 }), 130);
+        setTimeout(() => this._noise({ dur: 0.55, gain: 0.20, freq: 7200, slideTo: 4200, q: 0.4 }), 280);
         break;
       // NAOYA — a fast bright triplet running UP. Speed, announced.
       case 'naoya':

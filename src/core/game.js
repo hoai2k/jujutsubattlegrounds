@@ -15,6 +15,10 @@ import { Match } from './match.js';
 import { OnlineController } from './onlineflow.js';
 import { TitleScreen } from '../ui/title.js';
 import { trackMatch, trackResult } from '../stats/telemetry.js';
+import { cycleForcedBit } from '../combat/comedy.js';
+import { ALL_BITS } from '../characters/takaba_bits.js';
+import { MINIGAMES } from '../combat/gameshow.js';
+import { ensureBuild } from '../combat/construction.js';
 
 export function startGame() {
   const stage = createStage();
@@ -88,6 +92,43 @@ export function startGame() {
   input.onToggle['F3'] = () => debug.toggle(match);
   // sword-domain testing: force the next roll to a chosen table entry
   input.onToggle['F6'] = () => match?.domains?.cycleForcedRoll();
+  // ---- TAKABA: FORCE AN OUTCOME ------------------------------------------
+  // F8 cycles the forced bit through OFF -> each of the fourteen entries in
+  // both tables, exactly as F6 cycles Yuta's sword table. It is the only way
+  // to test a specific outcome without rerolling a weighted table until it
+  // comes up, and with fourteen entries that matters far more than it did
+  // with ten.
+  input.onToggle['F8'] = () => {
+    for (const f of match?.fighters ?? []) {
+      if (!f.cfg.comedy) continue;
+      const key = cycleForcedBit(f, ALL_BITS);
+      match.hud.message(key ? 'FORCE BIT: ' + key.toUpperCase() : 'FORCE BIT: OFF', 0.8);
+    }
+  };
+  // ---- TAKABA: FORCE THE GAME SHOW'S THREE ROUNDS -------------------------
+  // F9 cycles the drawn set through OFF -> each single minigame repeated
+  // three times, so one round can be tuned in isolation.
+  input.onToggle['F9'] = () => {
+    const g = match?.gameshow;
+    if (!g) return;
+    const keys = [null, ...MINIGAMES.map(x => x.key)];
+    const cur = g.forcedGames ? g.forcedGames[0] : null;
+    const next = keys[(keys.indexOf(cur) + 1) % keys.length];
+    g.forcedGames = next ? [next, next, next] : null;
+    match.hud.message(next ? 'FORCE SHOW: ' + next.toUpperCase() : 'FORCE SHOW: OFF', 0.8);
+  };
+  // ---- YAGA: FILL THE CONSTRUCTION METER ----------------------------------
+  // F10 tops every Yaga's meter to full, so a MASTERWORK can be inspected
+  // without spending six uninterrupted seconds getting one.
+  input.onToggle['F10'] = () => {
+    for (const f of match?.fighters ?? []) {
+      if (f.cfg.special?.key !== 'yaga_build') continue;
+      ensureBuild(f);
+      f.build.p = 1;
+      f.build.idleT = 99;
+      match.hud.toast(f, 'METER FORCED FULL');
+    }
+  };
   // ratio-timing testing: force a perfect 7:3 prime on every Nanami in play
   input.onToggle['F7'] = () => {
     for (const f of match?.fighters ?? []) {

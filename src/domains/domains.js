@@ -626,7 +626,11 @@ export class DomainSystem {
           if (t.state === 'voided') { t.setState('idle', { clip: 'idle' }); t.domainLock = null; }
           continue;
         }
-        let interruptible = !['knockdown', 'launched', 'getup', 'ko', 'hitLight', 'hitHeavy', 'guardBreak'].includes(t.state);
+        // `offField` is in this list for the same reason the reaction states
+        // are: the void cannot lock a body that is not in the room. It is the
+        // ONLY change this file needed for Takaba's trapdoor and curtain — see
+        // the audit on `Fighter.setOffField`.
+        let interruptible = !['knockdown', 'launched', 'getup', 'ko', 'hitLight', 'hitHeavy', 'guardBreak', 'offField'].includes(t.state);
         // ...and a NO-CURSED-ENERGY fighter mid-technique is not interruptible
         // either. Second half of the fix above, and it was also found by
         // testing: the free window let Toji START the Inverted Spear inside

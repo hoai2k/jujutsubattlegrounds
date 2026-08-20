@@ -283,8 +283,69 @@ export const TAUNTS = {
   miwa: [{
     clip: 'taunt', dur: 3.0, say: 'Sorry! Sorry — I mean it, though.', at: 1.35, hold: 1.4,
     cue: 'miwa', ref: 'Kasumi Miwa, who would like everyone to get along, holding a sword'
+  }],
+
+  // ---- YAGA — THE DISAPPOINTED TEACHER ------------------------------------
+  // RESEARCHED RATHER THAN INVENTED, as the brief requires, and the honest
+  // finding is that there ISN'T a famous Yaga battle line: he is a headmaster
+  // whose quoted dialogue is almost entirely about students, paperwork and
+  // staying alive. So rather than writing him a cool one, the taunt takes the
+  // one register the source consistently puts him in — the exasperated
+  // teacher who has seen worse work than this — and says the shortest true
+  // thing in it. The CLIP is the taunt (a slow head shake, arms never
+  // unfolding, one long look away); the line is the caption.
+  yaga: [{
+    clip: 'taunt', dur: 3.3, say: 'Sit down.', at: 1.86, hold: 1.2,
+    cue: 'yaga', ref: 'The headmaster of Tokyo Jujutsu High, who mostly wants everyone to stop and listen'
+  }],
+
+  // ---- TAKABA — AN ACTUAL JOKE, AND THE ONE TAUNT THAT DOES SOMETHING -----
+  // *** THE SINGLE EXCEPTION TO THE NO-GAMEPLAY-EFFECT RULE IN THIS FILE. ***
+  // It builds COMEDY METER (`cfg.comedy.gainTaunt`, paid in
+  // combat/fighter.js when the taunt COMPLETES uninterrupted). Everything else
+  // about it obeys the rules: fully vulnerable, interruptible, rate-limited by
+  // TAUNT_COOLDOWN, blocked during cinematics, playable on the select and
+  // victory screens.
+  //
+  // IT IS DELIBERATELY NOT EXTENDED TO ANYONE ELSE, and the mechanism is why:
+  // the payment is keyed on `cfg.comedy`, which only Takaba declares. The
+  // global TAUNT_GRANTS_METER flag above is untouched and still false, so no
+  // other taunt in the game gained anything. That separation is the point —
+  // this is a character-specific exception, not a loosening of the rule.
+  //
+  // The bit is his own material and it is bad on purpose. He turns to CAMERA
+  // to deliver it, which nobody else in the roster does.
+  takaba: [{
+    clip: 'taunt', dur: 3.6, say: "So a cursed spirit walks into a bar...\nthat's it. That's the technique.",
+    at: 1.60, hold: 1.5, cue: 'takaba', buildsComedy: true,
+    ref: 'The Comedian — a technique that runs on whether he genuinely finds his own material funny'
   }]
 };
+
+// ---- OPPONENT-SPECIFIC LINES ----------------------------------------------
+// A taunt entry may declare a `vs` map: opponent character id -> replacement
+// line. Everything else about the taunt is unchanged — same clip, same timing,
+// same cue — so this costs one lookup at bubble time and no new state, no new
+// system and no intro flow.
+//
+// It exists for exactly one pairing, which is the cheap Panda nod the brief
+// asks for as an OPTIONAL, IF CHEAP: Panda is one of Yaga's cursed corpses AND
+// a student at his school, so the headmaster has something specific to say to
+// him. Declared on the character config (`cfg.pandaNod`) and merged in here so
+// the taunt table stays the single place taunt text lives.
+export const TAUNT_VS = {
+  yaga: { panda: 'You still owe me an essay.' }
+};
+
+// The line this taunt should show against this opponent. Falls straight
+// through to `t.say` for every pairing that has nothing special, which is all
+// of them but one.
+export function tauntLine(t, charId, oppCharId) {
+  if (!t) return null;
+  const vs = TAUNT_VS[String(charId).split(':')[0]];
+  const alt = vs && oppCharId && vs[String(oppCharId).split(':')[0]];
+  return alt ?? t.say;
+}
 
 // ---- VARIANTS --------------------------------------------------------------
 // Keyed by the full pick id. A variant with no entry here shares its base
@@ -332,6 +393,15 @@ export const TAUNT_WEIGHT = {
   todo: 1.0, naoya: 1.0, kashimo: 0.9, hakari: 0.85, sukuna: 0.8, gojo: 0.75, nobara: 0.7,
   mahito: 0.65, geto: 0.5, jogo: 0.5, yuji: 0.45, choso: 0.4, kurourushi: 0.35,
   toji: 0.3, hanami: 0.3, panda: 0.75, megumi: 0.25, yuta: 0.2, mahoraga: 0.2,
+  // TAKABA IS THE HIGHEST NUMBER IN THE TABLE, and it is the only entry here
+  // that is a GAMEPLAY decision rather than a personality one: his taunt
+  // builds his meter, so a CPU Takaba that never taunted would be playing him
+  // wrong. It is capped below 1.0 all the same — TAUNT_COOLDOWN still applies
+  // and a bot that spent the whole round talking to camera would be a worse
+  // opponent, not a funnier one.
+  // YAGA IS LOW. He is at work, with Nanami and Higuruma, and the joke of the
+  // taunt is that he cannot be bothered.
+  takaba: 1.0, yaga: 0.15,
   // URO is high — toying with people is the researched personality, and a CPU
   // that never showed off would be playing somebody else. DAGON is the lowest
   // number in the table: the taunt only works if it is rare, and a spirit who

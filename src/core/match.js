@@ -26,6 +26,14 @@ import { NewShadowFx } from '../fx/newshadowfx.js';
 // hard concurrent cap.
 import { WarpFX } from '../fx/warpfx.js';
 import { OceanSystem } from '../combat/ocean.js';
+// YAGA'S CONSTRUCTION. The sixth summon family, and the only one that is
+// manufactured mid-fight rather than called — see combat/construction.js.
+import { ConstructionSystem, tierFor as corpseTierFor } from '../combat/construction.js';
+// TAKABA. The Comedy Meter, and the Game Show, which is the only system in the
+// project that hands control of the round to the opponent.
+import { gainComedy, tierOf as comedyTierOf } from '../combat/comedy.js';
+import { GameShow } from '../combat/gameshow.js';
+import { spotlight as comedySpotlight, confetti as comedyConfetti, craftMotes, corpseDeploy, commandPulse } from '../fx/comedyfx.js';
 import { awakenBurst, massField } from '../fx/newfx.js';
 import { GarudaSystem } from '../combat/garuda.js';
 import { NewShadowSystem } from '../combat/newshadow.js';
@@ -38,7 +46,7 @@ import { SpeechFX } from '../fx/speechfx.js';
 import { CommandCard } from '../ui/commandcard.js';
 import { wheelSnapshot as commandWheelSnapshot } from '../combat/speech.js';
 import { BubbleSystem } from '../fx/bubble.js';
-import { tauntWeight, pickTaunt } from '../combat/taunts.js';
+import { tauntWeight, pickTaunt, tauntLine } from '../combat/taunts.js';
 import { buildMap, applyMapLighting, registerMapGrade, currentQuality, MAP_IDS } from '../arena/index.js';
 import { FightCamera } from './camera.js';
 import { setXrayFocus, clearXrayFocus } from '../art/shaders/xray.js';
@@ -191,6 +199,14 @@ export class Match {
     this.judgemen = new Judgemen(this);        // Higuruma's evidence shikigami
     this.shikigami = new ShikigamiSystem(this); // Megumi's Ten Shadows
     this.ocean = new OceanSystem(this);        // Dagon's sea shikigami
+    // YAGA'S CURSED CORPSES. Deliberately a sibling of `minions` rather than a
+    // special case inside it: the two entity families never look at each other
+    // (see the anti-summon audit at the foot of combat/construction.js), so
+    // putting a fifth list beside the four that already exist is the whole
+    // integration.
+    this.construction = new ConstructionSystem(this);
+    // TAKABA'S GAME SHOW. Owns the freeze while it runs — see `_logicTick`.
+    this.gameshow = new GameShow(this);
     // Hanami's terrain layer and Kurourushi's swarm. Both own state that
     // outlives the technique that made it — a root field outlives the cast, a
     // roach outlives the wave — so both are match-scoped like the shikigami.
@@ -240,6 +256,13 @@ export class Match {
     Object.assign(this.arena.destruct.ctx, { fx: this.fx, sfx: this.sfx, cam: this.cam, stage });
     this.cam2 = this.cams[1] || null;
     this.cpu = this.mode === 'cpu' ? new CPU(this.p2, this.p1, this) : null;
+    // Is this fighter driven by a bot right now? Both doors: the offline VS
+    // CPU seat, and an online seat a CPU inherited when its player dropped.
+    // Added for THE GAME SHOW, which is the only system in the game that has
+    // to know — it hands control of the round to the opponent, so it has to
+    // play their side for them when there is nobody there.
+    this.isCPU = f => (this.mode === 'cpu' && f === this.p2)
+      || [...this.cpuSeats.values()].some(c => c.me === f);
 
     // MEGUMI'S SUMMON RITUAL. Owns its own clock, camera and overlay; while it
     // is running the logic tick does not run at all, so the opponent is frozen.
@@ -259,6 +282,8 @@ export class Match {
     this.finishers = new Finishers(this, uiRoot);
     this.hud.shikigami = this.shikigami;
     this.hud.curses = this.curses;
+    this.hud.construction = this.construction;
+    this.hud.gameshow = this.gameshow;
     this.hud.domains = this.domains;
     this.hud.gamble = this.gamble;
     this.hud.flora = this.flora;
@@ -497,6 +522,28 @@ export class Match {
       }
       this.inputs.set(f, inp);
     });
+    // ---- THE GAME SHOW OWNS THE TICK WHILE IT RUNS ------------------------
+    // Same contract Higuruma's execution duel already has and for the same
+    // reason: gameplay is frozen for both fighters and the ONLY thing reading
+    // input is the contest itself. It is done here rather than inside the
+    // fighters because the show has to read the victim's REAL frame while
+    // handing the fighters a neutral one — a contestant who could still walk
+    // would be playing two games at once.
+    //
+    // Nothing is destroyed by the freeze: every timer the two of them own —
+    // a standing domain, a transformation, Naoya's freeze, Miwa's circle, a
+    // shikigami's lifespan — simply does not advance, because the systems that
+    // advance them are inside the `fight` block below and it does not run.
+    if (this.gameshow?.freezing) {
+      const raw = new Map(this.inputs);
+      for (const f of this.fighters) this.inputs.set(f, null);
+      for (const f of this.fighters) f.update(null, this.ctxFor(f));
+      this.gameshow.update(1 / 60, raw);
+      for (const f of this.fighters) this._drainEvents(f);
+      this.bubbles.update(1 / 60);
+      return;
+    }
+
     for (const f of this.fighters) f.update(this.inputs.get(f), this.ctxFor(f));
 
     // a fighter whose HP hit zero while the round carries on (3-4 players)
@@ -553,6 +600,7 @@ export class Match {
       // entity in the game.
       this.speechfx.update(1 / 60);
       this.minions.update(1 / 60);
+      this.construction.update(1 / 60);   // Yaga's corpses
       this.judgemen.update(1 / 60);
       this.shikigami.update(1 / 60);
       this.ocean.update(1 / 60);
@@ -575,6 +623,31 @@ export class Match {
         if (f._massFxT <= 0) {
           f._massFxT = 0.16;
           massField(this.fx, f, (f.mass ?? 0) / f.cfg.mass.max, 0x6f7fd0);
+        }
+      }
+      // ---- YAGA: THE CRAFT MOTES ------------------------------------------
+      // Sawdust and shavings off his hands while the meter fills, coloured by
+      // the TIER HE IS CURRENTLY IN. Emitted on a slow cadence like the mass
+      // lattice above, for the same reason. The opponent reading the tier off
+      // the colour of what is coming off his hands, from across the arena, is
+      // the whole counterplay loop of the character.
+      // ---- TAKABA: THE SPOTLIGHT ------------------------------------------
+      // At maximum meter only, and it grants nothing — it is the meter being
+      // legible. Re-issued on the same slow cadence so it follows him without
+      // allocating a cone every frame.
+      for (const f of this.activeFighters) {
+        if (!f.alive) continue;
+        if (f.state === 'building' && f.build?.p > 0) {
+          f._craftT = (f._craftT ?? 0) - 1 / 60;
+          if (f._craftT <= 0) {
+            f._craftT = 0.07;
+            const tier = corpseTierFor(f, f.build.p);
+            craftMotes(this.fx, f, tier?.accent ?? 0x8a7a5e, 0.6 + f.build.p * 1.2);
+          }
+        }
+        if (f.cfg.comedy && (f.comedy ?? 0) >= f.cfg.comedy.max * f.cfg.comedy.audienceAt) {
+          f._spotT = (f._spotT ?? 0) - 1 / 60;
+          if (f._spotT <= 0) { f._spotT = 0.18; comedySpotlight(this.fx, f, 0.22); }
         }
       }
       // ticked AFTER every damage source, so a freeze applied this frame gets
@@ -742,6 +815,95 @@ export class Match {
           // Jogo: the dash leaves burning ground in his wake
           if (f.cfg.dashFire) this.effects.startBurnTrail(f);
           break;
+        // ---- YAGA: CONSTRUCTION -------------------------------------------
+        case 'constructStart':
+          this.sfx.buildStart?.();
+          this.hud.toast(f, '製作開始');
+          break;
+        // A TIER CROSSED. Announced LOUDLY and to BOTH players, because the
+        // entire mechanic is a negotiation about whether the opponent is going
+        // to allow this — and a negotiation neither side can see is not one.
+        case 'constructTier':
+          this.sfx.buildTier?.(e.tier.key);
+          this.hud.techFlash(e.tier.name, e.tier.accent);
+          this.fx._ring(f.pos.clone().setY(f.pos.y + 1.1), e.tier.accent,
+            { size: 0.45, growRate: 5, life: 0.35, flat: false });
+          break;
+        case 'constructStalled':
+          this.hud.toast(f, 'OUT OF CURSED ENERGY');
+          break;
+        // THE WORK TOOK A HIT. Says which — a setback and a demolition are
+        // completely different pieces of news and the player has to be able to
+        // tell them apart on the frame it happens.
+        case 'constructHit':
+          if (e.destroyed) {
+            this.hud.message('WORK DESTROYED', 1.1);
+            this.sfx.buildBreak?.();
+            this.fx.debris?.(f.pos.clone().setY(f.pos.y + 1.0), 12, 0x8a7a5e);
+          } else if (e.severity === 'light') {
+            this.hud.toast(f, 'SETBACK — ' + Math.round(e.remaining * 100) + '%');
+            this.sfx.buildKnock?.();
+          }
+          break;
+        case 'constructFailed':
+          this.hud.toast(f, 'NOTHING TO SHOW FOR IT');
+          this.sfx.buildFail?.();
+          break;
+        case 'constructCapped':
+          this.hud.toast(f, 'TWO IS THE LIMIT');
+          this.sfx.uiBad?.() ?? this.sfx.uiOk?.();
+          break;
+        // THE DEPLOY. The corpse is built HERE, at the event, so the entity
+        // system is the only thing that ever constructs one and the state
+        // machine never has to know what a corpse is.
+        case 'constructDeploy': {
+          const c = this.construction.deploy(f, e.tier);
+          if (c) {
+            corpseDeploy(this.fx, c.pos, e.tier);
+            this.sfx.corpseDeploy?.(e.tier.key);
+            this.hud.cutin(f, '呪骸', e.tier.name);
+            if (e.tier.key === 'masterwork') { this.cam.shake(0.4); this.stage.flash(0.25); }
+          }
+          break;
+        }
+        case 'corpseDeployed':
+          if (e.ultimate) this.hud.message('MASTERPIECE', 1.4);
+          break;
+        case 'corpseLost':
+          this.hud.toast(f, e.tier.short + ' DOWN');
+          break;
+
+        // ---- TAKABA -------------------------------------------------------
+        case 'comedyTier':
+          this.hud.techFlash(e.def.name, e.def.color);
+          this.sfx.comedyTier?.(e.tier, e.up);
+          if (e.up && e.def.key === 'killing') {
+            this.hud.message('THE ROOM IS HIS', 1.2);
+            comedyConfetti(this.fx, f.pos.clone().setY(f.pos.y + 2.0), 26);
+          }
+          break;
+        case 'riffStart':
+          this.sfx.riff?.();
+          break;
+        case 'riffEnd':
+          this.hud.toast(f, 'THEY LOVED IT');
+          break;
+        case 'bitRolled':
+          // The stylized callout, and it is DELIBERATELY the same presentation
+          // Yuta's domain rolls use: `hud.techFlash` plus `sfx.techReveal` at
+          // the entry's own tone. Two random-outcome techniques in one game
+          // that announced themselves differently would read as two features.
+          this.hud.techFlash(e.bit.name, e.bit.color);
+          this.sfx.techReveal?.(e.bit.tone);
+          this.sfx.bitCue?.(e.bit.key);
+          break;
+        case 'showRefused':
+          this.hud.toast(f, e.label);
+          break;
+        case 'showEnded':
+          if (e.outcome === 'survived') this.hud.toast(f, 'TOUGH CROWD');
+          break;
+
         // ---- URO ----------------------------------------------------------
         case 'reflectStart':
           this.sfx.skyReflectUp?.();
@@ -786,7 +948,11 @@ export class Match {
           this._tauntFlourish(f, e.def);
           break;
         case 'tauntSay':
-          this.bubbles.say(f, e.def.say, {
+          // THE OPPONENT-SPECIFIC LINE. `tauntLine` falls straight through to
+          // `def.say` for every pairing that has nothing special — which is
+          // all of them but one, the Yaga-versus-Panda nod. One lookup, no new
+          // state, no intro system. See combat/taunts.js.
+          this.bubbles.say(f, tauntLine(e.def, f.pick ?? f.cfg.id, this.other(f)?.pick ?? this.other(f)?.cfg.id), {
             hold: e.def.hold ?? 1.3, accent: hex(pickInfo(f.pick)?.accent ?? 0xffffff),
             // split-screen: billboard to the taunting seat's own eye
             cam: this.cams[f.index]?.cam
@@ -1769,6 +1935,8 @@ export class Match {
     this._revertSummons();
     this.effects.clear();
     this.minions.clear();
+    this.construction.clear();
+    this.gameshow.clear();
     this.ocean.clear();
     this.warpfx.clear();
     this.judgemen.clear();
@@ -1950,6 +2118,8 @@ export class Match {
     this.speechfx.clear();
     this.ritual.abort();
     this.finishers.abort();
+    this.construction.clear();
+    this.gameshow.clear();
     this.minions.clear();
     this.judgemen.clear();
     this.shikigami.clear();

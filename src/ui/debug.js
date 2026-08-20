@@ -1,6 +1,8 @@
 // Debug overlay (F3): state names, frame data, all three resources, domain
 // state, barrier integrity, frame timing, hitbox spheres + skeletons.
 import * as THREE from 'three';
+import { tierFor as corpseTier } from '../combat/construction.js';
+import { comedyDebug as comedyDbg, weightAt } from '../combat/comedy.js';
 // CURSED SPEECH. The brief asks that every command's range be visible in the
 // debug overlay, and the resistance curve alongside it — both are numbers a
 // player cannot infer from watching, and both decide whether a word was worth
@@ -68,7 +70,11 @@ export class DebugOverlay {
   SPEECH-ON-ME: resist=${(resistOf(f) * 100).toFixed(0)}% (${RESIST_BANDS[resistBand(f)]}) root=${f.rootT.toFixed(2)} sleep=${f.sleepT.toFixed(2)}x${f.sleepMult.toFixed(2)} twist=${f.twisted ? f.twisted.t.toFixed(2) + 'x' + f.twisted.mult : '—'} forced=${f.forced ? f.forced.mode + ' ' + f.forced.t.toFixed(2) : '—'}` : ''}${f.melt ? `
   MELT: ${f.melt.t.toFixed(1)}s chip x${f.melt.chip} stam x${f.melt.stamina}` : ''}
   ${f.copySlot ? 'copy=' + f.copySlot.name : ''}${f.ratioMark ? ' MARK' : ''}${f.buffs.overtime > 0 ? ' OT' : ''}${f.buffs.voidDebuff > 0 ? ' VOIDDBF' : ''}${f.buffs.sukuna > 0 ? ' SUKUNA=' + f.buffs.sukuna.toFixed(1) : ''}${f.buffs.resolve > 0 ? ' RESOLVE' : ''}${f.cfg.special ? `
-  SP: ${f.cfg.special.key} cd=${Math.max(0, f.specialCD).toFixed(1)}/${f.specialCDMax.toFixed(1)}${f.cfg.special.key === 'nanami_ratio' ? ` sweep=${f.ratioSweep == null ? '—' : f.ratioSweep.toFixed(3)} red=${f.cfg.special.mark} win=±${f.cfg.special.hitWindow} primed=${f.ratioPrimed} (F7 forces)` : ''}` : ''}${f.cfg.blackFlash ? `
+  SP: ${f.cfg.special.key} cd=${Math.max(0, f.specialCD).toFixed(1)}/${f.specialCDMax.toFixed(1)}${f.cfg.special.key === 'nanami_ratio' ? ` sweep=${f.ratioSweep == null ? '—' : f.ratioSweep.toFixed(3)} red=${f.cfg.special.mark} win=±${f.cfg.special.hitWindow} primed=${f.ratioPrimed} (F7 forces)` : ''}` : ''}${f.cfg.special?.key === 'yaga_build' ? `
+  BUILD: ${(100 * (f.build?.p ?? 0)).toFixed(1)}%  tier=${corpseTier(f, f.build?.p ?? 0)?.short ?? '—'}  holding=${f.state === 'building' ? 'YES' : 'no'}  idleT=${(f.build?.idleT ?? 0).toFixed(2)}  worked=${(f.build?.worked ?? 0).toFixed(2)}s  drain=${f.cfg.special.ceDrain}/s
+  BENCH: ${(match.construction?.snapshot(f) ?? []).map(c => `${c.short} hp=${(c.hp * 100).toFixed(0)}% life=${(c.life * 100).toFixed(0)}%${c.commanded ? ' CMD' : ''}`).join('  ') || 'empty'}  cap=${match.construction?.countFor(f) ?? 0}/${f.cfg.special.maxCorpses} (F10 fills)` : ''}${f.cfg.comedy ? `
+  COMEDY: ${(f.comedy ?? 0).toFixed(1)}/${f.cfg.comedy.max} tier=${comedyDbg(f)?.tier} tilt=${comedyDbg(f)?.tilt}  seed=${comedyDbg(f)?.seed}  last=${comedyDbg(f)?.last ?? '—'}  force=${comedyDbg(f)?.forced ?? 'off'} (F8 cycles)
+  WEIGHTS: ${f.cfg.ct1.table.map(e => `${e.key}:${weightAt(e, comedyDbg(f)?.tilt ?? 0).toFixed(1)}`).join(' ')}` : ''}${f.cfg.blackFlash ? `
   BF: t=${String(f.bfT).padStart(2)} window=${f.bfT > 0 && f.bfT <= f.cfg.blackFlash.window ? 'OPEN' : f.bfT > 0 ? 'lockout' : '—'} chain=${f.bfChain} base=${f.bfBase.toFixed(1)}` : ''}`;
     const sw = match.domains.swordDebug?.();
     // TERRAIN. Exposed for every seat, not just Hanami's — the classification
@@ -83,6 +89,7 @@ export class DebugOverlay {
       }).join('  ')
       : '—';
     const sm = match.swarms;
+    const gs = match.gameshow?.snapshot?.() ?? null;
     this.el.textContent =
       `FPS ${timing.fps.toFixed(0)}  logic ${timing.logicMs.toFixed(2)}ms  ts=${match.timeScale.toFixed(2)} hitstop=${match.hitstopFrames}
 TERRAIN: ${terr}
@@ -92,7 +99,9 @@ ${match.fighters.map(fmt).join('\n')}
 DOMAIN: ${d ? `${d.def.name} ${d.phase} t=${(d.timer ?? 0).toFixed(1)} integ=${d.integrity.toFixed(0)} castF=${d.castF}` : '—'}
 CLASH : ${cl ? `${(cl.dur - cl.t).toFixed(1)}s left  ${cl.a.cfg.id}=${cl.dmgA.toFixed(1)} dmg  ${cl.b.cfg.id}=${cl.dmgB.toFixed(1)} dmg` : '—'}${sw ? `
 SWORDS: ${sw.live ? `${sw.remaining} embedded${sw.falling ? ' +falling' : ''}` : 'inactive'}  carried=${sw.carried ? 'YES' : 'no'}  last=${sw.last ?? '—'}  seed=${sw.seed ?? '—'}
-ROLLS : force=${sw.forced ?? 'off'} (F6 cycles)  weights: ${sw.weights}` : ''}`;
+ROLLS : force=${sw.forced ?? 'off'} (F6 cycles)  weights: ${sw.weights}` : ''}${gs ? `
+GSHOW : ${gs.phase} round=${gs.round + 1}/${gs.rounds} passed=${gs.passed} tier=${gs.tier}  contestant=${gs.contestant}${gs.game ? `
+  GAME: ${gs.game.key} t=${gs.game.t.toFixed(2)}/${gs.game.limit.toFixed(2)}${gs.game.mark != null ? ` mark=${gs.game.mark.toFixed(3)} pos=${(gs.game.pos ?? 0).toFixed(3)} win=±${gs.game.window}` : ''}${gs.game.seq ? ` seq=${gs.game.seq.join('')} idx=${gs.game.idx}` : ''}${gs.game.need ? ` mash=${gs.game.presses}/${gs.game.need}` : ''}` : ''}  (F9 forces)` : ''}`;
     for (const h of this.hitSpheres) {
       const f = h.fighter;
       if (h.hurt) {

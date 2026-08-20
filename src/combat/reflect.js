@@ -98,6 +98,22 @@ import { v3, flatDist } from '../core/mathutil.js';
 // Everything here is category A above: an object with a position that crosses
 // the arena. Anything absent is not reflected, which is the safe default.
 export const REFLECTABLE = {
+  // TAKABA — ONE KEY FOR THREE OF FOURTEEN. The entity is only ever registered
+  // for outcomes whose table entry declares `projectile: true`, so this key
+  // covers exactly the GLOVE (it crosses the space on its spring), the PIE (it
+  // is thrown — the most literal projectile in the game) and the FIRE HOSE (a
+  // pressurised stream with a front that arrives).
+  //
+  // The other eleven never become an entity at all, so they are not "excluded"
+  // here so much as unable to reach this table: a MALLET, a RAKE and a FOAM
+  // FINGER are SWINGS (category C, an implement); an ANVIL, a SAFE, a PIANO
+  // and a STAGE LIGHT arrive from ABOVE, from outside the plane she is holding
+  // (category B in effect — by the time the object exists it is already over
+  // them, and their counterplay is the telegraph); a BANANA PEEL and a
+  // TRAPDOOR are on the FLOOR with nothing in flight; and a BUCKET and the
+  // CURTAIN arrive ON the target from the target's own position.
+  // The full classification lives in characters/takaba_bits.js.
+  bit: true,
   ember: true,          // JOGO — ember insects (and the Overheat maximum swarm)
   bloodEdge: true,      // CHOSO — Blood Edge
   // YUJI — the 卍 crescent thrown off the Manji Kick's heel. BOTH KEYS are
