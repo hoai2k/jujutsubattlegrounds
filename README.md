@@ -1090,7 +1090,12 @@ Four files, using `newguy` as the placeholder id:
    in `anim/index.js` `CHAR_CLIPS`.
 3. **Config** — `src/characters/newguy.js`: `withDefaults({ id, stats, punches,
    heavy, ct1, ct2, special, ultimate, domain|null, … })` — the schema is
-   documented in `schema.js`. Frame data lives here, not in code.
+   documented in `schema.js`. Frame data lives here, not in code. **Mind the
+   slot convention**: RB (`ct1`) takes the pair's furthest-reaching technique,
+   RT (`ct2`) the strongest, B the signature special and any summon. It is a
+   convention, not an assertion — the roster's four kinds of exception, and
+   what to do if your character is one, are written up under THE SLOT
+   CONVENTION in `schema.js`.
 4. **Register** — add to `ROSTER` in `src/characters/index.js`. Done: select
    screen, viewer, CPU and domains pick it up.
 
