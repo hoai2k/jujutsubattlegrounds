@@ -69,7 +69,13 @@ import { v3, rand, clamp } from '../core/mathutil.js';
 
 const CAP_W = 640, CAP_H = 360;
 const LAG_FRAMES = 9;          // ~0.15 s of lag on the reflect surface
-const MAX_OFFSET = 0.085;      // screen fractions — the readability clamp
+// PASS 2: 0.085 let a shard sample nearly a tenth of the screen away, which on
+// a map with a giant neon billboard overhead meant shards near the floor showed
+// the billboard — technically correct refraction, and it read as prismatic
+// noise rather than as displaced world. 0.055 keeps every sample close enough
+// to be recognisably THE SAME WALL in the wrong place, which is the read that
+// says space is broken rather than that the shader is.
+const MAX_OFFSET = 0.055;      // screen fractions — the readability clamp
 const FULLSCREEN_MAX = 0.55;   // seconds the ultimate may cover the frame
 
 // ---------------------------------------------------------------------------
@@ -112,6 +118,8 @@ const FRAG = /* glsl */`
   uniform float uAberration;
   uniform float uTear;
   uniform float uMax;
+  uniform float uEdge;   // 1 = draw the shard rim glint, 0 = no rim at all
+  uniform float uSoft;   // 1 = fade the quad out radially (the idle haze)
   varying vec2 vUv;
   varying vec4 vClip;
 
@@ -200,13 +208,22 @@ const FRAG = /* glsl */`
     // colour competing with the rest of the roster.
     col = mix(col, col * uTint, 0.12);
 
-    // the edge glint — a thin bright rim on the shard boundary, which is the
-    // only additive thing in this file and is what makes a shard's SHAPE
-    // legible against an arena it is showing you a copy of
+    // The edge glint — a thin bright rim on the shard boundary, and the only
+    // additive thing in this file. It is what makes a shard's SHAPE legible
+    // against an arena it is showing you a copy of.
+    //
+    // *** SWITCHED OFF FOR THE IDLE HAZE. *** Found by looking at it: the haze
+    // is a rectangle, and a rectangle with a bright rim is a glowing box
+    // standing around her. It has no shape worth reading, so it gets no rim.
     float edge = 1.0 - smoothstep(0.0, 0.10, min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y)));
-    col += edge * 0.55 * uOpacity;
+    col += edge * 0.55 * uOpacity * uEdge;
 
-    gl_FragColor = vec4(col, uOpacity);
+    // ...and the same rectangle needs a soft boundary or it reads as a pane of
+    // glass rather than as displaced air.
+    float a = uOpacity;
+    if (uSoft > 0.5) a *= 1.0 - smoothstep(0.25, 0.5, length(c));
+
+    gl_FragColor = vec4(col, a);
   }
 `;
 
@@ -230,7 +247,9 @@ function warpMaterial(mode) {
       uOpacity: { value: 1 },
       uAberration: { value: 1.6 },
       uTear: { value: 0 },
-      uMax: { value: MAX_OFFSET }
+      uMax: { value: MAX_OFFSET },
+      uEdge: { value: 1 },
+      uSoft: { value: 0 }
     }
   });
 }
@@ -333,8 +352,14 @@ export class WarpFX {
     r.setRenderTarget(prevTarget);
     this.group.visible = wasVisible;
     // bind: shards and lenses read the fresh capture, the mirror reads the old
+    // NOT every material an item owns is a warp shader: the ice crack lines and
+    // the reflect surface's rim are plain basic materials that ride along in
+    // the same list so they get disposed with everything else. Guarding on
+    // `uniforms` rather than keeping a second list is what stops that being a
+    // crash the first time a shard is on screen.
     for (const it of this.items) {
       for (const m of it.mats) {
+        if (!m.uniforms?.uScene) continue;
         m.uniforms.uScene.value = m.uniforms.uMode.value === 2 ? this.lagged : this.current;
       }
     }
@@ -382,9 +407,13 @@ export class WarpFX {
       // in the fracture it sits — the outer ring is the most displaced, so the
       // break reads as radiating.
       const k = 0.35 + f.ring * 0.42;
-      mat.uniforms.uDrift.value.set(rand(-0.05, 0.05) * k, rand(-0.05, 0.05) * k);
+      mat.uniforms.uDrift.value.set(rand(-0.032, 0.032) * k, rand(-0.032, 0.032) * k);
       mat.uniforms.uRoll.value = rand(-0.7, 0.7) * k;
-      mat.uniforms.uAberration.value = 1.4 + f.ring * 0.9;
+      // PASS 2: 1.4 + ring*0.9 read the three channels from three genuinely
+      // different parts of the arena and the shards came out as saturated
+      // rainbow stripes rather than as refracted world. A real refracting edge
+      // splits by a fraction of the displacement, not a multiple of it.
+      mat.uniforms.uAberration.value = 0.22 + f.ring * 0.10;
       mat.uniforms.uOpacity.value = 0;
       mats.push(mat);
       const mesh = new THREE.Mesh(f.geo, mat);
@@ -404,9 +433,13 @@ export class WarpFX {
     });
     const cracks = [];
     for (const f of frags) {
-      const len = f.mid.length() * 2;
+      // PASS 2: `mid.length() * 2` sent every crack a full shard-width past
+      // the edge of the sheet, so the break read as a starburst of white
+      // spikes rather than as cracks IN something. A crack ends at the shard
+      // it separates.
+      const len = f.mid.length() * 1.08;
       if (len < 0.15) continue;
-      const g = new THREE.BoxGeometry(0.022, len, 0.02);
+      const g = new THREE.BoxGeometry(0.016, len, 0.016);
       g.translate(0, len * 0.5, 0);
       const m = new THREE.Mesh(g, crackMat);
       m.position.set(0, 0, 0.01);
@@ -437,7 +470,7 @@ export class WarpFX {
 
     const mat = warpMaterial(1);
     mat.uniforms.uTint.value.setHex(tint);
-    mat.uniforms.uAberration.value = 2.4;
+    mat.uniforms.uAberration.value = 0.30;
     mat.uniforms.uTear.value = 1;
     const lens = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(2.2, span * 1.05), 3.2, 1, 1), mat);
     node.add(lens);
@@ -452,7 +485,7 @@ export class WarpFX {
       const gm = warpMaterial(1);
       gm.uniforms.uTint.value.setHex(tint);
       gm.uniforms.uAmount.value = 1.8;
-      gm.uniforms.uAberration.value = 3.2;
+      gm.uniforms.uAberration.value = 0.34;
       gm.uniforms.uOpacity.value = 0;
       mats.push(gm);
       const g = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 1.9), gm);
@@ -474,7 +507,7 @@ export class WarpFX {
     const node = new THREE.Group();
     const mat = warpMaterial(2);
     mat.uniforms.uTint.value.setHex(tint);
-    mat.uniforms.uAberration.value = 2.0;
+    mat.uniforms.uAberration.value = 0.26;
     mat.uniforms.uAmount.value = 1.0;
     const w = 2.3, h = 2.7;
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h, 10, 12), mat);
@@ -504,7 +537,7 @@ export class WarpFX {
       const m = warpMaterial(0);
       m.uniforms.uDrift.value.set(rand(-0.07, 0.07), rand(-0.07, 0.07));
       m.uniforms.uRoll.value = rand(-1.2, 1.2);
-      m.uniforms.uAberration.value = 3.0;
+      m.uniforms.uAberration.value = 0.32;
       mats.push(m);
       const q = new THREE.Mesh(new THREE.PlaneGeometry(rand(0.35, 0.8), rand(0.35, 0.8)), m);
       q.position.set(rand(-0.4, 0.4), rand(-0.4, 0.4), rand(-0.2, 0.2))
@@ -531,9 +564,10 @@ export class WarpFX {
     node.position.copy(centre).setY(centre.y + 0.2);
     const mat = warpMaterial(3);
     mat.uniforms.uTint.value.setHex(tint);
-    mat.uniforms.uAberration.value = 3.4;
+    mat.uniforms.uAberration.value = 0.38;
     mat.uniforms.uTear.value = 1;
     mat.uniforms.uAmount.value = 0;
+    mat.uniforms.uEdge.value = 0;
     const dome = new THREE.Mesh(
       new THREE.SphereGeometry(radius, 26, 16, 0, Math.PI * 2, 0, Math.PI * 0.52),
       mat
@@ -558,10 +592,12 @@ export class WarpFX {
     const mat = warpMaterial(0);
     mat.uniforms.uDrift.value.set(0.004, 0.002);
     mat.uniforms.uRoll.value = 0.06;
-    mat.uniforms.uAberration.value = 0.9;
+    mat.uniforms.uAberration.value = 0.16;
     mat.uniforms.uAmount.value = 0.30 * strength;
-    mat.uniforms.uOpacity.value = 0.85;
-    const q = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 2.15), mat);
+    mat.uniforms.uOpacity.value = 0.55;
+    mat.uniforms.uEdge.value = 0;     // no rim: see the shader note
+    mat.uniforms.uSoft.value = 1;     // and no hard boundary either
+    const q = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 2.05), mat);
     q.position.y = 1.0;
     node.add(q);
     const item = this._add({ node, mats: [mat], t: 0, life: 0.35, mat, follow: fighter, kind: 'haze', quad: q });
@@ -576,7 +612,7 @@ export class WarpFX {
       const it = this.items[i];
       it.t += dt;
       const k = clamp(it.t / it.life, 0, 1);
-      for (const m of it.mats) if (m.uniforms) { m.uniforms.uTime.value = this.t; m.uniforms.uK.value = k; }
+      for (const m of it.mats) if (m.uniforms?.uTime) { m.uniforms.uTime.value = this.t; m.uniforms.uK.value = k; }
 
       if (it.kind === 'ice') {
         // CRACK, then SHATTER, then DISSOLVE.
@@ -591,7 +627,7 @@ export class WarpFX {
           const born = clamp((crackK - p.ring * 0.22) / 0.3, 0, 1);
           const gone = clamp(broke / (it.life - it.crackTime), 0, 1);
           p.mat.uniforms.uOpacity.value = born * (1 - gone * gone);
-          p.mat.uniforms.uAmount.value = 0.4 + gone * 1.6;
+          p.mat.uniforms.uAmount.value = 0.5 + gone * 0.9;
           p.mesh.position.copy(p.drift).multiplyScalar(gone * gone * 0.9);
           p.mesh.rotation.set(p.spin.x * gone * 0.5, p.spin.y * gone * 0.5, p.spin.z * gone * 0.5);
         }
@@ -619,7 +655,7 @@ export class WarpFX {
         it.node.scale.set(1, inK * outK, 1);
       } else if (it.kind === 'bounce') {
         const o = Math.sin(k * Math.PI);
-        for (const m of it.mats) m.uniforms.uOpacity.value = o * 0.9;
+        for (const m of it.mats) if (m.uniforms?.uOpacity) m.uniforms.uOpacity.value = o * 0.9;
       } else if (it.kind === 'dome') {
         // THE FULL-SCREEN CLAMP. The dome is the one thing in this file that
         // can cover the frame, and it is allowed to do so for
@@ -640,7 +676,7 @@ export class WarpFX {
           it.quad.lookAt(camera.position);
           it.quad.position.y = (f.model?.H ?? 1.75) * 0.58;
         }
-        it.mat.uniforms.uOpacity.value = 0.85 * clamp((it.life - it.t) / 0.2, 0, 1);
+        it.mat.uniforms.uOpacity.value = 0.55 * clamp((it.life - it.t) / 0.2, 0, 1);
       }
 
       if (it.t >= it.life) { this._drop(it); this.items.splice(i, 1); }

@@ -501,6 +501,23 @@ export class OceanSystem {
     return s;
   }
 
+  // ---- THE FINISHER'S OWN SPAWN -------------------------------------------
+  // The cinematic needs creatures without a barrier and without the one-at-a-
+  // time cap the SPECIAL plays under. It is deliberately a SEPARATE entry
+  // point rather than a flag on `summonFor`: a director asking for a shark is
+  // not the same request as a player pressing B, and the two should not be
+  // able to drift into each other. Never sure-hit — a cinematic does not need
+  // a guarantee, it needs a picture.
+  spawnCinematic(owner, type, at) {
+    const def = owner.cfg.ocean?.defs?.[type];
+    if (!def) return null;
+    const s = new Sea(this, owner, def, { at: at.clone(), sure: false, domain: false });
+    s.life = 60;                        // it outlives the shot, not the match
+    this.list.push(s);
+    this._splash(at);
+    return s;
+  }
+
   // ---- the DOMAIN: DEATH SWARM --------------------------------------------
   // Called by domains.js on activation. Nothing spawns until `update` runs.
   beginSwarm(caster, def) {

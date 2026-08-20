@@ -28,6 +28,9 @@
 // nothing else.
 // ===========================================================================
 import { S, closeOn, two, groundUp, wide } from './shots.js';
+// Dagon's beats place water and creatures at real world offsets, so this file
+// needs a vector helper for the first time.
+import { v3 } from '../core/mathutil.js';
 
 // THE EXIT. Two actions: the body finishes going down, and the winner is left
 // holding something. The GRAMMAR is shared — every one of these ends on a body
@@ -809,6 +812,318 @@ export const FINISHERS_BY_PICK = {
         heroFx: d => {
           d.fx.bodyBurn(d.lose, 1.6); d.fx.bodyBurn(d.win, 0.8, { ground: false });
           d.fx.eruptionBlast(d.lose.pos.clone(), 1.4); d.sfx.overheat?.();
+        }
+      })
+    ]
+  },
+
+  // =========================================================================
+  // URO — 「薄氷ブレイカー」 THIN ICE BREAKER
+  // The Sendai Colony, the three-way against Yuta and Ryu.
+  //
+  // *** WHY THIS MOMENT. *** It is the one the fandom actually references, and
+  // the research names it precisely: the technique that "is powerful enough to
+  // damage Yuta Okkotsu and send him flying" — a hit that lands on somebody
+  // who had been comfortably the strongest person in every previous room he
+  // walked into. Everything before it in that fight is Yuta trying, at length,
+  // and not connecting, because she is not where the space says she is.
+  //
+  // *** THE CHOREOGRAPHY IS THE BRIEF'S, LITERALLY. *** "The opponent must be
+  // swinging, warping past, and recommitting throughout; the whole point is
+  // that they're fighting hard and it doesn't matter." So SIX of the eight
+  // beats are the opponent attacking, and every one of them is `hit: false`.
+  // She throws exactly two things in the entire cinematic and the second one
+  // ends it. The loser is never passive and never posing: they re-commit after
+  // every miss, and the last thing they do before the fold takes them is throw
+  // another punch.
+  //
+  // *** AND IT IS THE SHOWCASE. *** A controlled camera and a known frame, so
+  // the distortion goes further here than it is ever allowed to in gameplay:
+  // the folds are bigger, the ghosts are on screen longer, and the shatter is
+  // twice the shard count. Everything still routes through fx/warpfx.js, so
+  // the readability clamp still holds — it is the same effect, uncapped in
+  // scale rather than uncapped in smear.
+  // =========================================================================
+  uro: {
+    id: 'uro_thinice',
+    moment: 'Thin Ice Breaker — the Sendai Colony, the hit that sent Yuta flying.',
+    color: '#cfe8f5', grade: 'void', chord: 'cold', root: 174.61,
+    // SHE IS DISPLACED FOR THE WHOLE SCENE. The constant haze runs under every
+    // beat, including the ones where she is doing nothing, which is the point:
+    // the air around her is wrong before she has lifted a hand.
+    ambient: (d, t) => {
+      d.m.warpfx?.haze(d.win, 0.55 + Math.sin(t * 1.7) * 0.15);
+    },
+    actions: [
+      // ONE. They open. It goes through where she was.
+      {
+        op: 'fCross', strike: 'op', hit: false, miss: true, win: 'fSlip',
+        shot: S.lowR(), dofBase: 0.25, power: 1.0,
+        fx: d => {
+          d.m.warpfx?.fold(
+            d.win.pos.clone().setY(d.win.pos.y + 1.1),
+            d.win.pos.clone().setY(d.win.pos.y + 1.1).addScaledVector(d.win.forward(), -1.6),
+            { ghosts: 1, life: 0.5 });
+          d.sfx.warpFold?.();
+        }
+      },
+      // TWO. They do not stop to think about it. Immediately again, harder.
+      {
+        op: 'fHook', strike: 'op', hit: false, miss: true, win: 'fStepThrough',
+        shot: S.dollyL(), speed: 1.15, power: 1.1,
+        fx: d => { d.fx.dashTrail(d.lose); d.sfx.warpFold?.(); }
+      },
+      // THREE. THE ONE THAT LANDS ON HER. She is not untouchable and the scene
+      // has to say so, or the rest of it is a cutscene rather than a fight.
+      {
+        op: 'fBodyRip', strike: 'op', hit: true, react: 'rFoldGut', win: null,
+        shot: S.otsWin(), power: 1.1, knock: 0.5
+      },
+      // FOUR. And she answers with the first fold — which does not hit them
+      // either. It just moves her somewhere the punch is not going.
+      {
+        win: 'ct2', strike: 'win', blast: { at: 0.30, aim: 'chest', power: 1.2, kind: 'blast' },
+        hit: true, react: 'rSpin', op: 'fGuardUp', span: 1.05, speed: 1.05,
+        power: 1.2, knock: 1.0, shot: S.dollyR(), impact: 0.12,
+        fx: d => {
+          // the fold, at showcase scale — from behind them rather than in front
+          const behind = d.lose.pos.clone().setY(d.lose.pos.y + 1.1)
+            .addScaledVector(d.lose.forward(), -1.8);
+          d.m.warpfx?.fold(d.win.pos.clone().setY(d.win.pos.y + 1.1), behind, { ghosts: 2, life: 0.62 });
+          d.sfx.warpFold?.();
+        },
+        onContact: (d, at) => {
+          d.fx.impactBloom(at, 0xcfe8f5, 0.8);
+          d.m.warpfx?.bounce(at.clone(), d.win.forward());
+        }
+      },
+      // FIVE. They get up and go again. Two swings, back to back, and the
+      // camera stays on THEM for it — this beat belongs to the loser.
+      {
+        op: 'fRound', strike: 'op', hit: false, miss: true, win: 'fSlip',
+        shot: S.faceLose({ d: 1.5, side: 0.6 }),
+        dofBase: 0.6, span: 0.95,
+        fx: d => {
+          d.m.warpfx?.fold(
+            d.lose.pos.clone().setY(d.lose.pos.y + 1.2),
+            d.win.pos.clone().setY(d.win.pos.y + 1.2),
+            { ghosts: 2, life: 0.55 });
+          d.audio.accent(196, { gain: 0.10, dur: 0.5 });
+        }
+      },
+      {
+        op: 'fThrust', strike: 'op', hit: false, miss: true, win: 'fStepThrough',
+        shot: S.otsLose(), power: 1.2, speed: 1.1,
+        fx: d => { d.fx.dashTrail(d.lose); d.sfx.warpFold?.(); }
+      },
+      // SEVEN. SHE PUTS A HAND ON THE AIR. Nothing else happens for a full
+      // second and a half — the longest still beat in any finisher in the
+      // game — and they are still coming at her through it.
+      {
+        win: 'ct1', op: 'fCross', strike: 'op', hit: false, miss: true, span: 1.5,
+        shot: S.crane({ d: 5.0, top: 3.6 }), dofBase: 0.5, speed: 0.85,
+        fx: d => {
+          d.sfx.skyReflectUp?.();
+          d.audio.accent(233, { gain: 0.09, dur: 1.2 });
+          d.m.warpfx?.reflectSurface(d.win, 1.4);
+        }
+      },
+      // EIGHT. 薄氷ブレイカー. The sheet goes, and so do they.
+      {
+        win: 'ct1', strike: 'win', blast: { at: 0.34, aim: 'chest', power: 2.0, kind: 'blast' },
+        hit: true, react: 'rBlownBack', op: 'fGuardUp', span: 1.25, speed: 0.95,
+        power: 2.0, knock: 3.4, shot: S.bigHit(), sting: true, impact: 0.26, flash: 0.7,
+        fx: d => d.sfx.thinIce?.(),
+        onContact: (d, at) => {
+          // SHOWCASE SCALE. Twice the shard count of the gameplay version and a
+          // plane half again as wide — the same effect, bigger, on a camera
+          // that is guaranteed to be looking at it.
+          const dir = d.win.forward();
+          d.m.warpfx?.thinIce(at.clone(), dir, {
+            width: 7.6, height: 4.6, shards: 28, crackTime: 0.20, life: 1.5
+          });
+          d.fx.impactBloom(at, 0xffffff, 1.6);
+          d.fx.skyShell?.(d.lose.pos.clone().setY(0.1), 4.0);
+          d.fx.debris(d.lose.pos.clone(), 16, 0x9fb8cc);
+          d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.6), 4.2, 150, { kind: 'body' });
+          d.sfx.thinIce?.();
+        }
+      },
+      // ...and she never came down for any of it.
+      ...OUTRO('idle', {
+        fallShot: S.wideR(), fallSpan: 1.25,
+        fallFx: d => d.m.warpfx?.haze(d.win, 0.7),
+        heroClip: 'taunt', heroSpan: 1.7, heroSpeed: 0.85,
+        heroShot: S.hero({ d: 4.8, from: 0.4, sweep: 0.4, y: 0.5 }), heroDof: 0.7,
+        heroFx: d => {
+          d.m.warpfx?.haze(d.win, 0.9);
+          d.audio.accent(146.83, { gain: 0.10, dur: 1.4 });
+        }
+      })
+    ]
+  },
+
+  // =========================================================================
+  // DAGON — 「蕩蘊平線」 HORIZON OF THE CAPTIVATING SKANDHA
+  // Shibuya, against Naobito, Maki, Nanami and Megumi.
+  //
+  // *** WHY THIS MOMENT. *** It is the only moment he has, and it is one of
+  // the most-referenced domains in the series: the beach opens, and four
+  // sorcerers who were winning a minute ago are ground down by volume. The
+  // research's own phrasing is the whole brief for this scene — it "overwhelmed
+  // Naobito, Maki, Nanami and Megumi through RELENTLESS ATTRITION". Not a kill
+  // move. Not a technique. Attrition.
+  //
+  // *** THE BEATS ARE THE SOURCE'S. *** He draws the seal on his own stomach,
+  // the shoreline forms, the water arrives, the swarm comes out of it, and the
+  // opponent fights through it — and the fighting is REAL: the loser is
+  // cutting shikigami out of the air in four separate beats and moving FORWARD
+  // through them, which is why the finisher reads as a losing battle rather
+  // than as an execution. He himself throws exactly one attack in the whole
+  // cinematic, right at the end, and it is not what kills them; the swarm is.
+  //
+  // *** IT ENDS ON THE BEACH GOING QUIET. *** The last beat has no creatures
+  // in it at all. The sea is still there and it is still beautiful.
+  // =========================================================================
+  dagon: {
+    id: 'dagon_skandha',
+    moment: 'Horizon of the Captivating Skandha — the Shibuya domain, and the swarm that never stops.',
+    color: '#b8323a', grade: 'shoreline', chord: 'cold', root: 110.0,
+    // THE SEA IS UNDER EVERY BEAT. A constant wash of surf and a slow swell of
+    // light, running whether anybody is fighting or not — which is the whole
+    // horror of the place and has to be there before the first fish is.
+    ambient: (d, t) => {
+      if (Math.random() < 0.22) {
+        const a = Math.random() * Math.PI * 2, r = 7 + Math.random() * 6;
+        d.fx.waterPatchTick?.(d.win.pos.clone().add(v3(Math.cos(a) * r, 0.02, Math.sin(a) * r)), 1.6);
+      }
+      d.m.fighters?.[0] && d.win.model.setSeal?.(t > 1.2);
+    },
+    actions: [
+      // ONE. They are winning. He takes it standing up, because that is what
+      // he does — the first hit of his own finisher lands on him.
+      {
+        op: 'fCleave', strike: 'op', hit: true, react: 'rSpin', win: 'fGuardUp',
+        shot: S.lowR(), power: 1.2, knock: 0.6
+      },
+      // TWO. THE SEAL. He puts a hand flat on his own stomach and draws, and
+      // the light comes up under it. No damage, no hitbox, no reaction — this
+      // is the beat that turns the fight into a different fight.
+      {
+        win: 'domainCast', op: 'fGuardUp', span: 1.9, speed: 0.9,
+        shot: S.faceWin({ d: 1.6, side: 0.5 }), dofBase: 0.85,
+        fx: d => {
+          d.win.model.setSeal?.(true);
+          d.sfx.domainActivate?.('shoreline');
+          d.audio.accent(55, { gain: 0.16, dur: 1.8 });
+          d.m.stage.setGrade('shoreline');
+        }
+      },
+      // THREE. THE WATER ARRIVES. A wide shot, the surf coming in over the
+      // deck, and the first thing out of it.
+      {
+        win: 'domainCast', op: 'fGuardUp', span: 1.35, speed: 0.85,
+        shot: S.crane({ d: 6.8, top: 4.4 }), dofBase: 0.2, flash: 0.35,
+        fx: d => {
+          d.sfx.tidalSlam?.();
+          for (let i = 0; i < 5; i++) {
+            const a = (i / 5) * Math.PI * 2;
+            d.fx.waterPatch?.(d.lose.pos.clone().add(v3(Math.cos(a) * 3.2, 0, Math.sin(a) * 3.2)), 2.4);
+          }
+          d.m.ocean?.spawnCinematic(d.win, 'piranha',
+            d.lose.pos.clone().addScaledVector(d.lose.forward(), 3.4));
+          d.sfx.seaEmerge?.();
+        }
+      },
+      // FOUR. AND THEY START CUTTING. This beat and the next three are the
+      // brief's requirement and the scene's argument: the loser is fighting,
+      // properly, and moving forward while they do it.
+      {
+        op: 'fCleave', strike: 'op', hit: false, miss: true, win: 'fGuardUp',
+        shot: S.otsLose(), power: 1.1, speed: 1.15,
+        fx: d => {
+          d.fx.hitSpark(d.lose.pos.clone().add(v3(0, 1.4, 0)).addScaledVector(d.lose.forward(), 1.4), 'light');
+          d.m.ocean?.spawnCinematic(d.win, 'eel',
+            d.lose.pos.clone().addScaledVector(d.lose.forward(), 5.0).add(v3(2.0, 0, 0)));
+          d.sfx.seaDie?.();
+        }
+      },
+      {
+        op: 'fRound', strike: 'op', hit: false, miss: true, win: 'fGuardUp',
+        shot: S.dollyL(), power: 1.15, speed: 1.2,
+        fx: d => {
+          d.fx.hitSpark(d.lose.pos.clone().add(v3(0, 1.1, 0)), 'heavy');
+          d.m.ocean?.spawnCinematic(d.win, 'crab',
+            d.lose.pos.clone().addScaledVector(d.lose.forward(), 4.2).add(v3(-2.4, 0, 0)));
+          d.sfx.seaSpit?.();
+        }
+      },
+      // SIX. They are STILL COMING FORWARD, and they connect with him again.
+      // The domain has been open for eight seconds and he has not stopped it.
+      {
+        op: 'fThrust', strike: 'op', hit: true, react: 'rFoldGut', win: 'fGuardUp',
+        shot: S.hitR(), power: 1.3, knock: 0.5,
+        fx: d => {
+          d.m.ocean?.spawnCinematic(d.win, 'piranha',
+            d.lose.pos.clone().addScaledVector(d.lose.forward(), -3.0));
+          d.fx.seaFishTrail?.(d.lose.pos.clone().add(v3(0, 1.5, 0)), v3(0, 0, 1));
+        }
+      },
+      // SEVEN. THE SHARK. The one beat in the scene where the water produces
+      // something they cannot cut, and it is the turn.
+      {
+        win: 'ct1', op: 'fGuardUp', strike: 'win',
+        blast: { at: 0.36, aim: 'chest', power: 1.7, kind: 'blast' },
+        hit: true, react: 'rSlam', span: 1.25, speed: 0.95,
+        power: 1.7, knock: 1.8, shot: S.bigHit(), sting: true, impact: 0.22, flash: 0.5,
+        fx: d => {
+          d.m.ocean?.spawnCinematic(d.win, 'shark',
+            d.lose.pos.clone().addScaledVector(d.lose.forward(), 6.5).add(v3(0, 0.6, 0)));
+          d.sfx.sharkRise?.();
+          d.audio.accent(73, { gain: 0.16, dur: 1.0 });
+        },
+        onContact: (d, at) => {
+          d.fx.impactBloom(at, 0x7fd8c8, 1.2);
+          d.fx.waterPatch?.(d.lose.pos.clone(), 3.4);
+          d.fx.debris(d.lose.pos.clone(), 14, 0x2f9fb4);
+          d.m.arena?.destruct?.damageAt(d.lose.pos.clone().setY(0.5), 3.6, 120, { kind: 'body' });
+        }
+      },
+      // EIGHT. They get up ANYWAY, and swing one more time, and it is the
+      // swarm that takes them rather than him. He never lands the last hit —
+      // that is the character, and it is the correct reading of the source.
+      {
+        op: 'fCross', strike: 'op', hit: false, miss: true, win: 'idle',
+        shot: S.otsLose(), span: 0.9, power: 1.0,
+        fx: d => {
+          for (let i = 0; i < 3; i++) {
+            const a = Math.random() * Math.PI * 2;
+            d.fx.seaFishTrail?.(
+              d.lose.pos.clone().add(v3(Math.cos(a) * 1.2, 1.0 + Math.random(), Math.sin(a) * 1.2)),
+              v3(Math.cos(a), 0, Math.sin(a)));
+          }
+          d.sfx.seaEmerge?.();
+        }
+      },
+      {
+        op: 'rCrumple', win: 'idle', span: 1.35, shot: S.wideL(), dofBase: 0.2,
+        fx: d => {
+          d.fx.waterPatch?.(d.lose.pos.clone(), 2.8);
+          d.fx.hitSpark(d.lose.pos.clone().add(v3(0, 1.2, 0)), 'heavy');
+          d.sfx.seaDie?.();
+        }
+      },
+      // ...AND THE BEACH GOES QUIET. The creatures are gone, the sea is still
+      // there, and he is looking at it rather than at them. The only victory
+      // pose in the game whose subject is the scenery.
+      ...OUTRO('idle', {
+        fall: 'rFall', fallShot: S.wideR(), fallSpan: 1.1,
+        fallFx: d => { d.m.ocean?.clear?.(); },
+        heroClip: 'victory', heroSpan: 2.2, heroSpeed: 0.8,
+        heroShot: S.hero({ d: 6.4, from: 0.55, sweep: 0.6, y: 0.3 }), heroDof: 0.25,
+        heroFx: d => {
+          d.win.model.setSeal?.(false);
+          d.audio.accent(55, { gain: 0.10, dur: 2.0 });
         }
       })
     ]

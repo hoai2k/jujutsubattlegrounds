@@ -37,6 +37,9 @@ import { DEFAULT_SHOTS } from './shots.js';
 import { pickFinisher } from './registry.js';
 import { FinisherOverlay } from './overlay.js';
 import { FinisherAudio } from './audio.js';
+// URO. A finisher cannot be performed on somebody who is hovering, so both
+// bodies are put on the floor before the first frame — see the call site.
+import { groundFlight } from '../combat/flight.js';
 
 // The black an action list opens out of and hands the win screen over in.
 const DIP_IN = 0.34;
@@ -257,6 +260,15 @@ export class Finishers {
     m.minions?.clear?.();
     m.judgemen?.clear?.();
     m.shikigami?.clear?.();
+    // DAGON'S SEA. The brief's cleanup requirement, and the obvious case:
+    // nothing should be swimming through his own finisher except the fish the
+    // finisher itself puts there. Cleared for BOTH fighters — the loser having
+    // summons out is the same problem.
+    m.ocean?.clear?.();
+    // URO'S SKY. Every warp surface, every shard and the constant haze go with
+    // everything else, so a shattered plane left hanging in the air does not
+    // end up in the first frame of somebody else's cinematic.
+    m.warpfx?.clear?.();
     m.curses?.clear?.();
     m.flora?.clear?.();
     m.swarms?.clear?.();
@@ -280,6 +292,19 @@ export class Finishers {
     for (const f of m.fighters) {
       if (f !== win && f !== lose) f.model.group.visible = false;
     }
+    // ---- A FLYING BODY CANNOT BE STOOD OVER ------------------------------
+    // The brief's non-standard-body list, with a new entry on it: a finisher
+    // cannot be performed on somebody who is hovering. The director already
+    // pins both bodies to the floor under them every frame, so the geometry
+    // was never the problem — the STATE was, because a fighter whose hover is
+    // still running keeps having gravity switched off underneath the
+    // director's own placement.
+    //
+    // `groundFlight` is one call that clears it, and it is applied to the
+    // WINNER as well as the loser: Uro performing a finisher stands on the
+    // ground for it too, which is the only time in the game she does.
+    groundFlight(win);
+    groundFlight(lose);
     for (const s of m.fx.shadows) {
       if (s.fighter !== win && s.fighter !== lose) s.mesh.visible = false;
     }
