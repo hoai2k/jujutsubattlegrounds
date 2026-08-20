@@ -7,3 +7,7 @@ shots/
 .shots.mjs
 .t*.js
 .play.mjs
+# ...and everything else in the same family. A dot-prefixed .mjs at the repo
+# root is always a scratch driver; one of them got swept into a commit by a
+# `git add -A` before this line existed.
+.*.mjs
