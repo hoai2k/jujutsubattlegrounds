@@ -28,6 +28,8 @@ import { URO } from './uro.js';
 import { DAGON } from './dagon.js';
 import { YAGA } from './yaga.js';
 import { TAKABA } from './takaba.js';
+import { URAUME } from './uraume.js';
+import { RYU } from './ryu.js';
 import { buildGojo } from '../art/models/gojo.js';
 import { buildYuta } from '../art/models/yuta.js';
 import { buildNanami } from '../art/models/nanami.js';
@@ -57,6 +59,8 @@ import { buildUro } from '../art/models/uro.js';
 import { buildDagon } from '../art/models/dagon.js';
 import { buildYaga } from '../art/models/yaga.js';
 import { buildTakaba } from '../art/models/takaba.js';
+import { buildUraume } from '../art/models/uraume.js';
+import { buildRyu } from '../art/models/ryu.js';
 import { makeClips } from '../art/anim/index.js';
 import {
   variantsOf, hasVariants, variantEntry, resolveVariant, splitPick, joinPick,
@@ -219,7 +223,53 @@ export const ROSTER = {
   // serious, and the design leans on it rather than apologising for it: his
   // stats are the roster average in every category, because the joke and the
   // design are the same thing.
-  takaba: { config: TAKABA, buildModel: buildTakaba, jp: '高羽史彦', accent: 0xff4d7a, role: 'THE COMEDIAN · RANDOM OUTCOMES' }
+  takaba: { config: TAKABA, buildModel: buildTakaba, jp: '高羽史彦', accent: 0xff4d7a, role: 'THE COMEDIAN · RANDOM OUTCOMES' },
+  // ---- THE TWO NEW ZONERS, AND THEY ARE OPPOSITE ENDS OF THE SAME IDEA ----
+  // Both control space and neither does it the way Jogo does.
+  //
+  // URAUME is the CONTROL zoner, and the deliberate inverse of the attrition
+  // one: they deal almost no damage from range and instead take away the
+  // opponent's ability to move, approach and escape. FROST slows the legs, the
+  // dash and the startup and does NO damage over time at all; ICE TERRAIN
+  // reshapes how the arena handles. They are the SECOND terrain-modifying
+  // character in the game after Hanami, and they reuse his classification
+  // rather than growing a second surface layer — see arena/terrain.js and the
+  // header of combat/frost.js.
+  //
+  // Canon-correct with no Domain Expansion, so they join the burst list.
+  //
+  // Not badged `spirit`: a thousand-year-old human curse user, incarnated into
+  // a modern body. Same ruling Geto, Choso and Uro already get.
+  //
+  // The accent #4fd8e8 was chosen by MEASUREMENT rather than by eye — CIELAB
+  // ΔE against every other accent on this screen, maximum-minimum taken. It
+  // wins at ΔE 21.0 from its nearest neighbour (Miwa), against 22.9 from
+  // Gojo's blue and 97.7 from Kashimo's violet. The obvious pale blues all
+  // failed: a near-white frost lands 4.7 from Uro. See the audit in
+  // art/models/uraume.js.
+  uraume: { config: URAUME, buildModel: buildUraume, jp: '裏梅', accent: 0x4fd8e8, role: 'ICE FORMATION · CONTROL ZONER' },
+  // RYU is the ARTILLERY, and the first fighter in the project whose whole
+  // kit is a COMMITMENT: he plants, he charges through visible tiers, he
+  // fires, and if he guessed wrong he eats a full combo. He is the slowest
+  // character in the game and has the worst dash in the game.
+  //
+  // What is new about him is the CE CEILING — 150 against the roster's 100,
+  // and the first time this project has had to separate "how much cursed
+  // energy a body holds" from "the shared ultimate gate", which had been the
+  // same number for twenty-eight characters. The gate is still 100 and still
+  // means exactly what it always did; see `Fighter.ceCeiling` and the long
+  // audit at the top of combat/output.js.
+  //
+  // *** HE IS THE ONE CHARACTER ON THE BURST-ULTIMATE LIST WHO IS NOT THERE
+  // BECAUSE CANON GIVES HIM NO DOMAIN. *** He HAS a Domain Expansion — he
+  // casts one in ch.179 — and absolutely nothing is known about it: no name,
+  // no interior, no sure-hit, because the barrier came apart before it was
+  // realised. Building one would be inventing it. See the long note in
+  // characters/ryu.js.
+  //
+  // Not badged `spirit`: a human sorcerer from 400 years ago, incarnated for
+  // the Culling Game. Same ruling Uro gets, for the same reason.
+  ryu: { config: RYU, buildModel: buildRyu, jp: '石流龍', accent: 0xd8f05a, role: 'CURSED ENERGY DISCHARGE · ARTILLERY' }
 };
 
 export const hex = n => '#' + n.toString(16).padStart(6, '0');
@@ -257,7 +307,20 @@ export const hex = n => '#' + n.toString(16).padStart(6, '0');
 // the point of the character.
 // DAGON sits at the end of the spirits, next to Kurourushi: the two attrition
 // spirits, and the two whose answer to being rushed is to let you.
-export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo', 'uro', 'yuta', 'miwa', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'yaga', 'todo', 'yuki', 'takaba', 'jogo', 'mahito', 'hanami', 'kurourushi', 'dagon'];
+// RYU sits immediately after URO, and it is the most pointed placement on this
+// screen since Toji/Maki: they fought each other, she is the reason he lost,
+// and the game's ruling about what her Sky Reflect does to his Granite Blast is
+// the single most consequential interaction either of them has. A player
+// choosing between them is looking at a matchup, which is the only context in
+// which "she bends what he throws" reads as a fact about both characters
+// rather than as a footnote on one.
+// URAUME sits at the head of the zoner run, immediately before Jogo — the two
+// zoners, and the two whose whole game is making the ground somewhere you do
+// not want to be. It is the same argument that put Naoya next to Toji: the
+// distinction between them (he wins by attrition, they win by taking your legs)
+// only reads when they are side by side. It also puts the game's two
+// terrain-modifying characters, Uraume and Hanami, in the same run.
+export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo', 'uro', 'ryu', 'yuta', 'miwa', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'yaga', 'todo', 'yuki', 'takaba', 'uraume', 'jogo', 'mahito', 'hanami', 'kurourushi', 'dagon'];
 
 // `pick` is 'gojo' (the base) or 'gojo:shinjuku'. A bare character id still
 // works everywhere it used to, which is why nothing outside the select screen

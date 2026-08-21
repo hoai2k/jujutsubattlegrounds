@@ -18,6 +18,11 @@ import {
   beginForced, inCommandRange, tierDef as throatTierDef, adaptKey
 } from './speech.js';
 import { ARTIFICIAL } from '../arena/terrain.js';
+// URAUME's frost. Every ice tool in the kit applies stacks through this one
+// entry point and nowhere else, so the stack rate, the cap, the FROSTBOUND
+// trigger and its cooldown are decided in a single place — see the header of
+// combat/frost.js.
+import { applyFrost, isFrostbound } from './frost.js';
 // URO's reflect. `tryReflect` is consulted once per travelling entity per
 // frame, at the TOP of the update loop below and nowhere else — see the
 // header of combat/reflect.js for why one hook covers every projectile in the
@@ -47,6 +52,44 @@ export const EFFECT_SRC = {
   // YUTA — the domain's rolled payloads are all `domain` (see applySwordTech).
   yuta_rika_swing: 'ct1', yuta_lunge: 'ct2', rika_blast: 'ultimate',
   sword_slash: 'domain',
+  // ---- URAUME — TWO BUCKETS, NOT ONE ------------------------------------
+  // The opposite ruling to Kashimo's. His whole kit is ONE bucket because it
+  // is all the same substance arriving in a different shape; hers is TWO
+  // because the two tools are genuinely different KINDS of thing and adapting
+  // to one should not pre-answer the other.
+  //   ICEFALL is a PROJECTILE — block-shaped ice launched across the arena and
+  //   steered, which is the same category Jogo's insects and Nobara's nails
+  //   are in, and Mahoraga adapting to "small hard things flying at me" should
+  //   cover all three.
+  //   FROST CALM is not thrown at all. It comes UP OUT OF THE GROUND along a
+  //   line, so it keeps its slot, exactly as Hanami's Root Eruption does.
+  // FROST FIELD deals almost no damage and is a terrain play, so it sits with
+  // the buffs and the states at null — there is nothing to adapt to in a
+  // floor. And the ULTIMATE sits with the ultimates, as every ultimate does.
+  //
+  // *** THE FROST STACKS AND FROSTBOUND ARE DELIBERATELY NOT IN THIS TABLE,
+  // and it is the same ruling Naoya's freeze already gets. *** Adaptation is a
+  // response to DAMAGE, and frost does none — no damage over time, and the
+  // shell's 3-damage bite is charged to the technique that made it. So
+  // Mahoraga cannot adapt to being slowed or to being shelled, and his answer
+  // to Uraume is the same as everyone else's, which is to close the distance
+  // before the meter fills. What he CAN adapt to is the ice itself, and he
+  // will: five Icefall volleys is five projectile marks.
+  uraume_icefall: 'projectile', uraume_frostcalm: 'ct2',
+  uraume_frostfield: null, uraume_maxfrost: 'ultimate',
+  // ---- RYU — TWO BUCKETS, AND THE SPLIT IS THE CHARACTER ------------------
+  // RAPID BLASTS are `projectile` for the same reason Icefall is: small fast
+  // things crossing the arena. GRANITE BLAST is emphatically NOT — a beam is
+  // not a volley of pellets, adapting to being peppered should do nothing
+  // about a 3.6 m column of compressed cursed energy, and the whole design of
+  // the character is that those two tools are different decisions. It keeps
+  // its slot.
+  //
+  // The consequence is the interesting half: against Mahoraga, Ryu's cheap
+  // safe tool is the one that stops working and his expensive committal one is
+  // not, which inverts the pressure the matchup would otherwise have. He has
+  // to start charging, against the one opponent who most wants him to.
+  ryu_rapid: 'projectile', ryu_beam: 'ct2', ryu_maxblast: 'ultimate',
   // NANAMI — Collapse is his non-domain ultimate. A Ratio crit is not its own
   // category: it is a multiplier on whatever move crit, so it inherits.
   nanami_cleave: 'ct1', nanami_collapse: 'ultimate', nanami_overtime: null,
@@ -356,6 +399,52 @@ export class Effects {
 
   // techniques hit whoever the caster is currently closest to
   other(f) { return this.match.other(f); }
+
+  // ---- URAUME AND RYU: THE THREE SHARED HELPERS --------------------------
+  // A node this system put in the scene itself (rather than handing to
+  // `fx.prop`) has to be taken out and disposed by this system. One helper, so
+  // no entity teardown can leak a mesh — which across a long session is the
+  // difference between a few hundred kilobytes and a few hundred megabytes.
+  _disposeNode(node) {
+    if (!node) return;
+    node.removeFromParent();
+    node.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+  }
+  _killIceShard(e) { this._disposeNode(e.node); e.node = null; }
+
+  // THE ICICLE RAIN. Canon, ch.135: "once immobilized, targets are finished
+  // off by GIANT ICICLES that are sent down from above to skewer them." So an
+  // Icefall shard that connects with somebody who is ALREADY frostbound calls
+  // one down on them after a short delay.
+  //
+  // The delay is the whole reason it is fair: it lands ~0.34 s later, which is
+  // long enough that a victim who shatters their shell and moves is not there
+  // for it. Rewarding pressure on a standing shell, not punishing having been
+  // shelled once.
+  _iceFall(caster, victim, def) {
+    if (!def || !victim?.alive) return;
+    const m = this.match;
+    const at = victim.pos.clone();
+    const top = at.clone().add(v3(0, 7.5, 0));
+    const node = m.fx.iceShardNode(2.2, 0.30);
+    node.position.copy(top);
+    node.rotation.z = Math.PI;                 // point DOWN
+    m.fx.prop(node, def.delay + 0.18, (nd, k) => {
+      const f = Math.min(1, k / (def.delay / (def.delay + 0.18)));
+      nd.position.copy(top).lerp(at, f * f);   // accelerating fall
+    });
+    m.fx._ring(at.clone().setY(0.05), 0xa8dce8, { size: 0.3, growRate: 4, life: def.delay, flat: true });
+    m.sfx.icicleFall?.();
+    // resolved on a timer entity rather than a setTimeout, so it pauses with
+    // the match clock, dies with the round, and is deterministic online
+    this.entities.push({
+      type: 'icicle', caster, t: def.delay, def,
+      x: at.x, y: at.y, z: at.z
+    });
+  }
 
   // A blade of cursed steel swept through an arc in front of the caster —
   // real geometry, driven from the caster's own position so it tracks him for
@@ -2028,6 +2117,12 @@ export class Effects {
         // ...and it burns the ground it crosses
         for (let i = 1; i <= 8; i++) {
           m.flora?.damageFieldsAt(caster.pos.clone().addScaledVector(fw, i * (range / 8)), 3.0, 'fire');
+          // FIRE MELTS ICE. Wired beside the line that already tells Hanami's
+          // fields they have been burnt, so the two things fire counters are
+          // countered at the same call sites and neither can be added without
+          // the other being obvious. Fire Arrow is the strongest fire in the
+          // game and melts at 1.4x.
+          m.ice?.meltAt(caster.pos.clone().addScaledVector(fw, i * (range / 8)), 3.0, 1.4);
         }
         m.minions?.hurtAt(caster.pos.clone().addScaledVector(fw, range * 0.2), range * 0.2, 999, caster);
         // ...and Geto's curses, which stand in the same field as the transfigured
@@ -3759,6 +3854,350 @@ export class Effects {
         m.theset?.start(caster, t);
         break;
 
+      // =====================================================================
+      // URAUME — ICE FORMATION 氷凝呪法
+      // =====================================================================
+      // Every one of the four applies FROST through the one entry point in
+      // combat/frost.js and nowhere else, so the stack rate, the cap, the
+      // FROSTBOUND trigger and its cooldown are decided in a single place and
+      // a fifth ice tool added later cannot get any of them wrong.
+
+      // ---- RB · ICEFALL 直瀑 -----------------------------------------------
+      // Canon: frost the hand, touch the ground, grow interconnected sheets,
+      // break them apart and LEVITATE the pieces at the target. So these are
+      // not thrown — they are launched off the floor in front of the caster
+      // and steered, and the animation has no throwing key in it anywhere.
+      //
+      // They TRAVEL, which makes them category A in combat/reflect.js. See
+      // the REFLECTABLE entry: `iceShard` is in the table deliberately.
+      case 'uraume_icefall': {
+        const dir = this._castDir(caster);
+        const n = opts.count ?? 5;
+        const from = caster.pos.clone()
+          .add(v3(0, caster.model?.iceAnchor?.palmY ?? 0.55, 0))
+          .addScaledVector(dir, 0.5);
+        m.sfx.icefall?.();
+        m.cam.shake(0.16);
+        // the sheets coming up off the floor before they go
+        for (let i = 0; i < 9; i++) {
+          const a = Math.random() * Math.PI * 2;
+          m.fx._spawn(caster.pos.clone().add(v3(Math.cos(a) * rand(0.3, 1.5), 0.06, Math.sin(a) * rand(0.3, 1.5))), {
+            color: i % 3 === 0 ? 0x4fd8e8 : 0xdff2fb, size: rand(0.10, 0.24), aspect: 0.5,
+            life: rand(0.20, 0.42), gravity: -2, vel: v3(0, rand(1.4, 3.2), 0)
+          });
+        }
+        for (let i = 0; i < n; i++) {
+          // a fan, centred on the cast direction
+          const spread = (opts.spread ?? 0.42);
+          const off = n === 1 ? 0 : (i / (n - 1) - 0.5) * spread * 2;
+          const d = dir.clone().applyAxisAngle(v3(0, 1, 0), off);
+          const node = m.fx.iceShardNode(0.85, 0.10);
+          m.fx.scene.add(node);
+          this.entities.push({
+            type: 'iceShard', caster, sure,
+            pos: from.clone().add(v3(rand(-0.2, 0.2), rand(-0.15, 0.25), rand(-0.2, 0.2))),
+            dir: d, spd: opts.speed ?? 17,
+            range: opts.range ?? 14, travelled: 0,
+            dmg: (opts.dmg ?? 3.5) * mult, kb: opts.kb ?? 1.1, kbY: 0,
+            hitstun: opts.hitstun ?? 12,
+            frost: opts.frost ?? 1, icicle: opts.icicle,
+            node, spin: rand(4, 9), hitOpts: { ...hitOpts }, dealt: false
+          });
+        }
+        break;
+      }
+
+      // ---- RT · FROST CALM 霜凪 --------------------------------------------
+      // Canon: supercooled cursed energy blown from the mouth as a cloud of
+      // mist, GUIDED BY THE HAND, materialising on contact into thick sheets
+      // and COLUMNS of ice that hold the target in place.
+      //
+      // Four things at once, and the fourth is what makes it a control tool
+      // rather than a damage tool: the columns stand for a couple of seconds
+      // as REAL WALLS in the Bounds, so Uraume can cut a lane off with it.
+      case 'uraume_frostcalm': {
+        const dir = this._castDir(caster);
+        const n = opts.columns ?? 5;
+        const gap = opts.columnGap ?? 1.7;
+        const width = opts.width ?? 1.6;
+        m.sfx.frostCalm?.();
+        m.cam.shake(0.42);
+        m.stage.flash(0.12);
+        const bounds = m.arena?.bounds;
+        const walls = [];
+        const bar = opts.barrier ?? {};
+        const bh = bar.height ?? 2.6, br = bar.radius ?? 0.62;
+        for (let i = 0; i < n; i++) {
+          const at = caster.pos.clone().addScaledVector(dir, (i + 1) * gap);
+          at.y = m.arena?.bounds?.floorAt?.(at.x, at.z, caster.pos.y + 1.2) ?? caster.pos.y;
+          // the column itself, growing UP out of the floor over 0.14 s
+          const node = m.fx.iceColumnNode(bh, br);
+          node.position.copy(at);
+          const life = (bar.duration ?? 2.2);
+          m.fx.prop(node, life, (nd, k) => {
+            const g = Math.min(1, k / (0.14 / life));
+            nd.scale.set(0.6 + 0.4 * g, g, 0.6 + 0.4 * g);
+            // it CRACKS over the last fifth rather than fading, because it is
+            // a solid and solids do not fade
+            if (k > 0.8) {
+              const f = 1 - (k - 0.8) / 0.2;
+              nd.traverse(o => {
+                if (!o.material) return;
+                if (o.material.userData.o0 == null) o.material.userData.o0 = o.material.opacity;
+                o.material.opacity = o.material.userData.o0 * f;
+              });
+            }
+          });
+          // ---- THE BARRIER ------------------------------------------------
+          // A REAL WALL for as long as the column stands. Authored through the
+          // same runtime door Takaba's THE SET builds through, and dropped
+          // through the same one, so nothing new was needed in arena/bounds.js
+          // and the spatial grids cannot grow across a long session.
+          if (bounds?.wall) {
+            walls.push(bounds.wall(at.x - br, at.z - br, at.x + br, at.z + br,
+              at.y, at.y + bh));
+          }
+          // and the floor it leaves under itself
+          if (i % 2 === 0) {
+            m.ice?.freeze(caster, {
+              x: at.x, y: at.y, z: at.z,
+              radius: (opts.ice?.radius ?? 3.2) * 0.62,
+              duration: opts.ice?.duration
+            });
+          }
+          m.arena?.destruct?.damageAt(at.clone().setY(at.y + 0.6), br + 0.8, opts.destruct ?? 30);
+        }
+        // the walls come out again on the same clock the columns die on
+        if (walls.length && bounds?.drop) {
+          this.entities.push({ type: 'iceWalls', t: bar.duration ?? 2.2, walls, bounds });
+        }
+        // ---- THE HIT --------------------------------------------------------
+        // A LINE test, not an arc: the columns come up along a line and what
+        // is standing on that line gets caught between them.
+        const range = (n + 0.5) * gap;
+        for (const f of m.activeFighters) {
+          if (f === caster || !f.alive) continue;
+          const rel = f.pos.clone().sub(caster.pos);
+          const along = rel.x * dir.x + rel.z * dir.z;
+          const perp = Math.abs(rel.x * dir.z - rel.z * dir.x);
+          if (!sure && !(along > 0 && along < range && perp < width + (f.hurtBox?.pad ?? 0))) continue;
+          const { dmg, crit } = computeDamage(caster, (opts.dmg ?? 15) * mult);
+          const r = f.applyHit({
+            ...hitOpts, dmg, kb: opts.kb ?? 5.0, kbY: opts.kbY ?? 2.4,
+            hitstun: opts.hitstun ?? 28, type: 'heavy', dir: dir.clone()
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, f, r, { crit, heavy: true });
+          if (r === 'hit' || r === 'otg') applyFrost(m, f, opts.frost ?? 3, caster);
+        }
+        m.minions?.hurtAt(caster.pos.clone().addScaledVector(dir, range * 0.5), range * 0.4, (opts.dmg ?? 15) * 0.7, caster);
+        m.curses?.hurtAt(caster.pos.clone().addScaledVector(dir, range * 0.5), range * 0.4, (opts.dmg ?? 15) * 0.7, caster);
+        break;
+      }
+
+      // ---- B · FROST FIELD --------------------------------------------------
+      // Canon-derived from the Hakari fight: they froze the ground to burst
+      // the pipes and made themselves more water to work with. The panic
+      // button and the setup tool in one press.
+      case 'uraume_frostfield': {
+        const sp = caster.cfg.special;
+        const r = opts.radius ?? sp.radius ?? 6.0;
+        m.sfx.frostField?.();
+        m.cam.shake(0.5);
+        m.stage.flash(0.18);
+        m.fx._ring(caster.pos.clone().setY(0.05), 0x4fd8e8, { size: 0.6, growRate: r * 3.2, life: 0.5, flat: true });
+        m.fx._ring(caster.pos.clone().setY(0.05), 0xdff2fb, { size: 0.4, growRate: r * 2.4, life: 0.7, flat: true });
+        // THE FLOOR. One patch, which merges with any of their own it overlaps
+        // (see IceSystem.freeze) so mashing the button cannot grow the rect
+        // list without bound.
+        m.ice?.freeze(caster, { radius: r, duration: opts.duration ?? sp.duration });
+        for (let i = 0; i < 26; i++) {
+          const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * r;
+          m.fx._spawn(caster.pos.clone().add(v3(Math.cos(a) * rr, 0.05, Math.sin(a) * rr)), {
+            color: i % 4 === 0 ? 0x4fd8e8 : 0xdff2fb, size: rand(0.10, 0.30), aspect: 0.5,
+            life: rand(0.30, 0.7), gravity: -1.4, vel: v3(0, rand(0.8, 2.6), 0)
+          });
+        }
+        // ...and anyone standing in it. Small damage, real frost — the field
+        // is not how Uraume kills anybody.
+        for (const f of m.activeFighters) {
+          if (f === caster || !f.alive) continue;
+          if (!sure && flatDist(f.pos, caster.pos) > r) continue;
+          const { dmg } = computeDamage(caster, (opts.dmg ?? 4) * mult, { canCrit: false });
+          const r2 = f.applyHit({
+            ...hitOpts, dmg, kb: opts.kb ?? 1.0, kbY: 0, hitstun: 10, type: 'light',
+            dir: v3(f.pos.x - caster.pos.x, 0, f.pos.z - caster.pos.z).normalize()
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, f, r2, {});
+          if (r2 === 'hit' || r2 === 'otg') applyFrost(m, f, opts.frost ?? 2, caster);
+        }
+        break;
+      }
+
+      // ---- D-pad Right · MAXIMUM OUTPUT: FROST CALM ------------------------
+      // 出力最大「霜凪」, ch.215 — the attack that ended Sukuna's fight with Yuji
+      // and Maki in one go. An advancing face of glaciation that crosses the
+      // arena, applies MAXIMUM frost (so everything it touches is shelled on
+      // the spot) and leaves the whole playspace frozen for the rest of the
+      // round.
+      //
+      // THE TERRAIN IS THE PAYLOAD. 46 damage is mid-table for an ultimate on
+      // purpose; the reason to throw this is often the floor.
+      case 'uraume_maxfrost': {
+        const u = caster.cfg.ultimate;
+        const dir = this._castDir(caster);
+        const width = opts.width ?? u.width ?? 7.0;
+        m.sfx.maxFrost?.();
+        m.stage.flash(0.55);
+        m.cam.shake(1.15);
+        m.cam.fovKick(9);
+        m.hitstop(10);
+        const node = m.fx.glacierNode(width, 3.4);
+        node.position.copy(caster.pos);
+        node.rotation.y = Math.atan2(dir.x, dir.z);
+        const range = opts.range ?? u.range ?? 34;
+        const spd = opts.advanceSpeed ?? u.advanceSpeed ?? 15;
+        m.fx.scene.add(node);
+        this.entities.push({
+          type: 'glacier', caster, sure, node, dir: dir.clone(),
+          pos: caster.pos.clone(), travelled: 0, range, spd, width,
+          dmg: (opts.dmg ?? 46) * mult, kb: opts.kb ?? 7, kbY: opts.kbY ?? 3,
+          hitstun: opts.hitstun ?? 44, destruct: opts.destruct ?? 70,
+          frost: opts.frost ?? 6, hit: new Set(), hitOpts: { ...hitOpts },
+          iceEvery: 0, iceDef: opts.ice ?? u.ice
+        });
+        // THE ARENA FREEZES AT THE CASTER'S FEET IMMEDIATELY, so the ultimate
+        // pays off even if the wall is dodged. Permanent — the only ice in the
+        // game with no thaw clock.
+        m.ice?.freeze(caster, {
+          radius: (opts.ice ?? u.ice)?.radius ?? 15,
+          duration: (opts.ice ?? u.ice)?.duration ?? 999
+        });
+        break;
+      }
+
+      // =====================================================================
+      // RYU ISHIGORI — CURSED ENERGY DISCHARGE 呪力の放出
+      // =====================================================================
+
+      // ---- RB · RAPID BLASTS ------------------------------------------------
+      // Canon: "a volley of rapid fire blasts to barrage the user's target",
+      // and separately blasts "raining down" from above. Both are here — the
+      // volley fans forward and the last one arcs over.
+      //
+      // Fired FROM THE MUZZLE, which is his hair. The clip does not move his
+      // arms at all (see anim/ryu.js), and this is the effect that has to
+      // agree with it: the origin is `model.muzzle`, not a hand.
+      case 'ryu_rapid': {
+        const dir = this._castDir(caster);
+        const mz = caster.model?.muzzle;
+        const from = caster.pos.clone()
+          .add(v3(0, mz?.y ?? 1.8, 0))
+          .addScaledVector(dir, (mz?.ahead ?? 0.2) + 0.25);
+        const n = opts.count ?? 3;
+        m.sfx.rapidBlast?.();
+        m.cam.shake(0.22);
+        for (let i = 0; i < n; i++) {
+          const off = n === 1 ? 0 : (i / (n - 1) - 0.5) * (opts.spread ?? 0.16) * 2;
+          const d = dir.clone().applyAxisAngle(v3(0, 1, 0), off);
+          const arc = opts.arcLast && i === n - 1;
+          this.entities.push({
+            type: 'ryuShot', caster, sure,
+            pos: from.clone(), dir: d, spd: opts.speed ?? 30,
+            range: opts.range ?? 20, travelled: 0,
+            dmg: (opts.dmg ?? 5.5) * mult, kb: opts.kb ?? 1.6, kbY: 0,
+            hitstun: opts.hitstun ?? 12, destruct: opts.destruct ?? 16,
+            delay: i * 0.07, arc, vy: arc ? 5.2 : 0,
+            hitOpts: { ...hitOpts }, dealt: false, fxT: 0
+          });
+        }
+        break;
+      }
+
+      // ---- RT · GRANITE BLAST -----------------------------------------------
+      // The release. Everything about the tier — damage, width, range, speed,
+      // destruction, knockback, shake — arrives on `opts` because the move was
+      // built by spreading the TIER over the config in `Fighter._releaseBeam`,
+      // so there is exactly one place those numbers live.
+      //
+      // *** IT IS A TRAVELLING ENTITY, NOT AN INSTANT LINE, AND THAT IS A
+      // DELIBERATE DECISION ABOUT URO. *** combat/reflect.js splits every
+      // damaging thing in the game into things that travel (which she bends
+      // back), instant lines (which she cannot) and bodies (which she cannot).
+      // Canon is unambiguous that Uro redirects Ryu's blasts — she has the
+      // advantage on him for exactly that reason, and it is how he loses his
+      // fight — so the beam is built as a travelling front and `ryuBeam` is in
+      // the REFLECTABLE table. See the note there and the delivery report for
+      // what a reflected tier-4 actually does to him.
+      case 'ryu_beam': {
+        const dir = this._castDir(caster);
+        const mz = caster.model?.muzzle;
+        const r = opts.width ?? 1.2;
+        const from = caster.pos.clone()
+          .add(v3(0, mz?.y ?? 1.8, 0))
+          .addScaledVector(dir, (mz?.ahead ?? 0.2) + r * 0.5);
+        const range = opts.range ?? 22;
+        m.fx.outputClear(caster);
+        m.sfx.graniteBlast?.(opts.tier ?? 0);
+        m.cam.shake(opts.shake ?? 0.5);
+        m.cam.fovKick(3 + (opts.tier ?? 0) * 2.2);
+        m.stage.flash(opts.flash ?? 0.2);
+        if ((opts.tier ?? 0) >= 3) m.hitstop(8);
+        const node = m.fx.beamNode(range, r);
+        node.position.copy(from);
+        node.lookAt(from.clone().add(dir));
+        m.fx.scene.add(node);
+        this.entities.push({
+          type: 'ryuBeam', caster, origin: caster, sure, node,
+          pos: from.clone(), dir: dir.clone(),
+          spd: opts.speed ?? 38, range, travelled: 0, radius: r,
+          dmg: (opts.dmg ?? 22) * mult, kb: opts.kb ?? 5.5, kbY: 0.6,
+          hitstun: opts.hitstun ?? 26, destruct: opts.destruct ?? 60,
+          tier: opts.tier ?? 0, hit: new Set(), hitOpts: { ...hitOpts },
+          life: 1.6
+        });
+        break;
+      }
+
+      // ---- D-pad Right · MAXIMUM OUTPUT: GRANITE BLAST ---------------------
+      // A colossal sustained beam, held for a moment and SWEEPABLE with the
+      // left stick. The only move in the game other than Hollow Purple that
+      // destroys with `kind: 'erase'`, and the brief asks for exactly that
+      // relationship: the most environmentally destructive thing in the game
+      // outside Purple.
+      case 'ryu_maxblast': {
+        const u = caster.cfg.ultimate;
+        const dir = this._castDir(caster);
+        const mz = caster.model?.muzzle;
+        const r = opts.width ?? u.width ?? 4.4;
+        const range = opts.range ?? u.range ?? 60;
+        const from = caster.pos.clone()
+          .add(v3(0, mz?.y ?? 1.8, 0))
+          .addScaledVector(dir, (mz?.ahead ?? 0.2) + r * 0.4);
+        m.fx.outputClear(caster);
+        m.sfx.maxBlast?.();
+        m.stage.flash(0.72);
+        m.cam.shake(1.5);
+        m.cam.fovKick(14);
+        m.hitstop(14);
+        const node = m.fx.beamNode(range, r);
+        node.position.copy(from);
+        node.lookAt(from.clone().add(dir));
+        m.fx.scene.add(node);
+        this.entities.push({
+          type: 'ryuMax', caster, origin: caster, sure, node,
+          pos: from.clone(), dir: dir.clone(), baseYaw: Math.atan2(dir.x, dir.z),
+          t: 0, hold: opts.hold ?? u.hold ?? 1.05, range, radius: r,
+          sweep: opts.sweep ?? u.sweep ?? 0.62,
+          dmg: (opts.dmg ?? 118) * mult, kb: opts.kb ?? 14, kbY: opts.kbY ?? 3,
+          hitstun: opts.hitstun ?? 52,
+          destroySteps: opts.destroySteps ?? 24, destroyStep: opts.destroyStep ?? 2.4,
+          destroyRadius: opts.destroyRadius ?? 3.0, destroyPower: opts.destroyPower ?? 220,
+          destroyKind: opts.destroyKind ?? 'erase',
+          tickT: 0, hitOpts: { ...hitOpts }
+        });
+        break;
+      }
+
       case 'nanami_collapse': {
         m.fx.cleaveArc(caster, true);
         m.sfx.cleave(true);
@@ -4228,6 +4667,382 @@ export class Effects {
       // It sits below `tryReflect` like every other travelling thing in this
       // loop, which is the whole of Uro's integration: she bends the three
       // that fly and cannot touch the eleven that do not.
+      // =================================================================
+      // URAUME'S AND RYU'S TRAVELLING ENTITIES
+      // =================================================================
+      // All five sit BELOW `tryReflect` like every other travelling thing in
+      // this loop, which is the whole of their Uro integration. Two of the
+      // five are in the REFLECTABLE table (`iceShard` and `ryuBeam`) and three
+      // deliberately are not — see the notes on each.
+
+      // ---- ICEFALL'S SHARDS -------------------------------------------------
+      // Real geometry, moved by the same vector that decides the hit, so the
+      // picture and the hitbox are one position.
+      if (e.type === 'iceShard') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          // it flies POINT-FIRST and rolls about its own axis — the roll is
+          // what makes a faceted solid read as a solid rather than as a decal
+          e.node.lookAt(e.pos.clone().add(e.dir));
+          e.node.rotateX(Math.PI / 2);
+          e.node.rotateY((e.spinT = (e.spinT ?? 0) + e.spin * dt));
+        }
+        const tgt = this.other(e.caster);
+        const hitR = 0.62 + (tgt?.hurtBox?.pad ?? 0);
+        if (!e.dealt && tgt?.alive
+          && (e.sure || e.pos.distanceTo(tgt.pos.clone().add(v3(0, tgt.hurtBox?.center ?? 1.1, 0))) < hitR)) {
+          e.dealt = true;
+          const { dmg } = computeDamage(e.caster, e.dmg, { canCrit: false });
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            dir: e.dir.clone(), sureHit: e.sure, attacker: e.caster, src: 'projectile'
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, {});
+          if (r === 'hit' || r === 'otg') {
+            // THE ORDER MATTERS. `isFrostbound` is read BEFORE the stack is
+            // applied, so a shard that lands on an already-shelled target
+            // calls the icicle down — and a shard that lands on a target it
+            // is itself about to shell does not, because the icicle is the
+            // reward for keeping the pressure on an existing shell rather
+            // than a bonus attached to the hit that made one.
+            //
+            // (The shell has ALSO already been broken by this hit — see the
+            // shatter hook in Fighter.applyHit — so this read has to happen
+            // before that resolves... which it does, because `applyHit`
+            // returns after shattering and `wasBound` was captured before the
+            // call. That capture is the whole reason the variable exists.)
+            if (e.wasBound) this._iceFall(e.caster, tgt, e.icicle);
+            applyFrost(m, tgt, e.frost ?? 1, e.caster);
+          }
+          this._killIceShard(e);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        // captured for the NEXT frame's icicle test, before anything hits
+        e.wasBound = isFrostbound(tgt);
+        if (e.travelled > e.range) {
+          // it lands and shatters on the floor, leaving a little rime
+          m.fx._ring(e.pos.clone().setY(0.05), 0xa8dce8, { size: 0.2, growRate: 3, life: 0.2, flat: true });
+          this._killIceShard(e);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+
+      // ---- THE ICICLE, ARRIVING ---------------------------------------------
+      // A pure timer. It hits WHERE IT WAS AIMED rather than where the victim
+      // now is, which is what makes moving out of it a real answer — the same
+      // grammar Jogo's eruption marker and Hanami's root marker already use.
+      if (e.type === 'icicle') {
+        e.t -= dt;
+        if (e.t > 0) continue;
+        const at = v3(e.x, e.y, e.z);
+        m.cam.shake(0.34);
+        m.arena?.destruct?.damageAt(at.clone().setY(e.y + 0.4), 1.6, 34);
+        m.fx._ring(at.clone().setY(e.y + 0.05), 0x4fd8e8, { size: 0.3, growRate: 12, life: 0.26, flat: true });
+        for (let k = 0; k < 12; k++) {
+          const a = Math.random() * Math.PI * 2;
+          m.fx._spawn(at.clone().add(v3(Math.cos(a) * rand(0.1, 0.8), rand(0.05, 0.9), Math.sin(a) * rand(0.1, 0.8))), {
+            color: k % 3 === 0 ? 0x4fd8e8 : 0xdff2fb, size: rand(0.10, 0.30), aspect: 0.5,
+            life: rand(0.2, 0.5), gravity: 12,
+            vel: v3(Math.cos(a) * rand(1, 4), rand(1, 4), Math.sin(a) * rand(1, 4))
+          });
+        }
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive) continue;
+          if (flatDist(f.pos, at) > (e.def.radius ?? 1.5) + (f.hurtBox?.pad ?? 0)) continue;
+          if (Math.abs(f.pos.y - e.y) > 1.6) continue;
+          const { dmg, crit } = computeDamage(e.caster, e.def.dmg ?? 9);
+          const r = f.applyHit({
+            attacker: e.caster, isCT: true, src: 'ct1', dmg,
+            kb: 1.0, kbY: e.def.kbY ?? 2.0, hitstun: e.def.hitstun ?? 20,
+            type: 'heavy', dir: v3(0, -1, 0)
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true });
+        }
+        this.entities.splice(i, 1);
+        continue;
+      }
+
+      // ---- FROST CALM'S BARRIER WALLS ---------------------------------------
+      // Not a projectile and not damage: a clock that takes real colliders back
+      // out of the Bounds. It exists so the walls cannot outlive the columns
+      // and so the spatial grids cannot grow across a long session — `drop`
+      // unlinks them completely rather than marking them dead.
+      if (e.type === 'iceWalls') {
+        e.t -= dt;
+        if (e.t <= 0) {
+          e.bounds.drop(e.walls);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+
+      // ---- THE GLACIATION WALL ----------------------------------------------
+      // Uraume's ultimate, crossing the arena. DELIBERATELY NOT REFLECTABLE:
+      // it is a wall of ice moving across the GROUND, which is the same shape
+      // as Hanami's roots and Dagon's tidal surge, and combat/reflect.js
+      // already rules that family closer to terrain than to a projectile.
+      // Bending a glacier back would also mean bending the terrain it has
+      // already laid, which has no meaning.
+      if (e.type === 'glacier') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          e.node.position.y = m.arena?.bounds?.floorAt?.(e.pos.x, e.pos.z, e.pos.y + 2) ?? e.pos.y;
+        }
+        // it lays permanent ice behind itself as it goes
+        e.iceEvery -= step;
+        if (e.iceEvery <= 0) {
+          e.iceEvery = 4.0;
+          m.ice?.freeze(e.caster, {
+            x: e.pos.x, y: e.pos.y, z: e.pos.z,
+            radius: e.width * 0.72,
+            duration: e.iceDef?.duration ?? 999
+          });
+        }
+        m.arena?.destruct?.damageAt(e.pos.clone().setY(e.pos.y + 1.0), e.width * 0.6, e.destruct);
+        for (let k = 0; k < 3; k++) {
+          const a = rand(-e.width / 2, e.width / 2);
+          const side = e.dir.clone().applyAxisAngle(v3(0, 1, 0), Math.PI / 2).multiplyScalar(a);
+          m.fx._spawn(e.pos.clone().add(side).add(v3(0, rand(0.2, 3.0), 0)), {
+            color: k === 0 ? 0x4fd8e8 : 0xdff2fb, size: rand(0.14, 0.42), aspect: 0.55,
+            life: rand(0.3, 0.8), gravity: 3,
+            vel: v3(rand(-1, 1), rand(1, 4), rand(-1, 1))
+          });
+        }
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive || e.hit.has(f)) continue;
+          const rel = f.pos.clone().sub(e.pos);
+          const along = rel.x * e.dir.x + rel.z * e.dir.z;
+          const perp = Math.abs(rel.x * e.dir.z - rel.z * e.dir.x);
+          if (!(along > -1.4 && along < 1.4 && perp < e.width / 2 + (f.hurtBox?.pad ?? 0))) continue;
+          e.hit.add(f);
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: 'knockdown', dir: e.dir.clone(), attacker: e.caster, sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true, knockdown: true });
+          // MAXIMUM FROST. Everything the wall touches is shelled on the spot,
+          // which is what "applying maximum frost" has to mean when the stack
+          // cap and the shell trigger are the same number.
+          if (r === 'hit' || r === 'otg') applyFrost(m, f, e.frost, e.caster);
+        }
+        m.minions?.hurtAt(e.pos.clone(), e.width * 0.6, e.dmg * 0.7, e.caster);
+        m.curses?.hurtAt(e.pos.clone(), e.width * 0.6, e.dmg * 0.7, e.caster);
+        if (e.travelled > e.range) {
+          this._disposeNode(e.node);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+
+      // ---- RYU'S RAPID SHOTS ------------------------------------------------
+      // DELIBERATELY NOT IN THE REFLECTABLE TABLE, and this is the one ruling
+      // in the pair that is a judgement call rather than a lookup. They travel,
+      // so on the "does it travel" test alone they would qualify. They are
+      // excluded because of what the reflect is FOR: Uro's surface is a read
+      // she commits twenty frames to, priced against turning one committed
+      // technique around. A three-shot volley with a 12-frame startup that Ryu
+      // throws constantly is the wrong size of thing for that trade in both
+      // directions — she would either reflect one 5.5-damage pellet for her
+      // whole stance, or the volley would become unusable into her. His
+      // BEAM is the committed technique and the beam is what she bends.
+      if (e.type === 'ryuShot') {
+        if (e.delay > 0) { e.delay -= dt; continue; }
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        if (e.arc) { e.pos.y += e.vy * dt; e.vy -= 11 * dt; }
+        e.travelled += step;
+        e.fxT -= dt;
+        if (e.fxT <= 0) {
+          e.fxT = 0.03;
+          m.fx._spawn(e.pos.clone(), {
+            color: Math.random() < 0.4 ? 0xfaffe8 : 0xd8f05a, size: 0.20, aspect: 0.7,
+            life: 0.14, opacity: 0.8, vel: v3()
+          });
+        }
+        const tgt = this.other(e.caster);
+        const hitR = 0.70 + (tgt?.hurtBox?.pad ?? 0);
+        if (!e.dealt && tgt?.alive
+          && (e.sure || e.pos.distanceTo(tgt.pos.clone().add(v3(0, tgt.hurtBox?.center ?? 1.1, 0))) < hitR)) {
+          e.dealt = true;
+          const { dmg } = computeDamage(e.caster, e.dmg, { canCrit: false });
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            dir: e.dir.clone(), sureHit: e.sure, attacker: e.caster, src: 'projectile'
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, {});
+          m.arena?.destruct?.damageAt(e.pos.clone(), 1.2, e.destruct);
+          m.fx._ring(e.pos.clone(), 0xd8f05a, { size: 0.2, growRate: 6, life: 0.16, flat: false });
+          this.entities.splice(i, 1);
+          continue;
+        }
+        // it hits the floor, or runs out
+        const floor = m.arena?.bounds?.floorAt?.(e.pos.x, e.pos.z, e.pos.y) ?? 0;
+        if (e.travelled > e.range || e.pos.y <= floor + 0.05) {
+          m.arena?.destruct?.damageAt(e.pos.clone(), 1.4, e.destruct);
+          m.fx._ring(e.pos.clone().setY(floor + 0.05), 0xd8f05a, { size: 0.25, growRate: 8, life: 0.2, flat: true });
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+
+      // ---- GRANITE BLAST ----------------------------------------------------
+      // A travelling FRONT with a solid body behind it. The node is stretched
+      // from the muzzle to the front so the beam looks like it is being
+      // extruded rather than flying — which is both what a beam does and what
+      // makes the reflection legible when Uro turns it around, because the
+      // whole object visibly reverses.
+      //
+      // *** IN THE REFLECTABLE TABLE. *** Canon: Uro has the advantage on Ryu
+      // precisely because she redirects his blasts, and a redirected Granite
+      // Blast is how he loses his fight. See the delivery report for what a
+      // reflected tier-4 actually does to him — the short version is that
+      // `selfEnergyResist` below is the reason it is not a round-ender.
+      if (e.type === 'ryuBeam') {
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        e.life -= dt;
+        if (e.node) {
+          // the head is at `pos`; the tail trails behind it up to `range`
+          const tail = Math.min(e.travelled, e.range);
+          e.node.position.copy(e.pos).addScaledVector(e.dir, -tail);
+          e.node.lookAt(e.node.position.clone().add(e.dir));
+          const k = tail / Math.max(0.001, e.range);
+          e.node.scale.set(1, 1, Math.max(0.05, k));
+          for (const ring of e.node.userData.rings ?? []) {
+            ring.position.z += 26 * dt;
+            if (ring.position.z > e.node.userData.len) ring.position.z = 0;
+          }
+        }
+        m.arena?.destruct?.damageAt(e.pos.clone(), e.radius * 1.4, e.destruct);
+        for (let k = 0; k < 2; k++) {
+          m.fx._spawn(e.pos.clone().add(v3(rand(-e.radius, e.radius), rand(-e.radius, e.radius), rand(-e.radius, e.radius))), {
+            color: k === 0 ? 0xfaffe8 : 0xd8f05a, size: rand(0.16, 0.44), aspect: 0.6,
+            life: rand(0.14, 0.34), vel: v3(rand(-2, 2), rand(-1, 3), rand(-2, 2))
+          });
+        }
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive || e.hit.has(f)) continue;
+          const chest = f.pos.clone().add(v3(0, f.hurtBox?.center ?? 1.1, 0));
+          if (!e.sure && chest.distanceTo(e.pos) > e.radius + 0.5 + (f.hurtBox?.pad ?? 0)) continue;
+          e.hit.add(f);
+          // ---- THE OWNER'S OWN ENERGY -------------------------------------
+          // If this beam is coming back at the man who fired it (Uro bent it),
+          // he takes REDUCED damage from it. Canon and not a patch: Ryu's
+          // "immense endurance" entry records that he withstood being hit with
+          // his own Granite Blast, and reinforced his body hard enough to
+          // reduce Sukuna's Dismantle to a single cut. `e.origin` is stamped at
+          // spawn and is never rewritten by the reflect (which rewrites
+          // `caster`), so this is the one place the two can be told apart.
+          const own = f === e.origin;
+          const scale = own ? (f.cfg.selfEnergyResist ?? 0.45) : 1;
+          const { dmg, crit } = computeDamage(e.caster, e.dmg * scale);
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            type: e.tier >= 2 ? 'knockdown' : 'heavy',
+            dir: e.dir.clone(), attacker: e.caster, sureHit: e.sure
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true, knockdown: e.tier >= 2 });
+          if (own && r === 'hit') m.hud?.toast?.(f, '自分の呪力 — OWN OUTPUT');
+        }
+        m.minions?.hurtAt(e.pos.clone(), e.radius * 1.2, e.dmg * 0.7, e.caster);
+        m.curses?.hurtAt(e.pos.clone(), e.radius * 1.2, e.dmg * 0.7, e.caster);
+        if (e.travelled > e.range || e.life <= 0) {
+          this._disposeNode(e.node);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+
+      // ---- MAXIMUM OUTPUT ---------------------------------------------------
+      // A SUSTAINED beam rather than a travelling one: it exists at full
+      // length for `hold` seconds and is swept with the left stick. DELIBERATELY
+      // NOT REFLECTABLE — it is category B in combat/reflect.js, an instant
+      // line that is already through her by the time it exists, which is the
+      // same ruling Hollow Purple, Uzumaki, Fire Arrow and Piercing Blood get
+      // and for the same reason. Their counterplay is the enormous startup they
+      // were priced around, and this one's is 42 frames of a man visibly
+      // digging himself into the floor.
+      if (e.type === 'ryuMax') {
+        e.t += dt;
+        // THE SWEEP. The left stick drags the beam across the arena, clamped
+        // to `sweep` radians either side of where it started.
+        const inp = m.inputFor?.(e.caster);
+        if (inp?.move && Math.abs(inp.move.x) > 0.2) {
+          e.baseYaw += inp.move.x * 1.15 * dt;
+        }
+        e.dir.set(Math.sin(e.baseYaw), 0, Math.cos(e.baseYaw));
+        const mz = e.caster.model?.muzzle;
+        e.pos.copy(e.caster.pos).add(v3(0, mz?.y ?? 1.8, 0))
+          .addScaledVector(e.dir, (mz?.ahead ?? 0.2) + e.radius * 0.4);
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          e.node.lookAt(e.pos.clone().add(e.dir));
+          const flicker = 0.9 + Math.sin(e.t * 40) * 0.1;
+          e.node.scale.set(flicker, flicker, 1);
+        }
+        // THE ENVIRONMENT. Walked out step by step at `erase` strength — the
+        // same kind Hollow Purple uses, and the only other move in the game
+        // that gets it.
+        e.tickT -= dt;
+        if (e.tickT <= 0) {
+          e.tickT = 0.06;
+          for (let s = 1; s <= e.destroySteps; s++) {
+            m.arena?.destruct?.damageAt(
+              e.pos.clone().addScaledVector(e.dir, s * e.destroyStep),
+              e.destroyRadius, e.destroyPower, { kind: e.destroyKind });
+          }
+          m.cam.shake(0.5);
+        }
+        for (let k = 0; k < 5; k++) {
+          const along = rand(0, e.range);
+          m.fx._spawn(e.pos.clone().addScaledVector(e.dir, along)
+            .add(v3(rand(-e.radius, e.radius), rand(-e.radius, e.radius), rand(-e.radius, e.radius))), {
+            color: k % 2 === 0 ? 0xfaffe8 : 0xd8f05a, size: rand(0.2, 0.7), aspect: 0.6,
+            life: rand(0.16, 0.4), vel: v3(rand(-3, 3), rand(-1, 4), rand(-3, 3))
+          });
+        }
+        // DAMAGE TICKS rather than one hit, so sweeping ONTO somebody catches
+        // them and sweeping OFF them stops. The per-second rate is the config's
+        // total divided by the hold, so the printed number is what a target
+        // standing in it for the whole beam actually takes.
+        e.dmgT = (e.dmgT ?? 0) - dt;
+        if (e.dmgT <= 0) {
+          e.dmgT = 0.15;
+          const per = e.dmg * (0.15 / e.hold);
+          for (const f of m.activeFighters) {
+            if (f === e.caster || !f.alive) continue;
+            const rel = f.pos.clone().sub(e.caster.pos);
+            const along = rel.x * e.dir.x + rel.z * e.dir.z;
+            const perp = Math.abs(rel.x * e.dir.z - rel.z * e.dir.x);
+            if (!e.sure && !(along > 0 && along < e.range && perp < e.radius + (f.hurtBox?.pad ?? 0))) continue;
+            const { dmg } = computeDamage(e.caster, per, { canCrit: false });
+            const r = f.applyHit({
+              ...e.hitOpts, dmg, kb: e.kb * 0.2, kbY: e.kbY * 0.2,
+              hitstun: e.hitstun, type: 'heavy', dir: e.dir.clone(), attacker: e.caster
+            }, m.ctxFor(e.caster));
+            hitFeedback(m, e.caster, f, r, { heavy: true });
+          }
+          m.minions?.hurtAt(e.caster.pos.clone().addScaledVector(e.dir, e.range * 0.4), e.range * 0.4, per, e.caster);
+          m.curses?.hurtAt(e.caster.pos.clone().addScaledVector(e.dir, e.range * 0.4), e.range * 0.4, per, e.caster);
+        }
+        if (e.t >= e.hold) {
+          this._disposeNode(e.node);
+          m.stage.flash(0.3);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+
       if (e.type === 'bit') {
         if (e.delay > 0) { e.delay -= dt; continue; }
         const step = e.spd * dt;
@@ -5724,6 +6539,7 @@ export class Effects {
           // FIRE BURNS ROOT FIELDS OUT. Jogo answers Hanami's terrain with
           // the same tool he answers everything else with.
           m.flora?.damageFieldsAt(e.pos, e.radius + 1.0, 'fire');
+          m.ice?.meltAt(e.pos, e.radius + 1.0, 1.0);
           for (const f of m.activeFighters) {
             if (f === e.caster || !f.alive) continue;
             const d = Math.hypot(f.pos.x - e.pos.x, f.pos.z - e.pos.z);
@@ -5782,6 +6598,7 @@ export class Effects {
           m.curses?.hurtAt(e.pos, e.radius, 2, e.caster);
           // burning ground eats a root field it is sitting on
           m.flora?.damageFieldsAt(e.pos, e.radius, 'fire');
+          m.ice?.meltAt(e.pos, e.radius, 1.0);
         }
         if (e.life <= 0) this.entities.splice(i, 1);
       } else if (e.type === 'blue') {

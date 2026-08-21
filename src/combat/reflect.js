@@ -145,7 +145,41 @@ export const REFLECTABLE = {
   // it is a wall of water crossing the ground, the same shape as Hanami's
   // roots, and it is closer to terrain than to a projectile.
   seaFish: true,
-  seaSpit: true
+  seaSpit: true,
+  // URAUME — ICEFALL's shards. They cross the arena as objects and they are
+  // worth 3.5 damage each, so bending five of them back is a small, correct
+  // reward for a read. FROST CALM is deliberately absent: its columns come UP
+  // OUT OF THE GROUND along a line and never cross the space in front of her,
+  // which puts it with Hanami's roots rather than with Jogo's insects. The
+  // GLACIER (the ultimate) is absent for the same reason at a larger scale —
+  // it is a wall of ice moving across the FLOOR, the same shape as Dagon's
+  // tidal surge, which this table already rules is closer to terrain than to a
+  // projectile. Bending it back would also have to mean bending the ice it has
+  // already laid, which has no meaning.
+  iceShard: true,
+  // ---- RYU — GRANITE BLAST, AND THE ONE ENTRY CANON DECIDED FOR US -------
+  // *** THIS ONE IS NOT A JUDGEMENT CALL. *** The source is unambiguous that
+  // Uro redirects Ryu's blasts, that she has the advantage on him for exactly
+  // that reason, and that a redirected Granite Blast is how he loses his
+  // fight. So the beam is BUILT as a travelling front (rather than as an
+  // instant line, which is what a beam would ordinarily be in this table) in
+  // order to be reflectable, and it is here.
+  //
+  // A reflected tier-4 beam would be a round-ender at face value — 88 damage
+  // arriving on the man who fired it. It is not, and the reason is also canon
+  // rather than a patch: Ryu's endurance entry records that he withstood being
+  // hit with his own Granite Blast, and that he reinforced his body hard
+  // enough to reduce Sukuna's Dismantle to a single cut. His config declares
+  // `selfEnergyResist`, and the beam's damage site reads it when the target is
+  // the beam's ORIGINAL owner (`e.origin`, stamped at spawn and never
+  // rewritten by `applyReflect`, which rewrites `caster`). See the delivery
+  // report for the measured numbers.
+  //
+  // MAXIMUM OUTPUT (`ryuMax`) is deliberately NOT here. It is a sustained
+  // instant line with no front crossing the space — category B, with Hollow
+  // Purple, Uzumaki, Fire Arrow and Piercing Blood — and its counterplay is
+  // the 42 frames of telegraph it was priced around.
+  ryuBeam: true
 };
 
 // A projectile may be turned around exactly once. See the mirror-match note.

@@ -9,6 +9,13 @@ import {
   buildPachinkoBall, buildSpear, buildChainRope, buildSoulBlade, buildPlayfulCloud,
   buildNullifySeal, buildStoneSlab
 } from './props.js';
+// URAUME'S ICE and RYU'S DISCHARGE. Both are real oriented geometry rather
+// than billboards — see the header of fx/frostfx.js for the two shape-language
+// rules those constructs are held to.
+import {
+  iceShard, iceColumn, frostShell as buildFrostShell, iceSheet as buildIceSheet,
+  glacierWall, graniteBeam, chargeOrb, chargeCracks, ICE, OUT
+} from './frostfx.js';
 
 function shadowTexture() {
   // white radial with alpha falloff; tinted black by the material so the
@@ -41,6 +48,197 @@ export class FXSystem {
     this.rika = null;        // lazy spectral Rika
     this.rikaTimer = 0;
     this._shadowTex = shadowTexture();
+  }
+
+  // =========================================================================
+  // URAUME — THE ICE
+  // =========================================================================
+  // Geometry lives in fx/frostfx.js; these are the call-site wrappers, so the
+  // combat layer never touches THREE directly and never has to know how a
+  // shard is put together.
+
+  // A terrain patch. Returns the controller the IceSystem holds — it resizes
+  // when fire melts it and fades as it thaws, and neither of those should
+  // require the combat layer to know about meshes.
+  iceSheet(x, y, z, r) { return buildIceSheet(this.scene, x, y, z, r); }
+
+  // ONE SHARD IN FLIGHT. Driven by the entity that owns the hitbox, so the
+  // picture and the hit test are the same position by construction.
+  iceShardNode(len = 0.9, r = 0.11) { return iceShard(len, r); }
+
+  // A column bursting out of the ground. `grow` is the fraction of its final
+  // height it has reached — it comes UP rather than appearing, which is rule 3
+  // of the ice shape language.
+  iceColumnNode(h, r) { return iceColumn(h, r); }
+
+  // Uraume's ultimate: the advancing face.
+  glacierNode(width, height) { return glacierWall(width, height); }
+
+  // ---- THE FROSTBOUND SHELL ----------------------------------------------
+  // *** THE MESH THAT HAS TO NOT LOOK LIKE NAOYA'S FREEZE. *** His is a gold
+  // desaturation of the victim's own materials plus a 24-tick clock and no
+  // geometry at all; this is a physical object built around a body whose
+  // colours are untouched. The two are distinguishable in a still frame with
+  // the HUD off, which is the bar the distinction had to clear.
+  //
+  // Measured against the victim rather than assumed, because the victim might
+  // be Mahoraga at 3.6 m or Jogo at 1.42 m.
+  frostShell(victim) {
+    if (!victim) return null;
+    this.frostShatter(victim, true);          // never two shells on one body
+    const h = (victim.cfg.size?.height ?? 1.8) * 1.06;
+    const r = (victim.hurtBox?.radius ?? victim.cfg.size?.hurtRadius ?? 0.6) * 1.25;
+    const node = buildFrostShell(h, r);
+    node.position.copy(victim.pos);
+    this.scene.add(node);
+    victim._frostNode = node;
+    // IT GROWS FROM THE FEET UP over the first tenth of a second, and then
+    // holds. The growth is on Y only — a shell that scaled uniformly would
+    // read as being inflated rather than as closing over somebody.
+    // IT FOLLOWS THE BODY. Registered here rather than parented to
+    // `victim.model.group`, because the shell must NOT inherit the body's
+    // rotation — a frozen fighter's model still turns to face the opponent
+    // and a shell that turned with them would read as being worn rather than
+    // as having been built around them.
+    (this._shells ??= []).push({ node, victim, t: 0 });
+    victim.model?.setFrostShell?.(1);
+    return node;
+  }
+
+  // The break. `silent` skips the burst — used when a second shell replaces a
+  // first, which should not look like the first one was destroyed.
+  frostShatter(victim, silent = false) {
+    const node = victim?._frostNode;
+    if (!node) return false;
+    node.removeFromParent();
+    node.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    victim._frostNode = null;
+    if (this._shells) this._shells = this._shells.filter(s => s.node !== node);
+    victim.model?.setFrostShell?.(0);
+    if (silent) return true;
+    // the burst: real shards thrown outward, not a puff. The shell was a solid
+    // and it should come apart like one.
+    const h = (victim.cfg.size?.height ?? 1.8);
+    for (let i = 0; i < 18; i++) {
+      const a = Math.random() * Math.PI * 2;
+      this._spawn(victim.pos.clone().add(v3(Math.cos(a) * rand(0.1, 0.7), rand(0.1, h), Math.sin(a) * rand(0.1, 0.7))), {
+        color: i % 3 === 0 ? ICE.core : ICE.pale, size: rand(0.10, 0.26), aspect: 0.45,
+        life: rand(0.22, 0.5), gravity: 12,
+        vel: v3(Math.cos(a) * rand(2, 6), rand(1.5, 5), Math.sin(a) * rand(2, 6))
+      });
+    }
+    this._ring(victim.pos.clone().setY(0.06), ICE.core, { size: 0.4, growRate: 12, life: 0.28, flat: true });
+    return true;
+  }
+
+  // =========================================================================
+  // RYU — THE DISCHARGE
+  // =========================================================================
+  beamNode(len, r) { return graniteBeam(len, r); }
+
+  // ---- THE CHARGE TELL ----------------------------------------------------
+  // "The charge state needs to escalate visibly on the model: energy
+  // gathering, the ground cracking under him, light spilling across the arena,
+  // air distortion. The opponent must be able to read his charge tier from
+  // anywhere."
+  //
+  // All four of those are here and all four are driven by ONE 0..1 number
+  // (`threatOf` in combat/output.js), so they cannot disagree about how far
+  // along he is. The fifth channel — the muzzle itself lighting up — lives on
+  // the MODEL (`setOutput`), because it is geometry attached to his head.
+  outputCharge(caster, k, tier) {
+    // 1. THE GROUND. A crack rig placed once and grown from there.
+    if (!caster._crackNode) {
+      const g = chargeCracks(9);
+      this.scene.add(g);
+      caster._crackNode = g;
+    }
+    caster._crackNode.position.set(caster.pos.x, caster.pos.y + 0.02, caster.pos.z);
+    caster._crackNode.userData.set(k);
+
+    // 2. THE GATHER at the muzzle.
+    const mz = caster.model?.muzzle;
+    const at = caster.pos.clone()
+      .add(v3(0, mz?.y ?? 1.8, 0))
+      .addScaledVector(caster.forward(), (mz?.ahead ?? 0.2) + 0.1);
+    if (!caster._orbNode) {
+      const g = chargeOrb(0.16);
+      this.scene.add(g);
+      caster._orbNode = g;
+    }
+    caster._orbNode.position.copy(at);
+    caster._orbNode.scale.setScalar(0.5 + k * 2.2);
+    caster._orbNode.rotation.y += 0.22;
+    caster._orbNode.rotation.x += 0.14;
+    caster._orbNode.userData.core.material.opacity = 0.5 + k * 0.5;
+    caster._orbNode.userData.shell.material.opacity = 0.10 + k * 0.30;
+
+    // 3. DEBRIS off the floor. Rate scales with the tier, so the ground gets
+    //    visibly angrier rather than merely brighter.
+    for (let i = 0; i < 1 + tier; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = rand(0.5, 1.2 + tier * 0.9);
+      this._spawn(caster.pos.clone().add(v3(Math.cos(a) * rr, 0.05, Math.sin(a) * rr)), {
+        color: i % 2 === 0 ? OUT.edge : 0x8d8f96, size: rand(0.07, 0.20), aspect: 0.6,
+        life: rand(0.20, 0.55), gravity: 16,
+        vel: v3(rand(-1, 1), rand(2, 4 + tier * 1.6), rand(-1, 1))
+      });
+    }
+    // 4. THE MOTES falling INTO the muzzle — the "gathering" read, and the one
+    //    that says the energy is coming from outside him.
+    for (let i = 0; i < 2; i++) {
+      const a = Math.random() * Math.PI * 2, rr = rand(1.2, 3.0);
+      this._spawn(at.clone().add(v3(Math.cos(a) * rr, rand(-0.8, 1.2), Math.sin(a) * rr)), {
+        color: OUT.hot, size: rand(0.06, 0.16), aspect: 0.4, life: 0.24,
+        vel: v3(-Math.cos(a) * rr * 3.4, 0, -Math.sin(a) * rr * 3.4)
+      });
+    }
+    // 5. THE LIGHT SPILLING ACROSS THE ARENA. One ring a beat, sized by tier,
+    //    laid flat — visible from anywhere including behind cover.
+    caster._chargeRingT = (caster._chargeRingT ?? 0) - 1 / 60;
+    if (caster._chargeRingT <= 0) {
+      caster._chargeRingT = 0.34 - k * 0.18;
+      this._ring(caster.pos.clone().setY(0.05), tier >= 3 ? OUT.hot : OUT.edge,
+        { size: 0.4, growRate: 6 + tier * 4, life: 0.4, flat: true });
+    }
+  }
+
+  // Torn down on release, on a hit that interrupts him, and on the round
+  // reset. Idempotent, so every one of those can call it without checking.
+  outputClear(caster) {
+    for (const key of ['_crackNode', '_orbNode']) {
+      const n = caster?.[key];
+      if (!n) continue;
+      n.removeFromParent();
+      n.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      caster[key] = null;
+    }
+  }
+
+  // BRACE. Deliberately a DIFFERENT read from the charge: no ground cracks, no
+  // muzzle, no forward direction at all — energy falling INTO him from every
+  // side. A player who has learned the character has to be able to tell at a
+  // glance whether he is about to fire or merely refuelling, because the
+  // correct response to the two is completely different.
+  braceGather(caster, k) {
+    for (let i = 0; i < 3; i++) {
+      const a = Math.random() * Math.PI * 2, rr = rand(2.0, 4.2);
+      this._spawn(caster.pos.clone().add(v3(Math.cos(a) * rr, rand(0.2, 2.6), Math.sin(a) * rr)), {
+        color: i === 0 ? OUT.hot : OUT.edge, size: rand(0.07, 0.17), aspect: 0.45, life: 0.30,
+        vel: v3(-Math.cos(a) * rr * 2.6, rand(-0.4, 0.8), -Math.sin(a) * rr * 2.6)
+      });
+    }
+    caster._braceRingT = (caster._braceRingT ?? 0) - 1 / 60;
+    if (caster._braceRingT <= 0) {
+      caster._braceRingT = 0.42;
+      // the ring CONTRACTS rather than growing — the inverse of every other
+      // ring in the game, which is the whole visual grammar of "taking in"
+      this._ring(caster.pos.clone().setY(0.05), OUT.edge,
+        // -1.6 over 0.5 s takes the scale from 1.0 to 0.2 — it contracts and
+        // stops, rather than passing through zero and turning inside out,
+        // which is what a larger negative rate does to `scale.addScalar`.
+        { size: 4.0, growRate: -1.6, life: 0.5, flat: true });
+    }
   }
 
   // ---- PROCEDURAL PROPS ---------------------------------------------------
@@ -2061,6 +2259,26 @@ export class FXSystem {
         // roll-up: 0.22 s of travel out of the floor, then it just stands
         const k = Math.min(1, s.t / 0.22);
         s.group.scale.set(1, k * k * (3 - 2 * k), 1);
+      }
+    }
+    // ---- THE FROST SHELLS ------------------------------------------------
+    // Follow the body's POSITION and not its rotation (see `frostShell`), and
+    // grow on Y over the first tenth of a second so the ice closes over
+    // somebody rather than appearing around them — rule 3 of the ice shape
+    // language in fx/frostfx.js.
+    if (this._shells?.length) {
+      for (let i = this._shells.length - 1; i >= 0; i--) {
+        const sh = this._shells[i];
+        // a victim who died, was removed, or had the shell disposed under us
+        if (!sh.victim?.alive || sh.victim._frostNode !== sh.node) {
+          this.frostShatter(sh.victim, true);
+          this._shells.splice(i, 1);
+          continue;
+        }
+        sh.t += dt;
+        sh.node.position.copy(sh.victim.pos);
+        const g = Math.min(1, sh.t / 0.10);
+        sh.node.scale.set(0.72 + 0.28 * g, g, 0.72 + 0.28 * g);
       }
     }
     for (const s of this.shadows) {

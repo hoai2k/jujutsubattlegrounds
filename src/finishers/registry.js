@@ -2612,6 +2612,275 @@ export const FINISHERS_BY_PICK = {
   // no flourish — and the last thing she does is apologise, which is the only
   // outro on the roster where the winner is embarrassed.
   // =========================================================================
+  // =========================================================================
+  // URAUME — 「霜凪」 THEY DO NOT MOVE
+  // Chapter 135, the Shibuya rally: a group of Jujutsu High sorcerers charge
+  // Uraume to get to Gojo, and Uraume freezes all of them in place with a
+  // single breath without taking a step. Then Icefall — block ice broken apart
+  // and levitated in, and giant icicles coming down on the frozen bodies. The
+  // research finding that shaped the whole choreography is that THIS FIGHT WAS
+  // NEVER CLOSE: Kusakabe, a grade 1, described Uraume's sorcery as completely
+  // out of his league, and the only reason anybody survived was Yuki Tsukumo
+  // arriving.
+  //
+  // THE BRIEF'S REQUIREMENT, honoured beat by beat: PLAY AGAINST THE CALM. The
+  // opponent attacks in every single action of this scene — four separate
+  // committed attacks, all of which land on nothing — and Uraume's body moves
+  // a total of one raised hand and one turned palm across the entire sequence.
+  // The camera does all the work; the character does almost none.
+  // =========================================================================
+  uraume: {
+    id: 'uraume_shimonagi',
+    moment: 'Shibuya. They come at Uraume all at once, and Uraume breathes out.',
+    color: '#4fd8e8', grade: 'sentence', chord: 'cold', root: 98.0,
+    // A cold mist on the air for the whole scene, and it THICKENS: the ambient
+    // is the only thing in this finisher that escalates, because the character
+    // will not.
+    ambient: (d, t) => {
+      const k = Math.min(1, t / 5);
+      if (Math.random() < 0.14 + k * 0.5) {
+        d.fx._spawn(d.win.pos.clone().add(v3(rand(-3.5, 3.5), rand(0.05, 2.6), rand(-3.5, 3.5))), {
+          color: Math.random() < 0.3 ? 0x4fd8e8 : 0xdff2fb,
+          size: rand(0.05, 0.16), aspect: 0.5, life: rand(1.0, 2.2), opacity: 0.4,
+          gravity: -0.5, vel: v3(rand(-0.2, 0.2), rand(-0.3, 0.2), rand(-0.2, 0.2))
+        });
+      }
+    },
+    actions: [
+      // ---- THEY COME IN ----------------------------------------------------
+      // Two attacks, both whiffing, and Uraume is in `stance` for both — the
+      // hands-together waiting pose. `hit: false, miss: true` gives the whoosh
+      // past the ear rather than a block spark, because nothing was blocked:
+      // nothing was there.
+      {
+        op: 'fCross', strike: 'op', hit: false, miss: true, win: 'stance',
+        shot: S.otsLose(), power: 1.0, span: 0.85
+      },
+      {
+        op: 'fRound', strike: 'op', hit: false, miss: true, win: 'stance',
+        shot: S.hitR(), power: 1.1, span: 0.90,
+        fx: d => d.sfx.whiff?.()
+      },
+      // ---- THE BREATH ------------------------------------------------------
+      // The whole finisher. One hand raised, one exhale, and the mist goes out.
+      // Uraume's clip is their own `ct2` — the real Frost Calm animation, not a
+      // finisher-only pose — because the point of the scene is that this is
+      // the ordinary technique performed at somebody who cannot survive it.
+      {
+        win: 'ct2', op: 'fStepThrough', span: 1.35,
+        shot: two({ d: 3.2, side: -0.5, y: 1.30, fov: 36, push: 0.18 }), dofBase: 0.45,
+        fx: d => {
+          d.sfx.frostCalm?.();
+          d.audio.accent(98, { gain: 0.09 });
+          const fwd = d.win.forward();
+          for (let i = 0; i < 40; i++) {
+            const a = rand(-0.5, 0.5);
+            const dir = fwd.clone().applyAxisAngle(v3(0, 1, 0), a);
+            d.fx._spawn(d.win.pos.clone().add(v3(0, 1.45, 0)).addScaledVector(dir, rand(0.3, 3.5)), {
+              color: i % 4 === 0 ? 0x4fd8e8 : 0xdff2fb, size: rand(0.14, 0.40), aspect: 0.6,
+              life: rand(0.5, 1.1), opacity: 0.65,
+              vel: dir.clone().multiplyScalar(rand(3, 8)).setY(rand(-0.4, 0.6))
+            });
+          }
+        }
+      },
+      // ---- IT ARRIVES ------------------------------------------------------
+      // The columns come up around the loser and hold them. `rTorque` is the
+      // reaction — a body being twisted and stopped rather than knocked back,
+      // which is the correct read for being encased rather than hit.
+      {
+        win: 'stance', strike: 'win',
+        blast: { at: 0.30, aim: 'chest', power: 1.6, kind: 'ice' },
+        hit: true, react: 'rTorque', op: null, span: 1.30,
+        power: 1.6, knock: 0.15, shot: S.faceLose({ d: 1.5, side: -0.4 }),
+        dofBase: 0.55, impact: 0.20,
+        fx: d => { d.sfx.frostBind?.(); d.cam.shake(0.4); },
+        // the ice closes ON the body, from the feet up, in shot
+        onContact: (d, at) => {
+          d.fx.frostShell?.(d.lose);
+          d.fx._ring(at.clone().setY(0.05), 0x4fd8e8, { size: 0.4, growRate: 9, life: 0.6, flat: true });
+        }
+      },
+      // ---- AND THEY STILL TRY ---------------------------------------------
+      // *** THE MOST IMPORTANT BEAT IN THE SCENE. *** The loser is encased and
+      // attacks anyway — `fThrust` out of the ice — because the brief asks for
+      // the opponent to be attacking desperately throughout and because the
+      // canon detail is that MOVING inside Frost Calm is what tears you apart.
+      // Uraume does not react to it at all. No block, no dodge, no flinch: the
+      // `stance` clip continues from where the last action left it.
+      {
+        op: 'fThrust', strike: 'op', hit: false, miss: true, win: 'stance',
+        span: 0.95, shot: S.lowR(1.2), dofBase: 0.3, power: 0.8,
+        fx: d => {
+          d.sfx.crack?.();
+          for (let i = 0; i < 14; i++) {
+            const a = Math.random() * Math.PI * 2;
+            d.fx._spawn(d.lose.pos.clone().add(v3(Math.cos(a) * rand(0.2, 0.7), rand(0.3, 1.6), Math.sin(a) * rand(0.2, 0.7))), {
+              color: 0xdff2fb, size: rand(0.08, 0.20), aspect: 0.5, life: rand(0.3, 0.6),
+              gravity: 10, vel: v3(Math.cos(a) * rand(1, 3), rand(1, 3), Math.sin(a) * rand(1, 3))
+            });
+          }
+        }
+      },
+      // ---- ICEFALL 直瀑 ----------------------------------------------------
+      // The kill. Uraume turns their palm over — one movement — and the
+      // icicles come down. Crane shot, so the drop is read from above, which
+      // is the only lens that makes "from the sky" legible.
+      {
+        win: 'ct1', strike: 'win',
+        blast: { at: 0.70, aim: 'head', power: 2.0, kind: 'ice' },
+        hit: true, react: 'rSplit', op: 'fThrust', span: 1.95,
+        power: 2.0, knock: 0.5, shot: S.crane({ d: 5.4, side: 0.7, top: 5.0 }),
+        dofBase: 0.5, impact: 0.26,
+        fx: d => { d.sfx.icicleFall?.(); d.audio.accent(65, { gain: 0.11 }); },
+        onContact: (d, at) => {
+          d.fx.frostShatter?.(d.lose);
+          d.fx._ring(at, 0xffffff, { size: 0.25, growRate: 20, life: 0.24, flat: false });
+          for (let i = 0; i < 26; i++) {
+            const a = Math.random() * Math.PI * 2;
+            d.fx._spawn(at.clone().add(v3(Math.cos(a) * rand(0.1, 1.0), rand(-0.6, 0.8), Math.sin(a) * rand(0.1, 1.0))), {
+              color: i % 3 === 0 ? 0x4fd8e8 : 0xdff2fb, size: rand(0.12, 0.34), aspect: 0.45,
+              life: rand(0.3, 0.7), gravity: 14,
+              vel: v3(Math.cos(a) * rand(2, 6), rand(1, 5), Math.sin(a) * rand(2, 6))
+            });
+          }
+        }
+      },
+      ...OUTRO('idle', {
+        fallSpan: 1.30, fallShot: S.wideL(),
+        // They straighten a sleeve and go back to waiting. No look at the body.
+        heroClip: 'victory', heroShot: S.hero({ d: 4.2, from: 0.45, sweep: 0.30 }), heroSpan: 1.8
+      })
+    ]
+  },
+
+  // =========================================================================
+  // RYU ISHIGORI — 「グラニテブラスト」 THE DESSERT
+  // Chapters 179-180, the Sendai colony: the climax of the three-way fight.
+  // Ryu and Yuta go into a BEAM STRUGGLE — Yuta fully manifests Rika and fires
+  // a directed blast, Ryu answers with Granite Blast, and Ryu's OVERPOWERS it.
+  // The research finding that shaped this scene is that Ryu WON that exchange:
+  // he only lost the fight afterwards, and only to a redirect. So this is not
+  // a man scrambling; it is a man who has been waiting four hundred years for
+  // somebody to make him charge all the way.
+  //
+  // THE BRIEF'S REQUIREMENT, honoured beat by beat: THE OPPONENT MUST BE
+  // CLOSING THE DISTANCE AND FIGHTING THE WHOLE WAY IN, and the drama is
+  // whether they reach him before he fires. So every beat has the loser
+  // MOVING TOWARD HIM and throwing something, and the beats get shorter as
+  // they get nearer — 1.4 s, 1.1 s, 0.85 s, 0.6 s — which is the scene
+  // accelerating while Ryu does not.
+  // =========================================================================
+  ryu: {
+    id: 'ryu_granite',
+    moment: 'Sendai. He plants his feet and starts charging, and they run at him.',
+    color: '#d8f05a', grade: 'ko', chord: 'bright', root: 73.4,
+    // THE CHARGE IS THE AMBIENT, and it escalates for the whole scene — this
+    // is the mirror of Uraume's mist and it is doing the opposite job. Ryu's
+    // ambient gets louder because HE is winding up; Uraume's gets colder
+    // because the arena is.
+    ambient: (d, t) => {
+      const k = Math.min(1, t / 4.5);
+      d.win.model?.setOutput?.(Math.min(4, Math.floor(k * 5)), k);
+      for (let i = 0; i < 1 + Math.floor(k * 3); i++) {
+        const a = Math.random() * Math.PI * 2, rr = rand(0.6, 1.4 + k * 2.4);
+        d.fx._spawn(d.win.pos.clone().add(v3(Math.cos(a) * rr, 0.06, Math.sin(a) * rr)), {
+          color: i % 2 === 0 ? 0xd8f05a : 0x8d8f96, size: rand(0.07, 0.22), aspect: 0.6,
+          life: rand(0.25, 0.6), gravity: 16,
+          vel: v3(rand(-1, 1), rand(2, 4 + k * 4), rand(-1, 1))
+        });
+      }
+      if (Math.random() < 0.05 + k * 0.12) {
+        d.fx._ring(d.win.pos.clone().setY(0.05), 0xd8f05a,
+          { size: 0.4, growRate: 5 + k * 10, life: 0.45, flat: true });
+      }
+    },
+    actions: [
+      // ---- HE PLANTS -------------------------------------------------------
+      // The first thing in the scene is a man stopping. His own `chargeT1`
+      // clip — the real charge posture, not a finisher pose — and the opponent
+      // already running.
+      {
+        win: 'chargeT1', op: 'fStepThrough', span: 1.40,
+        shot: S.lowR(1.6), dofBase: 0.4,
+        fx: d => { d.sfx.graniteCharge?.(1); d.audio.accent(73, { gain: 0.07 }); }
+      },
+      // ---- THEY CLOSE, AND THEY THROW SOMETHING ---------------------------
+      // It lands. He takes it. That is the point of the beat: hitting him does
+      // not stop the charge, and the opponent has to find out.
+      {
+        op: 'fThrust', strike: 'op', hit: true, react: 'rBlockPush', win: 'chargeT2',
+        span: 1.10, shot: S.otsLose(), power: 1.0, knock: 0.12,
+        fx: d => d.sfx.graniteCharge?.(2)
+      },
+      // ---- THEY HIT HIM AGAIN, HARDER -------------------------------------
+      // And the tier goes UP under the blow. `rTorque` on Ryu — his head
+      // snaps and comes straight back, because the barrel is bolted to it and
+      // it is still aimed.
+      {
+        op: 'fHook', strike: 'op', hit: true, react: 'rTorque', win: 'chargeT3',
+        span: 0.85, shot: S.hitL(), power: 1.3, knock: 0.20,
+        fx: d => { d.sfx.graniteCharge?.(3); d.cam.shake(0.35); }
+      },
+      // ---- ONE MORE STEP ---------------------------------------------------
+      // The shortest beat in the scene. They are almost on him. He is at
+      // maximum and the floor has gone under his feet.
+      {
+        op: 'fUpper', strike: 'op', hit: false, miss: true, win: 'chargeT4',
+        span: 0.60, shot: S.faceWin({ d: 1.1, side: 0.4 }), dofBase: 0.62,
+        fx: d => {
+          d.sfx.graniteCharge?.(4);
+          d.stage?.flash?.(0.22);
+          d.audio.accent(146, { gain: 0.10 });
+        }
+      },
+      // ---- HE FIRES --------------------------------------------------------
+      // Point blank, into somebody who is mid-swing. The whole finisher is
+      // this frame and everything above it is the wind-up.
+      {
+        win: 'ct2', strike: 'win',
+        blast: { at: 0.10, aim: 'chest', power: 2.4, kind: 'beam' },
+        hit: true, react: 'rBlownBack', op: 'fUpper', span: 2.10,
+        power: 2.4, knock: 2.2, shot: S.bigHit(), dofBase: 0.4, impact: 0.32,
+        fx: d => {
+          d.sfx.graniteBlast?.(4);
+          d.win.model?.setOutput?.(0, 0);
+          d.stage?.flash?.(0.7);
+          d.audio.accent(36.7, { gain: 0.13 });
+        },
+        onContact: (d, at) => {
+          const fwd = d.win.forward();
+          // the beam itself, as the real geometry his kit fires
+          const node = d.fx.beamNode?.(26, 1.9);
+          if (node) {
+            node.position.copy(at);
+            node.lookAt(at.clone().add(fwd));
+            d.fx.prop(node, 0.8, (n, k) => {
+              const s = 1 + Math.sin(k * 30) * 0.08;
+              n.scale.set(s, s, 1);
+              n.traverse(o => { if (o.material) o.material.opacity *= (1 - k * 0.04); });
+            });
+          }
+          for (let i = 0; i < 40; i++) {
+            const along = rand(0, 22);
+            d.fx._spawn(at.clone().addScaledVector(fwd, along).add(v3(rand(-1.8, 1.8), rand(-1.6, 1.6), rand(-1.8, 1.8))), {
+              color: i % 3 === 0 ? 0xfaffe8 : 0xd8f05a, size: rand(0.2, 0.8), aspect: 0.6,
+              life: rand(0.2, 0.6), vel: v3(rand(-3, 3), rand(-1, 4), rand(-3, 3))
+            });
+          }
+          d.fx._ring(at, 0xfaffe8, { size: 0.4, growRate: 26, life: 0.35, flat: false });
+        }
+      },
+      ...OUTRO('idle', {
+        // they are blown to the far end of the shot and land there
+        fall: 'rFall', fallSpan: 1.35, fallShot: S.wideR(),
+        // He rolls a shoulder out and looks mildly satisfied. Not a gloat —
+        // the researched character thanked the man who beat him.
+        heroClip: 'victory', heroShot: S.hero({ d: 4.6, from: 0.6, sweep: 0.42 }), heroSpan: 1.8
+      })
+    ]
+  },
+
   miwa: {
     id: 'miwa_simple_domain',
     moment: 'She backs off, draws the circle, and waits. They step in. One cut.',

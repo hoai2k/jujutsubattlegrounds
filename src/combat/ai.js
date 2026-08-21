@@ -898,6 +898,186 @@ export class CPU {
     //      is the whole reason that tool exists.
     //   3. HUNT DEVOUR ON A KNOCKDOWN, where it comes out faster and cannot be
     //      jumped. Out of range it eats its own swarm instead, which is free.
+    // ---- URAUME: THE CONTROL ZONER -----------------------------------------
+    // The brief's four rules, in order, and each is a real read rather than a
+    // timer:
+    //   1. KEEP DISTANCE. Not Jogo's "keep them out" — Uraume wants a SPECIFIC
+    //      band (5-9 m: inside Frost Calm's reach and outside the opponent's
+    //      normals) and walks back into it rather than fleeing to the wall.
+    //   2. LAYER FROST. Icefall on a cadence, because the stacks are the win
+    //      condition and a bot that only threw ice when it had a clean line
+    //      would never reach the cap.
+    //   3. FREEZE THE GROUND UNDER AN APPROACHING OPPONENT. The interesting
+    //      one: it reads their STATE and their CLOSING SPEED, and lays the
+    //      floor in front of them rather than under itself.
+    //   4. FROST FIELD TO ESCAPE PRESSURE. Under 3 m and off cooldown, always.
+    if (me.cfg.frost) {
+      const sp = me.cfg.special;
+      const onIce = !!this.match.ice?.patchAt(foe.pos);
+      const stacks = foe.frost?.stacks ?? 0;
+
+      if (!me.busy) {
+        // 4. PANIC / SETUP. The same button for both, which is the character.
+        if (dist < 3.0 && me.specialCD <= 0 && me.res.curCE >= sp.cost) {
+          f.copy = true;
+          this._edges(f);
+          return f;
+        }
+        // 3. THE GROUND UNDER AN APPROACH. `closing` is measured off their
+        //    state rather than off a velocity sample, so it cannot be fooled
+        //    by a fighter who happens to be strafing.
+        const closing = ['run', 'dash'].includes(foe.state) && dist < 9;
+        if (closing && !onIce && me.specialCD <= 0 && me.res.curCE >= sp.cost + 6) {
+          f.copy = true;
+          this._edges(f);
+          return f;
+        }
+        // 2b. FROST CALM. Thrown when it is worth throwing: into an opening,
+        //     or when the stacks are close enough to the cap that three more
+        //     shells them. A bot that threw it on a flat timer would spend the
+        //     one tool that can actually finish the meter on empty air.
+        const opening = ['knockdown', 'getup'].includes(foe.state)
+          || foe.state === 'ct' || closing;
+        const finishing = stacks >= 3;
+        this._calmT = (this._calmT ?? 0) - dt;
+        if (this._calmT <= 0 && dist < (me.cfg.ct2.range ?? 9) - 0.5
+          && me.res.curCE >= me.cfg.ct2.cost
+          && (opening || finishing) && Math.random() < 0.7) {
+          f.ct2 = true;
+          f.move.z = -1;                // lean the line into them
+          this._calmT = rand(1.2, 2.2);
+          this._edges(f);
+          return f;
+        }
+        // 2a. ICEFALL, the cadence. Faster when the stacks are decaying,
+        //     because letting the meter fall back to zero is the only way this
+        //     character actually loses a neutral.
+        this._shardT = (this._shardT ?? 0) - dt;
+        if (this._shardT <= 0 && dist < (me.cfg.ct1.range ?? 14) - 1
+          && me.res.curCE >= me.cfg.ct1.cost + 4) {
+          f.ct1 = true;
+          this._shardT = stacks > 0 ? rand(0.5, 0.9) : rand(0.8, 1.4);
+          this._edges(f);
+          return f;
+        }
+        // the ultimate, when there is room for the wall to travel
+        if (me.ultReady && dist > 3.0 && dist < 26) { f.ult = true; this._edges(f); return f; }
+      }
+
+      // 1. THE BAND. Walk back into 5-9 m and stop. It never runs to the wall
+      //    — a cornered zoner is a dead zoner, and this character's answer to
+      //    being crowded is the special rather than the legs.
+      if (!f.ct1 && !f.ct2 && !f.copy) {
+        if (dist < 4.5) f.move.z = 1;
+        else if (dist > 9.5) f.move.z = -0.7;
+        // ...and it PUNCHES when they are on top of it and the special is
+        // down, because the string is a stack per hit and standing still while
+        // somebody hits you is not a plan.
+        if (dist < 2.0 && me.specialCD > 0 && this.punchT <= 0) {
+          f.punch = true;
+          this.punchT = rand(0.28, 0.5);
+        }
+      }
+      this._edges(f);
+      return f;
+    }
+
+    // ---- RYU: THE ARTILLERY -------------------------------------------------
+    // The brief's three rules, and the middle one is the whole profile:
+    //   1. HOLD SPACE WITH RAPID BLASTS. Constantly, at any range, because it
+    //      is the only thing he owns that does not commit.
+    //   2. *** CHARGE ONLY WHEN THE OPPONENT IS COMMITTED TO SOMETHING. ***
+    //      Not on a timer and not when they are merely far away — the bot
+    //      reads whether they are in a state they cannot cancel, and picks a
+    //      HOLD LENGTH from how long that state has left. That is the single
+    //      thing that separates a Ryu bot that is threatening from one that is
+    //      free damage, and it is why `_holdFrames` exists.
+    //   3. BRACE WHEN IT HAS A SAFE WINDOW. Far away, low tank, and the
+    //      opponent not closing.
+    if (me.cfg.output) {
+      const sp = me.cfg.special;
+      const cee = me.res.curCE;
+      const ceil = me.ceCeiling;
+
+      // ---- THE HOLD, ACROSS FRAMES ---------------------------------------
+      // `_holdFrames` is set once when the charge starts and counted down
+      // here. While it is running the bot does nothing except keep the button
+      // down — it cannot walk, cannot block and cannot change its mind, which
+      // is exactly the commitment a human Ryu is making and is the only honest
+      // way to have a bot play him.
+      if (me.state === 'outputCharge') {
+        this._holdFrames = (this._holdFrames ?? 0) - 1;
+        // BAIL EARLY IF THEY GOT OUT. A charge aimed at somebody who has
+        // finished their recovery and is now running at him is a charge that
+        // should be dumped at whatever tier it reached — which is precisely
+        // the decision the release-at-any-tier rule exists to allow.
+        const escaped = dist < 4.0 && ['run', 'dash'].includes(foe.state);
+        f.ct2 = this._holdFrames > 0 && !escaped;
+        this._edges(f);
+        return f;
+      }
+
+      if (!me.busy) {
+        // 3. BRACE. Only with real room, only when the tank is worth filling,
+        //    and never while they are coming — the whole point of the move is
+        //    that it is an invitation, and a bot that accepted its own
+        //    invitation would be playing the character wrong.
+        const safe = dist > 11 && !['run', 'dash'].includes(foe.state);
+        if (safe && me.specialCD <= 0 && cee < ceil * 0.55) {
+          f.copy = true;
+          this._edges(f);
+          return f;
+        }
+        // 2. THE CHARGE. `committed` is a state they cannot get out of, and
+        //    the tier the bot reaches for is scaled by how much room it has:
+        //    a knockdown is worth a full charge, a whiffed technique at range
+        //    is worth a middling one, and nothing else is worth one at all.
+        const committed = ['knockdown', 'getup', 'ct', 'launched', 'stunned'].includes(foe.state);
+        const veryFar = dist > 16;
+        if ((committed || veryFar) && cee >= 18 && dist > 4.5) {
+          f.ct2 = true;
+          // hold frames, capped by what the bar can pay for — starting a
+          // charge it cannot afford to release at is the one mistake the tier
+          // table lets a player make and the bot should not make it
+          const want = committed && dist > 9 ? 156 : committed ? 108 : 66;
+          const afford = cee >= 74 ? 156 : cee >= 52 ? 108 : cee >= 34 ? 66 : 30;
+          this._holdFrames = Math.min(want, afford);
+          this._edges(f);
+          return f;
+        }
+        // 1. RAPID BLASTS, constantly. This is what he does when nothing else
+        //    is true, and it should be most of the time.
+        this._rapidT = (this._rapidT ?? 0) - dt;
+        if (this._rapidT <= 0 && dist < (me.cfg.ct1.range ?? 20) - 1 && cee >= me.cfg.ct1.cost + 6) {
+          f.ct1 = true;
+          this._rapidT = rand(0.45, 0.85);
+          this._edges(f);
+          return f;
+        }
+        // the ultimate, with room for the beam to matter
+        if (me.ultReady && dist > 5) { f.ult = true; this._edges(f); return f; }
+      }
+
+      // POSITION. He backs off, at the slowest walk in the game, and he never
+      // chases — chasing with these legs is how the character dies. Inside
+      // 2.5 m he throws the string, because it is the only thing he has that
+      // is faster than being hit.
+      if (!f.ct1 && !f.ct2 && !f.copy) {
+        if (dist < 6.0) f.move.z = 1;
+        else if (dist > 20) f.move.z = -0.5;
+        if (dist < 2.2 && this.punchT <= 0) {
+          f.punch = true;
+          this.punchT = rand(0.34, 0.55);
+        }
+        // ...and he GUARDS when they are on him and he has nothing, which for
+        // him is a real plan: his guard is above average and it is the only
+        // defensive option a man with the worst dash in the game has.
+        if (dist < 3.2 && me.res.curCE < me.cfg.ct1.cost) f.block = true;
+      }
+      this._edges(f);
+      return f;
+    }
+
     if (me.cfg.gluttony) {
       const sys = this.match.swarms;
       const mine = sys.countFor(me);

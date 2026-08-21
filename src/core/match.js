@@ -18,6 +18,7 @@ import { FloraSystem } from '../combat/flora.js';
 import { SwarmSystem } from '../combat/swarm.js';
 import { CurseSystem } from '../combat/curses.js';
 import { FreezeSystem } from '../combat/freeze.js';
+import { IceSystem } from '../combat/frost.js';
 import { DomainFX } from '../fx/domainfx.js';
 import { NewShadowFx } from '../fx/newshadowfx.js';
 // URO's refraction, and DAGON's creatures. See the headers of both: the warp
@@ -228,6 +229,14 @@ export class Match {
     this.garuda = new GarudaSystem(this);
     this.newshadow = new NewShadowSystem(this);
     this.freeze = new FreezeSystem(this);
+    // URAUME'S ICE. Match-scoped for the same reason a root field is: a frozen
+    // patch outlives the technique that made it and has to survive its owner
+    // being knocked into the air. It is deliberately NOT a second surface
+    // layer — every patch registers an `ICE` rect through the terrain
+    // classification Hanami's regeneration already reads, so there stays
+    // exactly one query in the game that answers "what is the floor here".
+    // See the header of combat/frost.js.
+    this.ice = new IceSystem(this);
     // Hakari's reach scenarios and JACKPOT. Owned by the match rather than by
     // the domain system because Jackpot outlives the barrier that starts it.
     this.gamble = new GambleSystem(this);
@@ -589,6 +598,12 @@ export class Match {
       this.shikigami.update(1 / 60);
       this.ocean.update(1 / 60);
       this.flora.update(1 / 60);
+      // ICE ticks immediately after flora, because the two are the roster's
+      // two terrain-modifying systems and their ordering has to be stated
+      // somewhere rather than being an accident of construction order. Flora
+      // first: a Root Field placed this frame is already live when the ice
+      // laid over it asks how much to bite out of it.
+      this.ice.update(1 / 60);
       this.swarms.update(1 / 60);
       this.curses.update(1 / 60);
       // Garuda ticks with the other allies. Miwa's circle ticks AFTER them,
@@ -1968,6 +1983,9 @@ export class Match {
     this.garuda.resetRound();
     this.newshadow.resetRound();
     this.freeze.clear();
+    // ...and every ice rect comes back out of the Bounds, so a round that
+    // ended on a frozen arena does not start the next one on one.
+    this.ice.clear();
     this.hud.setWheel(null, null, null);
     this.hud.setArsenal(null, null);
     // the level goes back up between rounds: every destructible is restored
@@ -2133,6 +2151,7 @@ export class Match {
     this.curses.clear();
     this.freeze.clear();
     this.flora.clear();
+    this.ice.clear();
     this.swarms.clear();
     this.gamble.dispose();
     this.arena.dispose?.();

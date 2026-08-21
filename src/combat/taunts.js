@@ -315,6 +315,48 @@ export const TAUNTS = {
   //
   // The bit is his own material and it is bad on purpose. He turns to CAMERA
   // to deliver it, which nobody else in the roster does.
+  // ---- URAUME — AND THE LINE IS CANON -------------------------------------
+  // The brief asks for research into whether a suitable line exists rather
+  // than invented dialogue. IT DOES, and it is the single most characteristic
+  // thing Uraume says: ch.135, to Yuji, immediately after he has dropkicked
+  // Choso out of an ice prison — *"Whose body do you think that is?"*
+  //
+  // It is perfect for a taunt for a reason that has nothing to do with being a
+  // good insult: it is not addressed to the opponent as a FIGHTER at all. A
+  // servant is mildly irritated on their master's behalf, and has not really
+  // registered that the person they are talking to is trying to kill them.
+  // Every other taunt on this screen is a boast, a threat or a joke; this one
+  // is an admonishment, which is the only one of its kind in the table.
+  //
+  // The line lands at 1.62 s, AFTER the ice in their palm has already
+  // dissolved — see the shot note in art/anim/uraume.js. They are not showing
+  // you the ice; they finished with it and then remembered you were there.
+  uraume: [{
+    clip: 'taunt', dur: 3.3, say: 'Whose body do you think that is?', at: 1.62, hold: 1.5,
+    cue: 'uraume', ref: 'Ch.135 — to Yuji, after he frees Choso from Frost Calm. A servant, annoyed on their master\'s behalf.'
+  }],
+
+  // ---- RYU — NO BUBBLE ----------------------------------------------------
+  // The brief: "He doesn't need to say anything; the display is the point."
+  // So `say: null`, which puts him with the four cursed spirits and the two
+  // silent variants — and he is the only fully-human, fully-verbal character
+  // on the roster who is silent here.
+  //
+  // The research supports it rather than merely permitting it. Ryu's defining
+  // scene is a SINGLE MEANINGFUL GLARE: "Ryu communicated four hundred years
+  // of hunger and thirst for a worthy fight to Yuta with a single, meaningful
+  // glare" (ch.180). The clip is a casual one-handed discharge that cracks the
+  // floor, and then a second and a half of him just looking at you, which is
+  // the scene. A line over the top of it would be doing the work the stare is
+  // already doing.
+  //
+  // TAUNT_WEIGHT is high for him (see the table below) for the same reason it
+  // is high for Uro: showing off is the researched personality.
+  ryu: [{
+    clip: 'taunt', dur: 3.2, say: null, cue: 'ryu',
+    ref: 'Ch.180 — the single meaningful glare, four hundred years of hunger. He does not talk to opponents; he sizes them up.'
+  }],
+
   takaba: [{
     clip: 'taunt', dur: 3.6, say: "So a cursed spirit walks into a bar...\nthat's it. That's the technique.",
     at: 1.60, hold: 1.5, cue: 'takaba', buildsComedy: true,
@@ -415,7 +457,17 @@ export const TAUNT_WEIGHT = {
   maki: 0.2, yuki: 0.8, miwa: 0.15,
   // Rare on purpose. The joke does not survive repetition, and a CPU that
   // said "salmon" every ten seconds would kill the one gag this character has.
-  inumaki: 0.3
+  inumaki: 0.3,
+  // URAUME IS THE SECOND-LOWEST NUMBER IN THE TABLE, above only Dagon. The
+  // taunt is an admonishment delivered by somebody who is not really paying
+  // attention to you, and it only works if it is rare — a servant who stopped
+  // to tell you off every fifteen seconds would be a nag rather than a threat.
+  // RYU IS HIGH, with Uro and Todo: he is a confident hotshot who is auditioning
+  // opponents, and a CPU Ryu that never showed off would be playing somebody
+  // else. It is capped below 1.0 all the same, because a Ryu who spends the
+  // round taunting is a Ryu who is not charging, and the bot should not be
+  // throwing away the character's actual win condition for a gag.
+  uraume: 0.15, ryu: 0.85
 };
 export const DEFAULT_TAUNT_WEIGHT = 0.4;
 

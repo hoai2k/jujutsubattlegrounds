@@ -675,6 +675,11 @@ export class DomainSystem {
         // FIRE, so Hanami's vulnerability applies to it: the Iron Mountain is
         // the worst place on the roster for a thing made of wood to be.
         t.takeChip(heat.dps * dt, 'domain', 'fire');
+        // ...and the ambient heat melts Uraume's floor out from under them.
+        // The Coffin is a volcano; there is no ice in it. Scaled by dt so a
+        // per-frame call adds up to the same melt rate the discrete fire
+        // sources produce, rather than deleting the whole arena in a frame.
+        this.match.ice?.meltAt(t.pos.clone(), 2.4, dt * 1.6);
         if (stackNow) applyBurn(t, 1);
       }
       if (a.eruptT <= 0) {
