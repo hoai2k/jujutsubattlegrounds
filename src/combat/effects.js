@@ -4060,9 +4060,11 @@ export class Effects {
         this.entities.push({
           type: 'glacier', caster, sure, node, dir: dir.clone(),
           pos: caster.pos.clone(), travelled: 0, range, spd, width,
-          dmg: (opts.dmg ?? 46) * mult, kb: opts.kb ?? 7, kbY: opts.kbY ?? 3,
+          dmg: (opts.dmg ?? 46) * mult, kb: opts.kb ?? 0.9, kbY: opts.kbY ?? 0,
           hitstun: opts.hitstun ?? 44, destruct: opts.destruct ?? 70,
-          frost: opts.frost ?? 6, hit: new Set(), hitOpts: { ...hitOpts },
+          frost: opts.frost ?? 6, ultRoot: opts.ultRoot ?? u.ultRoot ?? true,
+          hitType: opts.hitType ?? u.hitType ?? 'heavy',
+          hit: new Set(), hitOpts: { ...hitOpts },
           iceEvery: 0, iceDef: opts.ice ?? u.ice
         });
         // THE ARENA FREEZES AT THE CASTER'S FEET IMMEDIATELY, so the ultimate
@@ -4826,13 +4828,20 @@ export class Effects {
           const { dmg, crit } = computeDamage(e.caster, e.dmg);
           const r = f.applyHit({
             ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
-            type: 'knockdown', dir: e.dir.clone(), attacker: e.caster, sureHit: e.sure
+            // NOT a knockdown. A body on the floor cannot be encased in a way
+            // anybody can see, and a knockdown reaction owns the fighter for
+            // longer than the shell lasts. `heavy` staggers them where they
+            // stand and hands them straight to the ice.
+            type: e.hitType ?? 'heavy',
+            dir: e.dir.clone(), attacker: e.caster, sureHit: e.sure
           }, m.ctxFor(e.caster));
-          hitFeedback(m, e.caster, f, r, { crit, heavy: true, knockdown: true });
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true });
           // MAXIMUM FROST. Everything the wall touches is shelled on the spot,
           // which is what "applying maximum frost" has to mean when the stack
           // cap and the shell trigger are the same number.
-          if (r === 'hit' || r === 'otg') applyFrost(m, f, e.frost, e.caster);
+          if (r === 'hit' || r === 'otg') {
+            applyFrost(m, f, e.frost, e.caster, { ultRoot: e.ultRoot });
+          }
         }
         m.minions?.hurtAt(e.pos.clone(), e.width * 0.6, e.dmg * 0.7, e.caster);
         m.curses?.hurtAt(e.pos.clone(), e.width * 0.6, e.dmg * 0.7, e.caster);
@@ -7063,11 +7072,34 @@ export class Effects {
   clear() {
     for (const e of this.entities) {
       if (e.fxNode) this.match.fx.release(e.fxNode);
+      // ---- GEOMETRY THIS SYSTEM PUT IN THE SCENE ITSELF --------------------
+      // `fxNode` is a POOLED node and `release` hands it back. An entity that
+      // built its own mesh and called `fx.scene.add` — Uraume's shards and
+      // glacier, Ryu's beam and his ultimate — owns that mesh outright, and
+      // dropping the entity reference without disposing it ORPHANS IT IN THE
+      // SCENE FOREVER. Reported from a real match: a maximum Granite Blast
+      // left its beam hanging in the air after the round ended, and every
+      // subsequent round added another one.
+      this._disposeNode(e.node);
+      // ...and an entity holding real COLLIDERS has to give them back, or the
+      // round boundary leaves invisible walls standing. Frost Calm's columns
+      // are the only case today and this is the only place a round reset
+      // reaches them.
+      if (e.type === 'iceWalls' && e.walls && e.bounds) e.bounds.drop(e.walls);
       // a nail wiped by a round boundary was never spent, so give the count
       // back — Fighter.resetForRound zeroes it too, but a mid-match clear that
       // does not reset fighters must not strand the cap
       if (e.type === 'nail' && e.caster) e.caster.nailCount = Math.max(0, e.caster.nailCount - 1);
     }
     this.entities.length = 0;
+    // THE PER-FIGHTER SCENE NODES. Ryu's ground cracks and muzzle gather are
+    // parented to the scene and tracked on HIM rather than on an entity, so
+    // they survive an entity wipe; `outputClear` is idempotent and a no-op for
+    // anybody who has never charged. Same for a frost shell that was still
+    // closed round a body when the buzzer went.
+    for (const f of this.match.fighters ?? []) {
+      this.match.fx.outputClear?.(f);
+      this.match.fx.frostShatter?.(f, true);
+    }
   }
 }

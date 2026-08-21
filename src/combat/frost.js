@@ -94,6 +94,13 @@ export const FROST = {
 
   // ---- FROSTBOUND — WHAT HAPPENS AT MAXIMUM -------------------------------
   duration: 0.55,         // SHORT. See the Naoya note below.
+  // THE ULTIMATE'S SHELL, and the only one that roots. 1.8 s is long by the
+  // standards of this file and still SHORTER IN PRACTICE than Naoya's 1.0 s
+  // freeze, because any single hit ends it — and the ultimate has already put
+  // the whole arena under ice, so the follow-up is guaranteed to be available.
+  // If nobody touches them it runs the full 1.8 s and they are stuck standing
+  // in it; that is the payoff for a 103-frame D-pad Right.
+  ultDuration: 1.8,
   vulnMult: 1.40,         // incoming damage while the shell holds
   moveMult: 0.18,         // they can still move. Barely.
   residualStacks: 3,      // where the meter drops back to, so it cannot loop
@@ -160,7 +167,7 @@ export const FROST = {
 // The blank slate. Called from the fighter constructor and from the round
 // reset, so a body shelled at the buzzer does not start the next round in ice.
 export function newFrost() {
-  return { stacks: 0, t: 0, boundT: 0, cd: 0, shattered: false, by: null };
+  return { stacks: 0, t: 0, boundT: 0, cd: 0, shattered: false, by: null, root: false };
 }
 
 // ---- THE THREE READS ------------------------------------------------------
@@ -170,7 +177,13 @@ export function newFrost() {
 export function frostSpeed(f) {
   const fr = f?.frost;
   if (!fr) return 1;
-  if (fr.boundT > 0) return FROST.moveMult;
+  // `root` is the ULTIMATE-SCALE shell only (see FROST.ultRoot below). An
+  // ordinary shell still lets you shuffle at 18%; the one the glaciation wall
+  // lays does not let you walk out of it at all. It still does not touch a
+  // single input — you can punch, block and be hit out of it exactly as
+  // before — which is the whole of the Naoya distinction and is why this is a
+  // speed multiplier and not a state.
+  if (fr.boundT > 0) return fr.root ? 0 : FROST.moveMult;
   return Math.max(0.2, 1 - fr.stacks * FROST.slowPerStack);
 }
 export function frostStartup(f) {
@@ -197,7 +210,7 @@ export function isFrostbound(f) { return (f?.frost?.boundT ?? 0) > 0; }
 // therefore, if anything, the one thing frost works on most straightforwardly.
 // The same is true of Mahoraga (MAX_CE 0 forever) and of every summon.
 // ---------------------------------------------------------------------------
-export function applyFrost(match, victim, n = 1, by = null) {
+export function applyFrost(match, victim, n = 1, by = null, opts = null) {
   if (!victim || !victim.alive || victim.eliminated) return 0;
   const fr = victim.frost;
   if (!fr) return 0;
@@ -208,8 +221,15 @@ export function applyFrost(match, victim, n = 1, by = null) {
   if (fr.stacks !== before) victim.emit('frost', { stacks: fr.stacks, by });
   // MAXIMUM -> the shell. Never while one is already up, never inside the
   // cooldown, and never on a body that a cinematic already owns.
-  if (fr.stacks >= FROST.maxStacks && fr.boundT <= 0 && fr.cd <= 0) {
-    bindFrost(match, victim, by);
+  // THE ULTIMATE IGNORES BOTH GATES. `cd` exists to stop a zoner chain-shelling
+  // somebody with cheap tools, and `boundT` to stop one shell refreshing
+  // another — neither is a rule the once-per-round D-pad Right should be able
+  // to fail silently against. Throw the glaciation wall at someone who happens
+  // to be inside the 2.2 s cooldown from a Frost Calm and it must still encase
+  // them, and it must UPGRADE an ordinary 0.55 s shell into the rooting one.
+  const ult = !!opts?.ultRoot;
+  if (fr.stacks >= FROST.maxStacks && (ult || (fr.boundT <= 0 && fr.cd <= 0))) {
+    bindFrost(match, victim, by, opts);
   }
   return fr.stacks - before;
 }
@@ -221,11 +241,22 @@ export function applyFrost(match, victim, n = 1, by = null) {
 // which is the stacking case written up above.
 const UNBINDABLE = ['ko', 'intro', 'victory', 'transfigured', 'sentenced', 'executing', 'devoured', 'voided'];
 
-export function bindFrost(match, victim, by = null) {
+export function bindFrost(match, victim, by = null, opts = null) {
   if (UNBINDABLE.includes(victim.state)) return false;
   if (match?.domains?.duelFreeze || match?.ritual?.running) return false;
   const fr = victim.frost;
-  fr.boundT = FROST.duration;
+  // THE TWO SCALES OF SHELL. Everything in the ordinary kit — the blades, the
+  // shards, Frost Calm, the field — binds for FROST.duration and lets you
+  // shuffle. The ULTIMATE passes `ultRoot` and gets FROST.ultDuration with the
+  // movement taken away outright: the glaciation wall is supposed to encase
+  // what it touches, and 0.55 s of a body still walking at 18% did not read as
+  // being frozen by it at all. Both are still broken by a single hit, both
+  // still leave every input alive, and both still cost the victim nothing but
+  // the 1.40x. Reported from a real match: "Uraume's ult should actually
+  // freeze opponents".
+  const root = !!opts?.ultRoot;
+  fr.boundT = root ? FROST.ultDuration : (opts?.dur ?? FROST.duration);
+  fr.root = root;
   fr.cd = FROST.cooldown;
   fr.stacks = FROST.residualStacks;
   fr.shattered = false;
@@ -234,11 +265,13 @@ export function bindFrost(match, victim, by = null) {
   victim.takeChip(FROST.bindDamage, 'ct2', 'ice');
   match?.fx?.frostShell?.(victim);
   match?.sfx?.frostBind?.();
-  match?.cam?.shake?.(0.24);
-  match?.hitstop?.(5);
-  match?.hud?.toast?.(victim, '霜凪 FROSTBOUND — ×1.40');
-  victim.emit('frostbound', { by, dur: FROST.duration });
-  by?.emit?.('frostboundLanded', { victim });
+  match?.cam?.shake?.(root ? 0.36 : 0.24);
+  match?.hitstop?.(root ? 8 : 5);
+  match?.hud?.toast?.(victim, root
+    ? '霜凪 ENCASED — ×1.40'
+    : '霜凪 FROSTBOUND — ×1.40');
+  victim.emit('frostbound', { by, dur: fr.boundT, root });
+  by?.emit?.('frostboundLanded', { victim, root });
   return true;
 }
 
@@ -249,6 +282,7 @@ export function shatterFrost(match, victim) {
   const fr = victim?.frost;
   if (!fr || fr.boundT <= 0) return false;
   fr.boundT = 0;
+  fr.root = false;
   fr.shattered = true;
   match?.fx?.frostShatter?.(victim);
   match?.sfx?.frostShatter?.();
@@ -268,6 +302,7 @@ export function tickFrost(f, dt) {
     fr.boundT -= dt;
     if (fr.boundT <= 0) {
       fr.boundT = 0;
+      fr.root = false;
       f.model?.setFrostShell?.(0);
       f.emit('frostboundEnd', {});
     }

@@ -270,8 +270,20 @@ export const URAUME = withDefaults({
     startup: 38, active: 22, recovery: 43,         // 103f = the clip's 1.72 s
     effect: 'uraume_maxfrost', clip: 'ult',
     dmg: 46, range: 34, width: 7.0, advanceSpeed: 15,
-    kb: 7.0, kbY: 3.0, hitstun: 44, destruct: 70,
+    // IT ENCASES, IT DOES NOT LAUNCH. This shipped as kb 7.0 / kbY 3.0 with a
+    // knockdown, which threw the target twenty feet down the arena — so the
+    // shell that was supposed to be the whole point of the attack closed round
+    // a body that was already mid-flight and was over before they landed. It
+    // read as a big knockback, not as being frozen. The wall now barely nudges
+    // them and the FROSTBOUND is what they actually experience.
+    kb: 0.9, kbY: 0, hitstun: 44, destruct: 70,
+    hitType: 'heavy',
     frost: FROST.maxStacks,
+    // ...and the shell it lays is the ULTIMATE-SCALE one: FROST.ultDuration
+    // (1.8 s) with movement removed outright, rather than the kit's 0.55 s
+    // shuffle. Still broken by a single hit, still leaves every input alive.
+    ultRoot: true,
+    boundDur: FROST.ultDuration,
     // THE ARENA FREEZES AND STAYS FROZEN. `permanent` skips the thaw clock
     // entirely, so this is the only ice in the game with no lifetime.
     ice: { radius: 15.0, duration: 999, permanent: true }

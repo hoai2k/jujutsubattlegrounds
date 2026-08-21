@@ -1662,7 +1662,15 @@ export class Match {
         case 'step':
           // every footfall registers
           this.sfx.mahoragaStep();
-          this.cam.shake(f.cfg.size?.stepShake ?? 0.12);
+          // COERCE, don't trust. `stepShake` is authored per character and a
+          // boolean `true` here once read as a magnitude of 1.0 and shook the
+          // screen on every footfall. Anything that is not a finite number
+          // falls back to the default, and the magnitude is capped at the
+          // heaviest legitimate value on the roster.
+          {
+            const sh = f.cfg.size?.stepShake;
+            this.cam.shake(Number.isFinite(sh) ? Math.min(sh, 0.3) : 0.12);
+          }
           this.arena.splash?.(f.pos.x, f.pos.z, 0.8);
           break;
       }

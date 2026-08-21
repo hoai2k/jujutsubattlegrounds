@@ -1234,7 +1234,13 @@ export class Fighter {
     if (opts.clip) this.play(opts.clip, opts);
   }
   play(clip, opts = {}) {
-    this.anim.play(this._clip(clip), { fade: opts.fade ?? 0.09, speed: (opts.speed ?? 1) * this.speedMult, restart: opts.restart ?? true });
+    // A PLAYBACK RATE OF ZERO IS NEVER MEANT. `speedMult` is a movement scalar
+    // that happens to also drive clip speed, and it is allowed to reach 0 —
+    // Uraume's ultimate roots a body outright. A rooted fighter should stand
+    // still, not have their animation stop dead mid-punch, so the clip rate has
+    // a floor while the movement multiplier does not.
+    const sp = (opts.speed ?? 1) * Math.max(0.35, this.speedMult);
+    this.anim.play(this._clip(clip), { fade: opts.fade ?? 0.09, speed: sp, restart: opts.restart ?? true });
   }
   // carrying a domain katana swaps the run cycle for the sword-carry run
   _clip(name) {
@@ -4013,6 +4019,19 @@ export class Fighter {
     // her, and that is the whole answer to the character.
     if (hasFlight(this) && !this.grounded && !NO_HOVER.includes(S)) {
       tickFlight(this, input, ctx, dt);
+    } else if (hasFlight(this)) {
+      // ...and the ELSE is not optional. `hovering()` is `hoverT > 0 &&
+      // !grounded`, and `gravityScale()` returns ZERO while that holds — but
+      // `hoverT` is only ever cleared inside `tickFlight`, which is exactly the
+      // function this branch is skipping. Launch Uro into the air and the state
+      // goes to `launched`, `tickFlight` stops running, `hoverT` keeps its last
+      // non-zero value, gravity stays switched off AND the altitude clamp at
+      // the bottom of `tickFlight` stops running too — so she rises out of the
+      // map on the knockback impulse and never comes back. Reported from a real
+      // match as flying into the multiverse. Losing the sky when you get hit is
+      // the whole counterplay to the character; this is where it actually
+      // happens.
+      resetFlight(this);
     }
 
     // ---- THE SUMMON RITUAL (Megumi) ---------------------------------------
@@ -5398,7 +5417,7 @@ export class Fighter {
       }
     } else if (['idle', 'walk', 'run'].includes(next)) {
       // keep the loop running (no restart)
-      this.anim.play(this._clip(next), { fade: 0.14, restart: false, speed: this.speedMult * (next === 'walk' ? 0.9 + mag * 0.3 : 1) });
+      this.anim.play(this._clip(next), { fade: 0.14, restart: false, speed: Math.max(0.35, this.speedMult) * (next === 'walk' ? 0.9 + mag * 0.3 : 1) });
     }
     // FOOTFALLS. A fighter heavy enough to declare `stepShake` reports each
     // plant so the match can shake the camera and thump the floor under it.

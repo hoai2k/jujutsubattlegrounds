@@ -139,7 +139,14 @@ export const DAGON = withDefaults({
     ceRegen: 3.0, ceGainPerPunch: 8.4, damageScale: 1.0,
     stamina: 108, staminaRegen: 24, dashDrain: 30
   },
-  size: { hurtPad: 0.34, stepShake: true },
+  // `stepShake` is a SHAKE MAGNITUDE, not a flag. It shipped here as `true`,
+  // which `cam.shake` happily took as 1.0 — five times Mahoraga's charge and
+  // roughly eight times what every other heavy walker asks for — so Dagon's
+  // ordinary walk cycle strobed the whole camera. Reported from a real match.
+  // Roster reference: Panda 0.05, Kurourushi 0.06, Hanami 0.09, Ryu 0.10,
+  // Mahoraga 0.14. Dagon is the heaviest of the humanoid walkers, so he sits
+  // just under Mahoraga.
+  size: { hurtPad: 0.34, stepShake: 0.12 },
   // THE BEST GUARD IN THE GAME. He is meant to be able to just stand there.
   // Same two dials Mahoraga and Hanami already use, pushed further: 0.62 chip
   // is below Mahoraga's, and it is the mechanical statement of "he soaks
