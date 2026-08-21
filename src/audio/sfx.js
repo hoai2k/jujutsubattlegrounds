@@ -1783,9 +1783,140 @@ export class Sfx {
         setTimeout(() => two(659, 494, 0.14, { type: 'triangle', dur: 0.2, gain: 0.12 }), 150);
         setTimeout(() => this._osc('sine', 466, { to: 440, dur: 0.4, gain: 0.07 }), 430);
         break;
+      // URAUME — the quietest cue in the set, and the only one that FALLS to
+      // nothing rather than resolving. A single struck harmonic and a long
+      // cold tail, with no second note: every other taunt in this table is at
+      // least two notes because a phrase is a statement, and this character
+      // does not make one.
+      case 'uraume':
+        this._osc('sine', 1174, { to: 1174, dur: 0.10, gain: 0.09 });
+        setTimeout(() => this._osc('sine', 587, { to: 523, dur: 1.1, gain: 0.055 }), 90);
+        // the ice forming: a thin filtered hiss, rising, cut short
+        this._noise({ dur: 0.5, gain: 0.045, freq: 2600, slideTo: 6400, q: 3.5 });
+        break;
+      // RYU — no melody at all, because he does not say anything. A low
+      // discharge thump, the crack of the floor, and a long sub tail that
+      // outlasts the animation. The only cue in the table with a genuine
+      // sub-bass in it.
+      case 'ryu':
+        this._osc('sawtooth', 82, { to: 44, dur: 0.34, gain: 0.20 });
+        this._osc('sine', 41, { to: 30, dur: 1.4, gain: 0.16 });
+        this._noise({ dur: 0.30, gain: 0.28, freq: 220, slideTo: 90, q: 0.7 });
+        setTimeout(() => this._noise({ dur: 0.5, gain: 0.10, freq: 900, slideTo: 260, q: 1.2 }), 120);
+        break;
       default:
         two(440, 587, 0.1, { type: 'triangle', dur: 0.16, gain: 0.14 });
     }
+  }
+
+  // =========================================================================
+  // URAUME — THE ICE
+  // =========================================================================
+  // The whole family shares one signature: a HIGH BRITTLE TRANSIENT over a
+  // LOW COLD BODY, and no sustain anywhere. Nothing in this block rings —
+  // ice cracks and stops. That is what separates it by ear from Jogo's fire,
+  // which is all sustain and no transient, and it is the audio half of the
+  // "two zoners who must not feel the same" problem.
+  icefall() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.14, gain: 0.22, freq: 5200, slideTo: 3000, q: 2.2 });
+    this._osc('triangle', 1568, { to: 1046, dur: 0.16, gain: 0.10 });
+  }
+  frostCalm() {
+    this.ensure(); if (!this.ctx) return;
+    // the breath: filtered noise sweeping DOWN, which is the exhale
+    this._noise({ dur: 0.42, gain: 0.20, freq: 3800, slideTo: 900, q: 1.4 });
+    // and the columns arriving, a beat later, as a stack of hard transients
+    for (let i = 0; i < 5; i++) {
+      setTimeout(() => {
+        this._noise({ dur: 0.09, gain: 0.16, freq: 4200 - i * 300, q: 3 });
+        this._osc('triangle', 880 - i * 90, { to: 440, dur: 0.12, gain: 0.09 });
+      }, 120 + i * 55);
+    }
+    this._osc('sine', 110, { to: 82, dur: 0.6, gain: 0.10 });
+  }
+  frostField() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.6, gain: 0.24, freq: 900, slideTo: 5600, q: 1.1 });
+    this._osc('sine', 98, { to: 65, dur: 0.7, gain: 0.14 });
+  }
+  maxFrost() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sine', 65, { to: 41, dur: 1.6, gain: 0.20 });
+    this._noise({ dur: 1.2, gain: 0.26, freq: 600, slideTo: 7000, q: 0.9 });
+    for (let i = 0; i < 8; i++) {
+      setTimeout(() => this._noise({ dur: 0.10, gain: 0.14, freq: 3000 + Math.random() * 3000, q: 3 }), i * 90);
+    }
+  }
+  // FROSTBOUND. *** DELIBERATELY NOT NAOYA'S FREEZE CLICK. *** His is one hard
+  // mechanical tick — a shutter closing. This is a low CRUSH with a rising
+  // crystalline tail: something being enclosed rather than something stopping.
+  // The two are told apart with the screen off, which is the bar the whole
+  // distinction had to clear.
+  frostBind() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.22, gain: 0.30, freq: 320, slideTo: 140, q: 1.0 });
+    this._noise({ dur: 0.45, gain: 0.14, freq: 1800, slideTo: 6200, q: 2.6 });
+    this._osc('sine', 87, { to: 62, dur: 0.5, gain: 0.13 });
+  }
+  frostShatter() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.26, gain: 0.30, freq: 4800, slideTo: 1400, q: 1.6 });
+    for (let i = 0; i < 4; i++) {
+      setTimeout(() => this._noise({ dur: 0.06, gain: 0.12, freq: 2600 + Math.random() * 4000, q: 4 }), i * 35);
+    }
+  }
+  iceGround() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.34, gain: 0.16, freq: 700, slideTo: 3400, q: 1.3 });
+  }
+  iceMelt() {
+    this.ensure(); if (!this.ctx) return;
+    // a steam hiss, and it is the one cue in this family with SUSTAIN, because
+    // it is fire's cue happening to ice rather than ice's own
+    this._noise({ dur: 0.55, gain: 0.13, freq: 3000, slideTo: 1200, q: 0.8 });
+  }
+  icicleFall() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('triangle', 2093, { to: 523, dur: 0.30, gain: 0.11 });
+    setTimeout(() => this._noise({ dur: 0.16, gain: 0.26, freq: 3400, slideTo: 900, q: 1.8 }), 300);
+  }
+
+  // =========================================================================
+  // RYU — THE DISCHARGE
+  // =========================================================================
+  // The opposite signature to the ice, deliberately: ALL BODY AND NO
+  // TRANSIENT. Everything here starts on a low saw and stays there, and the
+  // tier is expressed as PITCH DROPPING and DURATION GROWING rather than as
+  // volume — so the opponent hears how big the shot is going to be, from
+  // anywhere, which is the audio half of "readable from across the arena".
+  graniteCharge(tier = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const base = 150 - tier * 24;
+    this._osc('sawtooth', base, { to: base * 1.35, dur: 0.5 + tier * 0.2, gain: 0.07 + tier * 0.022 });
+    this._osc('sine', base / 2, { to: base * 0.75, dur: 0.6 + tier * 0.25, gain: 0.06 + tier * 0.02 });
+  }
+  rapidBlast() {
+    this.ensure(); if (!this.ctx) return;
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => {
+        this._osc('sawtooth', 300 - i * 20, { to: 120, dur: 0.10, gain: 0.15 });
+        this._noise({ dur: 0.07, gain: 0.14, freq: 1600, slideTo: 500, q: 1.0 });
+      }, i * 70);
+    }
+  }
+  graniteBlast(tier = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const t = Math.max(0, Math.min(4, tier));
+    this._osc('sawtooth', 220 - t * 34, { to: 48 - t * 6, dur: 0.30 + t * 0.14, gain: 0.16 + t * 0.035 });
+    this._osc('sine', 62 - t * 6, { to: 34, dur: 0.7 + t * 0.3, gain: 0.13 + t * 0.03 });
+    this._noise({ dur: 0.26 + t * 0.10, gain: 0.20 + t * 0.04, freq: 1400 - t * 200, slideTo: 300, q: 0.7 });
+  }
+  maxBlast() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sawtooth', 96, { to: 28, dur: 1.5, gain: 0.26 });
+    this._osc('sine', 34, { to: 22, dur: 2.0, gain: 0.22 });
+    this._noise({ dur: 1.4, gain: 0.26, freq: 900, slideTo: 180, q: 0.6 });
   }
 
   // =========================================================================

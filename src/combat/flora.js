@@ -134,6 +134,23 @@ export class FloraSystem {
 
   // The same question about an arbitrary point — Root Eruption asks it about
   // where the spikes are coming up, not about where Hanami is standing.
+  //
+  // ---- WHAT ICE DOES TO NATURE'S EMBRACE, AND WHY NO CODE CHANGED --------
+  // arena/terrain.js grew a third class (ICE) for Uraume, so this call can now
+  // return 'ice'. Hanami's rate table is keyed natural / artificial / field
+  // and has no `ice` key — and that is the ANSWER rather than an oversight,
+  // because the lookup a few lines into `_tickRegen` has always ended in
+  // `?? fl.regen.artificial`. A sheet of ice over soil is not soil you can put
+  // roots into, so he gets the dead-ground rate on it, exactly as he does on
+  // concrete. The safe-default this file already had turns out to be the
+  // correct ruling, so HANAMI'S REGENERATION CODE IS UNTOUCHED: no branch, no
+  // new key, no new number. What he does see is the HUD saying FROZEN GROUND
+  // instead of DEAD GROUND, which is more information than he had before.
+  //
+  // The order of the two lines below is the other half of the ruling and it is
+  // load-bearing: `fieldAt` is consulted FIRST, so a live Root Field under the
+  // ice still answers FIELD and still feeds him at his maximum rate. Uraume
+  // can freeze the surface of Hanami's garden; they cannot freeze the garden.
   terrainForPos(pos) {
     if (this.fieldAt(pos)) return FIELD;
     const a = this.match.arena;
@@ -166,11 +183,25 @@ export class FloraSystem {
       if (Math.abs(pos.y - f.y) > 2.0) continue;
       if (flatDist(pos, v3(f.x, f.y, f.z)) > radius + f.r) continue;
       const sp = f.owner.cfg.special;
-      f.hp -= kind === 'fire' ? (sp.fireDamage ?? 55) : (sp.heavyDamage ?? 34);
+      // ---- THE THIRD COUNTER: ICE --------------------------------------
+      // Uraume freezing ground that is already Hanami's garden. It is the
+      // WEAKEST of the three on purpose (24 against fire's 55 and a heavy
+      // swing's 34), and the reasoning is the matchup rather than the number:
+      // ice does not BURN a field, it seals it, so a frozen field is a field
+      // that is being slowly starved rather than one that is being destroyed.
+      // The immediate half of that interaction — Uraume taking the FOOTING
+      // while Hanami keeps the SOIL — is not here at all; it falls out of
+      // `terrainForPos` consulting `fieldAt` first, so a live field keeps
+      // feeding him straight through the sheet. See the ruling written where
+      // the freeze happens, in IceSystem.freeze (combat/frost.js).
+      f.hp -= kind === 'fire' ? (sp.fireDamage ?? 55)
+        : kind === 'ice' ? (sp.iceDamage ?? 24)
+          : (sp.heavyDamage ?? 34);
       hit++;
       for (let i = 0; i < 6; i++) {
         this.match.fx._spawn(v3(f.x + rand(-f.r, f.r), f.y + 0.2, f.z + rand(-f.r, f.r)), {
-          color: kind === 'fire' ? 0xff8a3a : GRASS, size: rand(0.1, 0.26), life: 0.4,
+          color: kind === 'fire' ? 0xff8a3a : kind === 'ice' ? 0xcfeaf6 : GRASS,
+          size: rand(0.1, 0.26), life: 0.4,
           vel: v3(rand(-1, 1), rand(1, 3), rand(-1, 1)), gravity: 5
         });
       }

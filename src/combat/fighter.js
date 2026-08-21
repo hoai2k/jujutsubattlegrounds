@@ -4,6 +4,20 @@ import * as THREE from 'three';
 import { clamp, damp, angleDamp, yawBetween, v3, rand, mulberry32 } from '../core/mathutil.js';
 import { AnimPlayer } from '../art/anim/player.js';
 import { BURN, tickBurn } from './burn.js';
+// URAUME's frost, and RYU's output. Both modules follow the same contract
+// every resource in this file already follows: each helper returns the
+// NEUTRAL value for a fighter whose config does not declare the resource, so
+// the shared getters call them unconditionally and there is no branch that
+// can be forgotten at one of the sites.
+import {
+  newFrost, tickFrost, frostSpeed, frostStartup, frostIncoming, frostGrounded,
+  shatterFrost
+} from './frost.js';
+import { ICE_TERRAIN } from './frost.js';
+import {
+  tierOf as outputTierOf, tierDef as outputTierDef, releaseTier as outputReleaseTier,
+  MAX_HOLD as OUTPUT_MAX_HOLD, tickBrace, BRACE
+} from './output.js';
 import { Adaptation } from './adaptation.js';
 import { hitMult, SPECIAL } from './balance.js';
 import { isContact } from './freeze.js';
@@ -233,6 +247,18 @@ export class Fighter {
       soulWound: 0, domainHaste: 0, redScale: 0, bfCharge: 0
     };
     this.burn = { stacks: 0, t: 0, noDecay: false }; // Jogo's stacking fire DoT
+    // URAUME'S FROST. A stack count, a decay clock, the FROSTBOUND timer and
+    // its re-application cooldown, all on every fighter — the debuff is
+    // carried by the VICTIM, exactly as burn is, so nothing has to look up who
+    // put it there in order to tick it.
+    this.frost = newFrost();
+    // RYU'S OUTPUT. `outputT` is the held frame count of the current charge
+    // and `outputTier` the tier that count has reached; both are zero for the
+    // whole rest of the roster and are only ever written by the two charge
+    // states below.
+    this.outputT = 0;
+    this.outputTier = 0;
+    this.braceT = 0;
     this.domainHasteMult = 1;    // speed bonus inside your own domain (Jogo)
     this.bwVariant = -1;         // mahito: last Body Weapon variant (never repeats)
     this.backlash = 0;           // seconds of domain backlash left
@@ -683,6 +709,14 @@ export class Fighter {
     this.burn.stacks = 0;
     this.burn.t = 0;
     this.burn.noDecay = false;
+    // a body shelled at the buzzer does not start the next round in ice, and
+    // a charge interrupted by the buzzer does not carry frames into the reset
+    this.frost = newFrost();
+    this.model?.setFrostShell?.(0);
+    this.outputT = 0;
+    this.outputTier = 0;
+    this.braceT = 0;
+    this.model?.setOutput?.(0, 0);
     this.bwVariant = -1;
     if (this.buffs.sukuna > 0) this.model.setSukuna?.(false);
     this.buffs.sukuna = 0;
@@ -955,6 +989,24 @@ export class Fighter {
   // whose body has none. Cleave, for one, needs to tell them apart.
   get noCE() { return !!this.cfg.noCursedEnergy; }
 
+  // ---- THE CURSED-ENERGY CEILING ------------------------------------------
+  // How much cursed energy this body can HOLD. 100 for the whole roster, which
+  // is why `gainMaxCE` clamped to a literal 100 for the project's whole life
+  // until Ryu Ishigori, whose tank is 150.
+  //
+  // *** THE ULTIMATE GATE IS NOT THIS NUMBER AND MUST NEVER BECOME IT. ***
+  // `charged` below stays `maxCE >= 100 && curCE >= maxCE`. 100 is the SHARED
+  // GATE and it is a fixed point every character, the MAX CE badge, Barrier
+  // Break and Gojo's charged Blue agree on; this is a per-character TANK SIZE.
+  // Keeping them separate is what lets one character hold half again as much
+  // cursed energy as anybody else without changing what "charged" means for
+  // the other twenty-eight. The consequence for Ryu is a real cost rather than
+  // a loophole: `charged` also demands a FULL bar, so the biggest tank in the
+  // game is also the slowest ultimate in the game to fill. See the ceiling
+  // section of combat/output.js for the audit of the two existing mechanics
+  // that read a target's MAX_CE.
+  get ceCeiling() { return this.cfg.stats?.ceCeiling ?? 100; }
+
   get charged() {
     // He can never reach the gate, so nothing gated on `charged` — the ultimate
     // button, Gojo's charged Blue, Barrier Break, the MAX CE badge — can ever
@@ -1032,6 +1084,14 @@ export class Fighter {
     // difference between Inumaki's soft lock and Naoya's freeze: one of them
     // takes your speed and the other one takes your body.
     if (this.sleepT > 0) m *= this.sleepMult;
+    // ---- FROST, THE LEGS --------------------------------------------------
+    // One multiplier covers the walk, the run, the DASH DISTANCE and the clip
+    // playback, which is why "slows movement, dash distance and attack
+    // startup" is two dials in this project rather than four: the legs are all
+    // one number here and the startup is one number in `_applyGrowth`.
+    // Returns 1 for anybody carrying no stacks. While FROSTBOUND it returns
+    // 0.18 outright — they can still move, and they are not going anywhere.
+    m *= frostSpeed(this);
     // ---- AWAKENING, THE LEGS ---------------------------------------------
     // 0.94 at stage 0, 1.16 at stage 3. On `speedMult` rather than on the raw
     // stats so it covers the walk, the run, the dash and the clip playback
@@ -1063,6 +1123,14 @@ export class Fighter {
     // is the line that prevents it.
     if (this.soulSplit && this.soulSplit.t > 0) m *= this.soulSplit.mult;
     if (this.burn.stacks >= BURN.maxStacks) m *= BURN.vulnMult;
+    // ---- FROSTBOUND — THE POINT OF THE STATE ------------------------------
+    // 1.40x while the shell holds, and this is where Uraume's freeze differs
+    // from Naoya's in the one way that matters most: his grants NO damage
+    // bonus at all, so his second is worth whatever the attacker can physically
+    // fit into it, and this is worth 40% more of whatever they were going to
+    // do anyway. Two windows, two completely different optimal punishes. The
+    // full distinction is written out in combat/frost.js.
+    m *= frostIncoming(this);
     return m;
   }
   get dmgMult() {
@@ -1125,7 +1193,7 @@ export class Fighter {
   // ---- resources ----------------------------------------------------------
   gainMaxCE(base) {
     const g = base * this.backlashGrowthMult * (this.backlash > 0 ? 0.5 : 1);
-    this.res.maxCE = Math.min(100, this.res.maxCE + g);
+    this.res.maxCE = Math.min(this.ceCeiling, this.res.maxCE + g);
     this.res.curCE = this.res.maxCE; // landing punches refills to the new max
   }
   spendCE(cost) {
@@ -1202,6 +1270,18 @@ export class Fighter {
     // be able to read his gauge off his posture from across the arena. At
     // SILENCED the idle is not a fighting stance at all — he is folded over
     // his own throat — and that is the tell that says "come and collect".
+    // RYU: ONE CHARGE POSE PER TIER. Same mechanism as the three blocks above
+    // it, and for the loudest version of the same reason — the whole design
+    // rests on the opponent being able to read the tier and decide whether to
+    // run at him. The muzzle glow says it at range and the POSTURE says it in
+    // silhouette: he goes from planted, to braced, to leaning into it, to
+    // dug in with the ground giving way. Falls through to `charge` for any
+    // tier whose clip is absent, so a half-authored tier degrades instead of
+    // throwing.
+    if (this.cfg.output && name === 'charge') {
+      const swap = 'chargeT' + this.outputTier;
+      if (this.outputTier > 0 && this.anim.clips.has(swap)) return swap;
+    }
     if (this.cfg.throat && name === 'idle') {
       const swap = ['idle', 'idleStrained', 'idleRaw', 'idleSilenced'][this.throatTier] ?? 'idle';
       if (swap !== 'idle' && this.anim.clips.has(swap)) return swap;
@@ -1581,6 +1661,22 @@ export class Fighter {
       if (move.startup) move.startup = Math.max(3, Math.round(move.startup * k));
       if (move.recovery) move.recovery = Math.max(3, Math.round(move.recovery * k));
     }
+    // ---- FROST, THE FRAME-DATA HALF ---------------------------------------
+    // Same hook and the same reasoning as every block above it: this is the
+    // one place every built move passes through, so scaling here keeps the
+    // debug overlay, the hit windows and the animation speed in agreement.
+    //
+    // TWO THINGS THIS DELIBERATELY DOES NOT DO. It does not touch RECOVERY —
+    // lengthening the recovery as well would double the punish window on every
+    // whiff and turn a soft debuff into a hard one — and it is NOT gated on
+    // `this.cfg`, because unlike every other block here frost is something
+    // done TO a fighter rather than something a fighter has. `frostStartup`
+    // returns 1 for a body with no stacks on it, which is everybody, almost
+    // always.
+    if (this.frost?.stacks > 0) {
+      const k = frostStartup(this);
+      if (move.startup) move.startup = Math.max(3, Math.round(move.startup * k));
+    }
     if (!this.cfg.gluttony || !this.growthStage) return move;
     const k = this.reachScale;
     if (move.reach) move.reach *= k;
@@ -1677,6 +1773,63 @@ export class Fighter {
     });
     this.play('ct2', { fade: 0.10, speed: 1.6 });
     this.emit('fireArrowCancel', { reason });
+  }
+
+  // ---- RYU: THE CHARGED BEAM ----------------------------------------------
+  // Entering the charge is free and instantaneous — there is no wind-up before
+  // the wind-up. What costs him is that from this frame until he lets go he is
+  // a statue, and the statue is lit up.
+  _startOutputCharge() {
+    this.outputT = 0;
+    this.outputTier = 0;
+    this.vel.x = 0; this.vel.z = 0;
+    this.setState('outputCharge', {});
+    this.play(this.cfg.output.chargeClip ?? 'charge', { fade: 0.08, speed: 1 });
+    this.emit('outputChargeStart');
+  }
+
+  // Release. The tier that fires is what he HELD, capped by what he can PAY —
+  // holding past what the bar covers does not refuse the shot, it just fires
+  // the best one he can actually buy. Refusing outright would punish a player
+  // for the one thing this character has to do constantly, which is guess.
+  _releaseBeam(ctx) {
+    const op = this.cfg.output;
+    const held = this.outputT;
+    this.outputT = 0;
+    this.outputTier = 0;
+    this.model?.setOutput?.(0, 0);
+    const tier = outputReleaseTier(this, held);
+    if (tier == null) {
+      // genuinely empty. He still has to put the cannon down, and that is the
+      // punish window — an empty Ryu who charged anyway is the worst position
+      // in the game and he should be standing in it visibly.
+      this.setState('ct', {
+        move: {
+          name: 'Granite Blast (dry)', kind: 'ct', slot: 'ct2',
+          startup: 0, active: 0, recovery: op.dryRecovery ?? 30, clip: op.fireClip ?? 'ct2'
+        }
+      });
+      this.play(op.fireClip ?? 'ct2', { fade: 0.10, speed: 1.5 });
+      this.emit('outputDry');
+      return;
+    }
+    const t = outputTierDef(tier);
+    if (!this.spendCE(t.cost)) { this.emit('noCE'); this.setState('idle', { clip: 'idle' }); return; }
+    // The move handed to the state machine carries the TIER's numbers, so
+    // there is exactly one place a beam's damage, width, range and destruction
+    // come from and the HUD, the effect and the debug overlay cannot disagree.
+    const move = {
+      ...op, ...t,
+      name: op.name, jpName: op.jpName, kind: 'ct', slot: 'ct2', isCT: true,
+      effect: op.effect, tier,
+      startup: op.fireStartup ?? 8,
+      active: op.fireActive ?? 4,
+      recovery: (op.fireRecovery ?? 26) + (op.recoveryPerTier ?? 5) * tier,
+      clip: op.fireClip ?? 'ct2'
+    };
+    this.setState('ct', { move });
+    this._syncMoveAnim(move, move.clip);
+    this.emit('outputFire', { tier });
   }
 
   startPurple(ctx) {
@@ -2014,6 +2167,41 @@ export class Fighter {
       //
       // Costs nothing, because she has nothing to spend. The cooldown exists
       // only to stop swap-mashing.
+      // ---- RYU — BRACE ----------------------------------------------------
+      // The only special in the game whose entire payload is a resource, and
+      // the only one that is deliberately an invitation. It costs nothing to
+      // press (there is nothing to spend — spending is the problem it solves)
+      // and the price is paid entirely in seconds of standing still.
+      case 'ryu_brace': {
+        if (this.res.curCE >= this.res.maxCE - 0.01) { this.emit('braceFull'); return false; }
+        this._setSpecialCD(sp.cooldown);
+        this.braceT = 0;
+        this.vel.x = 0; this.vel.z = 0;
+        this.setState('brace', { clip: sp.clip });
+        this.emit('braceStart');
+        return true;
+      }
+
+      // ---- URAUME — FROST FIELD -------------------------------------------
+      // Freezes the ground around them instantly. It is the panic button and
+      // the setup tool at once, which is unusual and is the point: the same
+      // press that buys space also builds the floor they want to fight on.
+      // Routed through `startCT` shape rather than being its own state,
+      // because it IS a cast — it has a cost, a startup and an effect — and
+      // the effect handler owns everything that happens afterwards.
+      case 'uraume_frostfield': {
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        this._setSpecialCD(sp.cooldown);
+        const move = {
+          ...sp, name: sp.name, kind: 'ct', slot: 'special',
+          effect: 'uraume_frostfield',
+          startup: sp.castFrames, active: 1, recovery: sp.recovery ?? 16, clip: sp.clip
+        };
+        this.setState('ct', { move });
+        this._syncMoveAnim(move, sp.clip);
+        return true;
+      }
+
       case 'maki_swap': {
         const a = this.cfg.arsenal;
         const cur = this.weapon ?? a.default;
@@ -2859,6 +3047,22 @@ export class Fighter {
     const r = this._applyHit(hit, ctx);
     if (this.jackpot) this._rct(before);
     this._feedGauges(hit, r, before);
+    // ---- FROSTBOUND SHATTERS ON THE HIT THAT USED IT ---------------------
+    // AFTER `_applyHit`, so the blow that breaks the shell is the blow that
+    // gets the 1.40x — you spend the window by hitting into it, which is the
+    // whole grammar of the state. Hooked at this wrapper rather than at any
+    // damage SITE for the same reason the two second-resources above are: it
+    // is the one route into this fighter's health that every technique,
+    // summon, projectile and sure-hit in the game already goes through, so
+    // nothing can land on a shelled body without breaking the shell.
+    //
+    // A BLOCKED hit does not break it. `_applyHit` returns 'blocked' for those
+    // and they never reached the body — the ice is still closed, and the
+    // frozen player guarding out the last tenth of a second is a real (if
+    // small) piece of counterplay rather than a bug.
+    if (this.frost?.boundT > 0 && (r === 'hit' || r === 'otg' || r === 'crit')) {
+      shatterFrost(ctx?.match ?? this._match ?? null, this);
+    }
     return r;
   }
 
@@ -3338,6 +3542,11 @@ export class Fighter {
       this.gainBlood((this.cfg.blood.regen ?? 0) * dt);
     }
     tickBurn(this, dt); // Jogo's fire DoT — never feeds MAX_CE, only hurts
+    // URAUME'S FROST — the stack decay and the FROSTBOUND clock. Note what
+    // this deliberately does NOT do next to the line above it: frost has no
+    // damage-over-time at all. Burn kills you slowly; frost takes the fight
+    // away from you and does not kill you at all. See combat/frost.js.
+    tickFrost(this, dt);
     if (this.buffs.resolve > 0) {
       this.buffs.resolve -= dt;
       if (this.buffs.resolve <= 0) this.resolveArmor = false;
@@ -4067,10 +4276,20 @@ export class Fighter {
         // keep holding and you have committed to the Fire Arrow charge. Below
         // two stacks this branch does not exist and RT is Cleave with no delay.
         if (input.ct2P && this.fireArrowReady && this.grounded) { this._startFireStance(); break; }
+        // ---- RYU: RT IS A HOLD, ALWAYS -------------------------------------
+        // Structurally the same tap/hold split Sukuna's Fire Arrow already
+        // uses, and deliberately so — a player who has learned one has learned
+        // the other. The difference is that Sukuna's tap falls back to a
+        // DIFFERENT MOVE (Cleave) and Ryu's tap is the same move at its
+        // weakest tier, which is canon: he charges Granite Blast in a rush in
+        // ch.177 and Yuta blocks the weaker blast with his bare hands.
+        if (input.ct2P && this.cfg.output && this.grounded) { this._startOutputCharge(); break; }
         if (input.ct2P) { if (this.startCT('ct2', ctx)) break; }
         if (input.heavyP && this.grounded) { if (this.startHeavy(ctx)) break; }
         if (input.punchP && this.grounded) { this.startPunch(0); break; }
-        if (input.jumpP && this.grounded) {
+        // ...and the jump, for the same reason and on the same predicate. A
+        // body in a closed ice shell does not leave the floor.
+        if (input.jumpP && this.grounded && !frostGrounded(this)) {
           this.vel.y = stats.jumpVel;
           this.grounded = false;
           this.setState('jump', { clip: 'jump' });
@@ -4522,6 +4741,92 @@ export class Fighter {
         if (this.fireT % 3 === 0) ctx.fx.fireArrowCharge(this, this.fireT / (fa.chargeFrames ?? 78));
         break;
       }
+
+      // ---- RYU: THE CHARGE -------------------------------------------------
+      // He is PLANTED. No movement, no block, no dash, no jump, no cancel into
+      // anything — the state reads no input at all except RT itself, and
+      // letting go is the only way out. That is the entire price of the
+      // largest damage number in the game, and it is why the tell below is as
+      // loud as it is: the opponent has to be able to read the tier from
+      // anywhere in the arena and decide whether to run at him or leave.
+      //
+      // NO CURSED ENERGY IS SPENT WHILE CHARGING. It is spent at RELEASE, on
+      // the tier that actually came out, so a bluffed charge costs him time
+      // and safety and nothing else. That is what makes starting one a
+      // negotiation rather than a commitment — and what makes calling his
+      // bluff by simply backing off a real, free answer.
+      case 'outputCharge': {
+        const op = this.cfg.output;
+        if (!op) { this.setState('idle', { clip: 'idle' }); break; }
+        this.outputT++;
+        const tier = outputTierOf(this.outputT);
+        if (tier !== this.outputTier) {
+          this.outputTier = tier;
+          // RE-PLAY, so the per-tier posture swap in `_clip` actually takes
+          // effect. `play` resolves the name through `_clip` at call time, so
+          // the clip only changes when something asks for it again — without
+          // this line the tier table and the muzzle glow would escalate and
+          // the BODY would hold tier 0 for the whole charge, which is the half
+          // of the tell that reads in silhouette.
+          this.play(op.chargeClip ?? 'charge', { fade: 0.12 });
+          this.emit('outputTier', { tier });
+        }
+        // he is held at the top rather than auto-firing: the mind game is how
+        // long he dares hold, and a forced release would answer it for him
+        if (this.outputT > OUTPUT_MAX_HOLD) this.outputT = OUTPUT_MAX_HOLD;
+        // THE TELL, every third frame, scaled by how far along he is
+        if (this.outputT % 3 === 0) {
+          ctx.fx?.outputCharge?.(this, this.outputT / OUTPUT_MAX_HOLD, tier);
+        }
+        this.model?.setOutput?.(tier, this.outputT / OUTPUT_MAX_HOLD);
+        if (!input?.ct2) { this._releaseBeam(ctx); break; }
+        break;
+      }
+
+      // ---- RYU: BRACE ------------------------------------------------------
+      // He plants his feet and refuels. Immobile, unguarded, and there is a
+      // wind-down afterwards during which he is still standing there.
+      //
+      // *** NO SELF-DAMAGE. *** Brace costs him time and safety, never health,
+      // and there is deliberately no line here that touches `res.hp`.
+      case 'brace': {
+        const sp = this.cfg.special;
+        this.braceT++;
+        tickBrace(this, dt);
+        ctx.fx?.braceGather?.(this, Math.min(1, this.braceT / (sp?.maxFrames ?? BRACE.maxFrames)));
+        const minF = sp?.minFrames ?? BRACE.minFrames;
+        const maxF = sp?.maxFrames ?? BRACE.maxFrames;
+        // *** `input.copy` IS THE B BUTTON. *** This read `input.special`,
+        // which is not a field on the input frame at all (see
+        // `emptyFrame` in input/input.js) — so the test was `!undefined`,
+        // which is always true, and Brace ended the instant it passed its
+        // minimum of twenty frames whether or not the player was still
+        // holding it. Measured in a live match: it refuelled 0.7 CE instead
+        // of the 26 a second it is priced at, and the whole special was
+        // effectively a 0.33-second animation.
+        //
+        // It also has to be a HOLD rather than a toggle for the risk to be
+        // real: the player chooses how long to stand there, which is the
+        // decision the move exists to pose.
+        const done = this.braceT >= maxF
+          || (this.braceT >= minF && !input?.copy)
+          || this.res.curCE >= this.res.maxCE - 0.01;
+        if (done) {
+          this.braceT = 0;
+          this.setState('braceDown', { clip: sp?.downClip ?? 'braceDown' });
+          this.emit('braceEnd');
+        }
+        break;
+      }
+
+      // The wind-down. A pure vulnerability window with no input read at all —
+      // this is the invitation half of the risk/reward, and it must not be
+      // cancellable or Brace becomes free.
+      case 'braceDown':
+        if (this.f >= (this.cfg.special?.windDownFrames ?? BRACE.windDownFrames)) {
+          this.setState('idle', { clip: 'idle' });
+        }
+        break;
 
       // brief special recovery (Gojo's warp exit, Todo's clap)
       case 'special':
@@ -5002,7 +5307,11 @@ export class Fighter {
     const stats = this.stats;
     const m = this._moveVec(move, ctx.camYaw);
     const mag = Math.hypot(m.x, m.z);
-    const canDash = dashHeld && this.res.stamina > 1 && mag > 0.1;
+    // FROSTBOUND REFUSES THE DASH. Everything else about the victim's input
+    // still works — they can walk (at 0.18x), guard, and throw whatever they
+    // like. This is the line that keeps it a DAMAGE WINDOW rather than a
+    // lockdown: they are not disarmed, they simply cannot leave.
+    const canDash = dashHeld && this.res.stamina > 1 && mag > 0.1 && !frostGrounded(this);
     // SHADOW TRAVEL (passive, inside his own domain): the dash stops being a
     // dash and becomes a submerge. He drops under the shadow line, moves fast
     // and untargetable, and surfaces wherever he lets go. Only works while he
@@ -5054,8 +5363,23 @@ export class Fighter {
     } else if (mag > 0.55) { speed = stats.runSpeed; next = 'run'; }
     else if (mag > 0.05) { speed = stats.walkSpeed; next = 'walk'; }
     speed *= this.speedMult;
-    this.vel.x = damp(this.vel.x, m.x * speed, 14, dt);
-    this.vel.z = damp(this.vel.z, m.z * speed, 14, dt);
+    // ---- ICE TERRAIN — THE WHOLE OF IT, IN ONE NUMBER ---------------------
+    // 14 is the response rate of a fighter's legs: how fast the velocity they
+    // HAVE becomes the velocity they ASKED for. Uraume's frozen ground drops
+    // it to 3.4 (2.2 in a dash), and that single substitution produces every
+    // symptom the design asks for at once, because it is what less grip
+    // physically IS — the body keeps going where it was going, takes much
+    // longer to stop, and changes direction in an arc instead of on a pivot.
+    // There is no separate "sliding" code, no slip state and no special case
+    // in the animation, which is exactly why it composes with everything
+    // (a dash on ice, a frost-slowed walk on ice, being knocked onto ice).
+    //
+    // `tractionFor` returns null for anybody NOT on ice and for the ice's own
+    // OWNER, so "Uraume is unaffected by their own ice" lives in one place.
+    const iceP = ctx.match?.ice?.tractionFor?.(this);
+    const grip = iceP ? (next === 'dash' ? ICE_TERRAIN.dashTraction : ICE_TERRAIN.traction) : 14;
+    this.vel.x = damp(this.vel.x, m.x * speed, grip, dt);
+    this.vel.z = damp(this.vel.z, m.z * speed, grip, dt);
     if (next !== this.state && !opts.keepState) {
       const clip = next === 'dash' ? 'dash' : next === 'idle' ? 'idle' : next;
       this.setState(next, { clip, fade: 0.14 });

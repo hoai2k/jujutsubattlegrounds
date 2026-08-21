@@ -31,6 +31,8 @@ import { buildUro } from '../art/models/uro.js';
 import { buildDagon } from '../art/models/dagon.js';
 import { buildYaga } from '../art/models/yaga.js';
 import { buildTakaba } from '../art/models/takaba.js';
+import { buildUraume } from '../art/models/uraume.js';
+import { buildRyu } from '../art/models/ryu.js';
 import { buildCursedCorpse, CORPSE_IDS } from '../art/models/cursedcorpses.js';
 // DAGON'S FOUR — not humanoids and not Megumi's, so they load through the
 // CREATURES path with the rest of the summons.
@@ -76,6 +78,7 @@ const BUILDERS = { gojo: buildGojo, yuta: buildYuta, megumi: buildMegumi, nanami
   geto: buildGeto, naoya: buildNaoya, kashimo: buildKashimo, panda: buildPanda,
   inumaki: buildInumaki, maki: buildMaki, yuki: buildYuki, miwa: buildMiwa,
   uro: buildUro, dagon: buildDagon, yaga: buildYaga, takaba: buildTakaba,
+  uraume: buildUraume, ryu: buildRyu,
   // VARIANTS. They are separate models with their own geometry, so they get
   // their own viewer entries — a variant you cannot load on the bench is a
   // variant nobody iterates on, which is how a palette swap ships.
@@ -92,6 +95,14 @@ const FRAMING = {
   // extra height or the bench crops it, which is precisely the detail the
   // bench exists to check.
   uro: { dist: 4.9, height: 1.30 },
+  // URAUME is short and the black drape is WIDE, so the frame is pulled back
+  // a touch further than the height alone would ask for — the silhouette is
+  // the character and it needs the room.
+  uraume: { dist: 4.6, height: 1.02 },
+  // RYU is framed HIGH, because the identifier is the cannon and it sits a
+  // head and a half above his crown. Framing him on his chest like the rest of
+  // the tall men puts the muzzle at the top edge of the shot.
+  ryu: { dist: 5.2, height: 1.42 },
   dagon: { dist: 6.0, height: 1.35 },
   // The tallest human in the roster needs the camera further back than the
   // students; the most ordinary one needs it exactly where the default is.

@@ -8,6 +8,11 @@
 // frame. The tier table is imported rather than duplicated so the bar, the
 // model and the frame data can never disagree about what tier he is in.
 import { TIERS as CHARGE_TIERS, TIER_AT as CHARGE_TIER_AT } from '../combat/charge.js';
+// RYU'S OUTPUT and URAUME'S FROST. Same discipline as the charge tiers above:
+// the tables are imported rather than duplicated, so the HUD and the mechanic
+// are reading one source and the pips cannot end up in the wrong place.
+import { TIERS as OUTPUT_TIERS, MAX_HOLD as OUTPUT_MAX_HOLD, tierOf as outputTierOf, chargeFrac as outputFrac } from '../combat/output.js';
+import { FROST } from '../combat/frost.js';
 // INUMAKI'S THROAT. Same discipline as the charge tiers above: the table is
 // imported rather than duplicated, so the bar, the model, the frame data and
 // the animation set can never disagree about which tier he is in.
@@ -227,6 +232,15 @@ export class HUD {
           <span class="badge b-soulwound">SOUL WOUND</span>
           <span class="badge b-locked">SEIZED</span>
           <span class="badge b-frozen">FROZEN</span>
+          <!-- URAUME. TWO ENTRIES, and they are separate on purpose: the STACK
+               COUNT is a meter a player manages and the SHELL is a state they
+               are in. Collapsing them into one badge would lose the thing the
+               opponent most needs to read, which is HOW CLOSE they are.
+               b-frostbound is deliberately worded and coloured differently
+               from b-frozen above (Naoya's) so the two never read as the
+               same status — see combat/frost.js for the full distinction. -->
+          <span class="badge b-frost">霜 FROST</span>
+          <span class="badge b-frostbound hot">霜凪 FROSTBOUND ×1.40</span>
           <span class="badge b-stance hot">投射 ARMED</span>
           <span class="badge b-maxproj hot">極 MAX PROJECTION</span>
           <span class="badge b-toast"></span>
@@ -286,6 +300,15 @@ export class HUD {
           <span class="awk-key">天与</span>
           <div class="bar bar-awk"><div class="fill"></div><div class="awk-ticks"></div></div>
           <span class="awk-stage"></span>
+        </div>
+        <!-- RYU. One row, five pips, and the pip that is FILLING is the whole
+             point: the opponent has to be able to see which tier the next
+             fraction of a second buys without doing arithmetic. Same
+             construction as Kashimo's charge ticks and Yaga's build tiers. -->
+        <div class="out-row">
+          <span class="ot-key">放出</span>
+          <div class="bar bar-ot"><div class="fill"></div><div class="ot-ticks"></div></div>
+          <span class="ot-tier"></span>
         </div>
         <div class="mass-row">
           <span class="ms-key">質量</span>
@@ -385,6 +408,17 @@ export class HUD {
       if (f.cfg.charge) {
         chgRow.querySelector('.chg-ticks').innerHTML = CHARGE_TIER_AT.slice(1)
           .map(t => `<i style="left:${(t * 100).toFixed(1)}%"></i>`).join('');
+      }
+      // ---- RYU: THE CHARGE TIERS ------------------------------------------
+      // Built ONCE here like the charge ticks above, from the SAME table the
+      // mechanic reads (combat/output.js), so the pip positions and the tier
+      // boundaries can never drift apart. The row is hidden for everybody who
+      // does not declare `output`, which is the entire rest of the roster.
+      const outRow = plate.querySelector('.out-row');
+      outRow.style.display = f.cfg.output ? '' : 'none';
+      if (f.cfg.output) {
+        outRow.querySelector('.ot-ticks').innerHTML = OUTPUT_TIERS.slice(1)
+          .map(t => `<i style="left:${(t.hold / OUTPUT_MAX_HOLD * 100).toFixed(1)}%"></i>`).join('');
       }
       // ---- PANDA: THE THREE CORES ------------------------------------------
       // A STANCE STRIP, not three health bars. The cores share one pool now
@@ -758,9 +792,25 @@ export class HUD {
       // time (Heavenly Restriction) — every query below would be null.
       const ceBar = plate.querySelector('.bar-ce');
       if (ceBar) {
-        ceBar.querySelector('.maxfill').style.width = f.res.maxCE + '%';
-        ceBar.querySelector('.fill').style.width = f.res.curCE + '%';
+        // ---- THE CEILING, AND WHY THIS IS NOT `f.res.maxCE + '%'` ---------
+        // It was, for the project's whole life, because every fighter's
+        // ceiling was 100 and the number and the percentage were the same
+        // thing. Ryu's is 150, and left alone this line would have set a width
+        // of 150% and drawn his bar straight out of its own plate.
+        //
+        // Normalising by the ceiling is right for a second reason as well: his
+        // bar should be FULL at 150, not 150% of full, because what the player
+        // needs to read off it is "how close am I to a shot" and not "how do I
+        // compare to Nobara". The size difference is stated where it belongs —
+        // in the NUMBER — rather than by drawing him a longer bar than his
+        // opponent, which would be unreadable at a glance and would also break
+        // the plate's layout.
+        const ceil = f.ceCeiling || 100;
+        ceBar.querySelector('.maxfill').style.width = (f.res.maxCE / ceil * 100) + '%';
+        ceBar.querySelector('.fill').style.width = (f.res.curCE / ceil * 100) + '%';
         ceBar.classList.toggle('charged', f.charged);
+        // and the plate says so, once, for the one fighter it is true of
+        ceBar.classList.toggle('oversized', ceil > 100);
       }
       const st = plate.querySelector('.bar-st');
       st.querySelector('.fill').style.width = (f.res.stamina / f.cfg.stats.stamina * 100) + '%';
@@ -994,6 +1044,43 @@ export class HUD {
       const burnBadge = plate.querySelector('.b-burn');
       burnBadge.classList.toggle('on', f.burn.stacks > 0);
       if (f.burn.stacks > 0) burnBadge.textContent = '🔥 BURN ×' + f.burn.stacks;
+      // ---- FROST, ON THE VICTIM'S PLATE ------------------------------------
+      // Same place burn goes and for the same reason: a debuff belongs on the
+      // bar of the person carrying it, not on the bar of whoever applied it.
+      //
+      // THE STACK BADGE prints the count AND the cap, which burn's does not,
+      // because with frost the distance to the cap is the actual information —
+      // at 5/6 the opponent should be running, and at 2/6 they should not.
+      const frostBadge = plate.querySelector('.b-frost');
+      const fr = f.frost;
+      frostBadge.classList.toggle('on', (fr?.stacks ?? 0) > 0);
+      if (fr?.stacks > 0) frostBadge.textContent = `霜 FROST ${fr.stacks}/${FROST.maxStacks}`;
+      // THE SHELL is its own badge and it is worded and coloured to be
+      // impossible to confuse with `b-frozen` (Naoya's), because the correct
+      // response to the two is opposite: you spend a FROSTBOUND window with
+      // your single biggest hit, and you fill a FROZEN one with your fastest
+      // string. Printing the multiplier is what makes that legible without a
+      // manual.
+      plate.querySelector('.b-frostbound').classList.toggle('on', (fr?.boundT ?? 0) > 0);
+      // ---- RYU: THE CHARGE, LIVE -------------------------------------------
+      // Shown on HIS plate rather than the opponent's, because unlike frost
+      // this is a resource he is spending rather than a status he is in — but
+      // the OPPONENT reads it too, which is why the tier name is spelled out
+      // rather than being a number. The model's muzzle, the ground cracks and
+      // the arena rings say the same thing in world space; this is the precise
+      // version for the player who wants to count frames.
+      if (f.cfg.output) {
+        const row = plate.querySelector('.out-row');
+        const held = f.outputT ?? 0;
+        const tier = outputTierOf(held);
+        const pct = Math.max(0, Math.min(100, outputFrac(held) * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        const def = OUTPUT_TIERS[tier];
+        row.querySelector('.ot-tier').textContent = held > 0 ? `${def.jp} ${def.name}` : '';
+        row.classList.toggle('charging', f.state === 'outputCharge');
+        row.classList.toggle('max', tier >= OUTPUT_TIERS.length - 1);
+        row.classList.toggle('bracing', f.state === 'brace');
+      }
       plate.querySelector('.b-soulwound').classList.toggle('on', f.buffs.soulWound > 0);
       // ---- CONFISCATION -----------------------------------------------------
       // The seized button lives on the VICTIM's plate, because they are the

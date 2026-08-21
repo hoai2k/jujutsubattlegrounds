@@ -2749,3 +2749,91 @@ html.filters-on #ui-root::after {
 .ts-score .tsp.pass { background: #6fe89a; border-color: #b6ffd2; box-shadow: 0 0 12px rgba(111,232,154,0.8); }
 .ts-score .tsp.fail { background: #ff4d5a; border-color: #ff9aa2; box-shadow: 0 0 12px rgba(255,77,90,0.8); }
 
+
+/* ===========================================================================
+   URAUME — FROST, AND THE BADGE THAT MUST NOT LOOK LIKE NAOYA'S
+   ===========================================================================
+   `.b-frozen` above is GOLD, because Naoya's freeze is gold everywhere — the
+   countdown ring, the material wash, the contact flash. These two are GLACIAL
+   CYAN, and the separation is deliberate at the CSS level as well as at the
+   geometry level: a player glancing at a plate has to be able to tell which of
+   the two states they are in from the colour alone, before they have read a
+   word, because the correct response to the two is opposite. */
+.badge.b-frost {
+  background: rgba(79, 216, 232, 0.14); color: #9fe8f2;
+  border-left-color: #4fd8e8;
+}
+.badge.b-frost.on { display: inline-block; }
+/* THE SHELL. Brighter, and it PULSES, because it is a window that is closing
+   and a static badge would not say so. 0.55 s is the shell's own duration, so
+   the badge completes exactly one pulse per shell. */
+.badge.b-frostbound {
+  background: rgba(79, 216, 232, 0.26); color: #ffffff;
+  border-left-color: #ffffff;
+  text-shadow: 0 0 10px rgba(79, 216, 232, 1);
+}
+.badge.b-frostbound.on { display: inline-block; animation: frostbound 0.55s ease-out infinite; }
+@keyframes frostbound {
+  0% { box-shadow: 0 0 14px rgba(79,216,232,0.95); }
+  100% { box-shadow: 0 0 2px rgba(79,216,232,0.2); }
+}
+
+/* ===========================================================================
+   RYU — THE OUTPUT ROW
+   ===========================================================================
+   Modelled on the charge row above, and deliberately so: a player who has
+   learned to read Kashimo's meter can read this one. The differences are the
+   two that matter for this character — there are FIVE pips instead of four
+   ticks, and the row is only interesting WHILE HE IS HOLDING, so it is dim
+   until `charging` and then it is the loudest thing on the plate. */
+.out-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.out-row .ot-key {
+  font-size: 10px; font-weight: 800; color: #d8f05a; flex: none;
+  text-shadow: 0 0 10px rgba(216, 240, 90, 0.6);
+}
+.out-row .bar-ot {
+  position: relative; flex: 1; height: 6px; background: rgba(0,0,0,0.62);
+  border: 1px solid rgba(216, 240, 90, 0.30); overflow: visible;
+}
+.out-row .bar-ot .fill {
+  height: 100%; transition: width 0.06s linear;
+  background: linear-gradient(180deg, #f2fbc0, #d8f05a 58%, #6b7a20);
+}
+.out-row .ot-ticks { position: absolute; inset: 0; pointer-events: none; }
+.out-row .ot-ticks i {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: rgba(216, 240, 90, 0.55);
+}
+.out-row .ot-tier {
+  font-size: 8px; font-weight: 800; letter-spacing: 1px; color: #b8c86a;
+  min-width: 70px; text-align: right; white-space: nowrap;
+}
+/* WHILE HOLDING. The whole row lights, because this is the moment the
+   opponent has a decision to make and the HUD should be shouting. */
+.out-row.charging .bar-ot { border-color: #d8f05a; box-shadow: 0 0 12px rgba(216,240,90,0.55); }
+.out-row.charging .ot-tier { color: #f2fbc0; text-shadow: 0 0 8px rgba(216,240,90,0.8); }
+/* AT MAXIMUM it goes white and pulses at 8 Hz. There is no louder state
+   available on this plate and it is being spent on the correct thing: 88
+   damage is about to leave his head. */
+.out-row.max .bar-ot { border-color: #ffffff; box-shadow: 0 0 18px rgba(242,251,192,0.9); }
+.out-row.max .bar-ot .fill { background: linear-gradient(180deg, #ffffff, #f2fbc0 45%, #d8f05a); }
+.out-row.max .ot-key,
+.out-row.max .ot-tier { color: #ffffff; text-shadow: 0 0 12px rgba(216,240,90,1); }
+.out-row.max .bar-ot { animation: outMax 0.125s ease-in-out infinite alternate; }
+@keyframes outMax { from { filter: brightness(1); } to { filter: brightness(1.5); } }
+/* BRACE is deliberately a DIFFERENT read — the bar does not fill, it breathes,
+   because he is not aiming at anybody and the opponent needs to know that at a
+   glance. Same reason the world-space effect contracts instead of expanding. */
+.out-row.bracing .bar-ot { border-color: rgba(216,240,90,0.7); animation: brace 0.9s ease-in-out infinite; }
+@keyframes brace {
+  0%, 100% { box-shadow: 0 0 3px rgba(216,240,90,0.3); }
+  50% { box-shadow: 0 0 14px rgba(216,240,90,0.8); }
+}
+
+/* THE OVERSIZED CURSED-ENERGY BAR. Ryu's ceiling is 150 against the roster's
+   100, and the HUD normalises by the ceiling rather than drawing him a longer
+   bar (see the note in ui/hud.js). The difference is stated with a border
+   instead — his bar is the same length as everyone's and is visibly a
+   different KIND of bar, which is the honest reading: it is not that he has
+   more of the same thing, it is that his tank is a different size. */
+.bar-ce.oversized { border-color: rgba(216, 240, 90, 0.55); }
