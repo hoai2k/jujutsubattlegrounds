@@ -329,7 +329,7 @@ export class Fighter {
     // CURTAIN are the only things in the game that set it. See `setOffField`
     // for the full audit of what this does and does not break.
     this.offFieldT = 0;
-    // OPPONENT LOCK (left stick press / L3). On by default — the whole control
+    // OPPONENT LOCK (right stick press / R3). On by default — the whole control
     // scheme is built around it. Off, the fighter turns to face the way they
     // are moving and the stick becomes camera-relative, which is what lets a
     // player deliberately face a shikigami, a transfigured human, or just look
@@ -4334,7 +4334,7 @@ export class Fighter {
     const S = this.state;
     const stats = this.stats;
 
-    // OPPONENT LOCK toggle (left stick press). Read BEFORE the state gates: it
+    // OPPONENT LOCK toggle (right stick press). Read BEFORE the state gates: it
     // is a camera/control preference rather than a move, so it must work while
     // stunned, mid-intro, or trapped in someone's domain — never something you
     // have to find a gap in the fight to press.

@@ -37,7 +37,7 @@ const KEYMAP_P1 = {
   // already was B and sits directly beside the J/K/L attack cluster.
   copy: 'KeyH', back: 'KeyH',
   taunt: 'KeyP',                      // D-pad Left — the special's old key
-  lock: 'KeyQ',                       // L3 — toggle the opponent lock
+  lock: 'KeyQ',                       // R3 — toggle the camera mode
   start: 'Enter', select: 'Tab'
 };
 // right-hand cluster for the second local player
@@ -47,7 +47,7 @@ const KEYMAP_P2 = {
   block: 'Quote', dash: 'ControlRight', ult: 'Backslash',
   copy: 'KeyM', back: 'KeyM',         // B — see the P1 note above
   taunt: 'Slash',                     // D-pad Left
-  lock: 'Comma',                      // L3 — toggle the opponent lock
+  lock: 'Comma',                      // R3 — toggle the camera mode
   start: 'Enter', select: 'Tab'
 };
 
@@ -138,7 +138,7 @@ export class InputManager {
     f.ult ||= b(BTN.DRIGHT);
     f.copy ||= b(BTN.B);           // SPECIAL (held, for the three radial wheels)
     f.taunt ||= b(BTN.DLEFT);      // TAUNT
-    f.lock ||= b(BTN.L3);          // left stick press: opponent lock toggle
+    f.lock ||= b(BTN.R3);          // right stick press: camera mode toggle
     f.start ||= b(BTN.START); f.select ||= b(BTN.SELECT);
     f.pause ||= b(BTN.START);
     f.left ||= b(BTN.DLEFT) || mv.x < -0.5; f.right ||= b(BTN.DRIGHT) || mv.x > 0.5;
@@ -207,8 +207,17 @@ export class InputManager {
       this._readKeys(frames[1], KEYMAP_P2);
     }
 
-    // pause is global: Escape, or START on any pad (read above)
-    if (this.keys.has('Escape')) for (const f of frames) f.pause = true;
+    // PAUSE IS GLOBAL: Escape, or START on ANY pad — including a pad that
+    // drives no seat in this match. `_readPad` only runs for seats 0..n-1, so
+    // in a 1v1 the START on pad 3 was read by nobody and player 3's controller
+    // could not stop the game it was sitting in front of. Pausing is not a
+    // gameplay input and has no business being seat-gated, so it is ORed in
+    // here from every connected pad, exactly the way Escape is.
+    const anyStart = pads.some(gp => {
+      const btn = gp.buttons?.[BTN.START];
+      return !!btn && (btn.pressed || btn.value > 0.5);
+    });
+    if (anyStart || this.keys.has('Escape')) for (const f of frames) f.pause = true;
 
     // vs CPU with keyboard P1: arrow keys become camera control
     if (mode === 'cpu' && pads.length === 0) {
@@ -223,6 +232,19 @@ export class InputManager {
       this._finish(frames[i], this.prev[i]);
       this.prev[i] = frames[i];
       this.frames[i] = frames[i];
+    }
+
+    // PADS BEYOND THE SEAT COUNT still drive MENUS. `frames` — what the match
+    // ticks on — stays seat-limited, but `this.frames` is what `menuFrame`
+    // merges, so a pad sitting out a 1v1 can still move the pause menu it just
+    // opened with START. Without this it could stop the game and then not
+    // choose anything in the menu, which is worse than not being able to pause.
+    for (let i = n; i < MAX_PLAYERS; i++) {
+      const extra = emptyFrame();
+      if (pads[i]) this._readPad(extra, pads[i]);
+      this._finish(extra, this.prev[i]);
+      this.prev[i] = extra;
+      this.frames[i] = extra;
     }
     return { p1: frames[0], p2: frames[1], all: frames };
   }

@@ -182,7 +182,7 @@ export class Legend {
       <div><b>B</b> SPECIAL <span style="color:#8b98bc">(H / M)</span> — Gojo: warp · Nanami: 7:3 timing (press again to stop) · Yuta: Copy · Yuji: Black Flash · Todo: Boogie Woogie</div>
       <div><b>B tap / B hold</b> — Megumi, Toji and Geto choose from a set. <b>TAP</b> commits the default instantly; <b>HOLD</b> opens the radial with that default already selected, the <b>left stick</b> picks another, and releasing confirms. Anything destroyed is greyed out and cannot be selected</div>
       <div><b>D-Left</b> TAUNT <span style="color:#8b98bc">(P / /)</span> — no gameplay effect, and you are wide open for the whole thing. Move, dash or block to cancel</div>
-      <div><b>L3 (left stick press)</b> toggle opponent lock <span style="color:#8b98bc">(Q / ,)</span> — unlocked you turn to face the way you move, which is how you attack shikigami and transfigured humans</div>
+      <div><b>R3 (right stick press)</b> toggle opponent lock <span style="color:#8b98bc">(Q / ,)</span> — unlocked you turn to face the way you move, which is how you attack shikigami and transfigured humans</div>
       <div><b>Yuji's Flash</b> press B the instant a technique connects — the slot flares red when the window is open</div>
       <div><b>LT+D-Right</b> barrier break — inside a domain</div>
       <div><b>LT hold</b> Simple Domain — inside a domain</div>
