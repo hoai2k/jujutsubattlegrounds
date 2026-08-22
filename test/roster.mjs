@@ -25,6 +25,22 @@ import { ROSTER_IDS, ROSTER, allPicks, makeCharacter, pickInfo } from '../src/ch
 import { tauntsFor } from '../src/combat/taunts.js';
 import { finishersFor } from '../src/finishers/registry.js';
 import { makeClips } from '../src/art/anim/index.js';
+// ---- THE FINISHER CLIP VOCABULARY, IN FULL ---------------------------------
+// A finisher action names clips as plain strings, and at run time each one is
+// resolved against FOUR sources rather than one. Getting this list wrong is
+// worse than not checking at all: the first version of the audit below knew
+// only about `MOVES` and duly reported that every finisher in the game was
+// broken, including twenty that demonstrably work.
+//
+//   MOVES / REACTIONS   the shared fight vocabulary (finishers/fight.js) —
+//                       fJab, fCross, rSnapHead, rFall and the rest. Installed
+//                       onto BOTH fighters for the length of the cinematic.
+//   SIGNATURE_CLIPS     the killing blows (finishers/moves.js) — gojoPockets,
+//                       tojiSpear, higurumaExecute. Installed onto the WINNER.
+//   the character's own the clip set `makeClips` builds. This is where Reggie's
+//   clip set          `mCar` and Ino's `maskSwap` come from.
+import { MOVES, REACTIONS } from '../src/finishers/fight.js';
+import { SIGNATURE_CLIPS } from '../src/finishers/moves.js';
 
 const problems = [];
 const rows = [];
@@ -114,6 +130,36 @@ for (const id of ROSTER_IDS) {
   }
   if (cfg.domain && typeof cfg.domain.castFrames !== 'number') {
     row.issues.push(`domain castFrames is ${cfg.domain.castFrames}`);
+  }
+
+  // ---- THE FINISHER'S CLIP VOCABULARY -------------------------------------
+  // Added while building Reggie and Ino, and it is the same class of silent
+  // failure this whole file exists for.
+  //
+  // A finisher action names clips as plain strings — `win: 'mCar'`,
+  // `op: 'fDuck'`, `react: 'rBlownBack'`. Every one of those resolves at
+  // runtime through `strikeOffset` / the director as
+  //
+  //     clips.get(FIN_PREFIX + name) || clips.get(name)
+  //
+  // and a name in NONE of the four sources listed at the top of this file
+  // resolves to `undefined` — at which point the director silently plays
+  // nothing for that beat. The cutscene still runs, the camera still cuts, and
+  // one of the two fighters simply stands in their idle through an exchange
+  // that was supposed to be a haymaker.
+  //
+  // Nothing errors. Nothing logs. The only way to find it is to watch the
+  // scene and notice that a beat looks wrong — which is exactly the discovery
+  // cost this file was written to remove.
+  for (const f of finishersFor(id, cfg)) {
+    for (const [ai, a] of (f.actions ?? []).entries()) {
+      for (const slot of ['win', 'op', 'react', 'fall', 'fallClip', 'heroClip']) {
+        const name = a[slot];
+        if (!name || typeof name !== 'string') continue;
+        if (MOVES[name] || REACTIONS[name] || SIGNATURE_CLIPS[name] || clips.has(name)) continue;
+        row.issues.push(`finisher ${f.id} action ${ai} ${slot}: no clip or move "${name}"`);
+      }
+    }
   }
 
   // ---- IT HAS TO BUILD ----------------------------------------------------

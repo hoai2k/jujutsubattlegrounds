@@ -2648,16 +2648,30 @@ export const FINISHERS_BY_PICK = {
     },
     actions: [
       // ---- THEY COME IN ----------------------------------------------------
-      // Two attacks, both whiffing, and Uraume is in `stance` for both — the
-      // hands-together waiting pose. `hit: false, miss: true` gives the whoosh
-      // past the ear rather than a block spark, because nothing was blocked:
-      // nothing was there.
+      // Two attacks, both whiffing, and Uraume is in their neutral for both —
+      // the hands-together waiting pose. `hit: false, miss: true` gives the
+      // whoosh past the ear rather than a block spark, because nothing was
+      // blocked: nothing was there.
+      //
+      // *** THIS SAID `stance` AND URAUME HAS NO SUCH CLIP. *** Their set is
+      // idle / walk / run / punch1-3 / heavy / ct1 / ct2 / frostField / ult /
+      // taunt / victory / ko — no `stance`. So four of this cinematic's beats
+      // named a clip that does not exist and resolved to nothing, which the
+      // director does not report and which looks, on screen, like Uraume
+      // standing very still. Given that the whole character is built on being
+      // still (see the header of art/anim/uraume.js) that is exactly the bug
+      // nobody would ever notice by watching.
+      //
+      // Found by the finisher clip audit added to test/roster.mjs while
+      // building Reggie and Ino. `idle` IS the hands-together waiting pose the
+      // comment above describes, so this restores the stated intent rather
+      // than changing it.
       {
-        op: 'fCross', strike: 'op', hit: false, miss: true, win: 'stance',
+        op: 'fCross', strike: 'op', hit: false, miss: true, win: 'idle',
         shot: S.otsLose(), power: 1.0, span: 0.85
       },
       {
-        op: 'fRound', strike: 'op', hit: false, miss: true, win: 'stance',
+        op: 'fRound', strike: 'op', hit: false, miss: true, win: 'idle',
         shot: S.hitR(), power: 1.1, span: 0.90,
         fx: d => d.sfx.whiff?.()
       },
@@ -2689,7 +2703,7 @@ export const FINISHERS_BY_PICK = {
       // reaction — a body being twisted and stopped rather than knocked back,
       // which is the correct read for being encased rather than hit.
       {
-        win: 'stance', strike: 'win',
+        win: 'idle', strike: 'win',
         blast: { at: 0.30, aim: 'chest', power: 1.6, kind: 'ice' },
         hit: true, react: 'rTorque', op: null, span: 1.30,
         power: 1.6, knock: 0.15, shot: S.faceLose({ d: 1.5, side: -0.4 }),
@@ -2709,7 +2723,7 @@ export const FINISHERS_BY_PICK = {
       // Uraume does not react to it at all. No block, no dodge, no flinch: the
       // `stance` clip continues from where the last action left it.
       {
-        op: 'fThrust', strike: 'op', hit: false, miss: true, win: 'stance',
+        op: 'fThrust', strike: 'op', hit: false, miss: true, win: 'idle',
         span: 0.95, shot: S.lowR(1.2), dofBase: 0.3, power: 0.8,
         fx: d => {
           d.sfx.crack?.();
@@ -2771,6 +2785,375 @@ export const FINISHERS_BY_PICK = {
   // they get nearer — 1.4 s, 1.1 s, 0.85 s, 0.6 s — which is the scene
   // accelerating while Ryu does not.
   // =========================================================================
+  // =========================================================================
+  // REGGIE STAR — 再契象 THE REGISTER
+  // Tokyo No. 1 Colony, the fight with Megumi Fushiguro. *** NOT SENDAI *** —
+  // see the correction at the top of characters/reggie.js; the brief had the
+  // colony wrong, and this scene is built on the fight he actually has.
+  //
+  // THE RESEARCH FINDING THAT SHAPED IT: the fight is NOT a scramble and it is
+  // NOT close for most of its length. Reggie dominates, cheerfully, by never
+  // running out of things — "constantly refreshing arsenals" — and at the point
+  // where an ordinary fighter would be spent he BURNS A RECEIPT FOR A SPA
+  // TREATMENT AND RECOVERS, while Megumi is exhausted. That beat is the single
+  // most characterful thing in the whole arc and it is action four below. It
+  // is also the reason the scene is paced as a man taking his time.
+  //
+  // THE BRIEF'S REQUIREMENT, honoured beat by beat: MATERIALISED OBJECTS ARE
+  // FLYING THROUGHOUT and the opponent is cutting through and dodging them the
+  // whole way. Every action below has the loser attacking, evading or being
+  // moved by something real.
+  //
+  // THE MAP FLOURISH. The brief asks for one where the school map is loaded.
+  // It gets a better one than the brief's, and for a canon reason: the beat
+  // that ends Reggie's life is a fall into a SCHOOL SWIMMING POOL, whose water
+  // dissolves every tag on him. So on the school map — and only there — the
+  // final car goes through a burst of water, and the ambient carries the smell
+  // of a pool the whole way. It is three lines, it is invisible everywhere
+  // else, and it works on every other map without it.
+  // =========================================================================
+  reggie: {
+    id: 'reggie_register',
+    moment: 'Tokyo No. 1 Colony. He never runs out, and he is enjoying himself.',
+    color: '#f2e3af', grade: 'ko', chord: 'bright', root: 98.0,
+    // AMBIENT: PAPER. Receipts drifting through the whole scene, more of them
+    // as it goes, because he is burning through his stock. It is the visual
+    // opposite of Ryu's charge — his ambient escalates because he is winding
+    // UP, Reggie's escalates because he is spending DOWN.
+    ambient: (d, t) => {
+      const k = Math.min(1, t / 6.0);
+      if (Math.random() < 0.18 + k * 0.30) {
+        d.fx._spawn(d.win.pos.clone().add(v3(rand(-2.5, 2.5), rand(1.4, 3.4), rand(-2.5, 2.5))), {
+          color: Math.random() < 0.25 ? 0xb8d8c0 : 0xf4f2ea, size: rand(0.10, 0.24),
+          aspect: 0.35, life: rand(1.2, 2.6), opacity: 0.75, gravity: 1.1,
+          vel: v3(rand(-0.7, 0.7), rand(-0.4, 0.3), rand(-0.7, 0.7))
+        });
+      }
+      // embers off the tags he has already burned
+      if (Math.random() < 0.10 + k * 0.16) {
+        d.fx._spawn(d.win.pos.clone().add(v3(rand(-1.2, 1.2), rand(0.8, 2.2), rand(-1.2, 1.2))), {
+          color: Math.random() < 0.5 ? 0xff9a3c : 0xffe0a0, size: rand(0.04, 0.11),
+          life: rand(0.3, 0.8), gravity: -1.6, vel: v3(rand(-0.4, 0.4), rand(0.6, 1.8), rand(-0.4, 0.4))
+        });
+      }
+      // THE POOL, on the school map only. See the note above.
+      if (d._pool === undefined) {
+        d._pool = /school|sendai/i.test(d.m?.arena?.id ?? d.m?.arena?.name ?? '');
+      }
+      if (d._pool && Math.random() < 0.05) {
+        d.fx._spawn(d.win.pos.clone().add(v3(rand(-3, 3), 0.05, rand(-3, 3))), {
+          color: 0x7fd0e8, size: rand(0.10, 0.22), aspect: 0.5, life: rand(0.4, 0.9),
+          opacity: 0.5, gravity: 8, vel: v3(rand(-1, 1), rand(0.6, 2.0), rand(-1, 1))
+        });
+      }
+    },
+    actions: [
+      // ONE. They come in first, hard, and he does not guard — he throws a
+      // handful of junk into the gap and steps back out of it. His own `ct1`,
+      // the real Quick Materialise clip.
+      {
+        win: 'ct1', op: 'fStepThrough', strike: 'win', hit: true, react: 'rSnapHead',
+        span: 0.90, shot: S.midR(), power: 0.7, knock: 0.25,
+        fx: d => {
+          d.sfx.throwLight?.();
+          for (let i = 0; i < 5; i++) {
+            d.fx._spawn(d.win.pos.clone().add(v3(rand(-0.4, 0.4), rand(1.0, 1.7), rand(-0.3, 0.3))), {
+              color: 0xf8f6ee, size: rand(0.08, 0.18), aspect: 0.3, life: rand(0.3, 0.7),
+              gravity: 2, vel: v3(rand(-1, 1), rand(0.5, 2), rand(2, 5))
+            });
+          }
+        }
+      },
+      // TWO. They cut straight through it and land one on him. He takes it,
+      // and the important thing is what his face does — nothing.
+      {
+        op: 'fCross', strike: 'op', hit: true, react: 'rSnapHead', win: 'idle',
+        span: 0.80, shot: S.hitR(), power: 1.1, knock: 0.5,
+        fx: d => d.sfx.hit(true)
+      },
+      // THREE. THE LADDER. His own `mLadder` — the two-handed sweep with the
+      // best reach in the game — and they have to go under it.
+      {
+        win: 'mLadder', op: 'fDuck', strike: 'win', hit: false, miss: true,
+        span: 1.05, shot: S.lowL(1.5), dofBase: 0.28,
+        fx: d => {
+          d.sfx.swing?.(true);
+          d.cam.shake(0.2);
+        }
+      },
+      // FOUR. *** THE SPA. *** The beat the research turned up and the most
+      // Reggie thing in the arc: mid-fight, visibly hurt, he burns a receipt
+      // for a SERVICE and simply stops being hurt. The opponent is mid-swing
+      // and it does not matter. `taunt` is the right clip for it — it is the
+      // one where he reads a receipt with genuine attention — and the warm
+      // flush of the recovery plays over the top.
+      {
+        win: 'taunt', op: 'fRound', strike: 'op', hit: false, miss: true,
+        span: 1.45, shot: S.faceWin({ d: 1.4, side: 0.5 }), dofBase: 0.72, speed: 0.9,
+        fx: d => {
+          d.sfx.heal?.() ?? d.audio.accent(392, { gain: 0.09 });
+          d.stage?.flash?.(0.10);
+          for (let i = 0; i < 26; i++) {
+            d.fx._spawn(d.win.pos.clone().add(v3(rand(-0.6, 0.6), rand(0.2, 2.0), rand(-0.6, 0.6))), {
+              color: i % 3 === 0 ? 0xfff0c8 : 0xffd8a0, size: rand(0.06, 0.16),
+              life: rand(0.5, 1.2), opacity: 0.8, gravity: -2.4,
+              vel: v3(rand(-0.6, 0.6), rand(0.8, 2.2), rand(-0.6, 0.6))
+            });
+          }
+        }
+      },
+      // FIVE. They throw everything they have at him and he blocks it on a
+      // materialised object — the beat that says the stock is the character.
+      {
+        op: 'fOverhead', strike: 'op', hit: true, react: 'rBlockPush', win: 'mCanister',
+        span: 1.00, shot: S.otsLose(), power: 1.2, knock: 0.35,
+        fx: d => { d.fx.guardSpark?.(d.win.pos.clone().add(v3(0, 1.3, 0))); d.sfx.hit(true); }
+      },
+      // SIX. THE MOPED. It goes down the lane and they cut it in half — which
+      // is exactly what a good opponent does to a moped, and the point of the
+      // beat is that he does not care, because it was never the plan.
+      {
+        win: 'mMoped', op: 'fCleave', strike: 'win', hit: false, miss: true,
+        span: 1.15, shot: S.wideR(), dofBase: 0.2,
+        fx: d => {
+          d.sfx.dash?.();
+          d.cam.shake(0.35);
+          for (let i = 0; i < 16; i++) {
+            d.fx._spawn(d.win.pos.clone().addScaledVector(d.win.forward(), 2.4).add(v3(rand(-0.8, 0.8), rand(0.2, 1.4), rand(-0.8, 0.8))), {
+              color: i % 3 === 0 ? 0xd8442e : 0x9aa0aa, size: rand(0.08, 0.22),
+              life: rand(0.3, 0.7), gravity: 14, vel: v3(rand(-5, 5), rand(1, 5), rand(-5, 5))
+            });
+          }
+        }
+      },
+      // SEVEN. He reads one more receipt. The whole scene stops for a
+      // three-quarter second and he checks the total, which is the beat the
+      // ending needs in order to land.
+      {
+        win: 'wheel', op: 'fGuardUp', span: 0.80,
+        shot: S.handWin({ d: 0.9, side: 0.45 }), dofBase: 0.85, speed: 0.85,
+        fx: d => d.audio.accent(1047, { gain: 0.07 })
+      },
+      // EIGHT. *** THE CAR. *** 0.46 s of wind-up in his own `mCar`, the
+      // deepest hip drop in the project, and it connects.
+      {
+        win: 'mCar', op: 'fGuardUp', strike: 'win', hit: true, react: 'rBlownBack',
+        span: 1.55, shot: S.bigHit(), power: 2.2, knock: 2.4, impact: 0.16,
+        dofBase: 0.16,
+        fx: d => {
+          d.sfx.heavyImpact?.() ?? d.sfx.hit(true);
+          d.cam.shake(1.0);
+          d.stage?.flash?.(0.18);
+          d.audio.accent(98, { gain: 0.13 });
+          // the car itself, coming apart on the impact
+          for (let i = 0; i < 30; i++) {
+            d.fx._spawn(d.lose.pos.clone().add(v3(rand(-1.4, 1.4), rand(0.3, 2.2), rand(-1.4, 1.4))), {
+              color: i % 4 === 0 ? 0xfff0c0 : (i % 4 === 1 ? 0x4a8ac8 : (i % 4 === 2 ? 0x9aa0aa : 0xbfe0f0)),
+              size: rand(0.10, 0.36), life: rand(0.4, 1.0), gravity: 17,
+              vel: v3(rand(-9, 9), rand(2, 9), rand(-9, 9))
+            });
+          }
+          // ...and the pool, on the school map. The water is what killed him in
+          // the source, and here it is on his side.
+          if (d._pool) {
+            for (let i = 0; i < 20; i++) {
+              d.fx._spawn(d.lose.pos.clone().add(v3(rand(-1.6, 1.6), rand(0, 0.6), rand(-1.6, 1.6))), {
+                color: i % 2 ? 0x7fd0e8 : 0xdff2fb, size: rand(0.12, 0.30), aspect: 0.6,
+                life: rand(0.5, 1.1), opacity: 0.7, gravity: 12,
+                vel: v3(rand(-4, 4), rand(2, 7), rand(-4, 4))
+              });
+            }
+          }
+        }
+      },
+      // ...and the exit: the body goes down and he checks his remaining tags.
+      ...OUTRO('victory', {
+        fall: 'rBlownBack', fallSpan: 1.10, fallShot: S.wideL(),
+        heroClip: 'victory', heroSpan: 1.60, heroShot: S.hero({ d: 3.2 }),
+        heroFx: d => {
+          for (let i = 0; i < 12; i++) {
+            d.fx._spawn(d.win.pos.clone().add(v3(rand(-1.2, 1.2), rand(1.6, 3.0), rand(-1.2, 1.2))), {
+              color: 0xf4f2ea, size: rand(0.10, 0.20), aspect: 0.3,
+              life: rand(1.4, 2.6), opacity: 0.7, gravity: 1.0,
+              vel: v3(rand(-0.5, 0.5), rand(-0.3, 0.2), rand(-0.5, 0.5))
+            });
+          }
+        }
+      })
+    ]
+  },
+
+  // =========================================================================
+  // TAKUMA INO — 来訪瑞獣 THE MASK COMES DOWN
+  // Shibuya, the fight with Granny Ogami's grandchild — the one that turns
+  // into Toji Fushiguro halfway through and tears his mask off.
+  //
+  // THE RESEARCH FINDING THAT SHAPED IT: the thing everybody remembers about
+  // that fight is what he DID NOT get to do. He glides in on Reiki, he fires
+  // Kaichi's horn, he reaches for the mask to channel the dragon — and it is
+  // ripped off his face before he can. Nobody in the story has ever seen the
+  // dragon and lived to describe it.
+  //
+  // So this scene is that fight WITH THE ENDING HE DID NOT GET. The mask swap
+  // happens mid-exchange (the brief's explicit requirement, action four), the
+  // beast joins the attack (action five), and the dragon arrives (action
+  // seven) — which is the one thing this character has never been allowed.
+  // =========================================================================
+  ino: {
+    id: 'ino_beasts',
+    moment: 'Shibuya. This time the mask stays on.',
+    color: '#8fd8c4', grade: 'ko', chord: 'cold', root: 82.4,
+    // AMBIENT: THE BEAST IS THERE THE WHOLE TIME. `beasts.beastOf` is asked for
+    // whatever is currently manifested and its colour drives the motes, so the
+    // scene's atmosphere CHANGES COLOUR at the mask swap in action four — blue
+    // before it, gold after — without a single line of scheduling.
+    ambient: (d, t) => {
+      const b = d.m?.beasts?.beastOf?.(d.win);
+      const c = b?.def?.color ?? 0x8fd8c4;
+      if (Math.random() < 0.28) {
+        d.fx._spawn(d.win.pos.clone().add(v3(rand(-2.0, 2.0), rand(0.3, 2.8), rand(-2.0, 2.0))), {
+          color: Math.random() < 0.3 ? 0xffffff : c, size: rand(0.05, 0.14),
+          aspect: 0.5, life: rand(0.6, 1.5), opacity: 0.6, gravity: -0.5,
+          vel: v3(rand(-0.4, 0.4), rand(0.2, 0.9), rand(-0.4, 0.4))
+        });
+      }
+    },
+    actions: [
+      // ONE. They open on him and he is not there — he goes UNDER it on the
+      // water. His own `ct1Rei`, the lowest pose in his set.
+      {
+        op: 'fRound', strike: 'op', hit: false, miss: true, win: 'ct1Rei',
+        span: 1.00, shot: S.lowR(1.4), dofBase: 0.3,
+        fx: d => {
+          d.sfx.dash?.();
+          for (let i = 0; i < 14; i++) {
+            d.fx._spawn(d.win.pos.clone().add(v3(rand(-0.6, 0.6), rand(0.02, 0.5), rand(-0.6, 0.6))), {
+              color: i % 3 ? 0x3fd0b8 : 0xdff6f0, size: rand(0.10, 0.26), aspect: 0.5,
+              life: rand(0.25, 0.6), opacity: 0.7, gravity: 4,
+              vel: v3(rand(-2, 2), rand(0.4, 2), rand(-2, 2))
+            });
+          }
+        }
+      },
+      // TWO. 獬豸. He points and the horn goes, and they CUT IT OUT OF THE AIR
+      // — which is what a good opponent does and is the reason the ordinary
+      // horn is not the one that ends the fight.
+      {
+        win: 'ct1Kai', op: 'fCleave', strike: 'win', hit: false, miss: true,
+        span: 1.00, shot: S.midL(), dofBase: 0.25,
+        fx: d => {
+          d.sfx.projectile?.();
+          for (let i = 0; i < 12; i++) {
+            d.fx._spawn(d.win.pos.clone().add(v3(0, 1.4, 0)).addScaledVector(d.win.forward(), 0.6 + i * 0.25), {
+              color: i % 3 ? 0x6ea8ff : 0xffffff, size: rand(0.07, 0.17), aspect: 0.4,
+              life: rand(0.15, 0.4), opacity: 0.85, vel: v3()
+            });
+          }
+        }
+      },
+      // THREE. They close, and they GO FOR THE MASK — the canon kill shot on
+      // this character, and the reason the scene has stakes. He gets his head
+      // out of the way by about an inch.
+      {
+        op: 'fGrab', strike: 'op', hit: false, miss: true, win: 'fSlip',
+        span: 0.85, shot: S.faceWin({ d: 1.1, side: -0.4 }), dofBase: 0.7, speed: 0.88,
+        fx: d => { d.sfx.whoosh?.() ?? d.sfx.swing?.(false); d.audio.accent(110, { gain: 0.08 }); }
+      },
+      // FOUR. *** THE MASK SWAP, MID-EXCHANGE. *** The brief's explicit
+      // requirement and the centre of the scene: their fist is already on its
+      // way and he pulls the knit down anyway. He takes the hit doing it —
+      // 麒麟 has just switched his pain off, so `rBlockPush` rather than
+      // `rSnapHead`: he is moved and he does not flinch.
+      {
+        op: 'fUpper', strike: 'op', hit: true, react: 'rBlockPush', win: 'maskSwap',
+        span: 1.20, shot: S.otsLose(), power: 1.2, knock: 0.30, dofBase: 0.4,
+        fx: d => {
+          d.sfx.hit(true);
+          d.m?.beasts?.manifest?.(d.win, 'kirin');
+          d.win.model?.setMask?.(1);
+          d.stage?.flash?.(0.09);
+          d.audio.accent(165, { gain: 0.10 });
+          // the gold arrives
+          for (let i = 0; i < 22; i++) {
+            d.fx._spawn(d.win.pos.clone().add(v3(rand(-1.0, 1.0), rand(0.4, 2.4), rand(-1.0, 1.0))), {
+              color: i % 3 ? 0xffc24a : 0xfff0c0, size: rand(0.08, 0.20), aspect: 0.5,
+              life: rand(0.4, 1.0), opacity: 0.8, gravity: -1.4,
+              vel: v3(rand(-1.4, 1.4), rand(0.6, 2.4), rand(-1.4, 1.4))
+            });
+          }
+        }
+      },
+      // FIVE. *** THE BEAST JOINS THE ATTACK, and the opponent is fighting
+      // both of them. *** The brief's other explicit requirement. Ino charges
+      // behind the qilin's horn and they arrive together; the opponent guards
+      // the wrong one.
+      {
+        win: 'ct1Kir', op: 'fParry', strike: 'win', hit: true, react: 'rBlockPush',
+        span: 1.15, shot: S.wideR(), power: 1.3, knock: 0.8, dofBase: 0.2,
+        fx: d => {
+          d.sfx.dash?.();
+          d.cam.shake(0.4);
+          const b = d.m?.beasts?.beastOf?.(d.win);
+          if (b) b.strikeAnim = 1;
+          for (let i = 0; i < 18; i++) {
+            d.fx._spawn(d.win.pos.clone().add(v3(rand(-0.8, 0.8), rand(0.4, 2.0), rand(-0.8, 0.8))), {
+              color: i % 3 ? 0xffc24a : 0xfff0c0, size: rand(0.08, 0.22),
+              life: rand(0.2, 0.5), opacity: 0.8, vel: v3(rand(-2, 2), rand(0, 1.6), rand(-2, 2))
+            });
+          }
+        }
+      },
+      // SIX. 脳内麻薬. He takes one ON PURPOSE — chest open, both arms back,
+      // the hold in his own `ct2Kir` — and gives it back with everything.
+      {
+        win: 'ct2Kir', op: 'fBodyRip', strike: 'win', hit: true, react: 'rFoldGut',
+        span: 1.30, shot: S.hitL(), power: 1.7, knock: 1.2, impact: 0.10,
+        fx: d => {
+          d.sfx.heavyImpact?.() ?? d.sfx.hit(true);
+          d.cam.shake(0.55);
+          d.audio.accent(196, { gain: 0.11 });
+        }
+      },
+      // SEVEN. *** 龍. THE ONE NOBODY HAS SEEN. ***
+      // He pulls the mask all the way down — further than a swap — and the
+      // dragon comes over his shoulder. This is the thing the character never
+      // got to do in the source, and the scene exists to give it to him.
+      {
+        win: 'ult', op: 'fGuardUp', strike: 'win', hit: true, react: 'rBlownBack',
+        span: 1.90, shot: S.crane({ d: 4.6, y: 3.2 }), power: 2.3, knock: 2.6,
+        impact: 0.18, dofBase: 0.18,
+        fx: d => {
+          d.m?.beasts?.manifest?.(d.win, 'ryu');
+          d.sfx.ultimate?.();
+          d.cam.shake(1.1);
+          d.stage?.flash?.(0.24);
+          d.audio.accent(82.4, { gain: 0.14 });
+          // the dragon, coming down the lane between them
+          const dir = d.lose.pos.clone().sub(d.win.pos).setY(0).normalize();
+          for (let i = 0; i < 44; i++) {
+            const f = i / 44;
+            const a = f * 9;
+            d.fx._spawn(d.win.pos.clone().addScaledVector(dir, f * 5.0)
+              .add(v3(Math.cos(a) * 0.8, 1.2 + Math.sin(a) * 0.8, Math.sin(a * 0.7) * 0.6)), {
+              color: i % 3 ? 0xd8e4ff : 0xffffff, size: rand(0.16, 0.44),
+              aspect: 0.7, life: rand(0.3, 0.8), opacity: 0.9, vel: v3()
+            });
+          }
+        }
+      },
+      // ...and the exit: he pushes the mask up and gets his breath back. He is
+      // not pleased, he is relieved, which is exactly who he is.
+      ...OUTRO('victory', {
+        fall: 'rBlownBack', fallSpan: 1.15, fallShot: S.wideL(),
+        heroClip: 'victory', heroSpan: 1.70, heroShot: S.hero({ d: 3.0 }),
+        heroFx: d => {
+          d.win.model?.setMask?.(0);
+          d.m?.beasts?.dismiss?.(d.win);
+        }
+      })
+    ]
+  },
+
   ryu: {
     id: 'ryu_granite',
     moment: 'Sendai. He plants his feet and starts charging, and they run at him.',
@@ -2906,7 +3289,7 @@ export const FINISHERS_BY_PICK = {
       // No strike, no movement, no camera move. A second and a half of a
       // teenage girl standing perfectly still while somebody walks at her.
       {
-        win: 'stance', op: 'fStepThrough', span: 1.50,
+        win: 'idle', op: 'fStepThrough', span: 1.50,
         shot: two({ d: 3.4, side: -1, y: 1.35, fov: 34, push: 0.15 }), dofBase: 0.7,
         fx: d => d.audio.accent(196, { gain: 0.05 })
       },

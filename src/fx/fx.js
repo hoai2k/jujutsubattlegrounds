@@ -7,8 +7,7 @@ import { rand, v3 } from '../core/mathutil.js';
 import {
   buildRootClump, buildCEBloom, buildManji, buildFilmFrame, buildProjectionPlate,
   buildPachinkoBall, buildSpear, buildChainRope, buildSoulBlade, buildPlayfulCloud,
-  buildNullifySeal, buildStoneSlab
-} from './props.js';
+  buildNullifySeal, buildStoneSlab, buildHorn } from './props.js';
 // URAUME'S ICE and RYU'S DISCHARGE. Both are real oriented geometry rather
 // than billboards — see the header of fx/frostfx.js for the two shape-language
 // rules those constructs are held to.
@@ -65,6 +64,8 @@ export class FXSystem {
   // ONE SHARD IN FLIGHT. Driven by the entity that owns the hitbox, so the
   // picture and the hit test are the same position by construction.
   iceShardNode(len = 0.9, r = 0.11) { return iceShard(len, r); }
+  // INO — Kaichi's horn. `big` is the Judgement Horn, the one that homes.
+  hornNode(r = 0.72, color = 0x6ea8ff, big = false) { return buildHorn(r, color, big); }
 
   // A column bursting out of the ground. `grow` is the fraction of its final
   // height it has reached — it comes UP rather than appearing, which is rule 3

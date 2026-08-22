@@ -206,6 +206,7 @@ export class SelectScreen {
             <div class="sv-dots"></div>
             <div class="sv-hint">◀ ▶  CHANGE VERSION   ·   Y  TAUNT   ·   B  BACK</div>
           </div>
+          <div class="sh-kit"></div>
           <div class="sh-tag"></div>
           <div class="sh-taunt">Y &nbsp;·&nbsp; PREVIEW TAUNT</div>
         </div>`).join('')}
@@ -270,6 +271,47 @@ export class SelectScreen {
       hero.querySelector('.sh-name').textContent = r.config.name;
       hero.querySelector('.sh-role').textContent = r.role;
       hero.querySelector('.sh-tag').textContent = r.spirit ? '呪霊 CURSED SPIRIT' : '呪術師 SORCERER';
+
+      // ---- THE KIT STRIP --------------------------------------------------
+      // *** THE BRIEF ASKS FOR THIS BY NAME: "Ino's entry should preview all
+      // his masks." *** A `role` line has one sentence in it, and a character
+      // whose entire design is "he is four different fighters" cannot be
+      // introduced in one sentence.
+      //
+      // So a character MAY declare a strip of chips under the role line, each
+      // in its own colour. It is generic rather than an Ino special case —
+      // anything with a `beasts` or an `objects` block gets one — and it is
+      // driven off the same config tables the wheel and the HUD read, so the
+      // select screen can never fall out of step with what the character
+      // actually has.
+      //
+      // For INO it is the three beasts, in wheel order, each in its own hue:
+      // 獬豸 RANGE / 霊亀 MOVEMENT / 麒麟 TRADE, which is the whole character
+      // stated before you press anything. (The DRAGON is deliberately absent —
+      // it is the ultimate, nobody in the source has ever seen it, and putting
+      // it on the shop window would give away the one surprise he has.)
+      //
+      // For REGGIE it is the seven objects with their prices, which is his
+      // whole character stated the same way: a price list.
+      const kit = hero.querySelector('.sh-kit');
+      const cfg = r.config;
+      if (cfg.beasts) {
+        kit.innerHTML = cfg.beasts.order.map(k => {
+          const b = cfg.beasts.defs[k];
+          const c = '#' + b.spirit.color.toString(16).padStart(6, '0');
+          return `<i style="--kc:${c}"><b>${b.jp}</b>${b.name}<u>${(b.role || '').split(' · ')[0]}</u></i>`;
+        }).join('');
+        kit.classList.add('on');
+      } else if (cfg.objects) {
+        kit.innerHTML = cfg.objects.order.map(k => {
+          const o = cfg.objects.defs[k];
+          return `<i style="--kc:${hex(r.accent)}"><b>${o.jp}</b>${o.short}<u>¥${(o.cost * cfg.receipts.yenPerStock / 1000)}k</u></i>`;
+        }).join('');
+        kit.classList.add('on');
+      } else {
+        kit.innerHTML = '';
+        kit.classList.remove('on');
+      }
 
       // ---- THE VARIANT PANEL --------------------------------------------
       // Only present while that seat is actually choosing a version. The

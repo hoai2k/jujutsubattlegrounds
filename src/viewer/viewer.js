@@ -33,6 +33,10 @@ import { buildYaga } from '../art/models/yaga.js';
 import { buildTakaba } from '../art/models/takaba.js';
 import { buildUraume } from '../art/models/uraume.js';
 import { buildRyu } from '../art/models/ryu.js';
+import { buildReggie } from '../art/models/reggie.js';
+import { buildIno } from '../art/models/ino.js';
+import { BEAST_BUILDERS } from '../art/models/auspiciousbeasts.js';
+import { OBJECT_MODELS, JUNK, buildVendingWreck } from '../art/models/receiptobjects.js';
 import { buildCursedCorpse, CORPSE_IDS } from '../art/models/cursedcorpses.js';
 // DAGON'S FOUR — not humanoids and not Megumi's, so they load through the
 // CREATURES path with the rest of the summons.
@@ -78,7 +82,7 @@ const BUILDERS = { gojo: buildGojo, yuta: buildYuta, megumi: buildMegumi, nanami
   geto: buildGeto, naoya: buildNaoya, kashimo: buildKashimo, panda: buildPanda,
   inumaki: buildInumaki, maki: buildMaki, yuki: buildYuki, miwa: buildMiwa,
   uro: buildUro, dagon: buildDagon, yaga: buildYaga, takaba: buildTakaba,
-  uraume: buildUraume, ryu: buildRyu,
+  uraume: buildUraume, ryu: buildRyu, reggie: buildReggie, ino: buildIno,
   // VARIANTS. They are separate models with their own geometry, so they get
   // their own viewer entries — a variant you cannot load on the bench is a
   // variant nobody iterates on, which is how a palette swap ships.
@@ -115,7 +119,46 @@ const FRAMING = {
 // own animators — so the viewer drives them through a second, simpler path:
 // a `state` object handed to model.tick() with the switches each creature
 // reads. `states` is what the clip bar exposes for that creature.
+// ---- REGGIE'S MATERIALISED OBJECTS ---------------------------------------
+// A ladder and a car are not creatures and have no animator, but they are the
+// biggest single block of modelling in his character and the ONLY way to check
+// the house-style rules in art/models/receiptobjects.js — chunky proportions,
+// few flat colours, heavy edges, one loud identifying feature — is to look at
+// them next to a fighter. So each is wrapped in the same tiny interface a
+// creature exposes and benched through the same door.
+const OBJECT_BENCH = {};
+for (const [k, build] of Object.entries({ ...OBJECT_MODELS, ...JUNK, wreck: buildVendingWreck })) {
+  OBJECT_BENCH['obj\u00b7' + k] = {
+    build: () => {
+      const g = new THREE.Group();
+      const node = build();
+      g.add(node);
+      const box = new THREE.Box3().setFromObject(node);
+      const size = box.getSize(new THREE.Vector3());
+      return {
+        group: g, body: node,
+        height: size.y, radius: Math.max(size.x, size.z) * 0.5,
+        setReveal() {}, setLOD() {},
+        tick(dt, st = {}) { if (st.spin) g.rotation.y += dt * 0.9; }
+      };
+    },
+    states: { still: {}, spin: { spin: 1 } }
+  };
+}
+
 const CREATURES = {
+  ...OBJECT_BENCH,
+  // ---- INO'S FOUR AUSPICIOUS BEASTS 瑞獣 -------------------------------------
+  // They keep the same `tick(dt, st)` contract every creature here does, so
+  // they need no special case — but they are worth benching for a reason the
+  // others are not: this family is TRANSLUCENT, and translucency is the one
+  // material property that cannot be judged from code. `manifest` at 0.35 is
+  // on the bench deliberately (as `forming`), because the half-arrived state
+  // is the one a player sees most.
+  'beast·kaichi': { build: BEAST_BUILDERS.kaichi, states: { idle: {}, walk: { gait: 1 }, strike: { strike: 1 }, forming: { reveal: 0.35 } } },
+  'beast·reiki': { build: BEAST_BUILDERS.reiki, states: { idle: {}, walk: { gait: 1 }, strike: { strike: 1 }, forming: { reveal: 0.35 } } },
+  'beast·kirin': { build: BEAST_BUILDERS.kirin, states: { idle: {}, walk: { gait: 1 }, strike: { strike: 1 }, forming: { reveal: 0.35 } } },
+  'beast·ryu': { build: BEAST_BUILDERS.ryu, states: { idle: {}, swim: { gait: 1 }, strike: { strike: 1 }, forming: { reveal: 0.35 } } },
   'dog·white': { build: () => buildDivineDog(true), states: { idle: { speed: 0 }, run: { speed: 6 }, bite: { speed: 4, action: 'bite', actionK: 0.5 }, hurt: { hurt: true } } },
   'dog·black': { build: () => buildDivineDog(false), states: { idle: { speed: 0 }, run: { speed: 6 }, bite: { speed: 4, action: 'bite', actionK: 0.5 }, hurt: { hurt: true } } },
   nue: { build: buildNue, states: { fly: {}, dive: { action: 'dive', actionK: 0.7 }, hurt: { hurt: true } } },
@@ -665,7 +708,14 @@ export function startViewer() {
     if (turntable) holder.rotation.y += dt * 0.5;
     if (player) player.update(dt);
     if (model) model.update(dt);
-    if (creature) creature.model.tick(dt, { ...creature.states[currentClip] });
+    if (creature) {
+      const st = creature.states[currentClip] || {};
+      // a bench state may pin the manifestation amount — Ino's beasts use it to
+      // show the half-arrived form, which is the state this family is for
+      if (st.reveal != null && creature.model.reveal !== st.reveal) creature.model.setReveal(st.reveal);
+      else if (st.reveal == null && creature.model.reveal < 1) creature.model.setReveal(1);
+      creature.model.tick(dt, st);
+    }
     for (const l of lineupPlayers) { l.player.update(dt); l.model.update(dt); }
     if (rika) rika.update(dt);
     updateCamera();
@@ -763,7 +813,27 @@ export function startViewer() {
     // a single `update(0.4)` leaves the spring chains and the pose blend
     // somewhere the game never puts them, and the result was every second
     // character reading as a T-pose on the sheet while being fine in-engine.
-    async sheet(name, { clips = null, yaws = [0, Math.PI * 0.75], cw = 300, ch = 380, t = 0.45, cols = 0 } = {}) {
+    // `dist` / `height` override the character's FRAMING entry for this sheet
+    // only, and are restored afterwards. Added while building Reggie: his
+    // hairstyle is the whole silhouette and a full-body frame is too far away
+    // to judge it, so a head-tight diagnostic pass has to be shootable without
+    // editing the framing table every time.
+    async sheet(name, { clips = null, yaws = [0, Math.PI * 0.75], cw = 300, ch = 380, t = 0.45, cols = 0, dist = null, height = null, state = null } = {}) {
+      const camWas = [camDist, camHeight];
+      if (dist != null) camDist = dist;
+      if (height != null) camHeight = height;
+      // `state` applies model-level toggles for the duration of the sheet —
+      // things that are not clips and cannot be reached from the clip bar.
+      // Added for Ino, whose ski mask is a piece of geometry with two states
+      // and whose DOWN state is half the character: without this there is no
+      // way to bench the single most important pose he has. It is a generic
+      // passthrough rather than an Ino special case, so Reggie's thinning coat
+      // (`setStock`) benches through the same door.
+      if (state && model) {
+        if (state.mask != null) model.setMask?.(state.mask);
+        if (state.stock != null) model.setStock?.(state.stock);
+        if (state.beastTint != null) model.setBeastTint?.(state.beastTint);
+      }
       const names = clips || (creature ? Object.keys(creature.states)
         : player ? [...player.clips.keys()] : ['idle']);
       const perRow = cols || yaws.length;
@@ -808,6 +878,7 @@ export function startViewer() {
         }
       }
       turntable = wasTurn;
+      camDist = camWas[0]; camHeight = camWas[1];
       resize();
       await fetch('/__shot', {
         method: 'POST',

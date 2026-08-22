@@ -357,6 +357,61 @@ export const TAUNTS = {
     ref: 'Ch.180 — the single meaningful glare, four hundred years of hunger. He does not talk to opponents; he sizes them up.'
   }],
 
+  // ---- REGGIE — THE TRANSACTIONAL ONE -------------------------------------
+  // He materialises one receipt, holds it up, READS IT with a beat of genuine
+  // attention, checks the total, and flicks it away over his shoulder without
+  // looking where it goes. The clip is authored on stand-up timing — the read
+  // is held two frames longer than is comfortable — see art/anim/reggie.js.
+  //
+  // THE LINE IS RESEARCHED, NOT INVENTED. His character is summed up in canon
+  // by one belief, stated in his own framing: sorcerers are con artists, the
+  // whole thing is a transaction, and everybody is priced. He also talks with
+  // decorative heart symbols and is relentlessly, insincerely pleasant. So the
+  // taunt is him pricing you and finding the number disappointing, said
+  // cheerfully.
+  //
+  // TWO ENTRIES, and `TAUNT_INPUT` is 'cycle', so pressing D-pad Left twice
+  // walks both. The second is the one that lands after the player has seen the
+  // first, which is the correct shape for a two-entry list.
+  reggie: [{
+    clip: 'taunt', dur: 3.3, say: "Let me check what you're worth. ♥", at: 1.55, hold: 1.5,
+    cue: 'reggie', ref: 'His whole worldview — "sorcerers are con artists" — plus the heart symbols his dialogue is littered with'
+  }, {
+    clip: 'taunt', dur: 3.3, say: 'Hm. Not much.', at: 1.70, hold: 1.4,
+    cue: 'reggie', ref: 'The follow-up. He reads the receipt, does the sum, and is politely unimpressed.'
+  }],
+
+  // ---- INO — THE EARNEST ONE, AND IT IS ABOUT SOMEBODY ELSE ---------------
+  // *** THE ONLY TAUNT IN THIS GAME THAT IS NOT AIMED AT THE OPPONENT. ***
+  //
+  // Canon: "whenever Ino finds himself in a tough situation, he asks himself
+  // WHAT WOULD NANAMI DO", and he refuses to be promoted to grade 1 without
+  // Nanami's approval. He is the most earnest person in the cast and the
+  // fandom's single most-cited fact about him is that he is a Nanami fan.
+  //
+  // So the taunt is: he pushes the mask up off his mouth with one thumb — a
+  // small, unheroic, practical gesture — gives himself a pep talk, nods once,
+  // and pulls it back down. He looks slightly DOWN AND AWAY while he says it,
+  // because it is not addressed to the person he is fighting. Every other
+  // taunt on this roster is contempt; this one is a man in the middle of a
+  // fight quietly reminding himself how he wants to do this.
+  //
+  // The BEAST reacts — whichever one is up turns its head to look at him on
+  // the line (combat/beasts.js `tauntReact`), which is the one moment in the
+  // character where the creature acknowledges its host.
+  //
+  // THREE ENTRIES: the reference, the self-doubt, and the one about the mask.
+  ino: [{
+    clip: 'taunt', dur: 3.2, say: 'What would Nanami-san do here?', at: 1.30, hold: 1.6,
+    cue: 'ino', ref: 'Canon, verbatim in spirit — it is what he asks himself in every tough spot, and the whole of his character'
+  }, {
+    clip: 'taunt', dur: 3.2, say: "I'm not the smartest guy here.\nI just do it right.", at: 1.25, hold: 1.7,
+    cue: 'ino', ref: 'Canon: he does not think he is clever, and he believes in getting dirty work done properly'
+  }, {
+    clip: 'taunt', dur: 3.2, say: 'Sorry — this part gets loud.', at: 1.35, hold: 1.5,
+    cue: 'ino', ref: 'The mask going back down. Apologising to the person he is about to channel a beast at.'
+  }],
+
   takaba: [{
     clip: 'taunt', dur: 3.6, say: "So a cursed spirit walks into a bar...\nthat's it. That's the technique.",
     at: 1.60, hold: 1.5, cue: 'takaba', buildsComedy: true,
@@ -450,6 +505,17 @@ export const TAUNT_WEIGHT = {
   // invited you to the beach every fifteen seconds would be a running joke
   // rather than an unsettling one.
   uro: 0.85, dagon: 0.12,
+  // REGGIE IS HIGH — 0.9, level with Kashimo and above Gojo. It is a
+  // PERSONALITY entry rather than a gameplay one: he is relentlessly, insincerely
+  // pleased with himself, he talks in heart symbols, and a CPU Reggie who
+  // fought in silence would be playing a completely different man. It is also
+  // the only taunt on the roster where the character is doing PAPERWORK at the
+  // opponent, which does not get old as fast as trash talk.
+  // INO IS LOW — 0.18, with Maki and Miwa. His taunt is not aimed at the
+  // opponent at all (it is a pep talk about Nanami), and a man giving himself
+  // encouragement every ten seconds reads as unhinged rather than as earnest.
+  // Rare is what makes it land.
+  reggie: 0.9, ino: 0.18,
   nanami: 0.1, higuruma: 0.1,
   // MAKI is low and MIWA is the lowest on the roster: one of them is working
   // and the other one is apologising. YUKI sits high with Todo and Naoya

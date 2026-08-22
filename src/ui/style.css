@@ -1821,6 +1821,28 @@ html.filters-on #ui-root::after {
    over the edges of the screen, never the middle: it has to be unpleasant to
    stand in a swarm without ever taking away the information a player needs to
    get out of one. The opacity is driven from combat/swarm.js and capped there. */
+/* ---- REGGIE'S GAS CLOUD ------------------------------------------------- */
+/* The same idea as the crawl below and deliberately a different SHAPE, so the
+   two are never mistaken for each other: the crawl is a swarm of small dark
+   things at the edges, and this is a pale wash that fills the middle. One is
+   insects and one is smoke, and a player who has learned either should not
+   have to read the HUD to tell which they are standing in.
+   Capped at 0.55 in the HUD — see the note there about why this is weak on
+   purpose and why the real work is done by particles in the world. */
+.gascloud {
+  position: absolute; inset: 0; pointer-events: none; z-index: 9; opacity: 0;
+  transition: opacity 0.18s linear;
+  background:
+    radial-gradient(ellipse at 50% 52%, rgba(216,220,226,0.72) 0%, rgba(176,182,192,0.42) 46%, rgba(120,126,138,0.10) 100%),
+    repeating-linear-gradient(102deg, rgba(232,236,242,0.16) 0px 26px, rgba(0,0,0,0) 26px 62px);
+  animation: gasDrift 7s linear infinite;
+}
+.gascloud.on { display: block; }
+@keyframes gasDrift {
+  0% { background-position: 0 0, 0 0; }
+  100% { background-position: 0 0, 120px -40px; }
+}
+
 .crawl {
   position: absolute; inset: 0; pointer-events: none; z-index: 9; opacity: 0;
   transition: opacity 0.25s linear;
@@ -2035,6 +2057,104 @@ html.filters-on #ui-root::after {
    across the screen when he speaks. Both are keyed off the four strain tiers,
    so the HUD and the overlay degrade together and a player reads his gauge
    from either one. */
+
+/* ---- REGGIE: THE RECEIPT STOCK ------------------------------------------ */
+/* A bar, a running yen total, and the price ticks. The ticks are the reason
+   this is not just another gauge: the stock is the only resource in the game a
+   player has to do ARITHMETIC with ("can I afford the car yet"), so each object
+   gets a mark at its cost and lights up when he can buy it. The bar IS the
+   price list. Same argument the throat's SILENCED tick makes below. */
+.rcp-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.rcp-row .rcp-key {
+  font-size: 8px; letter-spacing: 1px; color: #e8dcae; min-width: 20px;
+  text-shadow: 0 0 8px rgba(0,0,0,0.8);
+}
+.rcp-row .bar-rcp {
+  position: relative; flex: 1; height: 7px; background: rgba(0,0,0,0.66);
+  border: 1px solid rgba(232,220,174,0.32); overflow: hidden;
+}
+.rcp-row .bar-rcp .fill {
+  position: absolute; inset: 0 auto 0 0; transition: width 0.12s linear;
+  background: linear-gradient(180deg, #fdf6dc, #d8c184 58%, #6a5a2c);
+}
+.rcp-row .rcp-ticks { position: absolute; inset: 0; pointer-events: none; }
+.rcp-row .rcp-ticks i {
+  position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.30);
+}
+.rcp-row .rcp-ticks i.afford { background: #fff0b0; box-shadow: 0 0 7px rgba(255,230,140,0.9); }
+/* the object currently on RT is drawn heavier — it is the number the player is
+   actually saving toward */
+.rcp-row .rcp-ticks i.bound { width: 2px; background: #ffffff; box-shadow: 0 0 9px rgba(255,255,255,0.95); }
+/* THE MONEY COUNTER, and it TICKS. The brief asks for the earning to be shown
+   explicitly, so the number flashes and lifts on every landed hit — the only
+   animated NUMBER in this HUD, everything else being a bar. */
+.rcp-row .rcp-yen {
+  font-size: 9px; font-weight: 900; letter-spacing: 0.5px; min-width: 56px;
+  text-align: right; color: #e8dcae; font-variant-numeric: tabular-nums;
+  transition: color 0.18s linear, text-shadow 0.18s linear, transform 0.12s ease-out;
+}
+.rcp-row.earning .rcp-yen {
+  color: #fffbe0; text-shadow: 0 0 10px rgba(255,236,150,0.95); transform: translateY(-1px);
+}
+.rcp-row .rcp-obj {
+  font-size: 8px; font-weight: 900; letter-spacing: 1px; min-width: 52px;
+  text-align: right; color: #b9ac82;
+}
+/* SOAKED is the crisis state and it takes the whole row, exactly as SILENCED
+   does on the throat: he keeps the number and cannot spend a point of it, and
+   that difference has to be legible in one glance. */
+.rcp-row.wet .bar-rcp {
+  border-color: #4fd8e8; box-shadow: 0 0 12px rgba(79,216,232,0.6);
+  animation: rcpWet 0.9s steps(2, end) infinite;
+}
+.rcp-row.wet .bar-rcp .fill { background: linear-gradient(180deg, #7fd0e8, #3a7f96 58%, #14343e); }
+.rcp-row.wet .rcp-obj, .rcp-row.wet .rcp-key { color: #bfeef8; text-shadow: 0 0 10px rgba(79,216,232,0.9); }
+.rcp-row.locked .bar-rcp .fill { background: linear-gradient(180deg, #6a6a72, #3a3a42 58%, #17171c); }
+.rcp-row.locked .rcp-obj { color: #8a8a92; }
+@keyframes rcpWet { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.plate.p2 .rcp-row { flex-direction: row-reverse; }
+.plate.p2 .rcp-row .rcp-yen, .plate.p2 .rcp-row .rcp-obj { text-align: left; }
+
+/* ---- INO: THE MASK AND THE BEAST ---------------------------------------- */
+/* Three pips in WHEEL ORDER, so the row doubles as the muscle-memory map of
+   the radial, each lighting in its own beast's colour — the same colour the
+   mask's eye slot is glowing across the arena. MASK OFF greys all three and
+   takes the row, because it is the hardest counterplay window in the game and
+   both players need to see the clock on it. */
+.msk-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.msk-row .msk-key {
+  font-size: 8px; letter-spacing: 1px; color: #8fd8c4; min-width: 20px;
+  text-shadow: 0 0 8px rgba(0,0,0,0.8);
+}
+.msk-row .msk-beasts { display: flex; gap: 3px; flex: 1; }
+.msk-row .msk-beasts i {
+  flex: 1; height: 11px; line-height: 11px; text-align: center;
+  font-size: 7px; font-weight: 900; letter-spacing: 0.5px; font-style: normal;
+  background: rgba(0,0,0,0.6); border: 1px solid rgba(143,216,196,0.26);
+  color: rgba(255,255,255,0.34); transition: all 0.14s linear;
+}
+.msk-row .msk-beasts i.on {
+  background: color-mix(in srgb, var(--bc) 30%, rgba(0,0,0,0.6));
+  border-color: var(--bc); color: #ffffff;
+  box-shadow: 0 0 10px var(--bc);
+}
+.msk-row .msk-beasts i.dead {
+  border-color: rgba(120,120,128,0.30); color: rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.72);
+}
+.msk-row .msk-state {
+  font-size: 8px; font-weight: 900; letter-spacing: 1px; min-width: 76px;
+  text-align: right; color: #8fd8c4; font-variant-numeric: tabular-nums;
+}
+.msk-row.off .msk-state {
+  color: #ffffff; text-shadow: 0 0 12px rgba(255,60,60,1);
+  animation: mskAlarm 0.7s steps(2, end) infinite;
+}
+.msk-row.off .msk-key { color: #ff7a7a; }
+.msk-row.refit .msk-state { color: #ffd08a; }
+@keyframes mskAlarm { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.plate.p2 .msk-row { flex-direction: row-reverse; }
+.plate.p2 .msk-row .msk-state { text-align: left; }
 
 /* ---- THE THROAT GAUGE --------------------------------------------------- */
 .thr-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
@@ -2837,3 +2957,24 @@ html.filters-on #ui-root::after {
    different KIND of bar, which is the honest reading: it is not that he has
    more of the same thing, it is that his tank is a different size. */
 .bar-ce.oversized { border-color: rgba(216, 240, 90, 0.55); }
+
+
+/* ---- THE SELECT SCREEN'S KIT STRIP -------------------------------------- */
+/* Chips under the role line for a character whose design does not fit in one
+   sentence — Ino's three beasts, Reggie's seven objects and their prices. See
+   the note in src/ui/select.js for why it is generic rather than a special
+   case, and why the dragon is deliberately not on it. */
+.sh-kit { display: none; }
+.sh-kit.on {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; max-width: 300px;
+}
+.sh-kit i {
+  display: flex; flex-direction: column; align-items: center; font-style: normal;
+  min-width: 52px; padding: 3px 5px 4px;
+  background: rgba(0,0,0,0.55); border: 1px solid color-mix(in srgb, var(--kc) 55%, transparent);
+  border-top: 2px solid var(--kc);
+  font-size: 7px; font-weight: 900; letter-spacing: 0.6px;
+  color: color-mix(in srgb, var(--kc) 78%, #ffffff);
+}
+.sh-kit i b { font-size: 11px; line-height: 13px; color: var(--kc); font-weight: 900; }
+.sh-kit i u { text-decoration: none; font-size: 6px; opacity: 0.65; letter-spacing: 0.4px; }

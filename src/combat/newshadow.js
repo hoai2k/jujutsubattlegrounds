@@ -89,6 +89,12 @@ import { cutRibbon } from '../fx/newfx.js';
 //                  crossing the perimeter.
 //   'projRush'     Naoya's rush is HIM, not a projectile. Cutting it would be
 //                  the auto-counter, which already handles a body crossing in.
+//   'reggieDrop'   the vending machine arrives from ABOVE, not across the
+//                  perimeter — the same ruling `woodenBall` already gets.
+//   'reggieHook'   a grab. The auto-counter handles a body crossing in, and a
+//                  hook is not a body.
+//   'inoGlide' /   Ino's own body moving, and the beast's. Cutting them would
+//   'inoRush'      be the auto-counter, which already handles that.
 const PROJECTILE_TYPES = new Set([
   'bolt',        // Kashimo's Lightning Bolt
   'redOrb',      // Gojo's Red
@@ -96,8 +102,60 @@ const PROJECTILE_TYPES = new Set([
   'ballRoll',    // Hanami's rolling ball
   'bloodEdge',   // Choso's Blood Edge
   'nail',        // Nobara's hairpins
-  'soulEcho'     // the delayed half of a Split Soul string
+  'soulEcho',    // the delayed half of a Split Soul string
+  // ---- REGGIE AND INO ---------------------------------------------------
+  'reggieThrow', // the thrown junk, and the ultimate's whole barrage
+  'reggieVehicle', // the moped and THE CAR — see THE MASS RULE below
+  'reggieGas',   // the canister, in flight
+  'inoHorn'      // both of Kaichi's horns, INCLUDING the unmissable one
 ]);
+
+// ---------------------------------------------------------------------------
+// *** THE MASS RULE — THE CAR MEETING THE CIRCLE ***
+// ---------------------------------------------------------------------------
+// The design brief asks for this edge case by name: "Reggie's objects vs
+// Miwa's Simple Domain circle, which auto-cuts things entering it. A car
+// meeting her circle is an obvious edge case — decide and implement."
+//
+// THE DECISION: *** SHE CUTS IT, AND IT IS THE MOST EXPENSIVE THING SHE EVER
+// DOES. ***
+//
+// Both halves matter. Taking either one alone gives a bad answer:
+//
+//   "IT PASSES THROUGH" would be wrong on the technique. New Shadow Style's
+//   Simple Domain cuts what crosses the boundary; there is no clause about
+//   size, and inventing one to protect the circle from one character would be
+//   special-casing a matchup rather than modelling a technique.
+//
+//   "IT IS CUT FOR FREE" would be wrong on the fiction and on the balance.
+//   Cutting a hairpin out of the air and cutting a car in half are not the
+//   same act, and a circle that deletes a 48-stock investment for nothing
+//   would make the whole matchup one-sided.
+//
+// So cutting costs STAMINA, scaled by the object's mass, and this is the ONLY
+// thing in the file that costs her anything — the note above `_cutProjectiles`
+// is explicit that cutting is otherwise free, deliberately, so that a zoner
+// cannot drain her circle from outside. That reasoning still holds: a hairpin
+// and an ember have `cutMass` of zero and are free forever. A car does not.
+//
+// AND IF SHE CANNOT PAY, IT COMES THROUGH — at 60% damage and with its
+// knockback intact, because a car she failed to cut cleanly is a car that hit
+// her after being clipped. That is the failure state the whole rule exists to
+// produce: an out-of-stamina Miwa in front of a Reggie who has been saving is
+// in real trouble, which is a matchup with a shape rather than a wall.
+//
+// THE NUMBERS. `cutMass` is stamina, taken from a 100 pool that regenerates at
+// 22/s:
+//     thrown junk / gas / horn      0    — free, forever, as before
+//     ladder (never reaches here — it is a swing)
+//     moped                        18    — noticeable; two is most of a bar
+//     car                          46    — nearly half her stamina in one cut
+// So she can cut one car and then she is walking, or she can cut two mopeds
+// and be uncomfortable. Reggie's counterplay is to make her spend it and then
+// send the next one, which is exactly the economy his character is built on.
+export const CUT_MASS = {
+  reggieVehicle: e => (e.big ? 46 : 18)
+};
 
 function isProjectile(e) {
   return !!e && !!e.pos && (e.projectile === true || PROJECTILE_TYPES.has(e.type));
@@ -207,11 +265,40 @@ class SimpleDomainZone {
       const e = eff.entities[i];
       if (!isProjectile(e) || e.caster === this.owner) continue;
       if (!this.contains(e.pos)) continue;
+      // ---- THE MASS RULE — see the long note at the top of this file -----
+      const massFn = CUT_MASS[e.type];
+      const cost = massFn ? massFn(e) : 0;
+      if (cost > 0) {
+        if (this.owner.res.stamina < cost) {
+          // SHE CANNOT PAY. It comes through, clipped: 60% damage and its
+          // knockback intact. Marked so it cannot be re-tested every frame
+          // while it crosses the circle — one failed cut per object.
+          if (!e._cutFailed) {
+            e._cutFailed = true;
+            e.dmg = (e.dmg ?? 0) * 0.6;
+            if (e.def) e.def = { ...e.def, dmg: (e.def.dmg ?? 0) * 0.6 };
+            this.fx?.cutAt(e.pos.clone(), this.origin);
+            this.match.sfx.guard?.();
+            this.owner.res.stamina = 0;
+            this.owner.emit?.('cutFailed', { type: e.type, cost });
+          }
+          continue;
+        }
+        this.owner.res.stamina -= cost;
+        this.match.cam.shake(0.35);
+        this.owner.emit?.('bigCut', { type: e.type, cost });
+      }
       // the same single clean line the boundary counter draws
       this.fx?.cutAt(e.pos.clone(), this.origin);
       this.match.sfx.guard?.();
-      // remove whatever visual node the entity owns, then the entity
+      // remove whatever visual node the entity owns, then the entity.
+      // `e.node` as well as `e.fxNode`: every entity added since this method
+      // was written owns its mesh under `node` (see Effects._disposeNode), and
+      // splicing one without disposing it leaks a mesh per cut.
       if (e.fxNode) this.match.fx.dropProp?.(e.fxNode);
+      if (e.node) this.match.effects?._disposeNode?.(e.node);
+      if (e.rod) this.match.effects?._disposeNode?.(e.rod);
+      if (e.hook) this.match.effects?._disposeNode?.(e.hook);
       eff.entities.splice(i, 1);
     }
   }

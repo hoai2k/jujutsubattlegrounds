@@ -30,6 +30,11 @@ import { applyFrost, isFrostbound } from './frost.js';
 import { tryReflect } from './reflect.js';
 // TAKABA's roll (the lift of Yuta's) and YAGA's corpse geometry.
 import { rollBit, gainComedy } from './comedy.js';
+// REGGIE — the stock (spent in fighter.js, refunded and locked here), the
+// drone/wreck system, and the burning receipt that precedes every single
+// materialisation in his kit.
+import { burnFX, canAfford, spendStock, burnEverything } from './receipts.js';
+import { buildObject, buildJunk, buildHook, buildLadder } from '../art/models/receiptobjects.js';
 import { corpseDeploy, commandPulse, bigGlove, mallet, bananaPeel, bucket, pie, rake, trapdoor, stageLight, anvil, safe, curtain, fireHose, foamFinger, piano } from '../fx/comedyfx.js';
 
 const TODO_ACCENT = 0xff5fc8; // Boogie Woogie's signature snap color
@@ -75,6 +80,53 @@ export const EFFECT_SRC = {
   // to Uraume is the same as everyone else's, which is to close the distance
   // before the meter fills. What he CAN adapt to is the ice itself, and he
   // will: five Icefall volleys is five projectile marks.
+  // ---- REGGIE — SEVEN BUCKETS, AND IT IS THE MOST BUCKETS ANY CHARACTER
+  // IN THE GAME HAS ------------------------------------------------------
+  // The same ruling Toji's four weapons get, taken as far as it goes: a
+  // ladder, a moped and a car are not the same KIND of thing arriving, and a
+  // body that has learned to take one has learned nothing about the others.
+  // The opposite of Kashimo, whose entire kit is one substance.
+  //
+  // The consequence in the Mahoraga matchup is deliberate and is the brief's
+  // "rotation puzzle": nine buckets (seven objects + the junk + his punches)
+  // against Mahoraga's one adaptation every ten seconds means Reggie is the
+  // slowest character in the game to be adapted to, and Mahoraga's answer is
+  // that Reggie cannot AFFORD to rotate freely — every bucket has a price, so
+  // the puzzle cuts both ways.
+  //
+  // THE ULTIMATE IS `ultimate`, like every ultimate, even though it throws
+  // seven objects' worth of things: adapting to a bar-spend is adapting to a
+  // bar-spend. THE DRONE is `reggie_drone` rather than `summon`, because it is
+  // his and adapting to Megumi's dogs should teach a body nothing about a
+  // quadcopter. THE GAS does no damage worth the name and is a vision play, so
+  // it sits with the buffs at null — there is nothing to adapt to in a cloud.
+  // ---- INO — FOUR BUCKETS, ONE PER BEAST, AND IT IS THE BRIEF'S ASK -----
+  // The same call Reggie's objects get and the opposite of Kashimo's: a horn,
+  // a wave of cursed water and a qilin's charge are not the same phenomenon
+  // arriving in different shapes, they are four different creatures. Adapting
+  // to Kaichi should teach a body nothing about Kirin, and the consequence in
+  // the matchup is exactly the rotation puzzle the brief describes — except
+  // that Ino's rotation costs CURRENT_CE, so Mahoraga's adaptation clock and
+  // Ino's meter are racing each other.
+  //
+  // *** EVERY BEAST'S PASSIVE STRIKE CARRIES THE SAME KEY AS ITS TECHNIQUES,
+  // deliberately. *** The creature and the technique are the same beast; a
+  // body that has learned to take the qilin's charge has learned to take its
+  // kick. That is the one place this differs from the summon families, where a
+  // shikigami's bite is `summon` and its master's technique is not.
+  ino_horn: 'ino_kaichi', ino_judgehorn: 'ino_kaichi',
+  ino_glide: 'ino_reiki', ino_shell: 'ino_reiki',
+  ino_hornrush: 'ino_kirin', ino_doping: 'ino_kirin',
+  ino_dragon: 'ultimate',
+  reggie_junk: 'reggie_junk',
+  reggie_ladder: 'reggie_ladder',
+  reggie_gas: null,
+  reggie_drone: 'reggie_drone',
+  reggie_rod: 'reggie_rod',
+  reggie_moped: 'reggie_moped',
+  reggie_vending: 'reggie_vending',
+  reggie_car: 'reggie_car',
+  reggie_register: 'ultimate',
   uraume_icefall: 'projectile', uraume_frostcalm: 'ct2',
   uraume_frostfield: null, uraume_maxfrost: 'ultimate',
   // ---- RYU — TWO BUCKETS, AND THE SPLIT IS THE CHARACTER ------------------
@@ -415,6 +467,24 @@ export class Effects {
   }
   _killIceShard(e) { this._disposeNode(e.node); e.node = null; }
 
+  // A thrown object hitting something. Shatters into debris the colour of what
+  // it was, then disposes. Kept as one helper so no Reggie entity teardown can
+  // leak a mesh — the same reason `_disposeNode` exists.
+  _breakObject(e) {
+    const m = this.match;
+    const tint = { knife: 0xd8dee8, cone: 0xf2622a, wrench: 0xc44a2a, bottle: 0x4a8a5e }[e.jk] ?? 0xc8ccd4;
+    for (let n = 0; n < 8; n++) {
+      m.fx._spawn(e.pos.clone(), {
+        color: n % 2 ? tint : 0xe8ecf2, size: rand(0.05, 0.15), aspect: 0.5,
+        life: rand(0.2, 0.5), gravity: 16,
+        vel: v3(rand(-4, 4), rand(0.5, 4), rand(-4, 4))
+      });
+    }
+    m.sfx.hit?.(false);
+    this._disposeNode(e.node);
+    e.node = null;
+  }
+
   // THE ICICLE RAIN. Canon, ch.135: "once immobilized, targets are finished
   // off by GIANT ICICLES that are sent down from above to skewer them." So an
   // Icefall shard that connects with somebody who is ALREADY frostbound calls
@@ -475,6 +545,40 @@ export class Effects {
     const mv = inp?.move;
     if (mv && Math.hypot(mv.x, mv.z) > 0.25) {
       const d = caster._moveVec(mv);
+      d.y = 0;
+      if (d.lengthSq() > 0.001) return d.normalize();
+    }
+    return caster.forward();
+  }
+
+  // ---- AIMED-FROM-A-POINT CASTS -------------------------------------------
+  // `_castDir` answers "which way is he pointing", which is right for anything
+  // that leaves HIS body. It is wrong for anything that leaves somewhere else.
+  //
+  // Ino's horn is fired by the BEAST, which holds station 1.1 m off his
+  // shoulder — so a horn launched from the creature and sent along his facing
+  // travels a parallel line 1.1 m to the side of the target and misses at
+  // every range. Measured: 0 damage from an eleven-metre HORN at eleven
+  // metres, every time, which is the kind of miss that reads as "the move does
+  // not work" rather than as "I aimed badly".
+  //
+  // So: if the player is STEERING, honour the steer exactly as `_castDir`
+  // does — that is the roster-wide read and it must not be taken away. If the
+  // stick is neutral, aim from the SPAWN POINT at the target. A neutral stick
+  // has always meant "at them" for every other technique in the game; it just
+  // happens that for everybody else "at them" and "along my facing" are the
+  // same line, and for a creature standing beside him they are not.
+  _aimDir(caster, from) {
+    const inp = this.match.inputFor?.(caster);
+    const mv = inp?.move;
+    if (mv && Math.hypot(mv.x, mv.z) > 0.25) {
+      const d = caster._moveVec(mv);
+      d.y = 0;
+      if (d.lengthSq() > 0.001) return d.normalize();
+    }
+    const t = this.other(caster);
+    if (t?.alive) {
+      const d = t.pos.clone().add(v3(0, t.hurtBox?.center ?? 1.1, 0)).sub(from);
       d.y = 0;
       if (d.lengthSq() > 0.001) return d.normalize();
     }
@@ -728,6 +832,414 @@ export class Effects {
     const hitOpts = { attacker: caster, isCT: true, sureHit: sure, otgOk: sure, dir: caster.forward(), src };
 
     switch (key) {
+      // =====================================================================
+      // REGGIE STAR — 再契象 CONTRACTUAL RE-CREATION
+      // =====================================================================
+      // NINE CASES, and every one of them opens with `burnFX`. That is not
+      // decoration and it is not optional: it is the only thing in the picture
+      // that says where a car came from, and a materialisation without it
+      // reads as an object teleporting in. It runs UNDER the move rather than
+      // in front of it — nothing below waits for it — so it costs no frames.
+      //
+      // NOTHING HERE SPENDS STOCK. The stock is committed on the PRESS, in
+      // `Fighter.startCT`, so an interrupted materialisation has still cost
+      // him the paper. The one exception is Yuta's Copy, which reaches these
+      // cases with no `cfg.receipts` at all and therefore pays nothing — see
+      // `canAfford`, which returns true for a fighter who has no stock system.
+
+      // ---- RB · QUICK MATERIALISE 速契 -----------------------------------
+      // The roll is DECORATION. All four junk entries share this one case and
+      // this one set of numbers; the only thing the roll decides is which mesh
+      // flies and which noise it makes. See the note on JUNK_TABLE in
+      // characters/reggie.js for why a random neutral tool would be a bad one.
+      case 'reggie_junk': {
+        const def = opts.def ?? caster.cfg.ct1;
+        const hand = caster.model?.getBone?.('HandL');
+        const at = caster.pos.clone().add(v3(0, 1.25, 0)).addScaledVector(caster.forward(), 0.35);
+        burnFX(m, at, { scale: 0.7 });
+        const junkKeys = caster.cfg.objects?.junk ?? ['cone'];
+        const jk = junkKeys[Math.floor(Math.random() * junkKeys.length)];
+        const node = buildJunk(jk);
+        m.root.add(node);
+        const dir = this._castDir(caster);
+        m.sfx.throwLight?.();
+        this.entities.push({
+          type: 'reggieThrow', caster, node, jk,
+          pos: at.clone(), dir, spd: def.speed ?? 26, range: def.range ?? 9.5,
+          travelled: 0, radius: def.radius ?? 0.55,
+          dmg: (def.dmg ?? 11) * mult, kb: def.kb ?? 2.4, kbY: def.kbY ?? 0.3,
+          hitstun: def.hitstun ?? 18, destruct: def.destruct ?? 8,
+          spin: rand(9, 16), src: 'reggie_junk', hitOpts, dealt: false, heavy: false
+        });
+        break;
+      }
+
+      // ---- LADDER — THE REACH --------------------------------------------
+      // Not a projectile. A real 4.2 m arc swung from his own position, three
+      // times, resolved as three separate hits. It is the only melee hitbox in
+      // the game longer than Sukuna's Cleave and it is the only reason anyone
+      // ever stands still in front of him.
+      case 'reggie_ladder': {
+        const def = opts.def ?? caster.cfg.objects.defs.ladder;
+        const at = caster.pos.clone().add(v3(0, 1.0, 0)).addScaledVector(caster.forward(), 0.5);
+        burnFX(m, at, { scale: 1.4, up: 0.9 });
+        const node = buildLadder(def.reach ?? 4.2);
+        m.root.add(node);
+        m.sfx.swing?.(true);
+        this.entities.push({
+          type: 'reggieLadder', caster, node, def,
+          t: 0, swing: 0, swings: def.swings ?? 3, mult, hitOpts,
+          hitThis: false, span: 0.30
+        });
+        break;
+      }
+
+      // ---- GAS CANISTER — THE SCREEN --------------------------------------
+      // The only technique in this game that attacks the CAMERA rather than
+      // the body. It plants a cloud that follows nobody, does five damage
+      // once, and for two and a half seconds anybody inside it cannot see out
+      // of it — `occlude` is read by core/stage.js's fog term for the fighter
+      // standing in it, and by the CPU's own sight test.
+      case 'reggie_gas': {
+        const def = opts.def ?? caster.cfg.objects.defs.canister;
+        const at = caster.pos.clone().add(v3(0, 0.6, 0)).addScaledVector(caster.forward(), 0.6);
+        burnFX(m, at, { scale: 0.9 });
+        const dir = this._castDir(caster);
+        const node = buildObject('canister');
+        m.root.add(node);
+        m.sfx.throwHeavy?.();
+        this.entities.push({
+          type: 'reggieGas', caster, node, def, mult, hitOpts,
+          pos: at.clone(), dir, vel: dir.clone().multiplyScalar(def.travel ?? 5.5).add(v3(0, 3.2, 0)),
+          phase: 'flight', t: 0, dealt: false
+        });
+        break;
+      }
+
+      // ---- DRONE — THE ONE THAT STAYS -------------------------------------
+      // Handed straight to combat/receipts.js, because it is a BODY with
+      // health and pathing rather than a travelling technique — the seventh
+      // ally family on the field. Everything about its behaviour is there.
+      case 'reggie_drone': {
+        const def = opts.def ?? caster.cfg.objects.defs.drone;
+        const at = caster.pos.clone().add(v3(0, 1.5, 0)).addScaledVector(caster.forward(), 0.7);
+        burnFX(m, at, { scale: 0.9, up: 0.8 });
+        m.receipts?.spawnDrone(caster, { ...def, dmg: (def.dmg ?? 7) * mult });
+        m.sfx.summon?.();
+        break;
+      }
+
+      // ---- FISHING ROD — THE GRAPPLE --------------------------------------
+      // *** WHICH BODY MOVES IS DECIDED BY MASS, AND IT IS NOT A SPECIAL
+      // CASE. *** The hook pulls with a fixed impulse; whether that moves the
+      // target or moves HIM is `kbResist`, the stat every heavyweight in the
+      // game already carries. Against Nobara he reels her in; against Todo,
+      // Panda, Yuki, Hanami, Kurourushi, Dagon and Mahoraga he is reeled in,
+      // which is both funnier and more useful, because arriving next to Todo
+      // with a punch string ready is exactly what a Reggie wants.
+      case 'reggie_rod': {
+        const def = opts.def ?? caster.cfg.objects.defs.rod;
+        const at = caster.pos.clone().add(v3(0, 1.2, 0)).addScaledVector(caster.forward(), 0.5);
+        burnFX(m, at, { scale: 1.0 });
+        const rod = buildObject('rod');
+        const hook = buildHook();
+        m.root.add(rod); m.root.add(hook);
+        m.sfx.chain?.() ?? m.sfx.swing?.(false);
+        this.entities.push({
+          type: 'reggieHook', caster, rod, hook, def, mult, hitOpts,
+          pos: at.clone(), dir: this._castDir(caster), origin: at.clone(),
+          travelled: 0, phase: 'out', dealt: false
+        });
+        break;
+      }
+
+      // ---- MOPED — THE CHARGE ---------------------------------------------
+      // Drives itself down a stick-steered lane and KEEPS GOING through the
+      // first thing it hits, which is what makes it his answer to a wake-up.
+      case 'reggie_moped': {
+        const def = opts.def ?? caster.cfg.objects.defs.moped;
+        const at = caster.pos.clone().addScaledVector(caster.forward(), 1.0);
+        at.y = m.arena?.bounds?.floorAt(at.x, at.z, caster.pos.y + 0.6) ?? 0;
+        burnFX(m, at.clone().add(v3(0, 1.0, 0)), { scale: 1.3, up: 0.9 });
+        const node = buildObject('moped');
+        m.root.add(node);
+        m.sfx.dash?.();
+        this.entities.push({
+          type: 'reggieVehicle', caster, node, def, mult, hitOpts,
+          pos: at.clone(), dir: this._castDir(caster), travelled: 0,
+          hit: new Set(), src: 'reggie_moped', big: false, wheelSpin: 0
+        });
+        break;
+      }
+
+      // ---- VENDING MACHINE — THE TRAP --------------------------------------
+      // A marker, then 0.62 s, then a machine. It hits WHERE IT WAS AIMED
+      // rather than where the victim now is, which is the same grammar Jogo's
+      // eruption marker, Hanami's root marker and Uraume's icicle already use,
+      // and it is what makes walking out of it a real answer.
+      case 'reggie_vending': {
+        const def = opts.def ?? caster.cfg.objects.defs.vending;
+        const tgt = t?.alive ? t : null;
+        const aim = tgt ? tgt.pos.clone() : caster.pos.clone().addScaledVector(caster.forward(), 5);
+        // clamped to his own reach, so it is not a full-screen drop
+        const away = aim.clone().sub(caster.pos).setY(0);
+        if (away.length() > (def.aimRange ?? 9)) {
+          aim.copy(caster.pos).addScaledVector(away.normalize(), def.aimRange ?? 9);
+        }
+        aim.y = m.arena?.bounds?.floorAt(aim.x, aim.z, (tgt?.pos.y ?? caster.pos.y) + 0.6) ?? 0;
+        burnFX(m, caster.pos.clone().add(v3(0, 2.0, 0)), { scale: 1.6, up: 1.2 });
+        m.fx._ring(aim.clone().setY(aim.y + 0.05), 0xc4322a, { size: def.radius ?? 1.9, growRate: 0, life: def.markTime ?? 0.62, flat: true });
+        const node = buildObject('vending');
+        node.position.copy(aim).add(v3(0, 9.0, 0));
+        m.root.add(node);
+        m.sfx.warning?.() ?? m.sfx.summon?.();
+        this.entities.push({
+          type: 'reggieDrop', caster, node, def, mult, hitOpts,
+          at: aim.clone(), t: def.markTime ?? 0.62, total: def.markTime ?? 0.62
+        });
+        break;
+      }
+
+      // ---- CAR — HALF HIS STOCK ---------------------------------------------
+      // Same entity as the moped at a different scale, which is deliberate: the
+      // two are the same IDEA (a vehicle going down a lane) at opposite ends of
+      // the price list, and building them as one thing means they can never
+      // drift apart mechanically while the animation and the numbers do all the
+      // work of making them feel different.
+      case 'reggie_car': {
+        const def = opts.def ?? caster.cfg.objects.defs.car;
+        const at = caster.pos.clone().addScaledVector(caster.forward(), 1.6);
+        at.y = m.arena?.bounds?.floorAt(at.x, at.z, caster.pos.y + 0.6) ?? 0;
+        burnFX(m, caster.pos.clone().add(v3(0, 1.4, 0)), { scale: 2.0, up: 1.4 });
+        const node = buildObject('car');
+        m.root.add(node);
+        m.sfx.heavyImpact?.() ?? m.sfx.dash?.();
+        m.cam.shake(0.3);
+        this.entities.push({
+          type: 'reggieVehicle', caster, node, def, mult, hitOpts,
+          pos: at.clone(), dir: this._castDir(caster), travelled: 0,
+          hit: new Set(), src: 'reggie_car', big: true, wheelSpin: 0
+        });
+        break;
+      }
+
+      // ---- D-pad RIGHT · CLEARING THE REGISTER 全契焼却 --------------------
+      // He burns the whole stock and throws everything at once. `burnEverything`
+      // zeroes the stock, sets the six-second regeneration halt, and hands back
+      // WHAT HE SPENT — which is what the damage scales off, so a Reggie who
+      // banked before pressing it gets paid for that and a Reggie who dumped
+      // his stock on a car first does not.
+      case 'reggie_register': {
+        const u = caster.cfg.ultimate;
+        const spent = burnEverything(caster);
+        const total = u.baseDmg + spent * u.dmgPerStock;
+        const shots = Math.max(4, Math.round(u.duration * u.rate));
+        // the finale object, chosen by what he actually had
+        let finale = 'drone';
+        for (const [need, k] of u.finale) { if (spent >= need) { finale = k; break; } }
+        m.cam.shake(0.5);
+        m.sfx.ultimate?.();
+        this.entities.push({
+          type: 'reggieBarrage', caster, u, mult,
+          t: 0, fired: 0, shots, perShot: total / shots,
+          interval: u.duration / shots, next: 0, finale, spent, hitOpts
+        });
+        caster.emit('registerCleared', { spent, finale });
+        break;
+      }
+
+      // =====================================================================
+      // TAKUMA INO — 来訪瑞獣 THE AUSPICIOUS BEASTS
+      // =====================================================================
+      // Six cases across three beasts, and every one of them is authored so
+      // that THE BEAST DOES IT AND HE DOES NOT. His own animation in each is
+      // small — he points, he crouches, he braces — and the geometry that
+      // travels comes off the creature's position rather than his. That is the
+      // whole read of "medium, not fighter", and it is why `beastOf` is the
+      // first line of most of these.
+
+      // ---- 獬豸 KAICHI · RB — THE HORN ------------------------------------
+      // A straight fast projectile launched FROM THE BEAST'S HORN. Ordinary in
+      // every way, and it is meant to be: it is the neutral tool that makes
+      // the ranged beast a ranged beast, and the unmissable one below is what
+      // it sets up.
+      case 'ino_horn': {
+        const def = opts.def ?? caster._def('ct1');
+        const beast = m.beasts?.beastOf(caster);
+        const from = beast
+          ? beast.pos.clone().add(v3(0, 1.5, 0)).addScaledVector(caster.forward(), 0.6)
+          : caster.pos.clone().add(v3(0, 1.4, 0)).addScaledVector(caster.forward(), 0.7);
+        const node = m.fx.hornNode(def.radius ?? 0.72, 0x6ea8ff);
+        m.root.add(node);
+        m.sfx.projectile?.() ?? m.sfx.swing?.(false);
+        if (beast) beast.strikeAnim = 1;
+        this.entities.push({
+          type: 'inoHorn', caster, node, def,
+          pos: from, dir: this._aimDir(caster, from), spd: def.speed ?? 24,
+          range: def.range ?? 15, travelled: 0, radius: def.radius ?? 0.72,
+          dmg: (def.dmg ?? 17) * mult, homing: false, life: 99,
+          src: def.src ?? 'ino_kaichi', hitOpts, dealt: false
+        });
+        break;
+      }
+
+      // ---- 獬豸 KAICHI · RT — THE JUDGEMENT HORN --------------------------
+      // *** IT DOES NOT MISS. *** Canon is unambiguous: the horn "will not stop
+      // until it hits the desired target". This game has exactly one other
+      // thing that cannot be dodged — a domain's sure-hit — so it is priced
+      // like one: 34 frames of wind-up with the beast visibly rearing, 38 of a
+      // 100 bar, and a 30-frame recovery.
+      //
+      // *** IT IS NOT A `sureHit`. *** That flag bypasses BLOCKING as well, and
+      // blocking is the counterplay this move is supposed to have. What it is
+      // instead is a hard-homing entity with a 2.6 s life and a 6.5 rad/s turn
+      // rate: it follows you round the arena and it lands, and you can guard
+      // it, hit Ino out of the wind-up, or interpose something. It is
+      // undodgeable, not unanswerable, and those are different words.
+      case 'ino_judgehorn': {
+        const def = opts.def ?? caster._def('ct2');
+        const beast = m.beasts?.beastOf(caster);
+        const from = beast
+          ? beast.pos.clone().add(v3(0, 1.7, 0)).addScaledVector(caster.forward(), 0.7)
+          : caster.pos.clone().add(v3(0, 1.5, 0)).addScaledVector(caster.forward(), 0.8);
+        const node = m.fx.hornNode(def.radius ?? 0.85, 0x6ea8ff, true);
+        m.root.add(node);
+        m.sfx.charge?.() ?? m.sfx.projectile?.();
+        m.cam.shake(0.2);
+        if (beast) beast.strikeAnim = 1;
+        this.entities.push({
+          type: 'inoHorn', caster, node, def,
+          pos: from, dir: this._aimDir(caster, from), spd: def.speed ?? 19,
+          range: def.range ?? 22, travelled: 0, radius: def.radius ?? 0.85,
+          dmg: (def.dmg ?? 30) * mult, homing: true, turn: def.turn ?? 6.5,
+          life: def.life ?? 2.6, src: def.src ?? 'ino_kaichi', hitOpts, dealt: false
+        });
+        break;
+      }
+
+      // ---- 霊亀 REIKI · RB — THE GLIDE ------------------------------------
+      // Canon: the turtle's cursed water lets him "glide across surfaces,
+      // reducing friction and increasing his mobility". So this is a TRAVEL
+      // move that happens to hurt, rather than an attack that happens to move:
+      // 9.5 m on the water with 8 invulnerable frames, and the shoulder at the
+      // end is almost incidental.
+      //
+      // *** THE HIT CARRIES `src: 'ino_reiki'`, WHICH IS WATER. *** See
+      // WET_SOURCES in combat/receipts.js — landing this on Reggie soaks his
+      // tags and turns his technique off for 3.2 seconds. Two independent
+      // pieces of research produced that and it is the best matchup either
+      // character has.
+      case 'ino_glide': {
+        const def = opts.def ?? caster._def('ct1');
+        const dir = this._castDir(caster);
+        caster.iFrames = Math.max(caster.iFrames ?? 0, def.iFrames ?? 8);
+        m.sfx.dash?.();
+        this.entities.push({
+          type: 'inoGlide', caster, def, mult, hitOpts,
+          dir, travelled: 0, dealt: false
+        });
+        break;
+      }
+
+      // ---- 霊亀 REIKI · RT — THE SHELL ------------------------------------
+      // The water comes UP. 1.6 s of heavy armour and a shove when it breaks —
+      // the defensive half of the same canon sentence. It is his only way to
+      // sit still and win an exchange, and it is on the beast that otherwise
+      // cannot win one at all.
+      case 'ino_shell': {
+        const def = opts.def ?? caster._def('ct2');
+        const beast = m.beasts?.beastOf(caster);
+        caster.armorFrames = Math.max(caster.armorFrames ?? 0, def.armorFrames ?? 96);
+        // `incomingMult` is a GETTER on Fighter — assigning to it does nothing.
+        // The shell rides its own buff field, which the getter multiplies in,
+        // the same shape `soulSplit` already uses.
+        caster.shell = { t: def.duration ?? 1.6, mult: def.incoming ?? 0.55 };
+        if (beast) beast.strikeAnim = 1;
+        m.sfx.guard?.() ?? m.sfx.hit?.(false);
+        this.entities.push({
+          type: 'inoShell', caster, def, mult, hitOpts,
+          t: def.duration ?? 1.6, burst: false
+        });
+        break;
+      }
+
+      // ---- 麒麟 KIRIN · RB — THE HORN RUSH ---------------------------------
+      // Head down behind the qilin's horn, 7.6 m, and he does not stop. 20
+      // armour frames, which on a beast that already ignores hitstun means the
+      // opponent's answer is to not be there.
+      case 'ino_hornrush': {
+        const def = opts.def ?? caster._def('ct1');
+        const beast = m.beasts?.beastOf(caster);
+        if (beast) beast.strikeAnim = 1;
+        caster.armorFrames = Math.max(caster.armorFrames ?? 0, def.armorFrames ?? 20);
+        m.sfx.dash?.();
+        this.entities.push({
+          type: 'inoRush', caster, def, mult, hitOpts,
+          dir: this._castDir(caster), travelled: 0, hit: new Set()
+        });
+        break;
+      }
+
+      // ---- 麒麟 KIRIN · RT — THE DOPING STRIKE ------------------------------
+      // *** HE TAKES THE HIT ON PURPOSE. *** 26 armour frames with his chest
+      // deliberately open (see the hold in `ct2Kir`), and because the beast has
+      // switched his pain off he scores the trade. `selfDmg` is the honest
+      // price: it costs him 6 whether or not he was actually hit, which is what
+      // "intracerebral doping" should feel like from the inside.
+      case 'ino_doping': {
+        const def = opts.def ?? caster._def('ct2');
+        const beast = m.beasts?.beastOf(caster);
+        if (beast) beast.strikeAnim = 1;
+        caster.armorFrames = Math.max(caster.armorFrames ?? 0, def.armorFrames ?? 26);
+        if (def.selfDmg) caster.res.hp = Math.max(1, caster.res.hp - def.selfDmg);
+        m.hitstop(10);
+        m.cam.shake(0.4);
+        m.sfx.heavyImpact?.() ?? m.sfx.hit?.(true);
+        const at = caster.pos.clone().addScaledVector(caster.forward(), 1.2).setY(1.2);
+        m.fx._ring(at, 0xffc24a, { size: 0.6, growRate: 10, life: 0.3, flat: false });
+        m.arena?.destruct?.damageAt(at, 2.0, def.destruct ?? 46);
+        if (t?.alive && inArc(caster, t, (def.reach ?? 2.3) + (t.hurtBox?.pad ?? 0), 1.2)) {
+          const { dmg, crit } = computeDamage(caster, (def.dmg ?? 34) * mult);
+          const r = t.applyHit({
+            ...hitOpts, dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun,
+            type: def.type ?? 'knockdown', dir: caster.forward(), src: def.src ?? 'ino_kirin'
+          }, m.ctxFor(caster));
+          hitFeedback(m, caster, t, r, { crit, heavy: true, knockdown: true });
+        }
+        break;
+      }
+
+      // ---- D-pad RIGHT · 龍 THE DRAGON --------------------------------------
+      // The beast he never got to use. `duration` seconds in the `ryu` stance —
+      // every beast's best attribute at once — with the DRAGON on the field and
+      // the other three orbiting him.
+      //
+      // The cast itself does a pass: the dragon surges out of his hands and
+      // down the lane, which is the one description canon gives ("manifests a
+      // serpentine dragon that surges from his hands into the enemy").
+      case 'ino_dragon': {
+        const u = caster.cfg.ultimate;
+        m.cam.shake(0.8);
+        m.hitstop(18);
+        m.sfx.ultimate?.();
+        // the mask goes ALL the way down and stays there for the window
+        caster.model?.setMask?.(1);
+        // remember what he was wearing, so the window ENDS back where it began
+        caster._preDragonStance = caster.stance;
+        caster._setStance('ryu');
+        m.beasts?.manifest(caster, 'ryu');
+        caster.dragonT = u.duration;
+        caster.emit('dragon', { duration: u.duration });
+        // and the cast's own pass down the lane
+        const dir = this._castDir(caster);
+        this.entities.push({
+          type: 'inoDragonPass', caster, u, mult, hitOpts,
+          pos: caster.pos.clone().add(v3(0, 1.4, 0)).addScaledVector(dir, 1.2),
+          dir, travelled: 0, hit: new Set()
+        });
+        break;
+      }
+
       // =====================================================================
       // INUMAKI — CURSED SPEECH 呪言
       // =====================================================================
@@ -4676,6 +5188,682 @@ export class Effects {
       // this loop, which is the whole of their Uro integration. Two of the
       // five are in the REFLECTABLE table (`iceShard` and `ryuBeam`) and three
       // deliberately are not — see the notes on each.
+
+      // =================================================================
+      // INO'S BEASTS
+      // =================================================================
+      // Five entity types. Only ONE of them is a projectile in the sense
+      // combat/reflect.js means — the HORN — and it is in the REFLECTABLE
+      // table. The glide, the shell, the rush and the dragon's pass are all
+      // BODIES moving (his, or the beast's), which reflect.js's category C
+      // excludes by construction.
+
+      // ---- THE HORN, AND THE ONE THAT DOES NOT MISS ---------------------
+      // One entity for both, separated by `homing`. The homing variant turns
+      // at `turn` rad/s toward the target and lives on a CLOCK rather than a
+      // range — so it does not expire at a distance, it expires after 2.6
+      // seconds of chasing you, which is what "will not stop until it hits"
+      // has to mean in a game with a finite arena.
+      if (e.type === 'inoHorn') {
+        const dt2 = dt;
+        const tgt = this.other(e.caster);
+        if (e.homing && tgt?.alive) {
+          // steer toward the target, capped — so it curves rather than snapping
+          const want = tgt.pos.clone().add(v3(0, tgt.hurtBox?.center ?? 1.1, 0)).sub(e.pos);
+          if (want.lengthSq() > 1e-4) {
+            want.normalize();
+            const maxTurn = (e.turn ?? 6.5) * dt2;
+            const dot = Math.max(-1, Math.min(1, e.dir.dot(want)));
+            const ang = Math.acos(dot);
+            if (ang > 1e-4) {
+              e.dir.lerp(want, Math.min(1, maxTurn / ang)).normalize();
+            }
+          }
+          e.life -= dt2;
+        }
+        const step = e.spd * dt2;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          e.node.lookAt(e.pos.clone().add(e.dir));
+          e.node.rotateX(Math.PI / 2);
+          e.node.rotateY((e.spinT = (e.spinT ?? 0) + 11 * dt2));
+        }
+        // the trail — a spiral of the beast's own blue, which is what makes a
+        // homing horn readable as it curves
+        if (Math.random() < 0.8) {
+          m.fx._spawn(e.pos.clone().add(v3(rand(-0.12, 0.12), rand(-0.12, 0.12), rand(-0.12, 0.12))), {
+            color: Math.random() < 0.4 ? 0xffffff : 0x6ea8ff, size: rand(0.06, 0.16),
+            aspect: 0.4, life: rand(0.12, 0.30), opacity: 0.8, vel: v3()
+          });
+        }
+        const hitR = e.radius + (tgt?.hurtBox?.pad ?? 0);
+        if (!e.dealt && tgt?.alive
+          && e.pos.distanceTo(tgt.pos.clone().add(v3(0, tgt.hurtBox?.center ?? 1.1, 0))) < hitR) {
+          e.dealt = true;
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, kb: e.def.kb, kbY: e.def.kbY, hitstun: e.def.hitstun,
+            dir: e.dir.clone(), attacker: e.caster, src: e.src
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, { crit, heavy: e.homing });
+          m.arena?.destruct?.damageAt(e.pos, 1.2, e.def.destruct ?? 18);
+          if (e.homing) { m.hitstop(12); m.cam.shake(0.4); }
+          this._disposeNode(e.node);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        const done = e.homing ? e.life <= 0 : e.travelled > e.range;
+        if (done) {
+          m.fx._ring(e.pos.clone(), 0x6ea8ff, { size: 0.3, growRate: 6, life: 0.2, flat: false });
+          this._disposeNode(e.node);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+
+      // ---- THE GLIDE ------------------------------------------------------
+      // He travels on the water. HIS OWN BODY is the hitbox, so there is no
+      // node — the entity is a clock that moves him and tests once. The water
+      // it leaves is real: it is what `src: 'ino_reiki'` means downstream.
+      if (e.type === 'inoGlide') {
+        const def = e.def;
+        const step = def.speed * dt;
+        e.caster.pos.addScaledVector(e.dir, step);
+        m.arena?.bounds?.clampXZ?.(e.caster.pos);
+        e.travelled += step;
+        // the water trail, and it is the character's whole silhouette in motion
+        for (let n = 0; n < 2; n++) {
+          m.fx._spawn(e.caster.pos.clone().add(v3(rand(-0.4, 0.4), rand(0.02, 0.5), rand(-0.4, 0.4))), {
+            color: n ? 0x3fd0b8 : 0xdff6f0, size: rand(0.12, 0.30), aspect: 0.5,
+            life: rand(0.2, 0.5), opacity: 0.7, gravity: 3,
+            vel: v3(rand(-1.5, 1.5), rand(0.3, 1.6), rand(-1.5, 1.5))
+          });
+        }
+        const tgt = this.other(e.caster);
+        if (!e.dealt && tgt?.alive
+          && flatDist(e.caster.pos, tgt.pos) < (def.reach ?? 1.9) + (tgt.hurtBox?.pad ?? 0)) {
+          e.dealt = true;
+          const { dmg, crit } = computeDamage(e.caster, def.dmg * e.mult);
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun,
+            dir: e.dir.clone(), attacker: e.caster, src: def.src ?? 'ino_reiki',
+            water: !!def.water
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, { crit });
+        }
+        if (e.travelled >= (def.travel ?? 9.5)) this.entities.splice(i, 1);
+        continue;
+      }
+
+      // ---- THE SHELL ------------------------------------------------------
+      // A clock holding an armour window open, and a shove when it ends.
+      if (e.type === 'inoShell') {
+        e.t -= dt;
+        const def = e.def;
+        const at = e.caster.pos.clone().add(v3(0, 1.0, 0));
+        // the water dome, drawn every frame so the window is unmistakable
+        if (Math.random() < 0.9) {
+          const a = Math.random() * Math.PI * 2, ph = Math.random() * Math.PI * 0.5;
+          m.fx._spawn(at.clone().add(v3(
+            Math.cos(a) * Math.cos(ph) * 1.1, Math.sin(ph) * 1.2, Math.sin(a) * Math.cos(ph) * 1.1)), {
+            color: Math.random() < 0.35 ? 0xdff6f0 : 0x3fd0b8, size: rand(0.14, 0.30),
+            aspect: 0.6, life: rand(0.15, 0.35), opacity: 0.65, vel: v3()
+          });
+        }
+        e.caster.armorFrames = Math.max(e.caster.armorFrames ?? 0, 4);
+        if (e.t > 0) continue;
+        // it breaks outward
+        m.cam.shake(0.3);
+        m.sfx.hit?.(true);
+        m.fx._ring(at, 0x3fd0b8, { size: def.radius ?? 2.4, growRate: 14, life: 0.3, flat: false });
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive) continue;
+          if (flatDist(f.pos, e.caster.pos) > (def.radius ?? 2.4) + (f.hurtBox?.pad ?? 0)) continue;
+          const dir = f.pos.clone().sub(e.caster.pos).setY(0);
+          if (dir.lengthSq() < 1e-4) dir.copy(e.caster.forward()); else dir.normalize();
+          const { dmg, crit } = computeDamage(e.caster, def.dmg * e.mult);
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun,
+            dir, attacker: e.caster, src: def.src ?? 'ino_reiki', water: !!def.water
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit });
+        }
+        e.caster.shell = null;
+        this.entities.splice(i, 1);
+        continue;
+      }
+
+      // ---- THE HORN RUSH --------------------------------------------------
+      // He and the beast go through together. `hit` is a Set, so it passes
+      // through the first body rather than stopping on it — the same grammar
+      // Reggie's vehicles use, and for the same reason.
+      if (e.type === 'inoRush') {
+        const def = e.def;
+        const step = def.speed * dt;
+        e.caster.pos.addScaledVector(e.dir, step);
+        m.arena?.bounds?.clampXZ?.(e.caster.pos);
+        e.travelled += step;
+        if (Math.random() < 0.7) {
+          m.fx._spawn(e.caster.pos.clone().add(v3(rand(-0.5, 0.5), rand(0.6, 1.8), rand(-0.5, 0.5))), {
+            color: Math.random() < 0.4 ? 0xfff0c0 : 0xffc24a, size: rand(0.10, 0.24),
+            aspect: 0.5, life: rand(0.15, 0.4), opacity: 0.8,
+            vel: v3(rand(-1, 1), rand(0, 1.2), rand(-1, 1))
+          });
+        }
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive || e.hit.has(f)) continue;
+          if (flatDist(f.pos, e.caster.pos) > (def.reach ?? 2.1) + (f.hurtBox?.pad ?? 0)) continue;
+          e.hit.add(f);
+          const { dmg, crit } = computeDamage(e.caster, def.dmg * e.mult);
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun,
+            dir: e.dir.clone(), attacker: e.caster, src: def.src ?? 'ino_kirin'
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true });
+          m.cam.shake(0.3);
+        }
+        m.arena?.destruct?.damageAt(e.caster.pos.clone().setY(1.0), 1.6, def.destruct ?? 40);
+        if (e.travelled >= (def.travel ?? 7.6)) this.entities.splice(i, 1);
+        continue;
+      }
+
+      // ---- THE DRAGON'S CAST PASS -------------------------------------------
+      // "A serpentine dragon that surges from his hands into the enemy" — the
+      // one description canon gives of the technique nobody has survived. It
+      // goes down the lane once at the top of the ultimate, and then the window
+      // opens behind it.
+      if (e.type === 'inoDragonPass') {
+        const u = e.u;
+        const step = 26 * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        // it is drawn as a fast dense coil of its own near-white
+        for (let n = 0; n < 4; n++) {
+          const a = e.travelled * 2.2 + n * 1.6;
+          m.fx._spawn(e.pos.clone().add(v3(Math.cos(a) * 0.7, 1.0 + Math.sin(a) * 0.7, Math.sin(a * 0.7) * 0.5)), {
+            color: n % 2 ? 0xd8e4ff : 0xffffff, size: rand(0.22, 0.50),
+            aspect: 0.7, life: rand(0.2, 0.5), opacity: 0.85, vel: v3()
+          });
+        }
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive || e.hit.has(f)) continue;
+          if (flatDist(f.pos, e.pos) > (u.castRadius ?? 2.2) + (f.hurtBox?.pad ?? 0)) continue;
+          e.hit.add(f);
+          const { dmg, crit } = computeDamage(e.caster, (u.castDmg ?? 26) * e.mult);
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: u.castKb, kbY: u.castKbY, hitstun: u.castHitstun,
+            type: 'knockdown', dir: e.dir.clone(), attacker: e.caster, src: 'ultimate'
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true, knockdown: true });
+          m.hitstop(14);
+          m.cam.shake(0.6);
+        }
+        m.arena?.destruct?.damageAt(e.pos.clone().setY(1.2), 2.6, u.destruct ?? 55);
+        if (e.travelled >= (u.castRange ?? 14)) this.entities.splice(i, 1);
+        continue;
+      }
+
+      // =================================================================
+      // REGGIE'S OBJECTS
+      // =================================================================
+      // Six entity types, and they sit BELOW `tryReflect` like every other
+      // travelling thing in this loop — which is the whole of Uro's
+      // integration. THREE of the six are in the REFLECTABLE table
+      // (`reggieThrow`, `reggieVehicle`, `reggieGas` while it is still in
+      // flight) and three deliberately are not: the LADDER is a swing, the
+      // VENDING MACHINE arrives from above and outside the plane she holds,
+      // and the HOOK is a grab. See the per-tool audit in combat/reflect.js.
+
+      // ---- THE THROWN JUNK, AND THE HOOK'S SIBLING --------------------------
+      if (e.type === 'reggieThrow') {
+        // the ultimate's barrage tracks gently; the neutral throw does not
+        if (e.track) {
+          const tt = this.other(e.caster);
+          if (tt?.alive) {
+            const want = tt.pos.clone().add(v3(0, tt.hurtBox?.center ?? 1.1, 0)).sub(e.pos);
+            if (want.lengthSq() > 1e-4) {
+              want.normalize();
+              const ang = Math.acos(Math.max(-1, Math.min(1, e.dir.dot(want))));
+              if (ang > 1e-4) e.dir.lerp(want, Math.min(1, (e.track * dt) / ang)).normalize();
+            }
+          }
+        }
+        const step = e.spd * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.travelled += step;
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          // it TUMBLES. A thrown object that keeps its orientation reads as a
+          // decal; a tumbling one reads as a thing somebody threw badly, which
+          // is exactly what it is.
+          e.node.rotation.x = (e.spinT = (e.spinT ?? 0) + e.spin * dt);
+          e.node.rotation.y = e.spinT * 0.6 + Math.atan2(e.dir.x, e.dir.z);
+        }
+        const tgt = this.other(e.caster);
+        const hitR = e.radius + (tgt?.hurtBox?.pad ?? 0);
+        if (!e.dealt && tgt?.alive
+          && e.pos.distanceTo(tgt.pos.clone().add(v3(0, tgt.hurtBox?.center ?? 1.1, 0))) < hitR) {
+          e.dealt = true;
+          const { dmg, crit } = computeDamage(e.caster, e.dmg);
+          const r = tgt.applyHit({
+            ...e.hitOpts, dmg, kb: e.kb, kbY: e.kbY, hitstun: e.hitstun,
+            dir: e.dir.clone(), attacker: e.caster, src: e.src
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, tgt, r, { crit, heavy: e.heavy });
+          m.arena?.destruct?.damageAt(e.pos, 1.0, e.destruct);
+          this._breakObject(e);
+          this.entities.splice(i, 1);
+          continue;
+        }
+        if (e.travelled > e.range) { this._breakObject(e); this.entities.splice(i, 1); }
+        continue;
+      }
+
+      // ---- THE LADDER SWING -------------------------------------------------
+      // THREE swings out of one press, each its own hit, and the ladder
+      // BUCKLES on the last one. It tracks his position for the length of the
+      // swing so a Reggie who is being pushed keeps his reach — the same
+      // treatment `_sweepBlade` gives Yuta's katana.
+      if (e.type === 'reggieLadder') {
+        e.t += dt;
+        const k = e.t / e.span;
+        const def = e.def;
+        const len = def.reach ?? 4.2;
+        if (e.node) {
+          // swept through the arc, alternating direction each swing, hinged at
+          // his hands so the far end covers real ground
+          const flip = e.swing % 2 ? -1 : 1;
+          const ang = e.caster.facing + flip * (def.arc ?? 1.5) * (0.5 - k);
+          const grip = e.caster.pos.clone().add(v3(0, 1.15, 0));
+          e.node.position.copy(grip);
+          e.node.rotation.set(0, ang, Math.PI * 0.5 * flip);
+          // it bends more with every swing, and on the third it is visibly bent
+          e.node.scale.set(1, 1 - e.swing * 0.06, 1);
+        }
+        if (!e.hitThis && k > 0.42) {
+          e.hitThis = true;
+          const tgt = this.other(e.caster);
+          if (tgt?.alive && inArc(e.caster, tgt, len + (tgt.hurtBox?.pad ?? 0), def.arc ?? 1.5)) {
+            const { dmg, crit } = computeDamage(e.caster, def.dmg * e.mult);
+            const r = tgt.applyHit({
+              ...e.hitOpts, dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun,
+              dir: e.caster.forward(), attacker: e.caster, src: 'reggie_ladder'
+            }, m.ctxFor(e.caster));
+            hitFeedback(m, e.caster, tgt, r, { crit });
+          }
+          m.arena?.destruct?.damageAt(
+            e.caster.pos.clone().addScaledVector(e.caster.forward(), len * 0.7).setY(1.2),
+            1.4, def.destruct ?? 26);
+          m.sfx.swing?.(false);
+        }
+        if (k >= 1) {
+          e.swing++;
+          e.t = 0;
+          e.hitThis = false;
+          if (e.swing >= e.swings) {
+            // it snaps. Two halves spat out sideways, which is the read that
+            // the reach is over.
+            const at = e.caster.pos.clone().addScaledVector(e.caster.forward(), len * 0.5).setY(1.2);
+            for (let n = 0; n < 10; n++) {
+              m.fx._spawn(at.clone(), {
+                color: n % 2 ? 0xc8ccd4 : 0x8a8f98, size: rand(0.08, 0.22), aspect: 0.4,
+                life: rand(0.3, 0.7), gravity: 16,
+                vel: v3(rand(-5, 5), rand(1, 5), rand(-5, 5))
+              });
+            }
+            m.sfx.hit?.(true);
+            this._disposeNode(e.node);
+            this.entities.splice(i, 1);
+          }
+        }
+        continue;
+      }
+
+      // ---- THE GAS CANISTER AND ITS CLOUD -----------------------------------
+      // Two phases in one entity: it FLIES (and can be reflected), it LANDS,
+      // and then it VENTS for two and a half seconds. The cloud does nothing
+      // to health — it writes `gasBlind` on anybody standing in it, which
+      // core/stage.js reads for the fog term and combat/ai.js reads for its
+      // own sight test.
+      if (e.type === 'reggieGas') {
+        if (e.phase === 'flight') {
+          e.vel.y -= 22 * dt;
+          e.pos.addScaledVector(e.vel, dt);
+          const floor = m.arena?.bounds?.floorAt(e.pos.x, e.pos.z, e.pos.y + 0.4) ?? 0;
+          if (e.node) {
+            e.node.position.copy(e.pos);
+            e.node.rotation.x += dt * 7;
+            e.node.rotation.z += dt * 4;
+          }
+          const tgt = this.other(e.caster);
+          if (!e.dealt && tgt?.alive
+            && e.pos.distanceTo(tgt.pos.clone().add(v3(0, tgt.hurtBox?.center ?? 1.1, 0))) < 0.7 + (tgt.hurtBox?.pad ?? 0)) {
+            e.dealt = true;
+            const { dmg } = computeDamage(e.caster, e.def.dmg * e.mult, { canCrit: false });
+            const r = tgt.applyHit({
+              ...e.hitOpts, dmg, kb: e.def.kb, kbY: e.def.kbY, hitstun: e.def.hitstun,
+              dir: e.dir.clone(), attacker: e.caster, src: 'reggie_gas'
+            }, m.ctxFor(e.caster));
+            hitFeedback(m, e.caster, tgt, r, {});
+          }
+          if (e.pos.y <= floor + 0.2) {
+            e.pos.y = floor + 0.18;
+            e.phase = 'vent';
+            e.t = e.def.cloudDur;
+            if (e.node) { e.node.position.copy(e.pos); e.node.rotation.set(Math.PI * 0.5, 0, 0); }
+            m.sfx.gas?.() ?? m.sfx.hit?.(false);
+          }
+          continue;
+        }
+        // VENTING
+        e.t -= dt;
+        const R = e.def.radius;
+        // the cloud itself — a lot of cheap slow particles, because a vision
+        // block has to be genuinely opaque rather than suggestive
+        for (let n = 0; n < 3; n++) {
+          const a = Math.random() * Math.PI * 2;
+          const rr = Math.sqrt(Math.random()) * R;
+          m.fx._spawn(e.pos.clone().add(v3(Math.cos(a) * rr, rand(0.1, 2.0), Math.sin(a) * rr)), {
+            color: n % 2 ? 0xd8dce2 : 0xb0b6c0, size: rand(0.8, 1.7),
+            life: rand(0.7, 1.5), opacity: 0.5, gravity: -0.6,
+            vel: v3(rand(-0.5, 0.5), rand(0.2, 0.9), rand(-0.5, 0.5))
+          });
+        }
+        for (const f of m.activeFighters) {
+          if (!f.alive) continue;
+          if (flatDist(f.pos, e.pos) > R + (f.hurtBox?.pad ?? 0)) continue;
+          // it blinds EVERYBODY inside it, Reggie included. A screen he can see
+          // through is not a screen, it is an advantage with no cost.
+          f.gasBlind = Math.max(f.gasBlind ?? 0, e.def.occlude ?? 0.8);
+          f.gasBlindT = 0.2;
+        }
+        if (e.t <= 0) { this._disposeNode(e.node); this.entities.splice(i, 1); }
+        continue;
+      }
+
+      // ---- THE HOOK ---------------------------------------------------------
+      // Out, catch, reel. WHICH BODY MOVES is `kbResist` — see the case above.
+      if (e.type === 'reggieHook') {
+        const def = e.def;
+        const grip = e.caster.pos.clone().add(v3(0, 1.2, 0)).addScaledVector(e.caster.forward(), 0.35);
+        if (e.rod) {
+          e.rod.position.copy(grip);
+          e.rod.rotation.set(0.9, e.caster.facing, 0);
+        }
+        if (e.phase === 'out') {
+          const step = def.speed * dt;
+          e.pos.addScaledVector(e.dir, step);
+          e.travelled += step;
+          const tgt = this.other(e.caster);
+          if (tgt?.alive
+            && e.pos.distanceTo(tgt.pos.clone().add(v3(0, tgt.hurtBox?.center ?? 1.1, 0))) < 0.85 + (tgt.hurtBox?.pad ?? 0)) {
+            e.phase = 'reel';
+            e.caught = tgt;
+            e.reelT = 0;
+            // ============================================================
+            // *** THE MASS DECISION, AND IT IS MADE ONCE, HERE. ***
+            // ============================================================
+            // The first version applied a per-frame positional nudge to both
+            // bodies, scaled by `kbResist`, and it did not work: measured in a
+            // live match at kbResist 1.0, 1.6 and 2.4 the result was IDENTICAL
+            // every time (0.45 m of caster movement, 0.93 m of target
+            // movement, and the same 7.62 m final gap). Writing `pos` directly
+            // every frame fights the fighter's own movement resolution and the
+            // two settle into an equilibrium that has nothing to do with mass.
+            //
+            // It now uses `beginForced` — the same mechanism Inumaki's COME
+            // HERE and RUN AWAY use, which puts the body in the `commanded`
+            // state where the physics EXPECTS to be driven — and the mass
+            // question becomes BINARY, which is both correct and better:
+            //
+            //     lighter than him  ->  THEY come to HIM
+            //     heavier than him  ->  HE goes to THEM
+            //
+            // A continuous scaling was never legible in play anyway; "the rod
+            // pulls the lighter body" is a rule a player can learn in one
+            // exchange. The threshold is 1.25x his own resistance, which puts
+            // Todo (0.72 -> heavier), Panda (0.78), Yuki, Hanami, Kurourushi,
+            // Dagon and Mahoraga on the "he goes to them" side and everybody
+            // else on the "they come to him" side.
+            //
+            // NOTE THAT `kbResist` IS INVERTED: a LOWER number is a HEAVIER
+            // body (it resists knockback more). The comparison below reads
+            // that way round and the two named lists above were checked
+            // against the actual configs rather than assumed.
+            const theirs = tgt.cfg.kbResist ?? 1;
+            const mine = e.caster.cfg.kbResist ?? 1;
+            const theyAreHeavier = theirs < mine / 1.25;
+            const puller = theyAreHeavier ? e.caster : tgt;
+            const anchor = theyAreHeavier ? tgt : e.caster;
+            // 0.42 s of drag. `beginForced` stops short at PULL_STOP (1.65 m)
+            // so it always delivers to punching range and never through.
+            // *** THE HIT LANDS FIRST AND THE PULL SECOND, AND THE ORDER IS
+            // THE WHOLE FIX. *** `applyHit` puts the target in `hitLight`,
+            // which is a `setState` — so a `beginForced` called BEFORE it was
+            // silently overwritten one line later and the rod pulled nobody
+            // anywhere. Measured: five different mass values, zero movement in
+            // all five. Inumaki's pull command has never hit this because his
+            // pull deals no damage at all.
+            const { dmg, crit } = computeDamage(e.caster, def.dmg * e.mult);
+            const r = tgt.applyHit({
+              ...e.hitOpts, dmg, kb: 0, kbY: 0, hitstun: def.hitstun,
+              dir: e.dir.clone(), attacker: e.caster, src: 'reggie_rod'
+            }, m.ctxFor(e.caster));
+            hitFeedback(m, e.caster, tgt, r, { crit });
+            m.sfx.grab?.() ?? m.sfx.hit?.(false);
+            // ...and NOW the drag, on whichever body the mass rule chose. It
+            // is applied even when the hit was blocked or armoured through: a
+            // hook that caught you still has you on the end of it.
+            // *** AND IF IT IS HE WHO IS BEING DRAGGED, HIS OWN CAST HAS TO
+            // BE CANCELLED FIRST. *** He is still in the rod's `ct` state at
+            // this moment — the hook catches around frame 30 of a 43-frame
+            // move — and that state calls `setState('idle')` when its frames
+            // run out, which silently overwrote the `commanded` state
+            // `beginForced` had just set. Measured: the target-side pull moved
+            // bodies 0.6-2.4 m and the caster-side pull moved him exactly zero
+            // every time, at every mass.
+            //
+            // Clearing the move is also correct on its own terms: a man who
+            // has just hooked something twice his weight is not finishing his
+            // follow-through, he is being taken off his feet.
+            if (theyAreHeavier) {
+              e.caster.move = null;
+              e.caster.activeHit = null;
+            }
+            beginForced(puller, 'pull', def.pullTime ?? 0.42, def.pull, anchor.pos);
+            e.caster.emit?.('reeled', { pulledSelf: theyAreHeavier });
+          } else if (e.travelled > def.range) {
+            e.phase = 'back';
+          }
+        } else if (e.phase === 'reel') {
+          e.reelT += dt;
+          e.pos.copy(e.caught?.pos ?? e.pos).add(v3(0, e.caught?.hurtBox?.center ?? 1.1, 0));
+          if (e.reelT > 0.12) e.phase = 'back';
+        } else {
+          // returning
+          const back = grip.clone().sub(e.pos);
+          const step = def.speed * 1.4 * dt;
+          if (back.length() < step) {
+            this._disposeNode(e.rod); this._disposeNode(e.hook);
+            this.entities.splice(i, 1);
+            continue;
+          }
+          e.pos.addScaledVector(back.normalize(), step);
+        }
+        if (e.hook) {
+          e.hook.position.copy(e.pos);
+          e.hook.lookAt(grip);
+        }
+        // THE LINE. Drawn every frame between the rod tip and the hook, so the
+        // grapple is a visible physical connection rather than two objects
+        // that happen to be moving toward each other.
+        m.fx._spawn(grip.clone().lerp(e.pos, Math.random()), {
+          color: 0xf0f4f8, size: 0.035, aspect: 0.25, life: 0.06, opacity: 0.8, vel: v3()
+        });
+        continue;
+      }
+
+      // ---- THE MOPED AND THE CAR --------------------------------------------
+      // One entity, two scales. It KEEPS GOING through the first thing it hits
+      // — `hit` is a Set, not a flag — which is what makes both of them beat a
+      // wake-up and what makes a car genuinely frightening in a free-for-all.
+      if (e.type === 'reggieVehicle') {
+        const def = e.def;
+        const step = def.speed * dt;
+        e.pos.addScaledVector(e.dir, step);
+        e.pos.y = m.arena?.bounds?.floorAt(e.pos.x, e.pos.z, e.pos.y + 0.8) ?? e.pos.y;
+        e.travelled += step;
+        e.wheelSpin += dt * (e.big ? 14 : 22);
+        if (e.node) {
+          e.node.position.copy(e.pos);
+          e.node.rotation.y = Math.atan2(e.dir.x, e.dir.z);
+          // it lurches. A vehicle travelling on a perfectly level path reads as
+          // a sprite; a small pitch oscillation reads as suspension.
+          e.node.rotation.x = Math.sin(e.wheelSpin * 0.5) * (e.big ? 0.03 : 0.06);
+        }
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive || e.hit.has(f)) continue;
+          if (flatDist(f.pos, e.pos) > def.radius + (f.hurtBox?.pad ?? 0)) continue;
+          if (Math.abs(f.pos.y - e.pos.y) > 2.4) continue;
+          e.hit.add(f);
+          const { dmg, crit } = computeDamage(e.caster, def.dmg * e.mult);
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun,
+            type: def.type ?? 'knockdown', dir: e.dir.clone(), attacker: e.caster, src: e.src
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true, knockdown: true });
+          m.cam.shake(e.big ? 0.6 : 0.3);
+          m.hitstop(e.big ? 14 : 8);
+        }
+        m.arena?.destruct?.damageAt(e.pos.clone().setY(e.pos.y + 0.8), e.big ? 2.4 : 1.4, def.destruct);
+        // exhaust / tyre smoke, so the lane it took is readable after the fact
+        if (Math.random() < (e.big ? 0.8 : 0.5)) {
+          m.fx._spawn(e.pos.clone().addScaledVector(e.dir, -1.2).add(v3(rand(-0.4, 0.4), 0.2, rand(-0.4, 0.4))), {
+            color: 0x9aa0aa, size: rand(0.2, 0.5), life: rand(0.3, 0.7), opacity: 0.4,
+            gravity: -0.8, vel: v3(rand(-0.4, 0.4), rand(0.3, 1.0), rand(-0.4, 0.4))
+          });
+        }
+        if (e.travelled > def.travel) {
+          // it crashes. Big shake, big debris, real destruction at the end of
+          // the lane — a car that simply stops at 16 m would be a lie.
+          m.cam.shake(e.big ? 0.9 : 0.4);
+          m.sfx.hit?.(true);
+          m.arena?.destruct?.damageAt(e.pos.clone().setY(e.pos.y + 0.9), e.big ? 3.2 : 1.8, def.destruct);
+          for (let n = 0; n < (e.big ? 22 : 12); n++) {
+            m.fx._spawn(e.pos.clone().add(v3(rand(-1, 1), rand(0.2, 1.6), rand(-1, 1))), {
+              color: n % 3 === 0 ? 0xffb060 : (n % 3 === 1 ? 0x4a8ac8 : 0x9aa0aa),
+              size: rand(0.10, 0.34), life: rand(0.3, 0.8), gravity: 18,
+              vel: v3(rand(-7, 7), rand(2, 8), rand(-7, 7))
+            });
+          }
+          this._disposeNode(e.node);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
+
+      // ---- THE VENDING MACHINE, ARRIVING -------------------------------------
+      // A timer with a visible object falling down it. It hits WHERE IT WAS
+      // AIMED — see the case above — and the wreck it leaves is handed to
+      // combat/receipts.js, which owns its colliders and its lifetime.
+      if (e.type === 'reggieDrop') {
+        e.t -= dt;
+        if (e.node) {
+          const k = 1 - Math.max(0, e.t) / e.total;
+          e.node.position.copy(e.at).add(v3(0, 9.0 * (1 - k * k), 0));
+          e.node.rotation.y = k * 1.2;
+        }
+        if (e.t > 0) continue;
+        const def = e.def;
+        m.cam.shake(0.8);
+        m.hitstop(16);
+        m.sfx.hit?.(true);
+        m.arena?.destruct?.damageAt(e.at.clone().setY(e.at.y + 0.6), 2.4, def.destruct);
+        for (const f of m.activeFighters) {
+          if (f === e.caster || !f.alive) continue;
+          if (flatDist(f.pos, e.at) > def.radius + (f.hurtBox?.pad ?? 0)) continue;
+          if (Math.abs(f.pos.y - e.at.y) > 2.6) continue;
+          const { dmg, crit } = computeDamage(e.caster, def.dmg * e.mult);
+          const r = f.applyHit({
+            ...e.hitOpts, dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun,
+            type: 'knockdown', dir: v3(0, -1, 0), attacker: e.caster, src: 'reggie_vending'
+          }, m.ctxFor(e.caster));
+          hitFeedback(m, e.caster, f, r, { crit, heavy: true, knockdown: true });
+        }
+        for (let n = 0; n < 18; n++) {
+          m.fx._spawn(e.at.clone().add(v3(rand(-1.4, 1.4), rand(0.05, 1.2), rand(-1.4, 1.4))), {
+            color: n % 4 === 0 ? 0xfff0c0 : (n % 4 === 1 ? 0xc4322a : 0xbfe0f0),
+            size: rand(0.08, 0.28), life: rand(0.3, 0.8), gravity: 17,
+            vel: v3(rand(-6, 6), rand(1, 6), rand(-6, 6))
+          });
+        }
+        this._disposeNode(e.node);
+        m.receipts?.spawnWreck(e.caster, e.at.clone(), def);
+        this.entities.splice(i, 1);
+        continue;
+      }
+
+      // ---- THE ULTIMATE'S BARRAGE --------------------------------------------
+      // A metronome. Every `interval` it throws one junk object at the target
+      // for `perShot` damage, and on the last beat it materialises the finale
+      // object — which is a real `reggie_vehicle` / `reggie_drop`, not a
+      // scripted flash, so the ending of the ultimate is the same object the
+      // player has been buying all round.
+      if (e.type === 'reggieBarrage') {
+        e.t += dt;
+        e.next -= dt;
+        const tgt = this.other(e.caster);
+        if (e.next <= 0 && e.fired < e.shots) {
+          e.next = e.interval;
+          e.fired++;
+          const at = e.caster.pos.clone().add(v3(rand(-0.4, 0.4), rand(1.0, 1.8), 0))
+            .addScaledVector(e.caster.forward(), 0.5);
+          burnFX(m, at, { scale: 0.5, up: 0.4 });
+          const junkKeys = e.caster.cfg.objects?.junk ?? ['cone'];
+          const jk = junkKeys[e.fired % junkKeys.length];
+          const node = buildJunk(jk);
+          m.root.add(node);
+          const dir = tgt?.alive
+            ? tgt.pos.clone().add(v3(0, 1.0, 0)).sub(at).normalize()
+            : e.caster.forward();
+          this.entities.push({
+            type: 'reggieThrow', caster: e.caster, node, jk,
+            // *** THE BARRAGE OBJECTS TRACK. *** The ordinary Quick
+            // Materialise does not and must not — a neutral projectile that
+            // follows you is not a neutral projectile. But the ULTIMATE is
+            // "he empties the register at you", and eighteen objects thrown at
+            // where you were standing is not that. `track` is a gentle 3.2
+            // rad/s correction, enough to follow a rocked target and nowhere
+            // near enough to follow one who dashes.
+            // 6.5 rad/s, not 3.2. Measured: at 3.2 the barrage landed about
+            // four hits in ten against a STATIONARY target six metres away,
+            // because eighteen objects launched from a moving shoulder at a
+            // body that is being rocked converge badly. This is not a homing
+            // missile — it is a man throwing eighteen things at you from six
+            // metres, and at that range and that speed 6.5 rad/s is simply
+            // "he is not missing on purpose".
+            track: 6.5,
+            pos: at.clone(), dir, spd: 30, range: 22, travelled: 0, radius: e.u.radius ?? 1.35,
+            dmg: e.perShot * e.mult, kb: e.u.kb, kbY: e.u.kbY, hitstun: e.u.hitstun,
+            destruct: e.u.destruct, spin: rand(10, 20), src: 'ultimate',
+            hitOpts: { ...e.hitOpts, src: 'ultimate' }, dealt: false, heavy: false
+          });
+          m.sfx.throwLight?.();
+        }
+        if (e.fired >= e.shots) {
+          // THE FINALE. Reuses the ordinary object cases, so a barrage that
+          // ends on a car ends on the real car with the real destruction.
+          const def = e.caster.cfg.objects.defs[e.finale];
+          const big = { ...def, dmg: e.u.finaleDmg, kb: e.u.finaleKb, kbY: e.u.finaleKbY,
+            hitstun: e.u.finaleHitstun, destruct: e.u.finaleDestruct };
+          this.applyTechnique(e.caster, def.effect, { def: big, src: 'ultimate', powerMult: e.mult });
+          m.cam.shake(1.0);
+          this.entities.splice(i, 1);
+        }
+        continue;
+      }
 
       // ---- ICEFALL'S SHARDS -------------------------------------------------
       // Real geometry, moved by the same vector that decides the hit, so the

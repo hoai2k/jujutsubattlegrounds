@@ -179,7 +179,90 @@ export const REFLECTABLE = {
   // instant line with no front crossing the space — category B, with Hollow
   // Purple, Uzumaki, Fire Arrow and Piercing Blood — and its counterplay is
   // the 42 frames of telegraph it was priced around.
-  ryuBeam: true
+  ryuBeam: true,
+  // ---- REGGIE — THREE OF SIX, AND THE CAR IS THE INTERESTING ONE ---------
+  // *** THE BRIEF ASKS THIS QUESTION EXPLICITLY: "confirm they reflect and
+  // that a reflected car doesn't do something absurd." *** Here is the whole
+  // audit.
+  //
+  // THE THROWN JUNK (`reggieThrow`) — a knife, a cone, a wrench, a bottle
+  //   crossing the space at 26 m/s. It is the most literal category-A object
+  //   in the game and it is here. It is also what his ULTIMATE'S BARRAGE is
+  //   made of, so a Uro holding the surface through Clearing the Register
+  //   sends the whole barrage back, which is a genuinely spectacular and
+  //   completely correct outcome: the ultimate is thirty thrown objects and
+  //   she is turning thrown objects around.
+  //
+  // THE VEHICLES (`reggieVehicle`) — the moped and the CAR. Both travel, both
+  //   are objects, both are category A, and both reflect.
+  //
+  //   *** DOES A REFLECTED CAR DO SOMETHING ABSURD? *** It does 52 damage and
+  //   13 knockback to the man who threw it, and the answer is that this is
+  //   correct rather than absurd, for three separate reasons:
+  //     · IT IS EXACTLY WHAT THE TABLE ALREADY DOES TO RYU. A reflected tier-4
+  //       Granite Blast is 88 damage returned, which is more, and the entry
+  //       above argues at length that this is the point of her character.
+  //     · IT COST HIM 48 OF 100 STOCK. He is not merely hit; he is hit AND
+  //       broke, and cannot answer with anything but junk for the next ten
+  //       seconds. The punish for guessing wrong is proportional to what the
+  //       guess cost, which is the whole design of the receipt stock.
+  //     · THE TELEGRAPH IS 46 FRAMES, the second longest non-ultimate wind-up
+  //       in the game. She has three quarters of a second to decide, standing
+  //       still, in front of a man visibly loading a car. If that read should
+  //       not be rewarded, no read should.
+  //   The one thing that WOULD be absurd is a reflected car that keeps its
+  //   `hit` Set — it would pass through her and then hit him, which is two
+  //   hits for one read. `applyReflect` rewrites `caster` and mirrors `dir`;
+  //   the vehicle's own case clears `hit` when the caster changes, so the
+  //   returned car hits its new target exactly once. See the guard there.
+  //
+  // THE GAS CANISTER (`reggieGas`) — reflectable ONLY IN FLIGHT, which falls
+  //   out of the entity's own two phases rather than needing a rule: once it
+  //   lands it is a cloud sitting on the floor, and a cloud is terrain. A
+  //   canister bent back vents on HIM, which blinds him, which is a real and
+  //   funny outcome.
+  //
+  // NOT HERE, and each for a reason this table has already established:
+  //   THE LADDER   — a SWING. Category C, an implement. It never leaves his
+  //                  hands and there is nothing crossing the space to bend.
+  //   THE HOOK     — a GRAB. Category C, with Todo's Vice Grab.
+  //   THE VENDING  — it arrives FROM ABOVE, outside the plane she is holding.
+  //     MACHINE      Category B in effect, with Takaba's anvil and safe and
+  //                  Uraume's icicle: by the time the object exists it is
+  //                  already over them, and its counterplay is the 0.62 s
+  //                  marker on the floor.
+  //   THE DRONE    — a BODY with health and pathing. Summons are not
+  //                  projectiles; the ruling at the top of this file applies
+  //                  unchanged and she can shoot it down like anybody else.
+  reggieThrow: true,
+  reggieVehicle: true,
+  reggieGas: true,
+  // ---- INO — ONE OF FIVE, AND THE UNMISSABLE ONE IS STILL REFLECTABLE ----
+  // THE HORN (`inoHorn`) covers both 獬豸 techniques. The ordinary one is an
+  // obvious category A. The JUDGEMENT HORN is the interesting entry, because
+  // its whole identity is that it cannot be dodged — and it is here anyway.
+  //
+  // That is deliberate and it is the correct reading of both characters.
+  // "Undodgeable" is a statement about MOVEMENT: you cannot walk out of its
+  // way, it turns and follows. It is not a statement about invulnerability,
+  // and Sky Reflect is not a dodge — it is a surface that turns a travelling
+  // thing around. A homing horn bent back HOMES ON INO, which is both the
+  // funniest and the most logically airtight outcome in this table: the thing
+  // that will not stop until it hits its target now has a different target.
+  //
+  // NOT HERE:
+  //   THE GLIDE    — his own body moving. Category C.
+  //   THE SHELL    — a buff on himself with no travelling part at all.
+  //   THE HORN RUSH— his body and the beast's, moving together. Category C.
+  //   THE DRAGON   — the ultimate's pass is a body-sized construct moving with
+  //                  him rather than a thrown object, and it is an ULTIMATE:
+  //                  this table has never contained one and the reason is
+  //                  stated at the top of the file.
+  //   THE BEASTS   — they never leave him. They are not even bodies that walk
+  //                  over; they are bonded to his position, so there is
+  //                  nothing to reflect and nothing to hit. See the audit in
+  //                  combat/beasts.js.
+  inoHorn: true
 };
 
 // A projectile may be turned around exactly once. See the mirror-match note.
@@ -262,6 +345,19 @@ export function applyReflect(match, e, r) {
   // resolves the target from the caster.
   e.caster = r;
   e.dealt = false;                 // it gets to connect again
+  // ---- THE PASS-THROUGH SET, AND WHY IT HAS TO BE CLEARED ---------------
+  // Entities that hit MORE THAN ONE BODY track who they have already touched
+  // in a Set rather than with a `dealt` flag — Reggie's vehicles, his
+  // ultimate's finale, Ino's horn rush. A reflected one that kept its Set
+  // would have already "hit" the person it is now flying at, so the returned
+  // car would sail straight through him.
+  //
+  // It is cleared, not rebuilt with her in it: the entity's own case tests
+  // `f === e.caster` before anything else, so she is excluded by ownership and
+  // does not need to be in the Set. The result is that a bent-back car hits
+  // its new target exactly once, which is the guard the REFLECTABLE table's
+  // car note above promises.
+  if (e.hit instanceof Set) e.hit.clear();
   e.sure = false;                  // a reflected sure-hit is no longer sure
   if (e.hitOpts) e.hitOpts = { ...e.hitOpts, attacker: r, sureHit: false };
 

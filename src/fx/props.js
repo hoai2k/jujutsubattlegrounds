@@ -306,3 +306,60 @@ export function buildStoneSlab(w = 1.1, h = 1.8, color = 0x6b6f78) {
   g.add(cap);
   return g;
 }
+
+// ---------------------------------------------------------------------------
+// INO — 獬豸 KAICHI'S HORN
+// ---------------------------------------------------------------------------
+// The thing the beast throws. Points +Z, origin at its centre of mass, so the
+// effect can drive it with a `lookAt` and nothing else.
+//
+// THE SPIRAL IS THE WHOLE READ, and canon names it: "a horn with SPIRAL
+// PATTERNS on it, coated in cursed energy". It is built as a real helix of
+// rings climbing a tapered cone rather than as a texture, because at the
+// speeds this thing travels a texture is a smear and a silhouette is not.
+//
+// `big` is the JUDGEMENT HORN — the one that cannot be dodged. It is the same
+// object at 1.35x with a second counter-rotating ring set and a brighter core,
+// because a move whose whole identity is "this one is going to land" has to be
+// distinguishable from the ordinary one in the first frame it exists.
+export function buildHorn(r = 0.72, color = 0x6ea8ff, big = false) {
+  const g = new THREE.Group();
+  const k = big ? 1.35 : 1;
+  const len = r * 3.2 * k;
+  // `makeGlowMat` is canvas-backed like every other glow in this file, so
+  // this builder is browser-only — the same as `buildRootClump` and the rest.
+  const core = makeGlowMat(color);
+  // the shaft, tapering to a point at +Z
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(r * 0.42 * k, len, 8), core);
+  cone.rotation.x = Math.PI / 2;
+  cone.position.z = len * 0.5 - len * 0.5;
+  g.add(cone);
+  // the spiral: rings climbing the shaft, each smaller and rotated further
+  const rings = big ? 11 : 8;
+  for (let i = 0; i < rings; i++) {
+    const f = i / (rings - 1);
+    const rr = r * 0.42 * k * (1 - f * 0.86) + r * 0.05;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(rr * 1.35, rr * 0.34, 5, 10), solid(0xffffff));
+    ring.position.z = (f - 0.5) * len * 0.92;
+    ring.rotation.z = f * 4.2;
+    g.add(ring);
+  }
+  if (big) {
+    // the second, counter-rotating set — the tell that this is the one that
+    // does not miss
+    for (let i = 0; i < 6; i++) {
+      const f = i / 5;
+      const rr = r * 0.62 * k * (1 - f * 0.5);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, rr * 0.16, 5, 12), solid(color));
+      ring.position.z = (f - 0.5) * len * 0.8;
+      ring.rotation.z = -f * 3.0;
+      g.add(ring);
+    }
+  }
+  // the base flare, so it does not read as a dart
+  const flare = new THREE.Mesh(new THREE.ConeGeometry(r * 0.55 * k, r * 0.8 * k, 8), solid(color));
+  flare.rotation.x = -Math.PI / 2;
+  flare.position.z = -len * 0.5;
+  g.add(flare);
+  return g;
+}

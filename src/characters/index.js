@@ -30,6 +30,8 @@ import { YAGA } from './yaga.js';
 import { TAKABA } from './takaba.js';
 import { URAUME } from './uraume.js';
 import { RYU } from './ryu.js';
+import { REGGIE } from './reggie.js';
+import { INO } from './ino.js';
 import { buildGojo } from '../art/models/gojo.js';
 import { buildYuta } from '../art/models/yuta.js';
 import { buildNanami } from '../art/models/nanami.js';
@@ -61,6 +63,8 @@ import { buildYaga } from '../art/models/yaga.js';
 import { buildTakaba } from '../art/models/takaba.js';
 import { buildUraume } from '../art/models/uraume.js';
 import { buildRyu } from '../art/models/ryu.js';
+import { buildReggie } from '../art/models/reggie.js';
+import { buildIno } from '../art/models/ino.js';
 import { makeClips } from '../art/anim/index.js';
 import {
   variantsOf, hasVariants, variantEntry, resolveVariant, splitPick, joinPick,
@@ -269,7 +273,61 @@ export const ROSTER = {
   //
   // Not badged `spirit`: a human sorcerer from 400 years ago, incarnated for
   // the Culling Game. Same ruling Uro gets, for the same reason.
-  ryu: { config: RYU, buildModel: buildRyu, jp: '石流龍', accent: 0xd8f05a, role: 'CURSED ENERGY DISCHARGE · ARTILLERY' }
+  ryu: { config: RYU, buildModel: buildRyu, jp: '石流龍', accent: 0xd8f05a, role: 'CURSED ENERGY DISCHARGE · ARTILLERY' },
+  // ---- THE TWO NEW ONES, AND THEY ARE OPPOSITE ANSWERS TO THE SAME
+  // QUESTION: what do you do when the technique is not in your body? ----
+  //
+  // REGGIE is the only fighter in this game who does not attack with cursed
+  // energy at all. Every single thing he throws is a real object — a ladder, a
+  // moped, a car — burned back into existence off a receipt he was carrying,
+  // and the RECEIPT STOCK next to his cursed-energy bar is the only resource
+  // in the game that is spent on OBJECTS rather than on techniques. It is also
+  // the only one that can be turned off by WATER, which is canon and is how he
+  // dies in the source.
+  //
+  // Canon-correct with no Domain Expansion — he has an ANTI-domain technique
+  // instead, 彌虚葛籠 HOLLOW WICKER BASKET, the Heian-era ancestor of Simple
+  // Domain, which is what his Simple Domain is called and looks like.
+  //
+  // Not badged `spirit`: a human curse user from the Heian era, incarnated for
+  // the Culling Game. Same ruling Uro, Uraume and Ryu already get.
+  //
+  // His accent #f2e3af is the BLEACHED BLOND, and it is the one place on this
+  // screen where the accent is a character's HAIR — because his only other
+  // candidate colour is receipt-paper white, which lands at ΔE 6.4 from Panda's
+  // #f2f0e8 and would be indistinguishable from him on every callout the game
+  // draws. The blond sits at ΔE 19.6 from its nearest neighbour (Hakari's
+  // #ffc93c) and 24.1 from Higuruma's #d8c78a.
+  reggie: { config: REGGIE, buildModel: buildReggie, jp: 'レジィ・スター', accent: 0xf2e3af, role: '再契象 · MATERIALISES OBJECTS' },
+  // INO is the opposite: the technique is not in his body either, but where
+  // Reggie buys his, Ino BORROWS his — he covers his face, becomes a medium,
+  // and something else works through him. He is the roster's second stance
+  // character after Panda and the EIGHTH ally family on the field, and the
+  // thing that is new about him is that the two are the same mechanic: the
+  // beast he is wearing IS the stance, so his moveset, his stats and the
+  // creature beside him all change on one button.
+  //
+  // *** HIS ALLY IS THE ONLY ONE IN THE GAME THAT CANNOT BE KILLED, AND THE
+  // ONLY ONE THAT CAN BE TAKEN AWAY BY A NORMAL. *** Both halves are canon:
+  // the beasts are channelled rather than summoned, so there is no body to
+  // destroy — and the mask is "very visible and can easily be taken off",
+  // which in this game means a guard break or a knockdown strips it and takes
+  // his entire kit with it for 2.6 seconds.
+  //
+  // Canon-correct with no Domain Expansion. Not badged `spirit`: a grade 2
+  // (later grade 1) human sorcerer, and the beasts are not cursed spirits
+  // either — they are 瑞獣, auspicious beasts, which is close to the opposite
+  // thing. See the separation note in art/models/auspiciousbeasts.js.
+  //
+  // His accent #8fd8c4 was chosen the way Uraume's was, by MEASUREMENT rather
+  // than by eye: he wears head-to-toe black, so there is nothing on the model
+  // to take an accent FROM, and the four beasts are four different colours so
+  // none of them can own it either. #8fd8c4 is the midpoint of the three
+  // wearable beasts' hues pulled to a legible value, and it wins its CIELAB
+  // audit at ΔE 17.8 from its nearest neighbour (Inumaki's #9fd8c8 — the two
+  // are genuinely close, and they are the two quiet students, which is the one
+  // adjacency on this screen I am willing to keep).
+  ino: { config: INO, buildModel: buildIno, jp: '猪野琢真', accent: 0x8fd8c4, role: '来訪瑞獣 · MEDIUM · FOUR BEASTS' }
 };
 
 export const hex = n => '#' + n.toString(16).padStart(6, '0');
@@ -320,7 +378,19 @@ export const hex = n => '#' + n.toString(16).padStart(6, '0');
 // distinction between them (he wins by attrition, they win by taking your legs)
 // only reads when they are side by side. It also puts the game's two
 // terrain-modifying characters, Uraume and Hanami, in the same run.
-export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo', 'uro', 'ryu', 'yuta', 'miwa', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'hakari', 'yuji', 'nobara', 'choso', 'panda', 'yaga', 'todo', 'yuki', 'takaba', 'uraume', 'jogo', 'mahito', 'hanami', 'kurourushi', 'dagon'];
+// INO sits immediately after PANDA and before YAGA, and it is the most
+// pointed placement on this screen since Toji/Maki: Panda is the game's other
+// stance character and Ino is the one who proves the idea can be something
+// else. A player choosing between them is comparing "three bodies, one health
+// bar" against "one body, four things wearing it", which is the only context
+// in which either character's design reads as a decision rather than as a
+// gimmick. It also keeps the Panda/Yaga maker-and-made pairing intact, because
+// Ino goes BEFORE Panda rather than between them.
+// REGGIE sits immediately after HIGURUMA, which is the second most pointed
+// placement: they are the roster's two adults whose technique is a LEGAL
+// INSTRUMENT — a court's judgement and a signed contract — and they are the
+// only two characters in the game who win by paperwork.
+export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo', 'uro', 'ryu', 'yuta', 'miwa', 'inumaki', 'megumi', 'geto', 'nanami', 'higuruma', 'reggie', 'hakari', 'yuji', 'nobara', 'choso', 'ino', 'panda', 'yaga', 'todo', 'yuki', 'takaba', 'uraume', 'jogo', 'mahito', 'hanami', 'kurourushi', 'dagon'];
 
 // `pick` is 'gojo' (the base) or 'gojo:shinjuku'. A bare character id still
 // works everywhere it used to, which is why nothing outside the select screen

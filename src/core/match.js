@@ -38,6 +38,8 @@ import { spotlight as comedySpotlight, confetti as comedyConfetti, craftMotes, c
 import { awakenBurst, massField } from '../fx/newfx.js';
 import { GarudaSystem } from '../combat/garuda.js';
 import { NewShadowSystem } from '../combat/newshadow.js';
+import { ReceiptSystem } from '../combat/receipts.js';
+import { BeastSystem } from '../combat/beasts.js';
 import { FXSystem } from '../fx/fx.js';
 // CURSED SPEECH — the extruded-kanji layer and the title-card overlay. Both
 // are Inumaki's, both are inert when nobody in the match has a voice, and both
@@ -228,6 +230,18 @@ export class Match {
     // owns and does not touch it.
     this.garuda = new GarudaSystem(this);
     this.newshadow = new NewShadowSystem(this);
+    // REGGIE'S MATERIALISED OBJECTS. The SEVENTH ally family on the field
+    // (shikigami, transfigured humans, curses, Garuda, ocean shikigami,
+    // cursed corpses, and now a drone), and the only one that also owns a
+    // piece of PLAYER-PLACED TERRAIN — the vending-machine wreck, which is
+    // real geometry in the Bounds for fourteen seconds. Match-scoped for the
+    // same reason a root field is: both outlive the technique that made them.
+    this.receipts = new ReceiptSystem(this);
+    // INO'S AUSPICIOUS BEASTS. The EIGHTH ally family — and the only one whose
+    // occupants have no health, no AI, no pathing and NO DEATH. See the header
+    // of combat/beasts.js for why that is structural rather than a shortcut,
+    // and for the audit against every anti-summon mechanic in the game.
+    this.beasts = new BeastSystem(this);
     this.freeze = new FreezeSystem(this);
     // URAUME'S ICE. Match-scoped for the same reason a root field is: a frozen
     // patch outlives the technique that made it and has to survive its owner
@@ -611,6 +625,11 @@ export class Match {
       // the boundary check runs and gets cut on the frame it crosses rather
       // than on the next one.
       this.garuda.update(1 / 60);
+      // Reggie's drone and wrecks tick with the other allies, and BEFORE
+      // Miwa's circle for the same reason Garuda does: a wreck placed this
+      // frame is already a collider when the boundary check runs.
+      this.receipts.update(1 / 60);
+      this.beasts.update(1 / 60);
       this.newshadow.update(1 / 60);
       // THE GRAVITATIONAL LATTICE. Emitted on a slow cadence rather than every
       // frame — it is a persistent tell, and spawning three torus meshes at
@@ -1414,6 +1433,17 @@ export class Match {
           } else if (e.curse) {
             this.hud.toast(f, 'RT · ' + f.cfg.curses.defs[e.key].short);
             this.fx._ring(f.pos.clone().setY(0.06), 0x6b2fa0, { size: 0.5, growRate: 7, life: 0.35 });
+          } else if (e.object) {
+            // *** REGGIE. *** This branch is the whole reason the object wheel
+            // silently did nothing on its first playtest: without it the
+            // handler fell through to `cfg.shikigami.defs`, which he does not
+            // have, and the throw left the rest of the frame's event queue
+            // undrained — so it re-threw every frame forever and every input
+            // after the wheel appeared to be ignored. A missing case in a
+            // switch is not a missing feature; it is a jammed queue.
+            const od = f.cfg.objects.defs[e.key];
+            this.hud.toast(f, 'RT · ' + od.short + '  ¥' + (od.cost * f.cfg.receipts.yenPerStock).toLocaleString('en-US'));
+            this.fx._ring(f.pos.clone().setY(0.06), 0xf2e3af, { size: 0.5, growRate: 7, life: 0.35 });
           } else {
             this.hud.toast(f, (e.slot === 'ct1' ? 'RB · ' : 'RT · ')
               + f.cfg.shikigami.defs[e.key].short);
@@ -1422,6 +1452,65 @@ export class Match {
           break;
         case 'shikiBlocked':
           this.hud.toast(f, e.text);
+          this.sfx.noCE();
+          break;
+        // ---- REGGIE: 再契象 ------------------------------------------------
+        // The two refusals get their own lines for the same reason Inumaki's
+        // do: "nothing happened" is the worst thing a button can report, and
+        // BROKE and SOAKED are completely different problems with completely
+        // different answers.
+        case 'noStock':
+          this.hud.toast(f, 'NO STOCK — ¥' + Math.round(e.need * f.cfg.receipts.yenPerStock).toLocaleString('en-US') + ' SHORT');
+          this.sfx.noCE();
+          break;
+        case 'receiptsWet':
+          this.hud.toast(f, '濡 SOAKED — THE TAGS WON\'T BURN');
+          this.sfx.noCE();
+          break;
+        case 'stockSoaked':
+          this.hud.toast(f, '濡 RECEIPTS SOAKED · ' + e.duration.toFixed(1) + 's');
+          this.sfx.noCE();
+          this.cam.shake(0.3);
+          break;
+        case 'registerCleared':
+          this.hud.toast(f, '全契焼却 · ¥' + Math.round(e.spent * f.cfg.receipts.yenPerStock).toLocaleString('en-US') + ' BURNED');
+          break;
+        // ---- INO: 来訪瑞獣 -------------------------------------------------
+        case 'beastManifest':
+          this.hud.toast(f, e.jp + ' ' + e.name);
+          this.fx._ring(f.pos.clone().setY(0.06), e.color, { size: 0.6, growRate: 8, life: 0.4 });
+          break;
+        // THE MASK COMING OFF IS THE LOUDEST THING THIS CHARACTER DOES, and it
+        // happens TO him rather than because of him — so it gets the guard-break
+        // cue and a real screen shake on top of the toast. Both players need to
+        // know the window has opened, immediately.
+        case 'maskOff':
+          this.hud.toast(f, '面無 MASK OFF · ' + e.duration.toFixed(1) + 's');
+          this.sfx.guardBreak?.();
+          this.cam.shake(0.5);
+          break;
+        case 'maskRefit':
+          this.hud.toast(f, '着面 REFITTING');
+          break;
+        case 'maskless':
+          this.hud.toast(f, 'NO MASK — NO TECHNIQUE');
+          this.sfx.noCE();
+          break;
+        case 'exitLock':
+          this.hud.toast(f, '麒麟 CRASH · ' + e.duration.toFixed(2) + 's');
+          break;
+        case 'dragon':
+          this.hud.toast(f, '龍 THE DRAGON');
+          break;
+        // ---- MIWA'S CIRCLE MEETING SOMETHING HEAVY -------------------------
+        // Both outcomes of the mass rule get a line, because the difference
+        // between "she cut the car" and "she could not pay for it" is the
+        // entire matchup and it happens in a third of a second.
+        case 'bigCut':
+          this.hud.toast(f, '簡易領域 · CUT (' + Math.round(e.cost) + ' STAM)');
+          break;
+        case 'cutFailed':
+          this.hud.toast(f, 'TOO HEAVY — IT CAME THROUGH');
           this.sfx.noCE();
           break;
         // ---- inumaki: CURSED SPEECH ---------------------------------------
@@ -1989,6 +2078,14 @@ export class Match {
     // there. Miwa's circle IS torn down, because a zone is a thing she placed
     // and a round boundary un-places it.
     this.garuda.resetRound();
+    // ...and so is every drone still flying and every wreck still standing.
+    // The wrecks in particular MUST come out here rather than being left to
+    // expire: they are real colliders, and a round that ended with three of
+    // them on the field would start the next one inside a maze.
+    this.receipts.resetRound();
+    // ...and the beast comes back with the mask, because neither of them is a
+    // thing he can lose for a match.
+    this.beasts.resetRound();
     this.newshadow.resetRound();
     this.freeze.clear();
     // ...and every ice rect comes back out of the Bounds, so a round that
@@ -2157,6 +2254,8 @@ export class Match {
     this.ocean.clear();
     this.warpfx.clear();
     this.curses.clear();
+    this.receipts.clear();
+    this.beasts.clear();
     this.freeze.clear();
     this.flora.clear();
     this.ice.clear();

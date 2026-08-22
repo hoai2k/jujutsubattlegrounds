@@ -1614,6 +1614,25 @@ export class Sfx {
         this._osc('sine', 110, { to: 104, dur: 0.55, gain: 0.20 });
         this._noise({ dur: 0.10, gain: 0.10, freq: 320, q: 1.6 });
         break;
+      // REGGIE — A TILL. The only cue in this table that is a MACHINE rather
+      // than a voice or an instrument: a short mechanical clack, a paper feed,
+      // and the little two-note chime a register makes when the drawer opens.
+      // He is the one character whose technique is a financial transaction, so
+      // his cue is the noise a shop makes.
+      case 'reggie':
+        this._noise({ dur: 0.05, gain: 0.24, freq: 3400, q: 3.0 });                 // the key
+        setTimeout(() => this._noise({ dur: 0.16, gain: 0.13, freq: 5200, slideTo: 3600, q: 0.8 }), 70);  // the paper
+        setTimeout(() => two(1047, 1319, 0.08, { type: 'sine', dur: 0.14, gain: 0.15 }), 200);            // the chime
+        break;
+      // INO — TWO NOTES AND A CLOTH. A quiet, plain, slightly-too-earnest
+      // rising fourth on a soft triangle — the least theatrical melodic cue in
+      // the set, because he is the least theatrical person in the cast — and
+      // then the low fabric rustle of the mask going back down over his face,
+      // which is the sound that actually ends the taunt.
+      case 'ino':
+        two(392, 523, 0.15, { type: 'triangle', dur: 0.18, gain: 0.14 });
+        setTimeout(() => this._noise({ dur: 0.22, gain: 0.09, freq: 900, slideTo: 420, q: 0.7 }), 320);
+        break;
       // TAKABA — A LITERAL RIMSHOT. The only cue in this table that is a
       // PERCUSSION FIGURE rather than a melodic one: two snare hits and a
       // cymbal, ba-dum-tss, which is the sound the entire character is built

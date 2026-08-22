@@ -108,6 +108,62 @@ export class CPU {
     this._tauntGrace -= dt;
     this._tauntRoll -= dt;
     const dist = flatDist(me.pos, foe.pos);
+    // ---- HOLDING A RADIAL OPEN, AND *** IT HAS TO LIVE ABOVE `busy` *** ---
+    // Every per-character block in this file is gated on `!me.busy`, and
+    // `Fighter.busy` is "not idle/walk/run/dash/jump/fall" — so the moment a
+    // radial OPENS the fighter is busy and the block that was holding the
+    // button down becomes unreachable. The hold ends on the next frame and the
+    // ring confirms as a TAP, which commits whatever was already bound.
+    //
+    // Measured on Reggie before this moved: one wheel confirm in a
+    // forty-five-second match, and every one of his fifteen materialisations
+    // was the default object. The bot had a whole price list and bought the
+    // same tin of gas fifteen times.
+    //
+    // So the driver runs HERE, before anything can gate it, for both radials.
+    // It is one block rather than two because the shape is identical: hold
+    // `copy`, steer the stick to the sector's angle, release after 16 frames.
+    // `_wheelPick` reads the stick as an angle and snaps to the nearest
+    // AVAILABLE sector, so an unaffordable target is simply rolled past rather
+    // than mis-committed.
+    for (const [key, order] of [['_objSwap', me.cfg.objects?.order], ['_beastSwap', me.cfg.beasts?.order]]) {
+      const sw = this[key];
+      if (!sw || !order) continue;
+      sw.t++;
+      const ang = (sw.idx / order.length) * Math.PI * 2;
+      f.move.x = Math.sin(ang);
+      f.move.z = -Math.cos(ang);
+      f.copy = sw.t < 18;
+      // it also gives up if the radial never opened — a refusal (no stock, no
+      // cursed energy, mask off) must not leave the bot mashing B forever
+      if (sw.t >= 18 || (sw.t > 6 && me.state !== 'wheel' && me.state !== 'beastWheel')) {
+        this[key] = null;
+      }
+      this._edges(f);
+      return f;
+    }
+
+    // ---- REGGIE'S GAS: THE MECHANICAL HALF -------------------------------
+    // A bot standing in the cloud genuinely loses track of the opponent
+    // rather than being handed a screen effect it cannot see. It keeps the
+    // LAST POSITION it had and plays against that until it steps out, which is
+    // exactly what a human in a smoke screen does — and it is why the canister
+    // is a mix-up tool rather than a damage tool.
+    //
+    // A WRECK BETWEEN THEM DOES THE SAME THING, for the same reason: a vending
+    // machine on its side is real cover, and a bot that could see straight
+    // through it would make the wreck decorative.
+    const blinded = (me.gasBlind ?? 0) > 0.3 && (me.gasBlindT ?? 0) > 0;
+    const covered = this.match.receipts?.blocksSight?.(me.pos, foe.pos) ?? false;
+    if (blinded || covered) {
+      // remember where they were, and go on believing it for a moment
+      this._lastSeen = this._lastSeen ?? { x: foe.pos.x, z: foe.pos.z, t: 0 };
+      this._lastSeen.t += dt;
+      // after a second of not seeing them the bot stops committing and holds
+      if (this._lastSeen.t > 1.0 && !me.busy) { this.plan = 'strafe'; this.planT = 0.4; }
+    } else {
+      this._lastSeen = { x: foe.pos.x, z: foe.pos.z, t: 0 };
+    }
     const dState = this.match.domains.state;
     // cleared every frame: an override left set would pin the soft lock to a
     // summon that has since died
@@ -980,6 +1036,324 @@ export class CPU {
       }
       this._edges(f);
       return f;
+    }
+
+    // ---- REGGIE: THE ECONOMY ------------------------------------------------
+    // The brief's three rules, and the middle one is the whole profile:
+    //   1. MANAGE THE STOCK. Never spend down to nothing, because a broke
+    //      Reggie has a punch string and that is all.
+    //   2. *** SAVE FOR THE CAR WHEN THE OPPONENT IS COMMITTED. *** Not on a
+    //      timer and not when merely far away — the bot reads whether they are
+    //      in a state they cannot cancel, and 46 frames of car wind-up needs
+    //      one of those to exist.
+    //   3. THE ROD CLOSES ON ZONERS. Against anybody holding space it is the
+    //      answer, and the bot uses it as one.
+    //
+    // The whole thing is expressed as a BUDGET, in the same shape Inumaki's
+    // throat budget is (`_throatBudget` at the top of this file), and for the
+    // same reason: a bot that spends whatever it can afford right now plays
+    // one button, and a bot that asks "if I buy this, can I still act" plays
+    // the character.
+    if (me.cfg.receipts && me.cfg.objects && !me.busy) {
+      const O = me.cfg.objects.defs;
+      // ---- THE BAR GOES FIRST, AND IT HAS TO BE HANDLED HERE -------------
+      // *** EVERY BRANCH IN THIS BLOCK ENDS IN `return f`, WHICH MEANS THE
+      // SHARED ULTIMATE PRESS AT THE BOTTOM OF `frame()` IS UNREACHABLE FOR
+      // HIM. *** Measured: zero ultimate presses and zero heavy presses across
+      // a full forty-five-second match. A profile that returns early owns
+      // everything it skipped.
+      //
+      // And he wants his own rule anyway, which is the good reason rather than
+      // the forced one: CLEARING THE REGISTER scales with the stock it burns
+      // (22 + stock x 0.42), so pressing it at 20 stock is a wasted bar and
+      // pressing it at 90 is a round-ender. The bot waits for the stock the
+      // same way a player should.
+      // *** THE THRESHOLD DECAYS. *** A flat 62 was measured unreachable: with
+      // the spend rule fixed above he cycles between roughly 4 and 52, so a bot
+      // holding out for 62 holds out forever — zero ultimates across three full
+      // matches. The bar is a resource too, and one that is never spent is
+      // worth nothing. So he wants 62, and every second he sits on a ready bar
+      // he wants four less, down to a floor of 26 — which is still a bigger
+      // register than a moped and change. `_regT` is the ready-bar clock.
+      this._regT = me.ultReady ? (this._regT ?? 0) + dt : 0;
+      const wantStock = Math.max(26, 62 - this._regT * 4);
+      if (me.ultReady && !me.busy && (me.stock ?? 0) >= wantStock && dist < 12
+        && !this.match.domains.state) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+      const stock = me.stock ?? 0;
+      const wet = (me.stockWet ?? 0) > 0;
+      const cheapest = Math.min(...Object.values(O).map(o => o.cost));
+
+      // SOAKED. Nothing he owns works, so the bot does what a human does: it
+      // backs off and waits it out rather than walking into a punish holding
+      // a technique it cannot use. This is the only state in this profile that
+      // makes it retreat.
+      // *** AND IT IS `strafe`, NOT `retreat`, NOW THAT THE PUNCH STRING
+      // ACTUALLY REACHES. *** With the 1.38 m reach it did not matter what he
+      // did while soaked, because he had nothing either way; a full retreat
+      // was simply the least bad option. With the reach fixed his string is a
+      // real threat — 19 hits from 20 attempts for 52.9 damage against Yuji's
+      // 14 for 35.3, measured point blank — so a soaked Reggie is a normal
+      // fighter for three seconds rather than a man with no kit. He gives
+      // ground and keeps his hands up instead of running for the corner.
+      if (wet) {
+        this.plan = 'strafe';
+        this.planT = Math.max(this.planT, Math.min(0.8, me.stockWet));
+      }
+
+      // ---- WHAT IT WANTS, AND THE ORDER IS THE WHOLE PROFILE -----------
+      // *** THE FIRST VERSION GATED EVERY OBJECT ON DISTANCE AND THE BOT
+      // BOUGHT FIFTEEN TINS OF GAS. *** Measured: `objUsed: { canister: 15 }`
+      // across a full match, because the generic approach logic keeps him
+      // inside 3.2 m almost permanently and the gas branch was the only one
+      // whose range test passed there. A price list nobody reads past the first
+      // line is not a price list.
+      //
+      // The order is now by VALUE FIRST and range second, which is how a human
+      // plays a resource character: you decide what you are saving for, and
+      // then you make the range happen. Range still matters — it decides
+      // whether he PRESSES — but it no longer decides what he is holding.
+      //
+      // `_lastObject` is the anti-repeat. Without it the same branch wins every
+      // frame and the character has one button again; with it he genuinely
+      // rotates, which also happens to be his answer to Mahoraga.
+      const committed = ['knockdown', 'getup', 'ct', 'launched', 'stunned'].includes(foe.state);
+      const zoning = dist > 8 && (foe.state === 'ct' || foe.state === 'charge' || foe.state === 'outputCharge');
+      const spare = k => stock >= O[k].cost + cheapest && O[k].key !== this._lastObject;
+      if (!wet) {
+        // *** THE LIST IS NOW A BUDGET, NOT A LADDER OF SPECIAL CASES. ***
+        // Three rewrites of this block all failed the same way: whatever the
+        // bottom branch was, the bot's own approach logic parks him inside
+        // 3.4 m and the bottom branch wins every frame. First it was fifteen
+        // tins of gas because the gas was the only branch whose RANGE passed;
+        // then, after the value-first rewrite, it was fifteen tins of gas
+        // again because the gas was the only branch whose AFFORDABILITY passed
+        // at the stock he actually runs at.
+        //
+        // So the general case is now one line — SPEND UP, buy the most
+        // expensive thing he can afford that is not the thing he just threw —
+        // and the two genuinely situational objects sit above it as overrides
+        // rather than below it as leftovers. That is also how the character
+        // reads: the gas is not a cheap attack, it is the button you press
+        // when somebody is on top of you, and the rod is not a cheap attack
+        // either, it is the answer to somebody who will not come to you.
+        const pressed = dist < 3.4 && (foe.state === 'ct' || foe.state === 'punch' || foe.state === 'heavy');
+        if (pressed && stock >= O.canister.cost) this._wantObject = 'canister';
+        else if ((zoning || dist > 11) && spare('rod')) this._wantObject = 'rod';
+        // the drone is worth having out at all times and does not compete with
+        // the throw list, so it jumps the queue when he has none
+        else if (spare('drone') && !this.match.receipts?.dronesFor(me).length) this._wantObject = 'drone';
+        else {
+          // SPEND UP. The car and the vending machine still want a commitment
+          // to land in, so they only enter the pool when they have one.
+          const pool = Object.values(O).filter(o => {
+            if (o.key === this._lastObject || stock < o.cost) return false;
+            if (o.key === 'car') return committed && dist < 14;
+            if (o.key === 'vending') return committed && dist < 9;
+            if (o.key === 'canister') return dist < 3.4;
+            return true;
+          });
+          pool.sort((a, b) => b.cost - a.cost);
+          this._wantObject = pool.length ? pool[0].key : null;
+        }
+      }
+
+      // BIND IT. The wheel is a hold-and-release, so the bot drives it the
+      // same way the Inumaki command bot drives its ring: hold B for a few
+      // frames, steer with the stick, release. `_objSwap` carries the plan
+      // across frames.
+      // the `specialCD` gate came off: the wheel refuses on its own when it is on
+      // cooldown, and the driver above already gives up six frames after a
+      // refusal. Gating the PLAN on the cooldown meant a swap the bot decided
+      // on during those 2.4 s was simply forgotten instead of made late.
+      if (this._wantObject && this._wantObject !== me.objectKey) {
+        this._objSwap = this._objSwap ?? {
+          idx: me.cfg.objects.order.indexOf(this._wantObject), t: 0
+        };
+      }
+      // 1. SPEND. RT for the bound object when it is affordable and the range
+      //    is right; RB for chip the rest of the time, but ONLY while the
+      //    budget survives it — the bot will not spend its last four points on
+      //    a traffic cone when it is two hits from a moped.
+      // *** `_lastObject` IS SET AT THE PRESS, NOT AT THE BIND. *** The first
+      // version stamped it as soon as the bound object matched what the bot
+      // wanted, which is one frame BEFORE the dice roll that actually spends
+      // it — so `spare()` immediately disqualified the thing he was holding,
+      // `_wantObject` moved on, the equality gate below closed, and a fresh
+      // `_objSwap` opened. Measured over a full match: 908 frames where the
+      // bound object was the wanted one and TWO ct2 presses in total, with the
+      // stock pinned at its 100 cap from the fourteenth second onward. The bot
+      // shopped for the whole round and never bought anything.
+      //
+      // The equality gate went with it. A human who has a car bound, can
+      // afford the car and is in range throws the car; he does not re-open the
+      // wheel because his shopping list has moved on. The list decides what he
+      // BINDS. What is bound decides what he THROWS.
+      // SAVING FOR THE REGISTER. The ultimate burns the whole stock and scales
+      // with it, so a Reggie who spends every point the moment he has it can
+      // never afford a good one. Measured after the `_lastObject` fix above:
+      // fifteen materialisations, an average stock of 20 and ZERO ultimates in
+      // a full match — he was solvent enough to keep throwing and never once
+      // solvent enough to cash out. So the moment the bar is ready he stops
+      // buying anything he does not need, and banks toward the threshold.
+      // He still throws junk (which costs almost nothing) and still answers a
+      // point-blank rush with gas, because standing still to save is how you
+      // lose the round you were saving for.
+      // *** AND HE BANKS CURSED ENERGY THE SAME WAY, WHICH IS THE HALF I DID
+      // NOT SEE COMING. *** Reggie has no domain, so `ultReady` is plain
+      // `charged` — a FULL bar, 100/100. Every object he materialises costs
+      // between 3 and 10 CE, and with the spend rule fixed he materialises
+      // seventeen times a match, so the bar never closed the last fifteen
+      // points and `ultReady` was false for the entire round. Three matches,
+      // zero ultimates, and the reason was never the stock rule I had been
+      // tuning. Clearing the Register competes with his own kit for the same
+      // resource, which is a real tension in the character and not a bug — but
+      // a bot that never notices it is just a bot that has no ultimate.
+      //
+      // So above 82% he stops buying the expensive half of the price list and
+      // lets the bar close. Junk and gas still go out: they cost 3-4 CE, which
+      // is inside the regen, and standing still to save is how you lose.
+      const ceFrac = me.res.maxCE > 0 ? me.res.curCE / me.res.maxCE : 0;
+      // *** AND THE BANK NEEDS A CEILING, WHICH IS THE THIRD SWING OF THIS
+      // DIAL. *** At 0.82 with no time limit he banked the entire round: 66
+      // punches, TWO ultimates and ZERO materialisations in forty-five
+      // seconds — a receipt character who never materialised anything, which is
+      // a worse failure than the one it fixed. The threshold is now 0.88, and
+      // `_bankT` caps the hold at four seconds; if the bar has not closed by
+      // then something is draining it faster than he can save and he goes back
+      // to fighting. The clock resets whenever the bar drops out of the band,
+      // which is what firing the ultimate does.
+      const ceBank = !me.ultReady && ceFrac > 0.90;
+      this._bankT = ceBank ? (this._bankT ?? 0) + dt : 0;
+      const banking = (me.ultReady && stock < wantStock) || (ceBank && this._bankT < 3);
+      const bound = O[me.objectKey];
+      if (bound && !wet && stock >= bound.cost && !(banking && bound.cost > 12)) {
+        const want = bound.key === 'rod' ? dist < bound.range
+          : bound.key === 'vending' ? dist < bound.aimRange
+            : bound.key === 'ladder' ? dist < bound.reach
+              : dist < (bound.travel ?? bound.range ?? 10);
+        if (want && Math.random() < 0.55) {
+          this._lastObject = bound.key;
+          f.ct2 = true; this._edges(f); return f;
+        }
+      }
+      // and the junk throw is gated by the bank too. It costs 3 CE, which is
+      // inside the regen on its own — but he throws it eighteen times a match
+      // and eighteen times three is the whole difference between a bar that
+      // closes and one that stalls four points short forever. Measured with
+      // only the objects banked: `noCE: 6`, and still zero ultimates.
+      const ct1Cost = me.cfg.ct1.stock ?? 0;
+      if (!wet && !banking && stock >= ct1Cost + cheapest * 0.5 && dist > 3 && dist < me.cfg.ct1.range
+        && this.punchT <= 0 && Math.random() < 0.35) {
+        f.ct1 = true; this._edges(f); return f;
+      }
+    }
+
+    // ---- INO: THE SITUATIONAL SWAP ------------------------------------------
+    // The brief's rule, verbatim: "swaps masks situationally — heavy to punish,
+    // swift to escape, ranged against melee-only characters." All three are
+    // implemented and the third one is the interesting one, because it is a
+    // read about the OPPONENT'S CONFIG rather than about the current moment.
+    //
+    // *** THE BUDGET IS THE PROFILE. *** A swap is 14 CE and his cheapest
+    // technique is 16, so a bot that swaps whenever it feels like it never
+    // throws anything. `_beastBudget` below is the same calculation the
+    // Inumaki throat bot makes: only swap if, after swapping, the new beast's
+    // cheaper technique is still affordable. That single line produces the
+    // intended rhythm — commit to a beast, use it, swap when the situation
+    // genuinely changes — without a timer anywhere.
+    if (me.cfg.beasts && !me.busy) {
+      const B = me.cfg.beasts.defs;
+      // THE BAR GOES FIRST, for the same structural reason Reggie's does above
+      // — every branch below returns, so nothing after this block is reachable
+      // for him. His own rule is simpler than Reggie's because the dragon does
+      // not scale: press it in range, with the mask on, and not into a domain.
+      if (me.ultReady && !me.busy && dist < 12 && (me.maskOff ?? 0) <= 0
+        && !this.match.domains.state) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+      const maskOff = (me.maskOff ?? 0) > 0 || (me.maskRefit ?? 0) > 0;
+
+      // MASK OFF. He has nothing. The bot plays it exactly as a human must:
+      // it runs, it blocks, and it does not pretend it has a kit.
+      if (maskOff) {
+        this.plan = 'retreat';
+        this.planT = Math.max(this.planT, me.maskOff + me.maskRefit);
+        if (dist < 3.0) f.block = true;
+        this._edges(f);
+        return f;
+      }
+
+      // WHICH BEAST THE SITUATION WANTS.
+      //   RANGED against a melee-only opponent — the brief's third rule. A
+      //     character is "melee-only" if neither of their techniques reaches
+      //     past 6 m, which is a fact about their config and is therefore a
+      //     read the bot can actually make.
+      //   SWIFT to escape — low health, or being pressured at close range.
+      //   HEAVY to punish — they are in a state they cannot cancel.
+      const foeReach = Math.max(
+        foe.cfg.ct1?.range ?? foe.cfg.ct1?.reach ?? 0,
+        foe.cfg.ct2?.range ?? foe.cfg.ct2?.reach ?? 0
+      );
+      const meleeOnly = foeReach < 6;
+      const committed = ['knockdown', 'getup', 'ct', 'launched', 'stunned'].includes(foe.state);
+      const hurt = me.res.hp < me.maxHP * 0.35;
+      let want = me.stance;
+      if (committed && dist < 4.0) want = 'kirin';
+      else if (hurt || (dist < 2.6 && !committed)) want = 'reiki';
+      else if (meleeOnly && dist > 5) want = 'kaichi';
+      else if (dist > 9) want = 'kaichi';
+
+      // KIRIN IS A COUNTDOWN, not a home. It drains 16 CE/s and 18 stamina/s
+      // on top of everything else, so the bot leaves it the moment the punish
+      // window it entered for has closed — which is the same shape the Panda
+      // bot's Gorilla handling has and is the honest way to play a stance that
+      // is actively costing you.
+      if (me.stance === 'kirin' && !committed && me.res.curCE < 40) want = 'kaichi';
+
+      // THE BUDGET. After the swap, can he still afford the cheaper of the new
+      // beast's two techniques? If not, the swap is not worth making.
+      const cost = me.cfg.special.cost;
+      const cheapestOf = k => Math.min(B[k].ct1.cost, B[k].ct2.cost);
+      const affordable2 = me.res.curCE >= cost + cheapestOf(want);
+      if (want !== me.stance && affordable2 && me.specialCD <= 0 && dist > 2.2) {
+        this._beastSwap = this._beastSwap ?? {
+          idx: me.cfg.beasts.order.indexOf(want), t: 0
+        };
+      }
+      // AND THEN PLAY THE BEAST HE IS IN. Each one wants a different range and
+      // a different button, which is the whole point of him having three.
+      const st = B[me.stance];
+      if (me.stance === 'kaichi') {
+        // the unmissable horn into any commitment; the ordinary one otherwise
+        if (committed && me.res.curCE >= st.ct2.cost && dist < st.ct2.range) {
+          f.ct2 = true; this._edges(f); return f;
+        }
+        if (dist > 5 && dist < st.ct1.range && me.res.curCE >= st.ct1.cost && Math.random() < 0.4) {
+          f.ct1 = true; this._edges(f); return f;
+        }
+      } else if (me.stance === 'reiki') {
+        // the shell when they are about to land something, the glide to close
+        if (dist < 2.4 && foe.state === 'attack' && me.res.curCE >= st.ct2.cost) {
+          f.ct2 = true; this._edges(f); return f;
+        }
+        if (dist > 5 && dist < st.ct1.travel && me.res.curCE >= st.ct1.cost && Math.random() < 0.5) {
+          f.ct1 = true; this._edges(f); return f;
+        }
+      } else if (me.stance === 'kirin') {
+        // he does not retreat in this stance, he trades
+        if (dist < st.ct2.reach + 0.6 && me.res.curCE >= st.ct2.cost && Math.random() < 0.5) {
+          f.ct2 = true; this._edges(f); return f;
+        }
+        if (dist > 3 && dist < st.ct1.travel && me.res.curCE >= st.ct1.cost && Math.random() < 0.45) {
+          f.ct1 = true; this._edges(f); return f;
+        }
+      }
     }
 
     // ---- RYU: THE ARTILLERY -------------------------------------------------

@@ -150,6 +150,7 @@ export class HUD {
         <div class="ts-score"></div>
       </div>
       <div class="crawl"></div>
+      <div class="gascloud"></div>
       <div class="blackout"></div>
       <div class="flash"></div>
       <div class="hint-bar">START/TAB: controls &nbsp; F3: debug &nbsp; F4: quality</div>`;
@@ -275,6 +276,17 @@ export class HUD {
         <div class="core-row">
           <span class="core-key">呪骸核</span>
           <div class="core-segs"></div>
+        </div>
+        <div class="rcp-row">
+          <span class="rcp-key">控</span>
+          <div class="bar bar-rcp"><div class="fill"></div><div class="rcp-ticks"></div></div>
+          <span class="rcp-yen"></span>
+          <span class="rcp-obj"></span>
+        </div>
+        <div class="msk-row">
+          <span class="msk-key">面</span>
+          <div class="msk-beasts"></div>
+          <span class="msk-state"></span>
         </div>
         <div class="thr-row">
           <span class="thr-key">喉</span>
@@ -448,6 +460,41 @@ export class HUD {
       // player has to be able to see how close it is without arithmetic. The
       // last tick is drawn heavier (`crit`) because it is the only one that
       // removes his kit rather than weakening it.
+      // ---- REGGIE: THE RECEIPT STOCK ---------------------------------------
+      // A bar, a RUNNING YEN TOTAL, and the name of whatever is bound to RT.
+      // The yen counter is the brief's ask and it earns its place: the stock is
+      // the only resource in the game a player has to do ARITHMETIC with —
+      // "can I afford the car yet" — and a percentage bar cannot answer that
+      // while a number can.
+      //
+      // THE TICKS ARE THE PRICE LIST. One mark per object, at its cost, so the
+      // bar itself tells you what you can buy without a menu. It is the same
+      // argument the throat's SILENCED tick makes and it is the reason this row
+      // is built here rather than being a plain bar.
+      const rcpRow = plate.querySelector('.rcp-row');
+      rcpRow.style.display = f.cfg.receipts ? '' : 'none';
+      if (f.cfg.receipts && f.cfg.objects) {
+        const max = f.cfg.receipts.max;
+        rcpRow.querySelector('.rcp-ticks').innerHTML = f.cfg.objects.order
+          .map(k => f.cfg.objects.defs[k])
+          .map(o => `<i data-k="${o.key}" style="left:${(o.cost / max * 100).toFixed(1)}%"></i>`)
+          .join('');
+      }
+      // ---- INO: THE MASK AND THE BEAST -------------------------------------
+      // Three pips, one per wearable beast, in wheel order — so the row is also
+      // the muscle-memory map of the radial. The worn one lights in its beast's
+      // own colour, which is the same colour the mask's eye slot is glowing
+      // across the arena, so the HUD and the model agree without either
+      // knowing about the other.
+      const mskRow = plate.querySelector('.msk-row');
+      mskRow.style.display = f.cfg.beasts ? '' : 'none';
+      if (f.cfg.beasts) {
+        mskRow.querySelector('.msk-beasts').innerHTML = f.cfg.beasts.order
+          .map(k => {
+            const d = f.cfg.beasts.defs[k].spirit;
+            return `<i data-k="${k}" style="--bc:${'#' + d.color.toString(16).padStart(6, '0')}">${f.cfg.beasts.defs[k].short}</i>`;
+          }).join('');
+      }
       const thrRow = plate.querySelector('.thr-row');
       thrRow.style.display = f.cfg.throat ? '' : 'none';
       if (f.cfg.throat) {
@@ -957,6 +1004,56 @@ export class HUD {
         row.classList.toggle('full', f.blood >= f.cfg.blood.max - 0.5);
       }
       // ---- CHARGE (Kashimo) ------------------------------------------------
+      // ---- THE RECEIPT STOCK, PER FRAME -----------------------------------
+      if (f.cfg.receipts) {
+        const row = plate.querySelector('.rcp-row');
+        const rc = f.cfg.receipts;
+        const pct = Math.max(0, Math.min(100, (f.stock ?? 0) / rc.max * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        // THE MONEY COUNTER, and it TICKS. `stockFlash` is set by every earn
+        // (combat/receipts.js) and decays over 0.9 s, so the number visibly
+        // jumps and glows on every landed hit — which is the brief's "show the
+        // earning explicitly", and is the only place in this HUD where a
+        // number is animated rather than a bar.
+        const yen = Math.round((f.stock ?? 0) * rc.yenPerStock);
+        row.querySelector('.rcp-yen').textContent = '¥' + yen.toLocaleString('en-US');
+        row.classList.toggle('earning', (f.stockFlash ?? 0) > 0);
+        // WET is the crisis state and it gets the whole row, exactly as
+        // SILENCED does on the throat: he keeps the number and cannot spend a
+        // point of it, and that difference has to be legible instantly.
+        row.classList.toggle('wet', (f.stockWet ?? 0) > 0);
+        row.classList.toggle('locked', (f.stockLock ?? 0) > 0);
+        // and each price tick lights when he can afford it
+        for (const t of row.querySelectorAll('.rcp-ticks i')) {
+          const o = f.cfg.objects?.defs?.[t.dataset.k];
+          t.classList.toggle('afford', !!o && (f.stock ?? 0) >= o.cost && (f.stockWet ?? 0) <= 0);
+          t.classList.toggle('bound', t.dataset.k === f.objectKey);
+        }
+        const bound = f.cfg.objects?.defs?.[f.objectKey];
+        row.querySelector('.rcp-obj').textContent =
+          (f.stockWet ?? 0) > 0 ? '濡 SOAKED'
+            : (f.stockLock ?? 0) > 0 ? '空 BROKE'
+              : (bound?.short ?? '');
+      }
+      // ---- THE MASK AND THE BEAST, PER FRAME ------------------------------
+      if (f.cfg.beasts) {
+        const row = plate.querySelector('.msk-row');
+        const off = (f.maskOff ?? 0) > 0;
+        const refit = (f.maskRefit ?? 0) > 0;
+        row.classList.toggle('off', off);
+        row.classList.toggle('refit', refit && !off);
+        // The state label is the whole counterplay readout. MASK OFF is the
+        // hardest window in the game and both players need to see it.
+        row.querySelector('.msk-state').textContent = off
+          ? '面無 MASK OFF ' + (f.maskOff).toFixed(1)
+          : refit ? '着面 REFITTING'
+            : (f.dragonT > 0 ? '龍 DRAGON ' + f.dragonT.toFixed(1)
+              : (f.cfg.beasts.defs[f.stance]?.jp ?? ''));
+        for (const p of row.querySelectorAll('.msk-beasts i')) {
+          p.classList.toggle('on', !off && !refit && p.dataset.k === f.stance);
+          p.classList.toggle('dead', off);
+        }
+      }
       // ---- THE THROAT, PER FRAME ------------------------------------------
       if (f.cfg.throat) {
         const row = plate.querySelector('.thr-row');
@@ -1467,6 +1564,41 @@ export class HUD {
       const k = this.swarms.obscure;
       c.classList.toggle('on', k > 0.02);
       c.style.opacity = k.toFixed(3);
+    }
+
+    // ---- REGGIE'S GAS ------------------------------------------------------
+    // The same CSS-overlay trick the crawl above uses, and for the same
+    // reason: it costs nothing and it cannot become an unplayable brownout.
+    //
+    // *** IT IS THE LOCAL SEAT'S BLINDNESS, NOT A GLOBAL ONE. *** The crawl is
+    // global because Kurourushi's swarm genuinely fills the arena; a gas cloud
+    // is a place, and only the fighter standing in it cannot see. On a shared
+    // screen that is a real limitation — seat 1 sees seat 0's fog — so the
+    // overlay is deliberately weak (capped at 0.55) and the cloud does most of
+    // its work as actual PARTICLES in the world, which obscure honestly for
+    // everybody from wherever they are standing.
+    //
+    // The MECHANICAL half is not here at all: `gasBlind` is read by the CPU's
+    // own sight test in combat/ai.js, so a bot in the cloud genuinely loses
+    // track of you rather than being handed a screen effect it cannot see.
+    {
+      const g = this.q('.gascloud');
+      if (g) {
+        const f0 = this.fighters?.[0];
+        let k = 0;
+        if (f0 && (f0.gasBlindT ?? 0) > 0) k = Math.min(0.55, f0.gasBlind ?? 0);
+        if (f0) {
+          f0.gasBlindT = Math.max(0, (f0.gasBlindT ?? 0) - dt);
+          if (f0.gasBlindT <= 0) f0.gasBlind = 0;
+        }
+        const f1 = this.fighters?.[1];
+        if (f1) {
+          f1.gasBlindT = Math.max(0, (f1.gasBlindT ?? 0) - dt);
+          if (f1.gasBlindT <= 0) f1.gasBlind = 0;
+        }
+        g.classList.toggle('on', k > 0.02);
+        g.style.opacity = k.toFixed(3);
+      }
     }
 
     this._duel(duel);

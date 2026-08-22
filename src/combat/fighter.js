@@ -64,6 +64,14 @@ import {
 // same roller Yuta's domain uses (see the header of combat/comedy.js); his own
 // copy in domains.js is untouched.
 import { ensureComedy, tickComedy, gainComedy, tierOf as comedyTierOf, rollBit } from './comedy.js';
+// REGGIE — the receipt stock. Same import discipline as every second resource
+// above: each helper returns the neutral value for a fighter whose config does
+// not declare `cfg.receipts`, which is the whole rest of the roster, so every
+// call site below is unconditional and there is no branch to forget.
+import {
+  initReceipts, resetReceipts, tickReceipts, canAfford, spendStock,
+  earn as earnStock, soak as soakStock, stockFrac, affordableObjects, isWater
+} from './receipts.js';
 
 const GRAVITY = 26;
 
@@ -212,6 +220,21 @@ export class Fighter {
     this.cores = buildCores(config);
     this.coreIndex = 0;
     this.stance = config.cores ? config.cores.order[0] : null;
+    // REGGIE — the receipt stock, and the object currently bound to RT. The
+    // binding lives on the fighter rather than in a system because it is a
+    // pure UI selection with no world state behind it, exactly like the
+    // command Inumaki has bound to a slot.
+    initReceipts(this);
+    this.objectKey = config.objects ? config.objects.default : null;
+    // INO — the worn beast IS the stance, so the same `stance` field Panda's
+    // cores use carries it. `maskOff` / `maskRefit` are the canon weakness:
+    // seconds of having no technique at all, and seconds of pulling it back
+    // down. Both are zero for everybody else and every consumer is written as
+    // `if (this.cfg.mask)`.
+    if (config.beasts) this.stance = config.beasts.default;
+    this.maskOff = 0;
+    this.maskRefit = 0;
+    this._pendingBeast = null;
     this.swapWheel = null;       // the core radial while B is held
     this.allCoresT = 0;          // seconds of THREE CORES, ONE BODY left
     this.allCoresMult = 1;       // its scaling, fixed at cast time
@@ -232,6 +255,10 @@ export class Fighter {
 
     this.iFrames = 0;
     this.armorFrames = 0;
+    this.shell = null;          // Reiki's water shell — see `incomingMult`
+    this.dragonT = 0;           // Ino's ultimate window
+    this.exitLockT = 0;         // Kirin's "he can't move afterwards"
+
     this.juggle = 0;
     this.otgUsed = false;
     this.techLock = false;       // mistimed a tech attempt: no rise this knockdown
@@ -692,6 +719,10 @@ export class Fighter {
     this.punchQueued = false;
     this.iFrames = 0;
     this.armorFrames = 0;
+    this.shell = null;          // Reiki's water shell — see `incomingMult`
+    this.dragonT = 0;           // Ino's ultimate window
+    this.exitLockT = 0;         // Kirin's "he can't move afterwards"
+
     this.juggle = 0;
     this.otgUsed = false;
     this.techLock = false;
@@ -839,6 +870,25 @@ export class Fighter {
     }
     this.swapWheel = null;
     this._pendingCore = null;
+    // REGGIE — the stock is ROUND-SCOPED, like every other second resource
+    // here. He starts each round holding the same tags he started the first
+    // one with; carrying an emptied stock into round two would mean losing one
+    // round loses the match, which nothing else in this game does.
+    resetReceipts(this);
+    this.objectKey = this.cfg.objects ? this.cfg.objects.default : this.objectKey;
+    this.model.setStock?.(1);
+    // INO — back to his default beast with the mask on. Round-scoped like
+    // every other resource here: a round that ended with his face uncovered
+    // does not start the next one that way. `BeastSystem.resetRound` puts the
+    // creature back; this is the fighter half.
+    if (this.cfg.beasts) {
+      this.stance = this.cfg.beasts.default;
+      this.maskOff = 0;
+      this.maskRefit = 0;
+      this._pendingBeast = null;
+      this.model.setMask?.(1);
+      this.model.setStance?.(this.stance);
+    }
     this.allCoresT = 0;
     this.allCoresMult = 1;
     this.model.setAllCores?.(false);
@@ -944,7 +994,24 @@ export class Fighter {
   // `stance?.x ?? cfg.x`, so the entire existing roster is untouched.
   get stanceDef() {
     const st = this.cfg.stances;
-    return st ? (st[this.stance] || st[this.cfg.cores.order[0]]) : null;
+    if (!st) return null;
+    // ---- INO: A STANCE CHARACTER WITH NO CORES --------------------------
+    // This used to read `this.cfg.cores.order[0]` for its fallback, which was
+    // safe for as long as Panda was the only character with `stances` — and
+    // would have thrown outright the first time Ino's stance key went stale,
+    // because he has beasts and no health pools. The fallback now asks
+    // whichever system OWNS the stance list for its default.
+    //
+    // *** AND IT IS REFUSED ENTIRELY WHILE THE MASK IS OFF. *** That single
+    // line is the whole of "his technique is negated": `stats`, `_def` and
+    // `_punchSet` all route through here, so with no stance he falls back to
+    // the config's base row — base movement, base damage, base punches, and
+    // `cfg.ct1`/`cfg.ct2` which `startCT` then refuses (see the mask gate
+    // there). One return, and the entire kit is gone.
+    if (this.maskOff > 0) return null;
+    if (st[this.stance]) return st[this.stance];
+    const fallback = this.cfg.cores?.order?.[0] ?? this.cfg.beasts?.default;
+    return fallback ? st[fallback] : null;
   }
   // Movement and damage stats, stance-merged. `_locomote` and the jump branch
   // read THIS rather than `cfg.stats`, which is what makes Gorilla genuinely
@@ -1058,6 +1125,12 @@ export class Fighter {
   }
   get speedMult() {
     let m = 1;
+    // 麒麟 KIRIN'S EXIT LOCK. Canon: "after he finishes using Kirin, he can't
+    // move for a certain amount of time." Implemented as a HARD zero rather
+    // than as a slow, because canon says cannot rather than slowly — and
+    // because a 75% slow would read as a debuff where this has to read as a
+    // consequence. He keeps his guard and his buttons the whole time.
+    if (this.exitLockT > 0) return 0;
     if (this.buffs.overtime > 0) m *= this.cfg.ct2.speedMult || 1;
     if (this.buffs.voidDebuff > 0) m *= 0.72;
     if (this.heldSword) m *= this.cfg.domain?.swords?.carrySpeedMult ?? 1.2;
@@ -1122,6 +1195,12 @@ export class Fighter {
     // debuffs on one multiplier would have been the degenerate case, and this
     // is the line that prevents it.
     if (this.soulSplit && this.soulSplit.t > 0) m *= this.soulSplit.mult;
+    // 霊亀 REIKI'S SHELL. The turtle brings the cursed water up around him: for
+    // 1.6 s incoming damage is cut to 55% on top of heavy armour. It sits on
+    // the same multiplier `soulSplit` does rather than on `dmgMult`, because it
+    // makes HIM harder to hurt rather than making THEM weaker — the same
+    // distinction that note above is about.
+    if (this.shell && this.shell.t > 0) m *= this.shell.mult;
     if (this.burn.stacks >= BURN.maxStacks) m *= BURN.vulnMult;
     // ---- FROSTBOUND — THE POINT OF THE STATE ------------------------------
     // 1.40x while the shell holds, and this is where Uraume's freeze differs
@@ -1508,10 +1587,59 @@ export class Fighter {
       return true;
     }
 
+    // ---- INO: NO MASK, NO TECHNIQUE -------------------------------------
+    // Canon, and the hardest refusal in the game: with his face uncovered he
+    // is not a medium, so RB and RT are dead buttons. It is checked before
+    // anything is spent and it reports with its own line, because a silently
+    // dead button during the one window a player most needs to understand
+    // would be the worst possible read.
+    if (this.maskOff > 0 && this.cfg.mask && (slot === 'ct1' || slot === 'ct2')) {
+      this.emit('maskless', { slot });
+      return false;
+    }
+
+    // ---- REGGIE: RT IS WHATEVER OBJECT IS BOUND TO IT --------------------
+    // The slot has no frame data of its own worth speaking of — see the note
+    // on `ct2` in characters/reggie.js. Cost, startup, active, recovery,
+    // damage, reach, effect and clip all come from the OBJECT currently on the
+    // wheel, so the wheel is a real decision rather than a skin and retuning
+    // an object retunes it everywhere at once.
+    //
+    // Exactly the same shape as Inumaki's command branch above, and it refuses
+    // BEFORE anything is spent, with its own line, for the same reason.
+    if (def.objectSlot) {
+      const o = this.cfg.objects;
+      const obj = o?.defs?.[this.objectKey] ?? o?.defs?.[o?.default];
+      if (!obj) return false;
+      if (!canAfford(this, obj.cost)) {
+        this.emit(this.stockWet > 0 ? 'receiptsWet' : 'noStock', { need: obj.cost, have: this.stock });
+        return false;
+      }
+      if (!this.spendCE(obj.ce)) { this.emit('noCE'); return false; }
+      spendStock(this, obj.cost);
+      const move = {
+        ...def, ...obj, kind: 'ct', slot, isCT: true,
+        effect: obj.effect, clip: obj.clip, objectKey: obj.key,
+        name: obj.name, jpName: obj.jp, cost: obj.ce
+      };
+      this.setState('ct', { move });
+      this._syncMoveAnim(move, move.clip);
+      this.emit('ctStart', { move });
+      this.emit('materialise', { object: obj });
+      return true;
+    }
+
     // ---- THE SECOND-RESOURCE GATES ---------------------------------------
     // Checked BEFORE the cursed energy is spent so a refusal never costs
     // anything, and reported with their own lines — "nothing happened" is the
     // most confusing thing a button can do.
+    //
+    // REGGIE's flat-rate stock cost (his RB) joins the list. His RT is handled
+    // above, because that slot's whole definition is bound at runtime.
+    if (def.stock != null && !canAfford(this, def.stock)) {
+      this.emit(this.stockWet > 0 ? 'receiptsWet' : 'noStock', { need: def.stock, have: this.stock });
+      return false;
+    }
     if (def.blood && this.blood < def.blood) {
       this.emit('noBlood', { need: def.blood, have: this.blood });
       return false;
@@ -1538,6 +1666,10 @@ export class Fighter {
     // already cost him the material. (Essence is committed on the activation
     // frame instead — see the Resonance channel below.)
     this.spendBlood(def.blood);
+    // REGGIE — committed on the PRESS, like blood and unlike essence: the tag
+    // burns on the way out, so an interrupted Quick Materialise has already
+    // cost him the paper.
+    if (def.stock != null) spendStock(this, def.stock);
     // Gojo charged: casting Blue opens the Hollow Purple window
     if (this.cfg.id === 'gojo' && slot === 'ct2' && wasCharged) this.purpleWindow = this.cfg.purple.windowFrames;
     const move = { ...def, kind: 'ct', slot, isCT: true };
@@ -2000,6 +2132,13 @@ export class Fighter {
     w.open = false;                 // becomes true once the hold clears TAP_MAX
     if (w.arsenal) { this.arsenal = w; this.setState('arsenal', { clip: sp.clip }); }
     else if (w.core) { this.swapWheel = w; this.setState('coreWheel', { clip: 'idle' }); }
+    // INO's ring goes to its OWN state pair rather than to the shared `wheel`,
+    // for the same reason Panda's does: releasing it commits him to a swap
+    // ANIMATION he cannot cancel, and the shared `wheel` state has no such
+    // second half. It reuses everything else — `_openWheel`, `_wheelPick`, the
+    // hold threshold, the slow-motion — so the ring behaves identically under
+    // the hand.
+    else if (w.beasts) { this.swapWheel = w; this.setState('beastWheel', { clip: sp.clip }); }
     else { this.wheel = w; this.setState('wheel', { clip: sp.clip }); }
     return true;
   }
@@ -2053,6 +2192,10 @@ export class Fighter {
     if (ctx?.match?.ritual?.active) return false;
     const def = pickTaunt(this.pick, this.tauntN);
     if (!def) return false;
+    // INO's beast turns to look at him on the line. One call, and it is the
+    // only moment in the character where the creature acknowledges its host —
+    // see the taunt note in art/anim/ino.js.
+    ctx?.match?.beasts?.tauntReact?.(this);
     // A character whose clip is missing simply does not taunt. Silently, and
     // without costing them the cooldown — a half-authored taunt should look
     // like an absent feature, not a broken button.
@@ -2105,6 +2248,37 @@ export class Fighter {
     // character with exactly one answer, chosen before he knew the question.
     // Getting seized while holding the Chain against a rushdown is a disaster.
     // It is also the correct counterplay hint — swap BEFORE the gavel lands.
+    // ---- CONFISCATION vs REGGIE'S RECEIPT STOCK -------------------------
+    // *** THE BRIEF ASKS THIS EXPLICITLY: "does locking his technique also
+    // freeze the stock?" ***
+    //
+    // THE ANSWER IS NO, AND IT IS THE SAME REASONING THE HEAVENLY-RESTRICTION
+    // CASE BELOW ALREADY USES. Higuruma's technique seizes a CURSED TECHNIQUE.
+    // 再契象 is the cursed technique; the RECEIPTS ARE NOT. They are pieces of
+    // paper in his possession, and a courtroom that seized his ability to burn
+    // them has no claim on the paper itself.
+    //
+    // So Confiscation takes a BUTTON off him like it takes one off everybody,
+    // and the stock keeps regenerating underneath it — which is a genuinely
+    // good outcome rather than a shrug: he comes out of the seizure RICH, with
+    // several seconds of banked stock and everything on the wheel affordable
+    // at once. Higuruma buys silence and pays for it afterwards.
+    //
+    // *** COMPARE WATER, WHICH DOES THE OPPOSITE AND IS THE ONLY THING THAT
+    // DOES. *** Soaking him leaves the buttons alive and makes the stock
+    // unspendable — see `canAfford` in combat/receipts.js. Those two mechanics
+    // taking opposite halves of the same character is the clearest statement
+    // this codebase makes about what the stock IS: Confiscation is about the
+    // technique, water is about the paper, and they are different things.
+    //
+    // TOJI'S INVERTED SPEAR OF HEAVEN is the same ruling by the same route: it
+    // NULLIFIES a technique in flight. Reggie's objects are NOT cursed
+    // techniques once they exist — they are a car — so the spear can no more
+    // nullify a thrown car than it can nullify a thrown rock. It touches the
+    // materialisation and nothing that came out of it. Nothing was needed to
+    // implement that: the spear's nullify path tests `hit.isCT` against
+    // techniques, and a vehicle entity's damage is charged to `reggie_car`
+    // without ever claiming to be nullifiable cursed energy.
     if (this.cfg.arsenal && this.cfg.special) {
       this.lockedSlot = { slot: 'special', t: duration };
       this.slotUse.ct1 = this.slotUse.ct2 = this.slotUse.special = 0;
@@ -2492,6 +2666,63 @@ export class Fighter {
         this._openWheel({
           sel: c.order.indexOf(boundKey(this, 'ct2')), slot: 'ct2', t: 0, changed: false,
           order: c.order, avail, commands: true
+        }, sp);
+        return true;
+      }
+
+      // ---- INO: THE MASK SWAP 降霊 -----------------------------------------
+      // Panda's `coreWheel` shape — a radial held open with B, time slowed, he
+      // cannot act, and release commits him to an animation he cannot cancel —
+      // with three differences that are the character:
+      //   1. IT COSTS CURRENT_CE PER SWAP, and enough of it that he cannot
+      //      cycle. See the `swapCost` note in characters/ino.js.
+      //   2. THE MASK IS A PHYSICAL OBJECT going over his face for every one
+      //      of the 30 frames (art/models/ino.js `setMask`).
+      //   3. *** IT IS REFUSED OUTRIGHT WHILE THE MASK IS OFF. *** The only
+      //      input in this game disabled by a STATE rather than by a resource.
+      //      He cannot swap to a beast he cannot channel, and the refusal is
+      //      the clearest statement the button can make about why.
+      case 'ino_wheel': {
+        if (this.maskOff > 0) { this.emit('maskless', { slot: 'special' }); return false; }
+        if (this.maskRefit > 0) { this.emit('maskless', { slot: 'special' }); return false; }
+        const b = this.cfg.beasts;
+        if (this.res.curCE < sp.cost) { this.emit('noCE'); return false; }
+        this._openWheel({
+          sel: b.order.indexOf(this.stance), slot: 'stance', t: 0, changed: false,
+          order: b.order, avail: b.order.filter(k => k !== this.stance),
+          beasts: true
+        }, sp);
+        return true;
+      }
+
+      // ---- REGGIE: THE RECEIPT WHEEL 契象選択 ------------------------------
+      // THE SIXTH RADIAL, and like Inumaki's it reuses `_openWheel` /
+      // `_wheelPick` and the shared `wheel` STATE wholesale rather than
+      // growing a sixth near duplicate. What differs is only what the sectors
+      // are and what confirming does, and both are read off `cfg.objects`.
+      //
+      // `avail` is `affordableObjects` — THE RING IS ALSO THE PRICE LIST. A
+      // sector he cannot pay for is greyed and unselectable, the stick rolls
+      // past it, and the default falls through to the first object he can
+      // still buy. So the wheel can never land on something that would be
+      // refused at release, and a player learns the economy by looking at the
+      // ring rather than by reading the HUD number.
+      //
+      // A SOAKED REGGIE HAS AN EMPTY RING. `canAfford` returns false for
+      // everything while `stockWet` is running, so `_openWheel` finds no
+      // options and refuses outright with the same `noCE` cue Geto gets with
+      // an emptied stable. That is the correct read: the technique is off.
+      case 'reggie_wheel': {
+        const o = this.cfg.objects;
+        const avail = affordableObjects(this);
+        if (!avail.length) {
+          this.emit(this.stockWet > 0 ? 'receiptsWet' : 'noStock', { need: 0, have: this.stock });
+          return false;
+        }
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        this._openWheel({
+          sel: o.order.indexOf(this.objectKey), slot: 'ct2', t: 0, changed: false,
+          order: o.order, avail, objects: true
         }, sp);
         return true;
       }
@@ -3053,6 +3284,15 @@ export class Fighter {
     const r = this._applyHit(hit, ctx);
     if (this.jackpot) this._rct(before);
     this._feedGauges(hit, r, before);
+    // ---- INO: THE MASK COMES OFF HERE, AND ONLY HERE ---------------------
+    // Hooked at this wrapper for exactly the reason the two second-resources
+    // above are: it is the ONE route into a fighter's health that every
+    // technique, summon, projectile, sure-hit and normal in this game already
+    // passes through. A guard break or a knockdown taking his face is the
+    // hardest counterplay window any character hands out and it must not be
+    // possible for a damage site added later to forget it. Returns immediately
+    // for anybody without `cfg.mask`, which is everyone else.
+    ctx?.match?.beasts?.onHit?.(this, hit, r);
     // ---- FROSTBOUND SHATTERS ON THE HIT THAT USED IT ---------------------
     // AFTER `_applyHit`, so the blow that breaks the shell is the blow that
     // gets the 1.40x — you spend the window by hitting into it, which is the
@@ -3123,6 +3363,30 @@ export class Fighter {
         atk.gainBlood(lost * (atk.cfg.blood.perDamageDealt ?? 0));
       }
     }
+    // ---- REGGIE: THE STOCK EARNS FROM LANDING, AND DROWNS FROM WATER ------
+    // Both halves ride the same choke point every other resource here uses, so
+    // neither can be double-counted and neither needed a hook at a damage SITE.
+    //
+    // EARNING is the attacker's side. He is paid for connecting — full rate on
+    // a clean hit, a third on a block (see `blockedMult`) — which is the brief's
+    // "he's earning as the fight goes" and is also the only thing that makes
+    // the economy playable rather than a countdown.
+    if (atk && atk !== this && atk.cfg.receipts) {
+      const rc = atk.cfg.receipts;
+      const landed = result === 'hit' || result === 'otg' || result === 'armor';
+      if (landed || result === 'block') {
+        const amount = hit.stockEarn != null ? hit.stockEarn
+          : hit.isCT ? (hit.dmg ?? 0) * rc.perObject
+            : hit.type === 'knockdown' ? rc.perHeavy : rc.perPunch;
+        earnStock(atk, amount, { blocked: result === 'block' });
+      }
+    }
+    // SOAKING is the defender's side, and it is the canon counter: a wet
+    // receipt will not burn. What counts as water is `isWater` in
+    // combat/receipts.js — an explicit flag on the hit rather than a guess
+    // from its source, for the measured reason written up there.
+    if (this.cfg.receipts && isWater(hit)) soakStock(this);
+
     if (!atk || atk === this || !atk.cfg.essence) return;
     if (result !== 'hit' && result !== 'otg') return;
     const e = atk.cfg.essence;
@@ -3455,9 +3719,28 @@ export class Fighter {
     } else {
       this.vel.x += dir.x * hit.kb;
       this.vel.z += dir.z * hit.kb;
-      const heavy = hit.hitstun >= 20;
+      // ---- 麒麟 KIRIN: PAIN NULLIFICATION ---------------------------------
+      // Canon: the qilin "nullifies his sense of pain" through what the wiki
+      // describes as intracerebral doping. In this game that is not damage
+      // reduction — he takes every point — it is that HE DOES NOT FLINCH: the
+      // hitstun is cut to 62% and the knockback with it, so a Kirin Ino walks
+      // through a jab string that would put anybody else on the back foot.
+      //
+      // Applied HERE rather than at the damage site because this is where the
+      // REACTION is chosen, and the reaction is the thing being nullified. It
+      // is `stanceDef?.painNull`, so it is null for the whole roster including
+      // Ino's other two beasts, and it stops the instant the mask comes off —
+      // `stanceDef` returns null with no mask, which is the correct and
+      // automatic consequence.
+      const pn = this.stanceDef?.painNull;
+      const stun = pn ? Math.round(hit.hitstun * pn.hitstunMult) : hit.hitstun;
+      if (pn) {
+        this.vel.x -= dir.x * hit.kb * (1 - pn.kbResist);
+        this.vel.z -= dir.z * hit.kb * (1 - pn.kbResist);
+      }
+      const heavy = stun >= 20;
       this.setState(heavy ? 'hitHeavy' : 'hitLight', { clip: heavy ? 'hitHeavy' : 'hitLight' });
-      this.hitstun = hit.hitstun;
+      this.hitstun = stun;
     }
 
     // cancel whatever we were doing
@@ -3566,6 +3849,49 @@ export class Fighter {
     if (this.cfg.special?.key === 'yaga_build') tickBuildDecay(this, dt);
     // TAKABA: the slow bleed. A set does not hold itself up.
     if (this.cfg.comedy) tickComedy(this, dt);
+    // REGGIE: the stock regenerates, the water lock counts down, and the
+    // post-ultimate halt counts down. All three are one call, and it is a
+    // no-op for everyone without `cfg.receipts`.
+    tickReceipts(this, dt);
+    // INO: the mask-off timer and the refit. One call, and a no-op for
+    // everyone without `cfg.mask`. Ticked HERE rather than in a state so it
+    // runs whatever he is doing — the whole point of the window is that it
+    // does not care what he would rather be doing.
+    ctx?.match?.beasts?.tickMask?.(this, dt);
+    // 霊亀 REIKI'S SHELL — a plain clock; the multiplier is read off it.
+    if (this.shell && this.shell.t > 0) {
+      this.shell.t -= dt;
+      if (this.shell.t <= 0) this.shell = null;
+    }
+    // ---- 龍 THE DRAGON'S WINDOW -------------------------------------------
+    // The ultimate puts him in the `ryu` stance for 8 seconds. When it closes
+    // he goes back to whatever beast he was wearing when he cast it — NOT to
+    // the default, because losing your stance as a side effect of your own
+    // ultimate would be a bug wearing a design's clothes.
+    if (this.dragonT > 0) {
+      this.dragonT -= dt;
+      if (this.dragonT <= 0) {
+        const back = this._preDragonStance ?? this.cfg.beasts?.default;
+        this._preDragonStance = null;
+        if (back) {
+          this._setStance(back, { silent: true });
+          ctx?.match?.beasts?.manifest?.(this, back);
+        }
+        this.emit('dragonEnd', {});
+      }
+    }
+    // ---- 麒麟 KIRIN: "AFTER HE FINISHES USING KIRIN, HE CAN'T MOVE" -------
+    // Canon, quoted, and it is unique on this roster: no other stance in the
+    // game punishes you for LEAVING it. Leaving Kirin for any reason — a
+    // deliberate swap, the ultimate, the mask being knocked off — roots him for
+    // `exitLock` seconds. He can still block and still attack; he simply
+    // cannot go anywhere, which is exactly what "very tired" should cost.
+    if (this.exitLockT > 0) this.exitLockT = Math.max(0, this.exitLockT - dt);
+    // KIRIN drains STAMINA as well as cursed energy — the only stance in the
+    // game that costs two resources. The CE half rides `stanceDef.ceDrain`,
+    // which Panda's Gorilla already established; this is the other half.
+    const sDrain = this.stanceDef?.staminaDrain;
+    if (sDrain) this.res.stamina = Math.max(0, this.res.stamina - sDrain * dt);
     // ...and the PIE's slow expiring. It rides `floraSlow`, the multiplier
     // Hanami's root field already owns and `speedMult` already reads, so no
     // new debuff channel was needed — only a clock to hand it back. Hanami's
@@ -3950,8 +4276,20 @@ export class Fighter {
   // his body is still standing in one, and that is the one that bleeds.
   _setStance(key, { silent = false } = {}) {
     if (!this.cfg.stances?.[key]) return false;
+    // THE EXIT LOCK IS ARMED ON THE WAY OUT, not on the way in — see the note
+    // in `update`. Read off the stance being LEFT, so it fires for every route
+    // out of Kirin including ones added later.
+    const leaving = this.cfg.stances[this.stance];
+    if (leaving?.exitLock && key !== this.stance) {
+      this.exitLockT = leaving.exitLock;
+      this.emit('exitLock', { from: this.stance, duration: leaving.exitLock });
+    }
     this.stance = key;
-    const i = coreIndexOf(this, key);
+    // INO has no cores, so the core index has nothing to follow. `coreIndexOf`
+    // returns -1 for a fighter with no `cores` array and the guard below
+    // already handled that, but the emit is now explicitly per-family so a
+    // beast swap announces itself as a beast swap rather than silently.
+    const i = this.cores ? coreIndexOf(this, key) : -1;
     if (i >= 0 && this.cores[i].alive) this.coreIndex = i;
     this.model.setStance?.(key);
     if (!silent && i >= 0) {
@@ -4988,7 +5326,8 @@ export class Fighter {
         const cmds = this.cfg.commands;
         const order = cmds ? cmds.order
           : curses ? (curses.wheelOrder ?? curses.specialOrder)
-            : this.cfg.shikigami.order;
+            : this.cfg.objects ? this.cfg.objects.order
+              : this.cfg.shikigami.order;
         const w = this.wheel;
         if (!w) { this.setState('idle', { clip: 'idle' }); break; }
         w.t += dt;
@@ -5008,9 +5347,9 @@ export class Fighter {
           const idx = this._wheelPick(w, input?.move ?? { x: 0, z: 0 });
           if (idx !== w.sel) { w.sel = idx; w.changed = true; this.emit('wheelMove'); }
           // slot picking is for the fighters who hold TWO bindings — Megumi and
-          // Inumaki. Geto holds one selection, so for him these presses would
-          // be noise.
-          if (!curses) {
+          // Inumaki. Geto holds one selection and so does Reggie, so for both
+          // of them these presses would be noise.
+          if (!curses && !w.objects) {
             if (input?.ct1P && w.slot !== 'ct1') { w.slot = 'ct1'; this.emit('wheelMove'); }
             if (input?.ct2P && w.slot !== 'ct2') { w.slot = 'ct2'; this.emit('wheelMove'); }
           }
@@ -5035,6 +5374,26 @@ export class Fighter {
           // same guard. Handled before the summoner gate rather than inside it
           // because neither `curses` nor `shikigami` exists on his config and
           // both branches below would throw.
+          // REGGIE takes the whole branch early for the same reason INUMAKI
+          // does below: an OBJECT cannot die, but it can become UNAFFORDABLE
+          // during the hold (a tag spent on something else, or he was soaked
+          // while the ring was open), which is the same class of problem and
+          // gets the same guard. Handled before the summoner gate because
+          // neither `curses` nor `shikigami` exists on his config and both
+          // branches below would throw.
+          if (w.objects) {
+            const o = this.cfg.objects;
+            if (!canAfford(this, o.defs[key].cost)) {
+              this.emit('noStock', { need: o.defs[key].cost, have: this.stock });
+            } else {
+              this.objectKey = key;
+              this.emit('wheelConfirm', { key, slot: 'ct2', object: true, tapped: !w.open });
+            }
+            this._setSpecialCD(sp.cooldown);
+            this.wheel = null;
+            this.setState('special', { clip: 'idle' });
+            break;
+          }
           if (cmds) {
             if (!affordable(this, cmds.defs[key])) {
               this.emit('throatTooHigh', { cmd: cmds.defs[key] });
@@ -5064,6 +5423,74 @@ export class Fighter {
           this._setSpecialCD(sp.cooldown);
           this.wheel = null;
           this.setState('special', { clip: 'idle' });
+        }
+        break;
+      }
+
+      // ---- INO: THE MASK RADIAL, AND THE SWAP THAT FOLLOWS IT -------------
+      // Structurally Panda's pair below, with two differences:
+      //   · there is nothing that can DIE during the hold, so the guard at
+      //     release is about the mask rather than about a corpse
+      //   · THE COST IS PAID AT RELEASE, not at open. Opening the ring to look
+      //     at what he has is free; committing to a beast is 14 CE. That is
+      //     deliberate and is the opposite of Megumi's wheel, which charges at
+      //     open — because Megumi's ring is a BINDING and Ino's is an ACTION.
+      case 'beastWheel': {
+        const sp = this.cfg.special;
+        const w = this.swapWheel;
+        if (!w) { this.setState('idle', { clip: 'idle' }); break; }
+        w.t += dt;
+        if (!w.open && w.t >= TAP_MAX) {
+          w.open = true;
+          ctx.match.slowmo(0.12, sp.timeScale ?? 0.62);
+          this.emit('wheelOpen');
+        }
+        if (w.open) {
+          ctx.match.slowmo(0.08, sp.timeScale ?? 0.62);
+          const idx = this._wheelPick(w, input?.move ?? { x: 0, z: 0 });
+          if (idx !== w.sel) { w.sel = idx; w.changed = true; this.emit('wheelMove'); }
+        }
+        if (!input?.copy || w.t >= (sp.maxHold ?? 3.2)) {
+          const key = w.order[w.sel];
+          this.swapWheel = null;
+          // the mask can come off DURING the hold — the fight does not stop for
+          // a radial — and a swap started without a face to cover is not a swap
+          if (this.maskOff > 0 || key === this.stance) {
+            this.setState('idle', { clip: 'idle' });
+            break;
+          }
+          if (!this.spendCE(sp.cost)) {
+            this.emit('noCE');
+            this.setState('idle', { clip: 'idle' });
+            break;
+          }
+          this._pendingBeast = key;
+          this._setSpecialCD(sp.cooldown);
+          this.setState('beastSwap', { clip: 'maskSwap' });
+          this.emit('beastSwapStart', { key, tapped: !w.open });
+        }
+        break;
+      }
+
+      // THE SWAP ITSELF. 30 frames, no armour, no invulnerability, no cancel.
+      // The mask travels down his face across the whole window — driven off
+      // the frame count here rather than off the clip, so the geometry and the
+      // animation can never drift — and the BEAST CHANGES at the halfway point,
+      // which is the frame the knit reaches his eyes.
+      case 'beastSwap': {
+        const total = this.cfg.mask?.swapFrames ?? 30;
+        const half = Math.round(total / 2);
+        // 0 -> 1 over the first half (pulling it down), and it stays down
+        this.model.setMask?.(Math.min(1, this.f / half));
+        if (this.f === half && this._pendingBeast) {
+          this._setStance(this._pendingBeast);
+          ctx.match.beasts?.manifest(this, this._pendingBeast);
+          this.emit('beastSwapped', { key: this._pendingBeast });
+          this._pendingBeast = null;
+        }
+        if (this.f >= total) {
+          this.model.setMask?.(1);
+          this.setState('idle', { clip: 'idle' });
         }
         break;
       }
