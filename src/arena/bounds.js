@@ -24,6 +24,14 @@ import { ARTIFICIAL } from './terrain.js';
 
 const CELL = 5;                 // spatial hash cell size, metres
 export const STEP_UP = 0.55;    // how high a fighter can walk up without jumping
+// TIE-BREAK for standing exactly on a wall's top edge. A wall blocks between
+// y0 and y1, and the test used to be a strict `y > y1`, so a floor level with a
+// wall top — a parapet flush with the roof it edges, a tree whose collider
+// happens to end at the height of the terrace beside it — collided with anyone
+// standing on it and shoved them off. Maps work around it by stopping walls
+// 0.12 m short of the floor they carry, but a random prop height cannot be
+// authored around, so ties are forgiven here as well.
+export const LIP_EPS = 0.02;
 
 export class Bounds {
   constructor({ minX = -20, maxX = 20, minZ = -20, maxZ = 20, groundY = 0, terrain = ARTIFICIAL } = {}) {
@@ -79,7 +87,13 @@ export class Bounds {
     const p = {
       x0: Math.min(x0, x1), x1: Math.max(x0, x1),
       z0: Math.min(z0, z1), z1: Math.max(z0, z1),
-      y, id: opts.id, ramp: null, live: true
+      y, id: opts.id, ramp: null, live: true,
+      // PROP TOP. A surface that belongs to an object rather than to the
+      // level: a car roof, a train roof. It has an id (so destroying the thing
+      // takes its top away too) but it is not a ROUTE, and the map validator's
+      // reachability pass would otherwise report every one of them as a
+      // platform nobody can walk to.
+      prop: !!opts.prop
     };
     this.platforms.push(p);
     this._insert(this._pGrid, p);
@@ -170,6 +184,38 @@ export class Bounds {
     return true;
   }
 
+  // ---- RUNTIME-AUTHORED GEOMETRY -----------------------------------------
+  // `remove` above is for DESTRUCTION: the collider stays in the arrays with
+  // `live = false` so `restore` can bring it back, which is right for a map
+  // that is authored once and then damaged.
+  //
+  // This is for geometry a SYSTEM authors mid-match and tears down again —
+  // Takaba's THE SET builds a real traversable scene out of platforms and
+  // walls three times per cast. Left to `remove`, both spatial grids would
+  // grow without bound across a long session for scenery nobody can ever walk
+  // on again. `drop` takes the objects `platform()` / `wall()` handed back and
+  // unlinks them completely.
+  drop(items) {
+    if (!items || !items.length) return 0;
+    const set = new Set(items);
+    let n = 0;
+    for (const it of set) { it.live = false; n++; }
+    this.platforms = this.platforms.filter(p => !set.has(p));
+    this.walls = this.walls.filter(w => !set.has(w));
+    this.terrains = this.terrains.filter(t => !set.has(t));
+    for (const grid of [this._pGrid, this._wGrid, this._tGrid]) {
+      for (const [k, list] of grid) {
+        const kept = list.filter(x => !set.has(x));
+        if (kept.length) grid.set(k, kept); else grid.delete(k);
+      }
+    }
+    for (const [id, list] of this.byId) {
+      const kept = list.filter(x => !set.has(x));
+      if (kept.length) this.byId.set(id, kept); else this.byId.delete(id);
+    }
+    return n;
+  }
+
   // ---- queries ------------------------------------------------------------
   // Highest walkable surface at (x,z) that is at or below `ceil`. Returns the
   // map's ground plane when nothing else qualifies, so a fighter can never
@@ -181,6 +227,36 @@ export class Bounds {
       if (x < p.x0 || x > p.x1 || z < p.z0 || z > p.z1) continue;
       const y = p.ramp ? rampY(p, x, z) : p.y;
       if (y <= ceil && y > best) best = y;
+    }
+    return best;
+  }
+
+  // ---- THE CEILING -------------------------------------------------------
+  // The lowest walkable surface strictly ABOVE a point — i.e. what is over your
+  // head. Returns Infinity under open sky.
+  //
+  // WHY THIS EXISTS AT ALL. Nothing in this project could fly until Uro, so
+  // "what is above me" was never a question anyone had to ask: a jump peaks in
+  // half a second and comes back down, and the swept floor test in
+  // combat/fighter.js `_physics` handles passing THROUGH a mezzanine on the way
+  // up. A fighter who can hold altitude indefinitely turns every interior in
+  // the game into a problem — the hall at Jujutsu High has a roof deck at
+  // 4.6 m, and without this she would hover up through the ceiling and stand on
+  // the roof of a room she is supposed to be trapped inside.
+  //
+  // Deliberately CONSERVATIVE. It reports any live platform overhead, including
+  // ones she could legitimately reach by going around; the flight system uses
+  // it as a soft cap on rise, not as a hard collider, so a low awning never
+  // traps her — she simply cannot rise through it from underneath.
+  //
+  // Nothing existing calls this. It is additive.
+  ceilingAt(x, z, y) {
+    let best = Infinity;
+    for (const p of this._query(this._pGrid, x, z)) {
+      if (!p.live) continue;
+      if (x < p.x0 || x > p.x1 || z < p.z0 || z > p.z1) continue;
+      const py = p.ramp ? rampY(p, x, z) : p.y;
+      if (py > y + STEP_UP && py < best) best = py;
     }
     return best;
   }
@@ -205,7 +281,7 @@ export class Bounds {
     const y = pos.y;
     for (const w of this._query(this._wGrid, pos.x, pos.z)) {
       if (!w.live) continue;
-      if (y + 1.55 < w.y0 || y > w.y1) continue;      // over it, or under it
+      if (y + 1.55 < w.y0 || y > w.y1 - LIP_EPS) continue;   // over it, or under it
       const px = w.x0 - radius, qx = w.x1 + radius;
       const pz = w.z0 - radius, qz = w.z1 + radius;
       if (pos.x <= px || pos.x >= qx || pos.z <= pz || pos.z >= qz) continue;
@@ -244,6 +320,60 @@ export class Bounds {
         if (x > w.x0 && x < w.x1 && z > w.z0 && z < w.z1) return Math.max(0.12, (i - 1) / steps);
       }
       if (!this.contains(x, z, -1.5)) return Math.max(0.12, (i - 1) / steps);
+    }
+    return 1;
+  }
+
+  // CAMERA COLLISION, FLOORS INCLUDED. `raySweep` above answers one half of the
+  // question — does this segment enter a WALL — and the chase camera used to
+  // ask only that. The other half is the one that put a camera under Kyoto's
+  // grass: a trench, a bank, a plateau, all of them are FLOORS, none of them is
+  // a wall, and a rig that drifts under one is inside the world looking at the
+  // underside of it.
+  //
+  // The rule is one sentence: THE CAMERA HAS TO BE IN THE SAME OPEN SPACE AS
+  // THE FIGHTER. A surface overhead is only allowed if the fighter is under
+  // that same surface — under a mezzanine, in a tunnel, inside a train car, the
+  // camera may and must go under it too; standing in a river with the camera
+  // inside the bank beside it, or on the lawn with the camera buried in the
+  // plateau, it may not. Stated that way it needs no notion of "outside" and
+  // handles interiors and open ground with the same test.
+  _sameSpace(x, y, z, sub) {
+    for (const p of this._query(this._pGrid, x, z)) {
+      if (!p.live) continue;
+      if (x < p.x0 || x > p.x1 || z < p.z0 || z > p.z1) continue;
+      const sy = p.ramp ? rampY(p, x, z) : p.y;
+      if (sy <= y + 0.05) continue;                  // under us: a floor, not a lid
+      // A LID. The fighter has to be under it as well, or we are in the rock.
+      // His side of it is measured at HIS OWN position, not at ours: a ramp is
+      // one platform whose surface climbs, and asking whether a fighter halfway
+      // up a slope is under "the slope" at a point six metres further up always
+      // says yes — which is how a camera ends up buried in the hill it is
+      // supposed to be looking down.
+      if (sub.x < p.x0 || sub.x > p.x1 || sub.z < p.z0 || sub.z > p.z1) return false;
+      const subY = p.ramp ? rampY(p, sub.x, sub.z) : p.y;
+      if (sub.y >= subY - 0.05) return false;
+    }
+    return true;
+  }
+
+  // Walk from the shot's anchor out to where the rig wants to be and report the
+  // first fraction at which it leaves the fighter's space — through a wall,
+  // under a floor, or off the edge of the map.
+  sweepClear(from, to, sub, steps = 14) {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const x = from.x + dx * t, y = from.y + dy * t, z = from.z + dz * t;
+      let blocked = false;
+      for (const w of this._query(this._wGrid, x, z)) {
+        if (!w.live) continue;
+        if (y < w.y0 || y > w.y1) continue;
+        if (x > w.x0 && x < w.x1 && z > w.z0 && z < w.z1) { blocked = true; break; }
+      }
+      if (!blocked && !this._sameSpace(x, y, z, sub)) blocked = true;
+      if (!blocked && !this.contains(x, z, -1.5)) blocked = true;
+      if (blocked) return Math.max(0.12, (i - 1) / steps);
     }
     return 1;
   }

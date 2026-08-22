@@ -65,14 +65,28 @@ function gridShape(n) {
 // people are sitting at ONE keyboard — no pad, or one pad plus a keyboard, is
 // ambiguous — so that single case keeps a one-button toggle rather than a
 // menu. Two or more pads is unambiguous and offers no choice at all.
-function detectSetup(pads, kbVersus) {
+//
+// ONLINE changes one thing about this: there is no CPU seat to fill, so a lone
+// player brings ONE seat rather than two, and the screen is always in
+// simultaneous mode. Everything else — pads adding seats, the keyboard-versus
+// toggle, hot-plug — behaves identically, which is what makes bringing two
+// people from one couch into an online game work with no extra UI at all.
+function detectSetup(pads, kbVersus, online = false) {
   if (pads >= 2) return { seats: Math.min(4, pads), mode: 'local', via: 'pads' };
   if (kbVersus) return { seats: 2, mode: 'local', via: 'keyboard' };
+  if (online) return { seats: 1, mode: 'local', via: 'solo' };
   return { seats: 2, mode: 'cpu', via: 'cpu' };
 }
 
 export class SelectScreen {
-  constructor(stage, input, sfx, uiRoot) {
+  constructor(stage, input, sfx, uiRoot, opts = {}) {
+    // ---- ONLINE -----------------------------------------------------------
+    // The online controller, or null. When it is present and in a session,
+    // locking in every local seat marks this machine READY in the lobby
+    // instead of starting a local match — the roster, the cursors, the variant
+    // sub-step and the device detection are all completely unchanged. There is
+    // no separate online character select, which is the whole point.
+    this.online = opts.online || null;
     this.stage = stage;
     this.input = input;
     this.sfx = sfx;
@@ -86,7 +100,7 @@ export class SelectScreen {
     // detected from the hardware (see _syncDevices).
     this.phase = 0;
     this.kbVersus = false;
-    const setup = detectSetup(input.livePads, false);
+    const setup = detectSetup(input.livePads, false, !!this.online?.active);
     this.mode = setup.mode;
     this.seats = setup.seats;
     this.via = setup.via;
@@ -164,7 +178,7 @@ export class SelectScreen {
     // the first two seats, and the roster as a skewed strip along the bottom.
     this.el.innerHTML = `
       <div class="select-title">
-        <h1>CURSED<br>ARENA</h1>
+        <h1>JUJUTSU<br>BATTLEGROUNDS</h1>
         <p>ALL ASSETS PROCEDURAL</p>
       </div>
       <div class="brand-kanji">呪術</div>
@@ -192,6 +206,7 @@ export class SelectScreen {
             <div class="sv-dots"></div>
             <div class="sv-hint">◀ ▶  CHANGE VERSION   ·   Y  TAUNT   ·   B  BACK</div>
           </div>
+          <div class="sh-kit"></div>
           <div class="sh-tag"></div>
           <div class="sh-taunt">Y &nbsp;·&nbsp; PREVIEW TAUNT</div>
         </div>`).join('')}
@@ -229,8 +244,11 @@ export class SelectScreen {
   _refresh() {
     const picking = this.phase >= 0 && this.phase < this.seats;
     const waiting = this.locked.slice(0, this.seats).filter(Boolean).length;
-    this.sub.textContent =
-      !this.simultaneous
+    const online = !!this.online?.active;
+    this.el.classList.toggle('online', online);
+    this.sub.textContent = online && waiting === this.seats
+      ? (this.online.canStart ? 'READY — PRESS A / ENTER TO START' : 'READY — WAITING FOR THE LOBBY')
+      : !this.simultaneous
         ? (this.phase === 1 ? 'CHOOSE THE OPPONENT' : 'PLAYER 1 — CHOOSE YOUR SORCERER')
         : waiting === this.seats ? 'READY'
           : waiting > 0 ? `CHOOSE YOUR SORCERER — ${waiting}/${this.seats} LOCKED IN`
@@ -253,6 +271,47 @@ export class SelectScreen {
       hero.querySelector('.sh-name').textContent = r.config.name;
       hero.querySelector('.sh-role').textContent = r.role;
       hero.querySelector('.sh-tag').textContent = r.spirit ? '呪霊 CURSED SPIRIT' : '呪術師 SORCERER';
+
+      // ---- THE KIT STRIP --------------------------------------------------
+      // *** THE BRIEF ASKS FOR THIS BY NAME: "Ino's entry should preview all
+      // his masks." *** A `role` line has one sentence in it, and a character
+      // whose entire design is "he is four different fighters" cannot be
+      // introduced in one sentence.
+      //
+      // So a character MAY declare a strip of chips under the role line, each
+      // in its own colour. It is generic rather than an Ino special case —
+      // anything with a `beasts` or an `objects` block gets one — and it is
+      // driven off the same config tables the wheel and the HUD read, so the
+      // select screen can never fall out of step with what the character
+      // actually has.
+      //
+      // For INO it is the three beasts, in wheel order, each in its own hue:
+      // 獬豸 RANGE / 霊亀 MOVEMENT / 麒麟 TRADE, which is the whole character
+      // stated before you press anything. (The DRAGON is deliberately absent —
+      // it is the ultimate, nobody in the source has ever seen it, and putting
+      // it on the shop window would give away the one surprise he has.)
+      //
+      // For REGGIE it is the seven objects with their prices, which is his
+      // whole character stated the same way: a price list.
+      const kit = hero.querySelector('.sh-kit');
+      const cfg = r.config;
+      if (cfg.beasts) {
+        kit.innerHTML = cfg.beasts.order.map(k => {
+          const b = cfg.beasts.defs[k];
+          const c = '#' + b.spirit.color.toString(16).padStart(6, '0');
+          return `<i style="--kc:${c}"><b>${b.jp}</b>${b.name}<u>${(b.role || '').split(' · ')[0]}</u></i>`;
+        }).join('');
+        kit.classList.add('on');
+      } else if (cfg.objects) {
+        kit.innerHTML = cfg.objects.order.map(k => {
+          const o = cfg.objects.defs[k];
+          return `<i style="--kc:${hex(r.accent)}"><b>${o.jp}</b>${o.short}<u>¥${(o.cost * cfg.receipts.yenPerStock / 1000)}k</u></i>`;
+        }).join('');
+        kit.classList.add('on');
+      } else {
+        kit.innerHTML = '';
+        kit.classList.remove('on');
+      }
 
       // ---- THE VARIANT PANEL --------------------------------------------
       // Only present while that seat is actually choosing a version. The
@@ -308,9 +367,12 @@ export class SelectScreen {
   // named for the device actually driving it, in that seat's colour.
   _refreshDevices() {
     const pads = this.input.livePads;
-    this.devMode.textContent = this.mode === 'cpu' ? 'VS CPU' : 'LOCAL VERSUS';
-    this.devCount.textContent = this.mode === 'cpu'
-      ? '1 PLAYER' : `${this.seats} PLAYERS`;
+    const online = !!this.online?.active;
+    this.devMode.textContent = online ? 'ONLINE VERSUS'
+      : this.mode === 'cpu' ? 'VS CPU' : 'LOCAL VERSUS';
+    this.devCount.textContent = online
+      ? (this.seats === 1 ? '1 SEAT FROM THIS MACHINE' : `${this.seats} SEATS FROM THIS MACHINE`)
+      : this.mode === 'cpu' ? '1 PLAYER' : `${this.seats} PLAYERS`;
 
     // Which device drives each seat mirrors input.pollAll's assignment exactly
     // — pad i takes seat i, and the keyboard backs the seats without one. If
@@ -335,7 +397,7 @@ export class SelectScreen {
     this.devHint.innerHTML = pads >= 2
       ? `<i>${pads} CONTROLLERS DETECTED</i>`
       : this.kbVersus
-        ? 'SELECT / TAB  ·  BACK TO VS CPU'
+        ? (online ? 'SELECT / TAB  ·  DROP THE SECOND SEAT' : 'SELECT / TAB  ·  BACK TO VS CPU')
         : 'SELECT / TAB  ·  ADD A KEYBOARD PLAYER 2';
     this.devHint.classList.toggle('auto', pads >= 2);
   }
@@ -345,7 +407,15 @@ export class SelectScreen {
   // only trustworthy if it is live.
   _syncDevices() {
     const pads = this.input.livePads;
-    const next = detectSetup(pads, this.kbVersus);
+    const online = !!this.online?.active;
+    const next = detectSetup(pads, this.kbVersus, online);
+    // Going online (or leaving) changes the seat count the same way plugging a
+    // pad in does, so it is re-derived here rather than special-cased.
+    if (online !== this._wasOnline) { this._wasOnline = online; this._uncommit(); }
+    if (online && next.seats !== this._sentSeats) {
+      this._sentSeats = next.seats;
+      this.online.setSeats(next.seats);
+    }
     if (next.seats === this.seats && next.mode === this.mode) {
       // THE SEAT COUNT IS NOT THE ONLY THING ON SCREEN. Going from no pad to
       // one pad changes neither the mode (still VS CPU) nor the seat count
@@ -507,6 +577,28 @@ export class SelectScreen {
     return all.reduce((a, x) => mergeMenu(a, x), all[0]);
   }
 
+  // Every local seat is locked. Offline that starts a match; online it
+  // publishes the picks and hands control to the lobby.
+  _commit() {
+    this.chars = this.cursors.slice(0, this.seats).map((c, s) => this._pickFor(s, c));
+    if (this.online?.active) {
+      if (this._sentPicks !== this.chars.join(',')) {
+        this._sentPicks = this.chars.join(',');
+        this.online.setPicks(this.chars);
+        this._refresh();
+      }
+      return;
+    }
+    this._finish();
+  }
+
+  // A seat came back out of its lock — we are no longer ready.
+  _uncommit() {
+    if (!this.online?.active || this._sentPicks == null) return;
+    this._sentPicks = null;
+    this.online.setPicks(null);
+  }
+
   _finish() {
     this.picks.mode = this.mode === 'cpu' ? 'cpu' : 'local';
     this.picks.chars = [...this.chars];
@@ -538,6 +630,13 @@ export class SelectScreen {
     // HARDWARE FIRST, every frame. A pad plugged in halfway through picking
     // adds a seat there and then; one that dies releases the seat it held.
     if (this._syncDevices()) this._refresh();
+    // The lobby changes underneath this screen — someone joins, everyone gets
+    // ready — and the subtitle has to follow it. Signature-compared so the
+    // panels are only rebuilt when something actually changed.
+    if (this.online) {
+      const sig = `${!!this.online.active}|${!!this.online.canStart}|${!!this.online.session?.everyoneReady}`;
+      if (sig !== this._onlineSig) { this._onlineSig = sig; this._refresh(); }
+    }
     // the one remaining choice, and only while it is ambiguous
     {
       const f = all.reduce((a, x) => mergeMenu(a, x), all[0]);
@@ -556,7 +655,12 @@ export class SelectScreen {
         const f = this._frameFor(all, s);
         if (this.locked[s]) {
           // a locked player can back out again, right up until everyone is in
-          if (f.backP) { this.locked[s] = false; this.sfx.uiBack(); changed = true; }
+          if (f.backP) { this.locked[s] = false; this.sfx.uiBack(); changed = true; this._uncommit(); }
+          // ONLINE: with every local seat locked the roster cursors are idle,
+          // so confirm is free — and it is the host's START. Nothing else on
+          // this screen wants the press at this moment, which is exactly why
+          // the binding is safe.
+          else if (f.confirmP && this.online?.canStart) this.online.startMatch();
           continue;
         }
         // Y previews the taunt, in BOTH steps — read before the sub-step's
@@ -577,10 +681,8 @@ export class SelectScreen {
         }
       }
       if (changed) this._refresh();
-      if (this.locked.slice(0, this.seats).every(Boolean)) {
-        this.chars = this.cursors.slice(0, this.seats).map((c, s) => this._pickFor(s, c));
-        this._finish();
-      }
+      if (this.locked.slice(0, this.seats).every(Boolean)) this._commit();
+      else this._uncommit();
     } else {
       // ---- VS CPU: one human, two choices, in order ------------------------
       const f = all.reduce((a, x) => mergeMenu(a, x), all[0]);

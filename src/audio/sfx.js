@@ -97,6 +97,18 @@ export class Sfx {
   }
   armor() { this.ensure(); this._osc('square', 140, { to: 100, dur: 0.14, gain: 0.25 }); }
   dash() { this.ensure(); this._noise({ dur: 0.22, gain: 0.16, freq: 600, slideTo: 2600, q: 0.5 }); }
+  // the impulse at the front of a dash: shorter, harder and lower than the
+  // dash it opens, so the two layer into one push-off rather than two whooshes
+  dashBurst() { this.ensure(); this._noise({ dur: 0.13, gain: 0.22, freq: 320, slideTo: 1500, q: 1.1 }); }
+  // WATER. `splash` is entering it — a body arriving, loud and low into bright.
+  // `wade` is a step taken while already in it: the same shape, much quieter
+  // and much shorter, so a fight in a river ticks rather than roars.
+  splash(power = 1) {
+    this.ensure();
+    const p = Math.max(0.3, Math.min(1.6, power));
+    this._noise({ dur: 0.16 + p * 0.12, gain: 0.10 + p * 0.09, freq: 900, slideTo: 320 + p * 260, q: 0.6 });
+  }
+  wade() { this.ensure(); this._noise({ dur: 0.10, gain: 0.055, freq: 1300, slideTo: 620, q: 0.8 }); }
   jump() { this.ensure(); this._noise({ dur: 0.14, gain: 0.1, freq: 500, slideTo: 1500, q: 0.6 }); }
   land() { this.ensure(); this._noise({ dur: 0.1, gain: 0.18, freq: 300, q: 0.5, type: 'lowpass' }); }
 
@@ -200,6 +212,171 @@ export class Sfx {
   }
 
   // ---- jogo ---------------------------------------------------------------
+  // =========================================================================
+  // URO — SKY MANIPULATION
+  // =========================================================================
+  // ALL ORIGINAL AND ALL PROCEDURAL, and built to the brief's four rules:
+  // DETUNED (every tone is a pair a few cents apart, so nothing sits cleanly
+  // in tune), PITCH-BENDING (nothing holds a note), ARRIVING EARLY OR LATE
+  // (the pre-echo below), and with a REVERSED-REVERB TAIL on the warps (a
+  // swell that builds INTO the event instead of decaying out of it).
+  //
+  // The reversed tail is the interesting one and it is a real construction
+  // rather than a filter: a band of noise whose gain ramps UP over its
+  // duration and stops dead, scheduled to END on the frame the visual lands.
+  // That is what a reversed reverb is, and it is why her techniques sound like
+  // they are being un-played.
+  _reverseTail(when = 0.28, gain = 0.16, freq = 2200) {
+    this.ensure(); if (!this.ctx) return;
+    const t0 = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    const len = Math.floor(this.ctx.sampleRate * when);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      // the ramp UP is the whole trick — noise that swells into silence
+      const k = i / len;
+      d[i] = (Math.random() * 2 - 1) * k * k;
+    }
+    src.buffer = buf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 0.8;
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    src.connect(bp); bp.connect(g); g.connect(this.master);
+    src.start(t0);
+    src.stop(t0 + when);
+  }
+
+  // A DETUNED PAIR. Two oscillators a few cents apart, both bending. Nothing
+  // she does is ever in tune with itself.
+  _detuned(f, { to = f, dur = 0.4, gain = 0.1, type = 'sine', cents = 17 } = {}) {
+    const k = Math.pow(2, cents / 1200);
+    this._osc(type, f, { to, dur, gain });
+    this._osc(type, f * k, { to: to * k, dur: dur * 1.06, gain: gain * 0.8 });
+  }
+
+  // THIN ICE BREAKER. The break arrives BEFORE the swell finishes — the
+  // reversed tail is scheduled first and the crack lands on top of it, which
+  // is the "sounds that arrive slightly before or after the visual" note.
+  thinIce() {
+    this.ensure(); if (!this.ctx) return;
+    this._reverseTail(0.22, 0.13, 3000);
+    // the crack: a hard bright transient with almost no body
+    this._noise({ dur: 0.09, gain: 0.30, freq: 5200, q: 3.4 });
+    // ...and the sheet letting go, bending down
+    setTimeout(() => {
+      this._noise({ dur: 0.42, gain: 0.20, freq: 3600, slideTo: 900, q: 1.0 });
+      this._detuned(880, { to: 300, dur: 0.40, gain: 0.10, type: 'triangle', cents: 23 });
+    }, 55);
+    // one late shard, deliberately out of step with the visual
+    setTimeout(() => this._noise({ dur: 0.14, gain: 0.10, freq: 6400, q: 4.0 }), 260);
+  }
+
+  // SPACE WARP STRIKE. A fold: the pitch goes DOWN and then arrives UP, which
+  // is a shape no other cue in the game has, plus a pre-echo of the impact 60
+  // ms before the impact.
+  warpFold() {
+    this.ensure(); if (!this.ctx) return;
+    this._reverseTail(0.30, 0.15, 1400);
+    // the pre-echo — the hit, quietly, before it happens
+    this._noise({ dur: 0.06, gain: 0.09, freq: 1800, q: 2.0 });
+    setTimeout(() => {
+      this._detuned(520, { to: 120, dur: 0.26, gain: 0.13, type: 'sawtooth', cents: 31 });
+    }, 60);
+    setTimeout(() => {
+      this._detuned(160, { to: 940, dur: 0.22, gain: 0.15, type: 'triangle', cents: 19 });
+      this._noise({ dur: 0.16, gain: 0.24, freq: 2400, slideTo: 5200, q: 1.4 });
+    }, 190);
+  }
+
+  // SKY REFLECT going up: a thin held shimmer, detuned so it beats audibly.
+  skyReflectUp() {
+    this.ensure(); if (!this.ctx) return;
+    this._detuned(1320, { to: 1180, dur: 0.42, gain: 0.07, type: 'sine', cents: 11 });
+    this._noise({ dur: 0.20, gain: 0.07, freq: 6800, slideTo: 4200, q: 2.6 });
+  }
+  skyReflectDown() {
+    this.ensure(); if (!this.ctx) return;
+    this._detuned(880, { to: 660, dur: 0.18, gain: 0.05, type: 'sine', cents: 11 });
+  }
+  // ...and the moment it actually turns something around. The bend REVERSES:
+  // the incoming sound is caught, inverted, and thrown back.
+  skyReflect() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.07, gain: 0.26, freq: 4200, q: 3.0 });
+    this._detuned(300, { to: 1500, dur: 0.24, gain: 0.16, type: 'triangle', cents: 27 });
+    this._reverseTail(0.16, 0.12, 2600);
+  }
+
+  // The hover starting, and the moment the stamina runs out and she falls.
+  hoverStart() {
+    this.ensure(); if (!this.ctx) return;
+    this._detuned(440, { to: 620, dur: 0.34, gain: 0.05, type: 'sine', cents: 9 });
+  }
+  hoverDrop() {
+    this.ensure(); if (!this.ctx) return;
+    // the sky letting go of her — a long detuned fall with no landing in it
+    this._detuned(700, { to: 90, dur: 0.62, gain: 0.13, type: 'triangle', cents: 25 });
+    this._noise({ dur: 0.5, gain: 0.10, freq: 1400, slideTo: 260, q: 0.8 });
+  }
+
+  // SKY COLLAPSE. The biggest thing she does, and it is built downward: three
+  // detuned layers all bending toward the floor of the spectrum, over a
+  // reversed swell long enough to be uncomfortable.
+  skyCollapse() {
+    this.ensure(); if (!this.ctx) return;
+    this._reverseTail(0.62, 0.24, 900);
+    setTimeout(() => {
+      this._detuned(240, { to: 40, dur: 1.1, gain: 0.26, type: 'sawtooth', cents: 33 });
+      this._detuned(1600, { to: 220, dur: 0.8, gain: 0.12, type: 'triangle', cents: 21 });
+      this._noise({ dur: 1.0, gain: 0.26, freq: 4200, slideTo: 180, q: 0.6 });
+    }, 580);
+  }
+
+  // =========================================================================
+  // DAGON — THE SEA
+  // =========================================================================
+  // Also original and procedural. The family rule is that everything of his is
+  // WET AND LOW: filtered noise with a long tail and almost no transient,
+  // which is the opposite of Jogo's cracking fire and Kashimo's snap.
+  volley() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.26, gain: 0.16, freq: 900, slideTo: 2400, q: 1.4 });
+    this._osc('sine', 180, { to: 320, dur: 0.22, gain: 0.07 });
+  }
+  tidalSlam() {
+    this.ensure(); if (!this.ctx) return;
+    // the gather, then the surge — a long low swell with a wash over it
+    this._osc('sine', 58, { to: 34, dur: 0.9, gain: 0.30 });
+    this._noise({ dur: 0.85, gain: 0.26, freq: 260, slideTo: 1400, q: 0.7 });
+    setTimeout(() => this._noise({ dur: 0.6, gain: 0.14, freq: 2600, slideTo: 700, q: 0.9 }), 220);
+  }
+  seaEmerge() {
+    this.ensure(); if (!this.ctx) return;
+    // something breaking the surface: a short gulp and a spread of water
+    this._noise({ dur: 0.12, gain: 0.18, freq: 620, slideTo: 1800, q: 2.2 });
+    this._noise({ dur: 0.34, gain: 0.11, freq: 3000, slideTo: 1200, q: 0.8 });
+  }
+  seaSpit() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.16, gain: 0.20, freq: 1600, slideTo: 4200, q: 2.6 });
+  }
+  seaDie() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.24, gain: 0.14, freq: 1800, slideTo: 400, q: 1.2 });
+    this._osc('sine', 220, { to: 90, dur: 0.20, gain: 0.06 });
+  }
+  // THE SHARK ARRIVING. Deliberately the loudest thing in his set and the only
+  // one with a real transient: the player has to know, without looking, that
+  // the rare one just surfaced.
+  sharkRise() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.5, gain: 0.30, freq: 420, slideTo: 2600, q: 0.9 });
+    this._osc('sawtooth', 96, { to: 52, dur: 0.62, gain: 0.24 });
+    setTimeout(() => this._osc('square', 140, { to: 60, dur: 0.18, gain: 0.14 }), 320);
+  }
+
   ember() {
     // a hissing swarm taking wing: crackle + rising flutter
     this.ensure(); if (!this.ctx) return;
@@ -761,8 +938,18 @@ export class Sfx {
   }
 
   // ---- domains ------------------------------------------------------------
-  domainCast() {
+  domainCast(id) {
     this.ensure(); if (!this.ctx) return;
+    // URO — the cast RISES instead of falling. Every other domain in the game
+    // descends on you; hers opens above you, so the two sweeps invert and a
+    // reversed tail arrives BEFORE the barrier does. Same trick her warps use.
+    if (id === 'uro') {
+      this._osc('sine', 42, { to: 128, dur: 1.7, gain: 0.5 });
+      this._detuned(196, { to: 392, dur: 1.5, gain: 0.10, type: 'triangle', cents: 21 });
+      this._noise({ dur: 1.5, gain: 0.16, freq: 90, slideTo: 2600, q: 0.6, type: 'bandpass' });
+      this._reverseTail(1.1, 0.20);
+      return;
+    }
     this._osc('sine', 55, { to: 30, dur: 1.6, gain: 0.6 });
     this._osc('triangle', 220, { to: 110, dur: 1.4, gain: 0.14 });
     this._osc('triangle', 227, { to: 113, dur: 1.4, gain: 0.12 });
@@ -772,8 +959,11 @@ export class Sfx {
     this.ensure(); if (!this.ctx) return;
     this._noise({ dur: 0.8, gain: 0.4, freq: 4000, slideTo: 200, q: 0.4 });
     this._osc('sine', 40, { to: 28, dur: 1.4, gain: 0.7 });
-    // the shrine sits lowest of all of them — it is the biggest thing in the game
-    this.startDrone(env === 'void' ? 36 : env === 'shrine' ? 30 : 52);
+    // the shrine sits lowest of all of them — it is the biggest thing in the game.
+    // URO'S FIRMAMENT SITS HIGHEST, and is the only one above the others: it is
+    // an open sky rather than a weight overhead, and a 52 Hz rumble under it
+    // would say "underground" when the whole interior says the opposite.
+    this.startDrone(env === 'void' ? 36 : env === 'shrine' ? 30 : env === 'firmament' ? 96 : 52);
   }
   startDrone(freq = 36) {
     this.stopDrone();
@@ -1226,6 +1416,160 @@ export class Sfx {
   //   · a cue is short (<0.9s) and sits UNDER the bubble's pop, not over it
   // A missing key falls through to the neutral flourish rather than throwing,
   // so a half-added taunt is silent-ish instead of broken.
+  // =========================================================================
+  // YAGA — THE WORKSHOP
+  // =========================================================================
+  // Every cue here is WOODEN and DRY. Nothing he does has a tail on it,
+  // because a workshop is a room full of small hard sounds and no reverb, and
+  // that is what separates him from every other summoner in the game (whose
+  // cues are all wet: shadow, water, flesh).
+  buildStart() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.14, gain: 0.16, freq: 620, q: 2.2 });
+    this._osc('triangle', 147, { to: 165, dur: 0.28, gain: 0.10 });
+  }
+  // ONE STEP UP THE LADDER PER TIER. Same figure, a fifth higher each time, so
+  // a player learns the pitch and can hear how far he has got without looking.
+  buildTier(key) {
+    this.ensure(); if (!this.ctx) return;
+    const f = { scrap: 196, standard: 262, refined: 349, masterwork: 466 }[key] ?? 262;
+    this._osc('triangle', f, { to: f * 1.5, dur: 0.22, gain: 0.20 });
+    this._osc('sine', f * 2, { dur: 0.34, gain: 0.09, a: 0.05 });
+    this._noise({ dur: 0.10, gain: 0.12, freq: f * 5, q: 2.6 });
+    if (key === 'masterwork') this._osc('sine', f * 3, { dur: 0.7, gain: 0.07, a: 0.10 });
+  }
+  buildKnock() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.08, gain: 0.22, freq: 420, q: 2.0 });
+    this._osc('triangle', 131, { to: 110, dur: 0.16, gain: 0.13 });
+  }
+  // THE WORK COMING APART. A cluster of dry cracks with no pitch centre —
+  // deliberately ugly, because losing four seconds should sound like it.
+  buildBreak() {
+    this.ensure(); if (!this.ctx) return;
+    for (let i = 0; i < 5; i++) {
+      setTimeout(() => this._noise({ dur: 0.07, gain: 0.20 - i * 0.02, freq: 300 + Math.random() * 900, q: 2.4 }), i * 45);
+    }
+    this._osc('sawtooth', 98, { to: 62, dur: 0.5, gain: 0.16 });
+  }
+  buildFail() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('triangle', 220, { to: 147, dur: 0.30, gain: 0.14 });
+    this._noise({ dur: 0.12, gain: 0.08, freq: 500, q: 1.4 });
+  }
+  // THE DEPLOY. Lashings pulling tight, then the core lighting. Scaled by
+  // tier, so a MASTERWORK arriving is audibly a different event.
+  corpseDeploy(key = 'standard') {
+    this.ensure(); if (!this.ctx) return;
+    const k = { scrap: 0.5, standard: 0.8, refined: 1.1, masterwork: 1.5 }[key] ?? 1;
+    this._noise({ dur: 0.22 * k, gain: 0.18, freq: 700, slideTo: 260, q: 1.2 });
+    this._osc('triangle', 110 * (1 + k * 0.2), { to: 82, dur: 0.4 * k, gain: 0.20 });
+    setTimeout(() => this._osc('sine', 440 * k, { dur: 0.6 * k, gain: 0.10 * k, a: 0.06 }), 140);
+    if (k > 1.2) { this._osc('sawtooth', 55, { to: 41, dur: 0.9, gain: 0.18 }); this.theme?.duck(0.5, 0.6); }
+  }
+  corpseCollapse() {
+    this.ensure(); if (!this.ctx) return;
+    for (let i = 0; i < 4; i++) {
+      setTimeout(() => this._noise({ dur: 0.09, gain: 0.16 - i * 0.03, freq: 260 + Math.random() * 600, q: 2.0 }), i * 60);
+    }
+  }
+  // COMMAND. A short two-note order, and it does not ask.
+  corpseCommand(n = 1) {
+    this.ensure(); if (!this.ctx) return;
+    if (!n) { this._osc('triangle', 147, { to: 131, dur: 0.16, gain: 0.09 }); return; }
+    this._osc('square', 330, { dur: 0.07, gain: 0.14 });
+    setTimeout(() => this._osc('square', 247, { dur: 0.13, gain: 0.16 }), 80);
+  }
+
+  // =========================================================================
+  // TAKABA — THE SET
+  // =========================================================================
+  // The whole family is BRIGHT, MAJOR and PERCUSSIVE against a game whose
+  // audio is otherwise low, wet and minor. That contrast is the character.
+  riff() {
+    this.ensure(); if (!this.ctx) return;
+    [392, 494, 587].forEach((f, i) => setTimeout(() => this._osc('triangle', f, { dur: 0.11, gain: 0.12 }), i * 70));
+  }
+  comedyTier(tier, up) {
+    this.ensure(); if (!this.ctx) return;
+    const seq = up ? [523, 659, 784] : [659, 523, 392];
+    seq.forEach((f, i) => setTimeout(() => this._osc('square', f, { dur: 0.10, gain: 0.13 }), i * 65));
+    if (up && tier === 2) setTimeout(() => this._noise({ dur: 0.7, gain: 0.16, freq: 7000, slideTo: 3800, q: 0.4 }), 200);
+  }
+  // ONE CUE PER BIT. Each is a tiny piece of sound design that means the
+  // object, not a generic "technique" noise — a spring, a wooden thock, a
+  // slip, a tin bucket, a wet splat, a whip, a hollow drop, glass.
+  bitCue(key) {
+    this.ensure(); if (!this.ctx) return;
+    switch (key) {
+      case 'glove': this._osc('square', 180, { to: 900, dur: 0.20, gain: 0.16 }); this._noise({ dur: 0.10, gain: 0.14, freq: 1800, q: 1.6 }); break;
+      case 'mallet': this._noise({ dur: 0.10, gain: 0.26, freq: 380, q: 2.6 }); this._osc('triangle', 147, { to: 98, dur: 0.22, gain: 0.18 }); break;
+      case 'banana': this._osc('sine', 900, { to: 300, dur: 0.26, gain: 0.13 }); break;
+      case 'bucket': this._noise({ dur: 0.30, gain: 0.20, freq: 1400, q: 5.5 }); this._osc('sine', 660, { to: 640, dur: 0.6, gain: 0.08 }); break;
+      case 'pie': this._noise({ dur: 0.14, gain: 0.22, freq: 700, slideTo: 300, q: 0.8 }); break;
+      case 'rake': this._osc('square', 1200, { to: 260, dur: 0.14, gain: 0.14 }); this._noise({ dur: 0.08, gain: 0.18, freq: 900, q: 2.2 }); break;
+      case 'trapdoor': this._noise({ dur: 0.16, gain: 0.20, freq: 260, q: 1.8 }); this._osc('sine', 82, { to: 49, dur: 0.5, gain: 0.16 }); break;
+      case 'stagelight': this._osc('sine', 1568, { to: 1568, dur: 0.4, gain: 0.07 }); setTimeout(() => { this._noise({ dur: 0.20, gain: 0.28, freq: 2600, q: 1.2 }); this._osc('sawtooth', 110, { to: 62, dur: 0.4, gain: 0.18 }); }, 420); break;
+      case 'anvil': this._osc('triangle', 262, { to: 247, dur: 0.9, gain: 0.22 }); this._osc('sine', 1046, { dur: 1.1, gain: 0.10, a: 0.01 }); this._noise({ dur: 0.14, gain: 0.24, freq: 500, q: 2.0 }); break;
+      case 'safe': this._osc('sawtooth', 73, { to: 49, dur: 0.7, gain: 0.26 }); this._noise({ dur: 0.20, gain: 0.24, freq: 340, q: 1.6 }); break;
+      case 'curtain': this._noise({ dur: 0.55, gain: 0.16, freq: 900, slideTo: 320, q: 0.7 }); break;
+      case 'firehose': this._noise({ dur: 0.85, gain: 0.20, freq: 2400, slideTo: 1400, q: 0.6 }); break;
+      case 'foamfinger': this._noise({ dur: 0.24, gain: 0.16, freq: 600, slideTo: 240, q: 0.8 }); this._osc('sine', 196, { to: 147, dur: 0.3, gain: 0.12 }); break;
+      case 'piano': [262, 311, 370, 440].forEach((f, i) => this._osc('triangle', f, { to: f * 0.98, dur: 1.5 - i * 0.15, gain: 0.16 - i * 0.02, a: 0.002 })); this._osc('sawtooth', 55, { to: 41, dur: 1.0, gain: 0.22 }); this.theme?.duck(0.5, 0.9); break;
+      default: this._osc('triangle', 440, { dur: 0.12, gain: 0.12 });
+    }
+  }
+  // ---- THE GAME SHOW ------------------------------------------------------
+  showFanfare() {
+    this.ensure(); if (!this.ctx) return;
+    [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this._osc('square', f, { dur: 0.16, gain: 0.15 }), i * 90));
+    this.theme?.duck(0.35, 1.2);
+  }
+  showTitle(round = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const f = [523, 587, 659][round % 3];
+    this._osc('square', f, { dur: 0.10, gain: 0.15 });
+    setTimeout(() => this._osc('square', f * 1.5, { dur: 0.16, gain: 0.13 }), 90);
+  }
+  // BA-DUM-TSS. The same figure the taunt uses, because it is the same joke.
+  showRimshot() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.06, gain: 0.20, freq: 900, q: 1.1 });
+    setTimeout(() => this._noise({ dur: 0.08, gain: 0.20, freq: 700, q: 1.0 }), 120);
+    setTimeout(() => this._noise({ dur: 0.45, gain: 0.16, freq: 7200, slideTo: 4200, q: 0.4 }), 250);
+  }
+  showPass() {
+    this.ensure(); if (!this.ctx) return;
+    [784, 1046].forEach((f, i) => setTimeout(() => this._osc('sine', f, { dur: 0.14, gain: 0.16 }), i * 80));
+  }
+  // THE BUZZER. Deliberately the ugliest sound in the game.
+  showFail() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sawtooth', 110, { to: 104, dur: 0.55, gain: 0.24 });
+    this._osc('sawtooth', 116, { to: 110, dur: 0.55, gain: 0.20 });
+  }
+  showApplause() {
+    this.ensure(); if (!this.ctx) return;
+    for (let i = 0; i < 16; i++) {
+      setTimeout(() => this._noise({ dur: 0.10, gain: 0.05 + Math.random() * 0.05, freq: 1800 + Math.random() * 2600, q: 0.8 }), Math.random() * 900);
+    }
+  }
+  showJackpot() {
+    this.ensure(); if (!this.ctx) return;
+    this.theme?.duck(0.25, 1.6);
+    [523, 659, 784, 1046, 1319].forEach((f, i) => setTimeout(() => this._osc('square', f, { dur: 0.22, gain: 0.17 }), i * 70));
+    this._noise({ dur: 1.2, gain: 0.14, freq: 6000, slideTo: 2400, q: 0.4 });
+  }
+  audienceLaugh(k = 0.5) {
+    this.ensure(); if (!this.ctx) return;
+    const n = 5 + Math.round(k * 7);
+    for (let i = 0; i < n; i++) {
+      setTimeout(() => this._osc('triangle', 300 + Math.random() * 500, { to: 200 + Math.random() * 300, dur: 0.12, gain: 0.035 + Math.random() * 0.03 }), Math.random() * 500);
+    }
+  }
+  audienceApplause() { this.showApplause(); }
+  uiBad() { this.ensure(); this._osc('square', 220, { to: 165, dur: 0.14, gain: 0.11 }); }
+
   taunt(cue) {
     this.ensure();
     if (!this.ctx) return;
@@ -1262,6 +1606,41 @@ export class Sfx {
         this._noise({ dur: 0.07, gain: 0.3, freq: 2600, q: 2.4 });
         setTimeout(() => this._noise({ dur: 0.06, gain: 0.24, freq: 3100, q: 2.6 }), 90);
         this._osc('sine', 96, { to: 70, dur: 0.5, gain: 0.09 });
+        break;
+      // YAGA — a single low, flat, closed note. No movement, no shimmer, no
+      // second beat. It is the sound of a door being shut, which is what "sit
+      // down" is when a headmaster says it.
+      case 'yaga':
+        this._osc('sine', 110, { to: 104, dur: 0.55, gain: 0.20 });
+        this._noise({ dur: 0.10, gain: 0.10, freq: 320, q: 1.6 });
+        break;
+      // REGGIE — A TILL. The only cue in this table that is a MACHINE rather
+      // than a voice or an instrument: a short mechanical clack, a paper feed,
+      // and the little two-note chime a register makes when the drawer opens.
+      // He is the one character whose technique is a financial transaction, so
+      // his cue is the noise a shop makes.
+      case 'reggie':
+        this._noise({ dur: 0.05, gain: 0.24, freq: 3400, q: 3.0 });                 // the key
+        setTimeout(() => this._noise({ dur: 0.16, gain: 0.13, freq: 5200, slideTo: 3600, q: 0.8 }), 70);  // the paper
+        setTimeout(() => two(1047, 1319, 0.08, { type: 'sine', dur: 0.14, gain: 0.15 }), 200);            // the chime
+        break;
+      // INO — TWO NOTES AND A CLOTH. A quiet, plain, slightly-too-earnest
+      // rising fourth on a soft triangle — the least theatrical melodic cue in
+      // the set, because he is the least theatrical person in the cast — and
+      // then the low fabric rustle of the mask going back down over his face,
+      // which is the sound that actually ends the taunt.
+      case 'ino':
+        two(392, 523, 0.15, { type: 'triangle', dur: 0.18, gain: 0.14 });
+        setTimeout(() => this._noise({ dur: 0.22, gain: 0.09, freq: 900, slideTo: 420, q: 0.7 }), 320);
+        break;
+      // TAKABA — A LITERAL RIMSHOT. The only cue in this table that is a
+      // PERCUSSION FIGURE rather than a melodic one: two snare hits and a
+      // cymbal, ba-dum-tss, which is the sound the entire character is built
+      // on. It is deliberately the least "cursed technique" noise in the game.
+      case 'takaba':
+        this._noise({ dur: 0.07, gain: 0.26, freq: 900, q: 1.1 });
+        setTimeout(() => this._noise({ dur: 0.09, gain: 0.26, freq: 700, q: 1.0 }), 130);
+        setTimeout(() => this._noise({ dur: 0.55, gain: 0.20, freq: 7200, slideTo: 4200, q: 0.4 }), 280);
         break;
       // NAOYA — a fast bright triplet running UP. Speed, announced.
       case 'naoya':
@@ -1371,12 +1750,397 @@ export class Sfx {
         this._noise({ dur: 0.14, gain: 0.24, freq: 3600, q: 3.0 });
         setTimeout(() => this._noise({ dur: 0.5, gain: 0.15, freq: 5000, slideTo: 2600, q: 0.5 }), 150);
         break;
+      case 'inumaki':                      // "salmon." Two flat syllables and
+        // nothing else happens — which is the joke. Deliberately the SMALLEST
+        // cue in the table: no reverb, no sweep, no impact. A taunt that
+        // sounded like a technique would ruin it.
+        two(392, 349, 0.12, { type: 'triangle', dur: 0.15, gain: 0.11 });
+        break;
+      case 'uro':                          // she stretches, and space complains
+        // No voice line cue: her taunt HAS a bubble (see combat/taunts.js), so
+        // the audio is the flourish rather than the speech. A detuned pair
+        // that bends up and never resolves — the sound of somebody not
+        // bothering to finish a thought.
+        this._detuned(660, { to: 880, dur: 0.5, gain: 0.06, type: 'sine', cents: 15 });
+        setTimeout(() => this._noise({ dur: 0.22, gain: 0.07, freq: 5400, slideTo: 3200, q: 2.4 }), 380);
+        break;
+      case 'dagon':                        // the sea, briefly, and then nothing
+        // NO BUBBLE — he is a cursed spirit. The cue is the quietest in the
+        // whole table after Inumaki's: a single wet surface break and a long
+        // low swell under it that outlasts the gesture. Nothing resolves.
+        this._noise({ dur: 0.18, gain: 0.10, freq: 700, slideTo: 1600, q: 2.0 });
+        this._osc('sine', 54, { to: 44, dur: 1.6, gain: 0.13 });
+        setTimeout(() => this._noise({ dur: 0.5, gain: 0.06, freq: 2200, slideTo: 900, q: 0.8 }), 900);
+        break;
       case 'mahoraga':                     // the wheel: one turn, one clunk
         this._noise({ dur: 0.5, gain: 0.14, freq: 800, slideTo: 300, q: 1.1 });
         setTimeout(() => this._osc('square', 130, { to: 44, dur: 0.24, gain: 0.3 }), 480);
         break;
+      // ---- THE THREE NEW ONES ---------------------------------------------
+      // MAKI — the glasses go up, and the cue is the little metallic tick of
+      // the frame against her knuckle plus one flat, unimpressed note. Kin to
+      // Toji's in having almost no melody, which is the point: the two
+      // Heavenly Restrictions should sound related.
+      case 'maki':
+        this._noise({ dur: 0.06, gain: 0.13, freq: 5200, q: 3.0 });
+        setTimeout(() => two(294, 262, 0.12, { type: 'triangle', dur: 0.18, gain: 0.15 }), 90);
+        break;
+      // YUKI — a rising, easy two-note question with a heavy low body under
+      // it. The melody is casual; the weight underneath is not, which is the
+      // whole character in one cue.
+      case 'yuki':
+        two(392, 523, 0.16, { type: 'triangle', dur: 0.22, gain: 0.17 });
+        this._osc('sine', 58, { to: 44, dur: 0.9, gain: 0.16 });
+        setTimeout(() => this._osc('sine', 98, { to: 73, dur: 0.5, gain: 0.08 }), 260);
+        break;
+      // MIWA — the only cue in the table that goes UP and then comes back
+      // DOWN, because the taunt itself retreats: the blade rings out bright,
+      // and then the melody apologises. Quiet, and a semitone flatter than it
+      // started.
+      case 'miwa':
+        this._osc('sine', 1760, { to: 2093, dur: 0.14, gain: 0.10 });
+        setTimeout(() => two(659, 494, 0.14, { type: 'triangle', dur: 0.2, gain: 0.12 }), 150);
+        setTimeout(() => this._osc('sine', 466, { to: 440, dur: 0.4, gain: 0.07 }), 430);
+        break;
+      // URAUME — the quietest cue in the set, and the only one that FALLS to
+      // nothing rather than resolving. A single struck harmonic and a long
+      // cold tail, with no second note: every other taunt in this table is at
+      // least two notes because a phrase is a statement, and this character
+      // does not make one.
+      case 'uraume':
+        this._osc('sine', 1174, { to: 1174, dur: 0.10, gain: 0.09 });
+        setTimeout(() => this._osc('sine', 587, { to: 523, dur: 1.1, gain: 0.055 }), 90);
+        // the ice forming: a thin filtered hiss, rising, cut short
+        this._noise({ dur: 0.5, gain: 0.045, freq: 2600, slideTo: 6400, q: 3.5 });
+        break;
+      // RYU — no melody at all, because he does not say anything. A low
+      // discharge thump, the crack of the floor, and a long sub tail that
+      // outlasts the animation. The only cue in the table with a genuine
+      // sub-bass in it.
+      case 'ryu':
+        this._osc('sawtooth', 82, { to: 44, dur: 0.34, gain: 0.20 });
+        this._osc('sine', 41, { to: 30, dur: 1.4, gain: 0.16 });
+        this._noise({ dur: 0.30, gain: 0.28, freq: 220, slideTo: 90, q: 0.7 });
+        setTimeout(() => this._noise({ dur: 0.5, gain: 0.10, freq: 900, slideTo: 260, q: 1.2 }), 120);
+        break;
       default:
         two(440, 587, 0.1, { type: 'triangle', dur: 0.16, gain: 0.14 });
     }
+  }
+
+  // =========================================================================
+  // URAUME — THE ICE
+  // =========================================================================
+  // The whole family shares one signature: a HIGH BRITTLE TRANSIENT over a
+  // LOW COLD BODY, and no sustain anywhere. Nothing in this block rings —
+  // ice cracks and stops. That is what separates it by ear from Jogo's fire,
+  // which is all sustain and no transient, and it is the audio half of the
+  // "two zoners who must not feel the same" problem.
+  icefall() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.14, gain: 0.22, freq: 5200, slideTo: 3000, q: 2.2 });
+    this._osc('triangle', 1568, { to: 1046, dur: 0.16, gain: 0.10 });
+  }
+  frostCalm() {
+    this.ensure(); if (!this.ctx) return;
+    // the breath: filtered noise sweeping DOWN, which is the exhale
+    this._noise({ dur: 0.42, gain: 0.20, freq: 3800, slideTo: 900, q: 1.4 });
+    // and the columns arriving, a beat later, as a stack of hard transients
+    for (let i = 0; i < 5; i++) {
+      setTimeout(() => {
+        this._noise({ dur: 0.09, gain: 0.16, freq: 4200 - i * 300, q: 3 });
+        this._osc('triangle', 880 - i * 90, { to: 440, dur: 0.12, gain: 0.09 });
+      }, 120 + i * 55);
+    }
+    this._osc('sine', 110, { to: 82, dur: 0.6, gain: 0.10 });
+  }
+  frostField() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.6, gain: 0.24, freq: 900, slideTo: 5600, q: 1.1 });
+    this._osc('sine', 98, { to: 65, dur: 0.7, gain: 0.14 });
+  }
+  maxFrost() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sine', 65, { to: 41, dur: 1.6, gain: 0.20 });
+    this._noise({ dur: 1.2, gain: 0.26, freq: 600, slideTo: 7000, q: 0.9 });
+    for (let i = 0; i < 8; i++) {
+      setTimeout(() => this._noise({ dur: 0.10, gain: 0.14, freq: 3000 + Math.random() * 3000, q: 3 }), i * 90);
+    }
+  }
+  // FROSTBOUND. *** DELIBERATELY NOT NAOYA'S FREEZE CLICK. *** His is one hard
+  // mechanical tick — a shutter closing. This is a low CRUSH with a rising
+  // crystalline tail: something being enclosed rather than something stopping.
+  // The two are told apart with the screen off, which is the bar the whole
+  // distinction had to clear.
+  frostBind() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.22, gain: 0.30, freq: 320, slideTo: 140, q: 1.0 });
+    this._noise({ dur: 0.45, gain: 0.14, freq: 1800, slideTo: 6200, q: 2.6 });
+    this._osc('sine', 87, { to: 62, dur: 0.5, gain: 0.13 });
+  }
+  frostShatter() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.26, gain: 0.30, freq: 4800, slideTo: 1400, q: 1.6 });
+    for (let i = 0; i < 4; i++) {
+      setTimeout(() => this._noise({ dur: 0.06, gain: 0.12, freq: 2600 + Math.random() * 4000, q: 4 }), i * 35);
+    }
+  }
+  iceGround() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.34, gain: 0.16, freq: 700, slideTo: 3400, q: 1.3 });
+  }
+  iceMelt() {
+    this.ensure(); if (!this.ctx) return;
+    // a steam hiss, and it is the one cue in this family with SUSTAIN, because
+    // it is fire's cue happening to ice rather than ice's own
+    this._noise({ dur: 0.55, gain: 0.13, freq: 3000, slideTo: 1200, q: 0.8 });
+  }
+  icicleFall() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('triangle', 2093, { to: 523, dur: 0.30, gain: 0.11 });
+    setTimeout(() => this._noise({ dur: 0.16, gain: 0.26, freq: 3400, slideTo: 900, q: 1.8 }), 300);
+  }
+
+  // =========================================================================
+  // RYU — THE DISCHARGE
+  // =========================================================================
+  // The opposite signature to the ice, deliberately: ALL BODY AND NO
+  // TRANSIENT. Everything here starts on a low saw and stays there, and the
+  // tier is expressed as PITCH DROPPING and DURATION GROWING rather than as
+  // volume — so the opponent hears how big the shot is going to be, from
+  // anywhere, which is the audio half of "readable from across the arena".
+  graniteCharge(tier = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const base = 150 - tier * 24;
+    this._osc('sawtooth', base, { to: base * 1.35, dur: 0.5 + tier * 0.2, gain: 0.07 + tier * 0.022 });
+    this._osc('sine', base / 2, { to: base * 0.75, dur: 0.6 + tier * 0.25, gain: 0.06 + tier * 0.02 });
+  }
+  rapidBlast() {
+    this.ensure(); if (!this.ctx) return;
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => {
+        this._osc('sawtooth', 300 - i * 20, { to: 120, dur: 0.10, gain: 0.15 });
+        this._noise({ dur: 0.07, gain: 0.14, freq: 1600, slideTo: 500, q: 1.0 });
+      }, i * 70);
+    }
+  }
+  graniteBlast(tier = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const t = Math.max(0, Math.min(4, tier));
+    this._osc('sawtooth', 220 - t * 34, { to: 48 - t * 6, dur: 0.30 + t * 0.14, gain: 0.16 + t * 0.035 });
+    this._osc('sine', 62 - t * 6, { to: 34, dur: 0.7 + t * 0.3, gain: 0.13 + t * 0.03 });
+    this._noise({ dur: 0.26 + t * 0.10, gain: 0.20 + t * 0.04, freq: 1400 - t * 200, slideTo: 300, q: 0.7 });
+  }
+  maxBlast() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sawtooth', 96, { to: 28, dur: 1.5, gain: 0.26 });
+    this._osc('sine', 34, { to: 22, dur: 2.0, gain: 0.22 });
+    this._noise({ dur: 1.4, gain: 0.26, freq: 900, slideTo: 180, q: 0.6 });
+  }
+
+  // =========================================================================
+  // CURSED SPEECH 呪言 — THE VOICE
+  // =========================================================================
+  // ORIGINAL PROCEDURAL AUDIO ONLY. Nothing here is sampled from anything, and
+  // there is no voice recording in the project — a cursed-speech command is
+  // synthesized from three layers stacked at runtime:
+  //
+  //   1. THE FORMANTS. Two detuned sawtooth oscillators through a pair of
+  //      resonant bandpass filters parked at ~700 Hz and ~1150 Hz, which are
+  //      roughly where the first two vowel formants of a human "ah" sit. That
+  //      is what makes it read as a MOUTH rather than as a synth: the ear
+  //      hears formants and infers a throat.
+  //   2. THE INHUMAN LAYER. The same pitch again an octave down as a square
+  //      wave, and a ring-modulating sine a fifth off it. Neither is anything
+  //      a person could produce, and together they are the "it is not really
+  //      him talking" that the whole technique needs.
+  //   3. THE SHOCKWAVE. A sub-bass sine sweeping down under all of it, plus a
+  //      noise burst — the physical event the word causes, arriving underneath
+  //      the word itself.
+  //
+  // AND THEN IT DEGRADES. `tier` is his throat strain, 0..3, and every layer
+  // answers to it:
+  //   CLEAR      full gain, clean formants, the sub lands hard.
+  //   STRAINED   the formant Q drops (the vowel loses definition), and a thin
+  //              breath-noise layer comes in over the top.
+  //   RAW        the pitch is dragged around by a fast wobble, the fundamental
+  //              drops, the breath layer is louder than the voice, and a short
+  //              CRACK — a stepped pitch break — fires halfway through.
+  //   SILENCED   he does not get here: `canSpeak` refuses the command before
+  //              the audio is reached. The row exists so that if one ever leaks
+  //              through it is a rasp and nothing else.
+  //
+  // The result is that a player can tell his gauge state with their eyes shut,
+  // which is the brief for this and the reason it is not four gain values.
+  _voice(freq, dur, gain, tier) {
+    if (!this.ctx) return;
+    const t = this._now();
+    const rough = [0, 0.25, 0.62, 0.9][Math.max(0, Math.min(3, tier))];
+    const out = this.ctx.createGain();
+    out.gain.setValueAtTime(0, t);
+    out.gain.linearRampToValueAtTime(gain * (1 - rough * 0.42), t + 0.012);
+    out.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    out.connect(this.master);
+
+    // 1 — the two formants
+    for (const [fHz, q, lvl] of [[700, 9 - rough * 6, 1.0], [1150, 7 - rough * 4.5, 0.7]]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      const base = freq * (1 - rough * 0.18);
+      o.frequency.setValueAtTime(base, t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(40, base * 0.72), t + dur);
+      // RAW drags the pitch around — this is the wobble that reads as a voice
+      // that has stopped obeying its owner
+      if (rough > 0.5) {
+        const lfo = this.ctx.createOscillator();
+        const lg = this.ctx.createGain();
+        lfo.type = 'sine';
+        lfo.frequency.value = 17 + rough * 22;
+        lg.gain.value = base * 0.09 * rough;
+        lfo.connect(lg); lg.connect(o.frequency);
+        lfo.start(t); lfo.stop(t + dur);
+      }
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = fHz;
+      bp.Q.value = Math.max(0.8, q);
+      const g = this.ctx.createGain();
+      g.gain.value = lvl;
+      o.connect(bp); bp.connect(g); g.connect(out);
+      o.start(t); o.stop(t + dur + 0.04);
+    }
+
+    // 2 — the inhuman layer: an octave down, and a ring-modulating fifth
+    const sub = this.ctx.createOscillator();
+    sub.type = 'square';
+    sub.frequency.setValueAtTime(freq * 0.5, t);
+    sub.frequency.exponentialRampToValueAtTime(Math.max(30, freq * 0.34), t + dur);
+    const subG = this.ctx.createGain();
+    subG.gain.value = 0.30;
+    sub.connect(subG); subG.connect(out);
+    sub.start(t); sub.stop(t + dur + 0.04);
+
+    const ring = this.ctx.createOscillator();
+    ring.type = 'sine';
+    ring.frequency.value = freq * 1.5;
+    const ringG = this.ctx.createGain();
+    ringG.gain.value = 0.0;                       // modulated, not heard alone
+    const ringDepth = this.ctx.createGain();
+    ringDepth.gain.value = 0.18 + rough * 0.16;
+    ring.connect(ringDepth); ringDepth.connect(ringG.gain);
+    subG.connect(ringG); ringG.connect(out);
+    ring.start(t); ring.stop(t + dur + 0.04);
+
+    // the breath layer — barely there when he is clear, most of the sound
+    // when he is raw
+    if (rough > 0.1) {
+      this._noise({
+        dur, gain: gain * rough * 0.55, freq: 1800 - rough * 700,
+        slideTo: 600, q: 0.7, a: 0.01
+      });
+    }
+    // ...and the crack, halfway through, once he is RAW
+    if (rough > 0.5) {
+      setTimeout(() => {
+        this._noise({ dur: 0.09, gain: 0.22, freq: 2600, q: 2.2 });
+        this._osc('square', freq * 1.9, { to: freq * 0.6, dur: 0.07, gain: 0.10 });
+      }, dur * 480);
+    }
+  }
+
+  // THE COMMAND ITSELF. `weight` picks the register (a light word is higher
+  // and shorter), `tier` degrades it.
+  command(weight = 'light', tier = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const heavy = weight === 'heavy';
+    this.theme?.duck(heavy ? 0.42 : 0.62, heavy ? 0.30 : 0.16);
+    this._voice(heavy ? 132 : 188, heavy ? 0.52 : 0.34, heavy ? 0.40 : 0.30, tier);
+    // 3 — THE SHOCKWAVE, underneath the word. This is the physical event, and
+    // it is what makes a command land like an impact rather than like a line
+    // of dialogue.
+    this._osc('sine', heavy ? 92 : 140, { to: heavy ? 32 : 54, dur: heavy ? 0.44 : 0.24, gain: heavy ? 0.55 : 0.30 });
+    this._noise({ dur: heavy ? 0.34 : 0.18, gain: heavy ? 0.30 : 0.16, freq: heavy ? 520 : 900, slideTo: 180, q: 0.6 });
+  }
+
+  // The windup — the gather at his throat. A rising resonant hum, so the
+  // opponent hears the command coming before they see the glyphs.
+  utterStart(weight = 'light', tier = 0) {
+    this.ensure(); if (!this.ctx) return;
+    const heavy = weight === 'heavy';
+    this._osc('sine', heavy ? 150 : 220, { to: heavy ? 300 : 400, dur: heavy ? 0.50 : 0.24, gain: 0.13, curve: 'exp' });
+    this._noise({ dur: heavy ? 0.52 : 0.26, gain: 0.10 + tier * 0.03, freq: 300, slideTo: 1700, q: 1.9, a: 0.06 });
+  }
+
+  // The gather collapsing when somebody hits him. A swallowed, cut-off vowel.
+  utterBreak() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sawtooth', 210, { to: 70, dur: 0.11, gain: 0.20 });
+    this._noise({ dur: 0.13, gain: 0.20, freq: 1500, slideTo: 300, q: 1.4 });
+  }
+
+  // SILENCED. Not a sting — an ABSENCE. A wet, airless rasp with no pitch in
+  // it at all, which is the correct sound for a throat that has stopped
+  // working, and the only cue in his set that is deliberately unpleasant.
+  silenced() {
+    this.ensure(); if (!this.ctx) return;
+    this._noise({ dur: 0.62, gain: 0.26, freq: 900, slideTo: 240, q: 0.8, a: 0.02 });
+    this._noise({ dur: 0.30, gain: 0.16, freq: 2800, slideTo: 900, q: 1.2 });
+    this._osc('sine', 70, { to: 40, dur: 0.5, gain: 0.14 });
+  }
+
+  // ---- ONE CUE PER COMMAND, layered UNDER `command` above ------------------
+  // Each is the physical consequence rather than the word: they fire on
+  // ARRIVAL, a beat after the voice, so a command reads as two events.
+  commandPull() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sine', 70, { to: 220, dur: 0.30, gain: 0.30 });        // rising: toward him
+    this._noise({ dur: 0.28, gain: 0.18, freq: 300, slideTo: 1400, q: 1.1 });
+  }
+  commandFlee() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sine', 240, { to: 70, dur: 0.30, gain: 0.26 });        // falling: away
+    this._noise({ dur: 0.30, gain: 0.16, freq: 1500, slideTo: 320, q: 1.0 });
+  }
+  commandSleep() {
+    this.ensure(); if (!this.ctx) return;
+    this._osc('sine', 300, { to: 84, dur: 0.75, gain: 0.20 });
+    this._osc('triangle', 150, { to: 46, dur: 0.85, gain: 0.14 });
+    this._noise({ dur: 0.7, gain: 0.09, freq: 500, slideTo: 160, q: 0.7, a: 0.09 });
+  }
+  commandTwist() {
+    this.ensure(); if (!this.ctx) return;
+    // a wrench: two detuned tones sliding PAST each other
+    this._osc('sawtooth', 180, { to: 320, dur: 0.26, gain: 0.20 });
+    this._osc('sawtooth', 300, { to: 150, dur: 0.26, gain: 0.18 });
+    this._noise({ dur: 0.20, gain: 0.24, freq: 2200, slideTo: 700, q: 2.6 });
+  }
+  commandCrush() {
+    this.ensure(); if (!this.ctx) return;
+    this.theme?.duck(0.42, 0.24);
+    this._osc('sine', 110, { to: 26, dur: 0.42, gain: 0.62 });
+    this._noise({ dur: 0.30, gain: 0.42, freq: 260, q: 0.5, type: 'lowpass' });
+  }
+  commandBlast() {
+    this.ensure(); if (!this.ctx) return;
+    this.theme?.duck(0.34, 0.30);
+    this._osc('sine', 150, { to: 30, dur: 0.52, gain: 0.66 });
+    this._noise({ dur: 0.46, gain: 0.46, freq: 1400, slideTo: 200, q: 0.5 });
+    this._noise({ dur: 0.16, gain: 0.30, freq: 5200, q: 1.0 });
+  }
+
+  // EXPLODE 爆ぜろ — the ultimate. The voice at its lowest and longest, the
+  // crack of a throat giving out at the end of it, and a detonation under
+  // everything. The one cue in his set that is allowed to be enormous.
+  explodeCommand() {
+    this.ensure(); if (!this.ctx) return;
+    this.theme?.duck(0.22, 0.9);
+    this._voice(96, 0.80, 0.48, 1);
+    this._osc('sine', 62, { to: 20, dur: 0.95, gain: 0.72 });
+    this._noise({ dur: 0.85, gain: 0.44, freq: 900, slideTo: 120, q: 0.5 });
+    setTimeout(() => {
+      // the throat going, half a second in
+      this._noise({ dur: 0.34, gain: 0.30, freq: 2400, slideTo: 700, q: 2.0 });
+      this._osc('square', 190, { to: 48, dur: 0.22, gain: 0.16 });
+    }, 520);
   }
 }

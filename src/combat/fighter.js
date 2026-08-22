@@ -1,17 +1,121 @@
 // Fighter: state machine, movement physics, resources (the MAX_CE/CURRENT_CE
 // system), combo/juggle bookkeeping, animation driving.
 import * as THREE from 'three';
-import { clamp, damp, angleDamp, yawBetween, v3, rand } from '../core/mathutil.js';
+import { clamp, damp, angleDamp, yawBetween, v3, rand, mulberry32 } from '../core/mathutil.js';
 import { AnimPlayer } from '../art/anim/player.js';
 import { BURN, tickBurn } from './burn.js';
+// URAUME's frost, and RYU's output. Both modules follow the same contract
+// every resource in this file already follows: each helper returns the
+// NEUTRAL value for a fighter whose config does not declare the resource, so
+// the shared getters call them unconditionally and there is no branch that
+// can be forgotten at one of the sites.
+import {
+  newFrost, tickFrost, frostSpeed, frostStartup, frostIncoming, frostGrounded,
+  shatterFrost
+} from './frost.js';
+import { ICE_TERRAIN } from './frost.js';
+import {
+  tierOf as outputTierOf, tierDef as outputTierDef, releaseTier as outputReleaseTier,
+  MAX_HOLD as OUTPUT_MAX_HOLD, tickBrace, BRACE
+} from './output.js';
 import { Adaptation } from './adaptation.js';
 import { hitMult, SPECIAL } from './balance.js';
 import { isContact } from './freeze.js';
 import { pickTaunt, TAUNT_COOLDOWN, TAUNT_GRANTS_METER, TAUNT_METER_BONUS } from './taunts.js';
 import { tickCharge, spendCharge, chargeDmg, chargeSize, chargeSpeed, chargeFrac } from './charge.js';
+// ---- THE THREE NEW SECOND RESOURCES -----------------------------------
+// Same import discipline as `charge` above: each module owns its own rules
+// and every function it exports returns the identity value for a fighter
+// whose config does not declare the resource, so the existing roster is
+// bit-identical and no call site below needs an `if (isMaki)`.
+import {
+  hasAwakening, tickAwakening, resetAwakening, awakenOnDeal, awakenOnTake,
+  awakenOnEvent, awakenDmg, awakenSpeed, awakenStartup, awakenBlockChip,
+  awakenStamina, awakenDashIFrames, awakenUltReady
+} from './awakening.js';
+import {
+  hasMass, tickMass, resetMass, massOnEvent, massArmor, massSpeed, massDash,
+  massKbResist, massDumpSpeed, dumpMass
+} from './mass.js';
+// CURSED SPEECH — the throat gauge, the tiers, resistance, the resolver and
+// the forced-state driver. Every helper it exports is a no-op for a fighter
+// without `cfg.throat`, which is the entire rest of the roster, so the calls
+// below are unconditional and there is no branch to forget.
+import {
+  tickThroat, checkUtterance, tickForced, isSilenced,
+  canSpeak, affordable, boundCommand, boundKey, bindCommand
+} from './speech.js';
 import { buildCores, resetCores, coresAlive, nextCore, coreIndexOf } from './cores.js';
+// ---- URO: FLIGHT AND SKY REFLECT ----------------------------------------
+// Same import discipline as `charge`, `mass` and `awakening` above: both
+// modules return the identity value for a fighter whose config does not
+// declare them, so every call site below is UNCONDITIONAL and nobody else's
+// physics or state machine grew a branch. See combat/flight.js for why the
+// altitude cap is three separate limits, and combat/reflect.js for the
+// per-tool audit of what the surface does and does not turn around.
+import { hasFlight, hovering, gravityScale, tickFlight, airLocomote, resetFlight } from './flight.js';
+import { reflectDef } from './reflect.js';
+// YAGA — the construction meter. The state machine owns the `building` state
+// and the button; everything the meter IS lives in combat/construction.js.
+import {
+  ensureBuild, tickBuilding, releaseBuild, tickBuildDecay, interruptBuild, tierFor
+} from './construction.js';
+// TAKABA — the Comedy Meter and the shared weighted roll. `rollBit` is the
+// same roller Yuta's domain uses (see the header of combat/comedy.js); his own
+// copy in domains.js is untouched.
+import { ensureComedy, tickComedy, gainComedy, tierOf as comedyTierOf, rollBit } from './comedy.js';
+// REGGIE — the receipt stock. Same import discipline as every second resource
+// above: each helper returns the neutral value for a fighter whose config does
+// not declare `cfg.receipts`, which is the whole rest of the roster, so every
+// call site below is unconditional and there is no branch to forget.
+import {
+  initReceipts, resetReceipts, tickReceipts, canAfford, spendStock,
+  earn as earnStock, soak as soakStock, stockFrac, affordableObjects, isWater
+} from './receipts.js';
 
 const GRAVITY = 26;
+
+// ---------------------------------------------------------------------------
+// THE DASH BURST
+// ---------------------------------------------------------------------------
+// A dash used to be a speed: hold the button with a direction and the velocity
+// eased toward `dashSpeed`, which took about a fifth of a second to arrive and
+// covered a metre in the process. That is a jog, and a jog does not beat a
+// startup — every attack in the game closes 1.5-2.2 m and the ones worth
+// dodging are active within a quarter of a second, so the dash could never
+// actually take you out of one.
+//
+// So the first beat of a dash is now an IMPULSE. Velocity is set outright to
+// `speed` x the character's own dash speed, held for `time`, and then eased
+// back into the ordinary dash. That is ~2.9 m of ground for a typical fighter
+// in 0.17 s, against a punch that reaches 1.6 m: the dodge is real, and it is
+// real for everyone rather than only for Toji, whose i-frames are untouched
+// and remain his own thing.
+//
+// IT COSTS MORE THAN RUNNING DOES, up front, which is the whole balance of it.
+// `costSeconds` is denominated in the character's OWN dash drain — 0.55 s of
+// dashing, paid on the frame it fires — so it scales with a roster whose
+// stamina economies differ by a factor of three, and so a fighter who has been
+// leaning on the dash cannot also have the dodge. Out of stamina for the
+// burst, the dash still works: it is just the jog it always was.
+//
+// A DIRECTION IS REQUIRED, and that falls out of `canDash` already needing
+// one — the dash button alone has never done anything. The heading is LOCKED
+// for the length of the burst: a dodge that curves under the stick is not a
+// dodge, and committing to the direction is what makes the read matter.
+const DASH_BURST = {
+  speed: 2.0,          // x dashSpeed, for the length of the burst
+  time: 0.17,          // seconds at full burst, then back to the dash
+  costSeconds: 0.55,   // x dashDrain, spent up front
+  // THE INPUT THAT BUYS IT. Not every dash opens with a burst — only the one
+  // thrown DELIBERATELY: from a standing stick, a direction and the dash
+  // button arriving together. Holding a direction and tapping dash to sprint
+  // is not a dodge and no longer gets a dodge's distance, which is what stops
+  // the burst from being the way everyone always moves. Both edges have to
+  // land inside this window of each other, in either order, because no human
+  // presses two controls on the same frame.
+  window: 0.13
+};
 // how far above the current surface a fighter may step without jumping — kerbs,
 // stair lips, the first bleacher row
 const STEP_TOL = 0.55;
@@ -31,6 +135,27 @@ const TECH_RISE_FRAMES = 15; // length of the kip-up before you can act
 // fighting-game tap window — long enough that a deliberate press never opens a
 // wheel by accident, short enough that a deliberate hold feels instant.
 const TAP_MAX = 0.17;
+
+// ---------------------------------------------------------------------------
+// URO: THE STATES THAT TAKE THE SKY AWAY FROM HER
+// ---------------------------------------------------------------------------
+// A hovering fighter keeps hovering through her own actions — techniques,
+// normals, the reflect stance, blocking — and stops hovering the moment
+// something else owns her body. That is the counterplay to the entire
+// character stated as a list: LAND A HIT AND SHE FALLS.
+//
+// `castDomain` is absent because she has no domain; it is listed anyway so the
+// rule is complete if one is ever added. `simpleDomain` and `barrierBreak` ARE
+// here — both are stationary channels, and channelling one in mid-air would
+// make the two universal anti-domain options strictly better on her than on
+// anybody else.
+const NO_HOVER = [
+  'hitLight', 'hitHeavy', 'launched', 'knockdown', 'getup', 'techRise',
+  'guardBreak', 'ko', 'victory', 'defeat', 'intro',
+  'stunned', 'frozen', 'voided', 'rooted',
+  'transfigured', 'sentenced', 'executing', 'devoured',
+  'simpleDomain', 'barrierBreak', 'castDomain'
+];
 
 export class Fighter {
   constructor({ config, model, clips, index = 0, arenaRadius, bounds = null, spawn, facing, pick = null }) {
@@ -68,6 +193,19 @@ export class Fighter {
     const s = config.stats;
     this.res = { hp: s.hp, maxCE: s.startMaxCE, curCE: s.startMaxCE, stamina: s.stamina };
 
+    // ---- THE FIGHTER'S OWN RANDOM STREAM ------------------------------------
+    // A private, seeded PRNG per fighter. Online, every client simulates every
+    // fighter off the same replicated inputs, so a stream that is only ever
+    // advanced by ONE fighter's own logic stays in step across machines without
+    // anyone having to order the calls globally — which is what makes a crit or
+    // a jackpot tier come out the same on all four screens.
+    //
+    // Offline the seed is random and nothing about it is observable. Only the
+    // gameplay-DECIDING rolls use it; particles and debris stay on Math.random,
+    // because two clients seeing different sparks is not a different game.
+    this.seed = ((Math.random() * 0x7fffffff) | 0) ^ (index * 0x9e3779b1);
+    this.rng = mulberry32(this.seed);
+
     // ---- PANDA: THE THREE CORES 呪骸核 --------------------------------------
     // `res.hp` becomes an ACCESSOR onto the active core's pool, and that one
     // redefinition is the whole reason the multi-pool health character did not
@@ -82,6 +220,21 @@ export class Fighter {
     this.cores = buildCores(config);
     this.coreIndex = 0;
     this.stance = config.cores ? config.cores.order[0] : null;
+    // REGGIE — the receipt stock, and the object currently bound to RT. The
+    // binding lives on the fighter rather than in a system because it is a
+    // pure UI selection with no world state behind it, exactly like the
+    // command Inumaki has bound to a slot.
+    initReceipts(this);
+    this.objectKey = config.objects ? config.objects.default : null;
+    // INO — the worn beast IS the stance, so the same `stance` field Panda's
+    // cores use carries it. `maskOff` / `maskRefit` are the canon weakness:
+    // seconds of having no technique at all, and seconds of pulling it back
+    // down. Both are zero for everybody else and every consumer is written as
+    // `if (this.cfg.mask)`.
+    if (config.beasts) this.stance = config.beasts.default;
+    this.maskOff = 0;
+    this.maskRefit = 0;
+    this._pendingBeast = null;
     this.swapWheel = null;       // the core radial while B is held
     this.allCoresT = 0;          // seconds of THREE CORES, ONE BODY left
     this.allCoresMult = 1;       // its scaling, fixed at cast time
@@ -102,6 +255,10 @@ export class Fighter {
 
     this.iFrames = 0;
     this.armorFrames = 0;
+    this.shell = null;          // Reiki's water shell — see `incomingMult`
+    this.dragonT = 0;           // Ino's ultimate window
+    this.exitLockT = 0;         // Kirin's "he can't move afterwards"
+
     this.juggle = 0;
     this.otgUsed = false;
     this.techLock = false;       // mistimed a tech attempt: no rise this knockdown
@@ -117,6 +274,18 @@ export class Fighter {
       soulWound: 0, domainHaste: 0, redScale: 0, bfCharge: 0
     };
     this.burn = { stacks: 0, t: 0, noDecay: false }; // Jogo's stacking fire DoT
+    // URAUME'S FROST. A stack count, a decay clock, the FROSTBOUND timer and
+    // its re-application cooldown, all on every fighter — the debuff is
+    // carried by the VICTIM, exactly as burn is, so nothing has to look up who
+    // put it there in order to tick it.
+    this.frost = newFrost();
+    // RYU'S OUTPUT. `outputT` is the held frame count of the current charge
+    // and `outputTier` the tier that count has reached; both are zero for the
+    // whole rest of the roster and are only ever written by the two charge
+    // states below.
+    this.outputT = 0;
+    this.outputTier = 0;
+    this.braceT = 0;
     this.domainHasteMult = 1;    // speed bonus inside your own domain (Jogo)
     this.bwVariant = -1;         // mahito: last Body Weapon variant (never repeats)
     this.backlash = 0;           // seconds of domain backlash left
@@ -155,6 +324,11 @@ export class Fighter {
     this.lastCT = null;          // last technique key fired (Copy roll mirrors it)
     this.rootT = 0;              // seconds left rooted by Cursed Speech
     this.aimLag = 0;             // seconds the soft lock stays stale (post-swap disorientation)
+    // ---- OFF THE FIELD --------------------------------------------------
+    // Seconds this fighter is not present. TAKABA'S TRAPDOOR and STAGE
+    // CURTAIN are the only things in the game that set it. See `setOffField`
+    // for the full audit of what this does and does not break.
+    this.offFieldT = 0;
     // OPPONENT LOCK (left stick press / L3). On by default — the whole control
     // scheme is built around it. Off, the fighter turns to face the way they
     // are moving and the stick becomes camera-relative, which is what lets a
@@ -166,6 +340,15 @@ export class Fighter {
     this.wheel = null;           // {sel, slot, t} while the shikigami wheel is held
     this.submerged = 0;          // 0..1 sunk into the shadow (untargetable at 1)
     this.shadowDash = false;     // dashing THROUGH the shadow rather than over it
+
+    // ---- the dash burst (see DASH_BURST) ----
+    this._dirEdgeT = 9;          // seconds since the stick was pressed from neutral
+    this._dashEdgeT = 9;         // seconds since the dash button went down
+    this._prevMoveMag = 0;
+    this._prevDashHeld = false;
+    this.dashBurstT = 0;         // seconds of impulse left
+    this.dashBurstDir = v3();    // the heading it committed to
+    this.dashBurst = null;       // the tunable it fired with
 
     // ---- naoya: PROJECTION SORCERY ----
     // `frozenT` is on EVERY fighter, not just Naoya, because any of them can
@@ -188,10 +371,50 @@ export class Fighter {
     // actually decides whether any of it does anything — see combat/charge.js,
     // where every helper returns a no-op for a config without it.
     this.charge = 0;
+    // ---- maki: AWAKENING 天与呪縛 ----
+    // Five fields, and like `charge` they live on EVERY fighter and are
+    // inert for all but one of them. `cfg.awakening` is what decides whether
+    // any of it does anything — see combat/awakening.js.
+    this.awaken = 0;
+    this.awakenStage = 0;
+    this.awakenUses = 0;
+    this.awakenUltCD = 0;
+    // ---- yuki: STAR RAGE 星の怒り ----
+    // `mass` is the meter, `massCharging` is set by the state machine while
+    // an attack input is held, `massDumpT` is the short mobility burst after
+    // an instant dump. See combat/mass.js.
+    this.mass = 0;
+    this.massCharging = false;
+    this.massDumpT = 0;
+    // ---- miwa: SIMPLE DOMAIN 簡易領域 ----
+    // `_sdZone` is set by combat/newshadow.js while a circle is live and is
+    // the field the shared `sdHolds` predicate in domains.js reads.
+    this._sdZone = null;
+    this.sdCooldown = 0;
     this.chargeTier = 0;
     this.amberT = 0;             // seconds of MYTHICAL BEAST AMBER left
     this.arcChain = 0;           // Arc Dash passes used in the current chain
     this.arcWindow = 0;          // seconds left to keep the chain alive
+
+    // ---- inumaki: CURSED SPEECH 呪言 ----
+    // Six fields, and like `charge` and `frozenT` they live on EVERY fighter
+    // rather than only on him. Four of them are his cost and two of them are
+    // what the WORD does to somebody else — and the somebody else can be
+    // anybody in the roster, so `forced`, `sleepT` and `twisted` have to exist
+    // on all of them. `cfg.throat` and `cfg.commands` are what decide whether
+    // any of it does anything; see combat/speech.js, where every helper
+    // returns a no-op for a config without them.
+    this.throat = 0;             // 0..cfg.throat.max — the strain gauge
+    this.throatTier = 0;         // 0 CLEAR / 1 STRAINED / 2 RAW / 3 SILENCED
+    this.throatRest = 0;         // seconds before recovery is allowed to start
+    this.voiceSpent = false;     // the ultimate's latch: SILENCED for the round
+    this.utter = null;           // {key, fired} while a command is being spoken
+    this.cmdBind = null;         // {ct1, ct2} — set on first read, see boundKey
+    // ...and the receiving end, on every fighter:
+    this.forced = null;          // {mode:'flee'|'pull', t, speed, from}
+    this.sleepT = 0;             // seconds of SLEEP's slow left
+    this.sleepMult = 1;          // how slow — read by `speedMult`
+    this.twisted = null;         // {t, mult} — GET TWISTED's output cut
 
     // ---- geto: THE CURSE STABLE ----
     // The wheel object above is shared (both summoners hold a radial), but the
@@ -256,6 +479,9 @@ export class Fighter {
     // overwrites the other's timer.
     this.ctSealT = 0;            // seconds ct1+ct2 are sealed by NULLIFY
     this.soulCut = null;         // {t, mult} — the Split Soul Katana's debuff
+    // MAKI's mirror of it: {t, mult} on damage TAKEN rather than dealt. Two
+    // separate fields on purpose — see `incomingMult`.
+    this.soulSplit = null;
 
     // ---- hanami --------------------------------------------------------
     // NATURE'S EMBRACE. `terrain` is the SETTLED reading of what he is
@@ -284,6 +510,14 @@ export class Fighter {
     // and stamina drain, so it lives on the victim rather than on the attacker.
     this.melt = null;            // {t, chip, stamina}
 
+    // URO'S DOMAIN — the rotation applied to this fighter's MOVEMENT stick, in
+    // radians. Written by domains/domains.js while THE WARPED FIRMAMENT holds
+    // and read by `_moveVec`. It is declared here rather than left implicit
+    // because a stale twist is the one way this mechanic could follow someone
+    // out of the barrier, and a field that is always a number is much harder
+    // to leave stale than one that is sometimes undefined.
+    this.coordTwist = 0;
+
     // ---- choso ---------------------------------------------------------
     // BLOOD. The second resource: it fills as he DEALS damage and as he TAKES
     // it, and every technique he owns spends it on top of cursed energy. Round
@@ -302,6 +536,17 @@ export class Fighter {
     // nails currently embedded (in a body or in the floor) are owned by the
     // effect dispatcher; this is only the count, for the HUD and the cap check
     this.nailCount = 0;
+
+    // ---- uro: FLIGHT 天使呪法 and SKY REFLECT 天逆鉾 ---------------------
+    // Four fields, and like `charge` and `frozenT` they live on EVERY fighter
+    // and are inert for all but one of them. `cfg.flight` and
+    // `cfg.special.reflect` are what decide whether any of it does anything.
+    // `hoverT` in particular is read by the HUD, the CPU, the camera and the
+    // finisher director, so it has to exist on a body that can never hover.
+    this.hoverT = 0;             // seconds of continuous hover (0 = not flying)
+    this.hoverCeil = Infinity;   // the live altitude cap at her x/z
+    this.reflectLive = 0;        // frames the reflect surface is actually up
+    this.reflectCount = 0;       // successful reflections this round (HUD)
 
     this.domainLock = null;      // 'voided' while inside Unlimited Void
     this.events = [];            // one-tick messages for match to consume
@@ -444,6 +689,11 @@ export class Fighter {
   // Wipe everything round-scoped back to opening state, keeping the life
   // count. Called between stocks so nothing (buffs, juggle, copies, backlash)
   // leaks across rounds.
+  // Online: the match hands every client the same seed table, so each
+  // fighter's private stream is the same stream on every machine. Offline
+  // nothing calls this and the constructor's random seed stands.
+  reseed(seed) { this.seed = seed >>> 0; this.rng = mulberry32(this.seed); }
+
   resetForRound(startPos, facing) {
     const s = this.cfg.stats;
     this.res.hp = s.hp;
@@ -457,12 +707,22 @@ export class Fighter {
     this.facing = facing ?? this.spawnFacing;
     this.prevFacing = this.facing;
     this.grounded = true;
+    // URO: the hover and the reflect stance are both round-scoped. A round
+    // boundary puts everyone back on the floor, including the one who does not
+    // normally go there.
+    resetFlight(this);
+    this.reflectLive = 0;
+    this.reflectCount = 0;
     this.move = null;
     this.activeHit = null;
     this.punchIndex = 0;
     this.punchQueued = false;
     this.iFrames = 0;
     this.armorFrames = 0;
+    this.shell = null;          // Reiki's water shell — see `incomingMult`
+    this.dragonT = 0;           // Ino's ultimate window
+    this.exitLockT = 0;         // Kirin's "he can't move afterwards"
+
     this.juggle = 0;
     this.otgUsed = false;
     this.techLock = false;
@@ -480,6 +740,14 @@ export class Fighter {
     this.burn.stacks = 0;
     this.burn.t = 0;
     this.burn.noDecay = false;
+    // a body shelled at the buzzer does not start the next round in ice, and
+    // a charge interrupted by the buzzer does not carry frames into the reset
+    this.frost = newFrost();
+    this.model?.setFrostShell?.(0);
+    this.outputT = 0;
+    this.outputTier = 0;
+    this.braceT = 0;
+    this.model?.setOutput?.(0, 0);
     this.bwVariant = -1;
     if (this.buffs.sukuna > 0) this.model.setSukuna?.(false);
     this.buffs.sukuna = 0;
@@ -506,11 +774,44 @@ export class Fighter {
     this.castThresholdOverride = null;
     this.lockedSlot = null;
     this.slotUse.ct1 = this.slotUse.ct2 = this.slotUse.special = 0;
+    // YAGA — the work in progress is ROUND-SCOPED. A partial build is time he
+    // spent under pressure in a round that is over; carrying it into the next
+    // one would hand him a free tier for a risk he took against a health bar
+    // that has been reset. The corpses already go (match.construction.clear).
+    if (this.build) { this.build.p = 0; this.build.holding = false; this.build.idleT = 0; this.build.worked = 0; }
+    // TAKABA — the meter is round-scoped for the same reason and the opposite
+    // feeling: a set that was killing does not carry over to a new room. It
+    // goes back to `comedy.start`, not to zero, because he walks on stage with
+    // some confidence and has to earn the rest.
+    if (this.cfg.comedy) { this.comedy = this.cfg.comedy.start; this.comedyTier = 0; }
+    this.riff = null;
+    this.offFieldT = 0;
+    this.model.setVisible?.(true);
     // an executed body does not come back next round — the round does
     this.instantKO = null;
     this.lastCT = null;
     this.rootT = 0;
+    // CURSED SPEECH — every piece of it is round-scoped, INCLUDING the
+    // `voiceSpent` latch. That is the whole meaning of "he spends his voice
+    // for the rest of the round": a new round is a new throat, and the blood
+    // on his collar is washed off with it (`clearStrain`).
+    this.throat = 0;
+    this.throatTier = 0;
+    this.throatRest = 0;
+    this.voiceSpent = false;
+    this.utter = null;
+    this.model.clearStrain?.();
+    this.model.setCollar?.(0);
+    this.model.setMarks?.(false);
+    // the bindings deliberately SURVIVE the round, exactly as Toji's equipped
+    // weapon and Megumi's shikigami slots do: they are a loadout the player
+    // chose, not a resource they spent
+    this.forced = null;
+    this.sleepT = 0;
+    this.sleepMult = 1;
+    this.twisted = null;
     this.aimLag = 0;
+    this.offFieldT = 0;
     this.aimOverride = null;
     // lockOn deliberately survives the round: it is a control preference, not
     // a combat resource
@@ -522,6 +823,7 @@ export class Fighter {
     this.wheel = null;
     this.submerged = 0;
     this.shadowDash = false;
+    this.dashBurstT = 0;
     this.model.setSubmerged?.(0);
     // PROJECTION SORCERY — every piece of it is round-scoped, including the
     // freeze. FreezeSystem.clear() restores the victim's materials on the same
@@ -544,6 +846,14 @@ export class Fighter {
     this.arcChain = 0;
     this.arcWindow = 0;
     this.model.setCharge?.(0, 0);
+    // ---- THE THREE NEW RESOURCES ARE ROUND-SCOPED TOO ---------------------
+    // Maki starts every round RESTRAINED (stage 0, glasses on), Yuki starts
+    // every round WEIGHTLESS, and Miwa starts with no circle and no cooldown.
+    // Each helper is a no-op for a config that does not declare the resource.
+    resetAwakening(this);
+    resetMass(this);
+    this._sdZone = null;
+    this.sdCooldown = 0;
     // ---- PANDA: THE THREE CORES ARE ROUND-SCOPED ---------------------------
     // This is the one place the core system deliberately parts company with
     // Megumi's shikigami ledger, which survives a round. A destroyed shikigami
@@ -560,6 +870,25 @@ export class Fighter {
     }
     this.swapWheel = null;
     this._pendingCore = null;
+    // REGGIE — the stock is ROUND-SCOPED, like every other second resource
+    // here. He starts each round holding the same tags he started the first
+    // one with; carrying an emptied stock into round two would mean losing one
+    // round loses the match, which nothing else in this game does.
+    resetReceipts(this);
+    this.objectKey = this.cfg.objects ? this.cfg.objects.default : this.objectKey;
+    this.model.setStock?.(1);
+    // INO — back to his default beast with the mask on. Round-scoped like
+    // every other resource here: a round that ended with his face uncovered
+    // does not start the next one that way. `BeastSystem.resetRound` puts the
+    // creature back; this is the fighter half.
+    if (this.cfg.beasts) {
+      this.stance = this.cfg.beasts.default;
+      this.maskOff = 0;
+      this.maskRefit = 0;
+      this._pendingBeast = null;
+      this.model.setMask?.(1);
+      this.model.setStance?.(this.stance);
+    }
     this.allCoresT = 0;
     this.allCoresMult = 1;
     this.model.setAllCores?.(false);
@@ -597,6 +926,7 @@ export class Fighter {
     this.nullifyCD = 0;
     this.ctSealT = 0;
     this.soulCut = null;
+    this.soulSplit = null;
     this.domainLock = null;
     // HANAMI: the terrain reading is rebuilt from wherever he respawns
     this.terrain = null;
@@ -611,6 +941,7 @@ export class Fighter {
     this.growthStage = 0;
     this.growthHpBonus = 0;
     this.melt = null;
+    this.coordTwist = 0;         // never survives a round boundary
     this._mawT = 0;
     this._wingT = 0;
     this.model.setGrowth?.(1);
@@ -663,7 +994,24 @@ export class Fighter {
   // `stance?.x ?? cfg.x`, so the entire existing roster is untouched.
   get stanceDef() {
     const st = this.cfg.stances;
-    return st ? (st[this.stance] || st[this.cfg.cores.order[0]]) : null;
+    if (!st) return null;
+    // ---- INO: A STANCE CHARACTER WITH NO CORES --------------------------
+    // This used to read `this.cfg.cores.order[0]` for its fallback, which was
+    // safe for as long as Panda was the only character with `stances` — and
+    // would have thrown outright the first time Ino's stance key went stale,
+    // because he has beasts and no health pools. The fallback now asks
+    // whichever system OWNS the stance list for its default.
+    //
+    // *** AND IT IS REFUSED ENTIRELY WHILE THE MASK IS OFF. *** That single
+    // line is the whole of "his technique is negated": `stats`, `_def` and
+    // `_punchSet` all route through here, so with no stance he falls back to
+    // the config's base row — base movement, base damage, base punches, and
+    // `cfg.ct1`/`cfg.ct2` which `startCT` then refuses (see the mask gate
+    // there). One return, and the entire kit is gone.
+    if (this.maskOff > 0) return null;
+    if (st[this.stance]) return st[this.stance];
+    const fallback = this.cfg.cores?.order?.[0] ?? this.cfg.beasts?.default;
+    return fallback ? st[fallback] : null;
   }
   // Movement and damage stats, stance-merged. `_locomote` and the jump branch
   // read THIS rather than `cfg.stats`, which is what makes Gorilla genuinely
@@ -707,6 +1055,24 @@ export class Fighter {
   // Mahoraga is a shikigami with no cursed-energy SYSTEM, Toji is a human being
   // whose body has none. Cleave, for one, needs to tell them apart.
   get noCE() { return !!this.cfg.noCursedEnergy; }
+
+  // ---- THE CURSED-ENERGY CEILING ------------------------------------------
+  // How much cursed energy this body can HOLD. 100 for the whole roster, which
+  // is why `gainMaxCE` clamped to a literal 100 for the project's whole life
+  // until Ryu Ishigori, whose tank is 150.
+  //
+  // *** THE ULTIMATE GATE IS NOT THIS NUMBER AND MUST NEVER BECOME IT. ***
+  // `charged` below stays `maxCE >= 100 && curCE >= maxCE`. 100 is the SHARED
+  // GATE and it is a fixed point every character, the MAX CE badge, Barrier
+  // Break and Gojo's charged Blue agree on; this is a per-character TANK SIZE.
+  // Keeping them separate is what lets one character hold half again as much
+  // cursed energy as anybody else without changing what "charged" means for
+  // the other twenty-eight. The consequence for Ryu is a real cost rather than
+  // a loophole: `charged` also demands a FULL bar, so the biggest tank in the
+  // game is also the slowest ultimate in the game to fill. See the ceiling
+  // section of combat/output.js for the audit of the two existing mechanics
+  // that read a target's MAX_CE.
+  get ceCeiling() { return this.cfg.stats?.ceCeiling ?? 100; }
 
   get charged() {
     // He can never reach the gate, so nothing gated on `charged` — the ultimate
@@ -759,6 +1125,12 @@ export class Fighter {
   }
   get speedMult() {
     let m = 1;
+    // 麒麟 KIRIN'S EXIT LOCK. Canon: "after he finishes using Kirin, he can't
+    // move for a certain amount of time." Implemented as a HARD zero rather
+    // than as a slow, because canon says cannot rather than slowly — and
+    // because a 75% slow would read as a debuff where this has to read as a
+    // consequence. He keeps his guard and his buttons the whole time.
+    if (this.exitLockT > 0) return 0;
     if (this.buffs.overtime > 0) m *= this.cfg.ct2.speedMult || 1;
     if (this.buffs.voidDebuff > 0) m *= 0.72;
     if (this.heldSword) m *= this.cfg.domain?.swords?.carrySpeedMult ?? 1.2;
@@ -780,13 +1152,64 @@ export class Fighter {
     // can do with that, and it is what makes the field a wall rather than a
     // decoration.
     if (this.floraSlow !== 1) m *= this.floraSlow;
+    // SLEEP 眠れ. NOT a stun — they keep every input, they are just wading.
+    // Deliberately on `speedMult` rather than on a state, because that is the
+    // difference between Inumaki's soft lock and Naoya's freeze: one of them
+    // takes your speed and the other one takes your body.
+    if (this.sleepT > 0) m *= this.sleepMult;
+    // ---- FROST, THE LEGS --------------------------------------------------
+    // One multiplier covers the walk, the run, the DASH DISTANCE and the clip
+    // playback, which is why "slows movement, dash distance and attack
+    // startup" is two dials in this project rather than four: the legs are all
+    // one number here and the startup is one number in `_applyGrowth`.
+    // Returns 1 for anybody carrying no stacks. While FROSTBOUND it returns
+    // 0.18 outright — they can still move, and they are not going anywhere.
+    m *= frostSpeed(this);
+    // ---- AWAKENING, THE LEGS ---------------------------------------------
+    // 0.94 at stage 0, 1.16 at stage 3. On `speedMult` rather than on the raw
+    // stats so it covers the walk, the run, the dash and the clip playback
+    // together, and cannot be forgotten at one of the four.
+    if (this.cfg.awakening) m *= awakenSpeed(this);
+    // ---- STAR RAGE, THE PRICE --------------------------------------------
+    // Mass is her damage resource AND her mobility debt, and this is the debt
+    // half. Linear in the meter, so being heavy costs speed long before it
+    // buys armour — there is no free weight. The dump grants a short burst
+    // back, which is the only escape option the worst dash in the game has.
+    if (this.cfg.mass) m *= massSpeed(this) * massDumpSpeed(this);
+    // ---- MIWA INSIDE HER OWN CIRCLE --------------------------------------
+    // 0.42 of her walk — the slowest movement in the game by a distance. She
+    // cannot pursue, which is the counterplay the whole character is priced
+    // against: a patient opponent simply backs off and waits for the stamina.
+    if (this._sdZone?.live && this._sdZone.contains(this.pos)) {
+      m *= this._sdZone.def.moveMult;
+    }
     return m;
   }
   // multiplier on damage TAKEN: Soul Wound (Mahito CT1) and max burn stacks
   get incomingMult() {
     let m = 1;
     if (this.buffs.soulWound > 0) m *= this.soulWoundMult || 1.3;
+    // SPLIT SOUL STRIKE (Maki, katana CT2). The MIRROR of Toji's Soul Cut,
+    // deliberately on the opposite multiplier: his lands on `dmgMult` and
+    // makes them WEAKER, hers lands here and makes them SOFTER. Two soul-cut
+    // debuffs on one multiplier would have been the degenerate case, and this
+    // is the line that prevents it.
+    if (this.soulSplit && this.soulSplit.t > 0) m *= this.soulSplit.mult;
+    // 霊亀 REIKI'S SHELL. The turtle brings the cursed water up around him: for
+    // 1.6 s incoming damage is cut to 55% on top of heavy armour. It sits on
+    // the same multiplier `soulSplit` does rather than on `dmgMult`, because it
+    // makes HIM harder to hurt rather than making THEM weaker — the same
+    // distinction that note above is about.
+    if (this.shell && this.shell.t > 0) m *= this.shell.mult;
     if (this.burn.stacks >= BURN.maxStacks) m *= BURN.vulnMult;
+    // ---- FROSTBOUND — THE POINT OF THE STATE ------------------------------
+    // 1.40x while the shell holds, and this is where Uraume's freeze differs
+    // from Naoya's in the one way that matters most: his grants NO damage
+    // bonus at all, so his second is worth whatever the attacker can physically
+    // fit into it, and this is worth 40% more of whatever they were going to
+    // do anyway. Two windows, two completely different optimal punishes. The
+    // full distinction is written out in combat/frost.js.
+    m *= frostIncoming(this);
     return m;
   }
   get dmgMult() {
@@ -822,6 +1245,18 @@ export class Fighter {
     // whatever it hit. On dmgMult rather than on incomingMult on purpose — it
     // makes them weaker, it does not make them softer.
     if (this.soulCut && this.soulCut.t > 0) m *= this.soulCut.mult;
+    // GET TWISTED 捻れ. Same shape as Soul Cut above and for the same reason:
+    // the word disfigures the arm they punch with, so it makes them WEAKER,
+    // not softer. It is on `dmgMult` so it covers their whole kit rather than
+    // one button, and it cannot be forgotten at a damage site.
+    if (this.twisted && this.twisted.t > 0) m *= this.twisted.mult;
+    // ---- AWAKENING, THE DAMAGE HALF --------------------------------------
+    // 0.86 at stage 0 — the lowest number in the game — climbing to 1.18 at
+    // stage 3, which is Toji's `damageScale` exactly. That equality is the
+    // point of the character. On `dmgMult` rather than per move so it covers
+    // both weapon strings, both techniques, the heavy and the ultimate at
+    // once, exactly as Kashimo's charge does.
+    if (this.cfg.awakening) m *= awakenDmg(this) / (this.cfg.stats.damageScale || 1);
     return m;
   }
   get busy() {
@@ -837,7 +1272,7 @@ export class Fighter {
   // ---- resources ----------------------------------------------------------
   gainMaxCE(base) {
     const g = base * this.backlashGrowthMult * (this.backlash > 0 ? 0.5 : 1);
-    this.res.maxCE = Math.min(100, this.res.maxCE + g);
+    this.res.maxCE = Math.min(this.ceCeiling, this.res.maxCE + g);
     this.res.curCE = this.res.maxCE; // landing punches refills to the new max
   }
   spendCE(cost) {
@@ -867,13 +1302,24 @@ export class Fighter {
 
   // ---- state helpers ------------------------------------------------------
   setState(state, opts = {}) {
+    // A BURST ENDS WITH THE DASH. Anything else taking the fighter over — a
+    // hit landing on him, a block, an attack he threw out of it, a launch —
+    // ends the impulse then and there; without this the leftover timer would
+    // be spent by whatever dash came next, in whatever direction that one was.
+    if (state !== 'dash') this.dashBurstT = 0;
     this.state = state;
     this.f = 0;
     if (opts.move !== undefined) this.move = opts.move;
     if (opts.clip) this.play(opts.clip, opts);
   }
   play(clip, opts = {}) {
-    this.anim.play(this._clip(clip), { fade: opts.fade ?? 0.09, speed: (opts.speed ?? 1) * this.speedMult, restart: opts.restart ?? true });
+    // A PLAYBACK RATE OF ZERO IS NEVER MEANT. `speedMult` is a movement scalar
+    // that happens to also drive clip speed, and it is allowed to reach 0 —
+    // Uraume's ultimate roots a body outright. A rooted fighter should stand
+    // still, not have their animation stop dead mid-punch, so the clip rate has
+    // a floor while the movement multiplier does not.
+    const sp = (opts.speed ?? 1) * Math.max(0.35, this.speedMult);
+    this.anim.play(this._clip(clip), { fade: opts.fade ?? 0.09, speed: sp, restart: opts.restart ?? true });
   }
   // carrying a domain katana swaps the run cycle for the sword-carry run
   _clip(name) {
@@ -903,6 +1349,72 @@ export class Fighter {
     if (this.cfg.charge && this.chargeTier >= 2) {
       const swap = { idle: 'idleCharged', run: 'runCharged' }[name];
       if (swap && this.anim.clips.has(swap)) return swap;
+    }
+    // INUMAKI: ONE IDLE PER THROAT TIER. Same mechanism Kashimo's coiled
+    // cycles use two blocks up, and for the same reason: the OPPONENT has to
+    // be able to read his gauge off his posture from across the arena. At
+    // SILENCED the idle is not a fighting stance at all — he is folded over
+    // his own throat — and that is the tell that says "come and collect".
+    // RYU: ONE CHARGE POSE PER TIER. Same mechanism as the three blocks above
+    // it, and for the loudest version of the same reason — the whole design
+    // rests on the opponent being able to read the tier and decide whether to
+    // run at him. The muzzle glow says it at range and the POSTURE says it in
+    // silhouette: he goes from planted, to braced, to leaning into it, to
+    // dug in with the ground giving way. Falls through to `charge` for any
+    // tier whose clip is absent, so a half-authored tier degrades instead of
+    // throwing.
+    if (this.cfg.output && name === 'charge') {
+      const swap = 'chargeT' + this.outputTier;
+      if (this.outputTier > 0 && this.anim.clips.has(swap)) return swap;
+    }
+    if (this.cfg.throat && name === 'idle') {
+      const swap = ['idle', 'idleStrained', 'idleRaw', 'idleSilenced'][this.throatTier] ?? 'idle';
+      if (swap !== 'idle' && this.anim.clips.has(swap)) return swap;
+    }
+    // TAKABA: ONE IDLE PER COMEDY TIER. Same mechanism as the four blocks
+    // above and for exactly the same reason: the OPPONENT has to be able to
+    // read how well his set is going off his POSTURE rather than off a meter
+    // on the other player's side of the screen. At OPEN MIC he is apologetic
+    // and rounded; at KILLING he is a showman. Nothing about his frame data
+    // changes between them — only how sure of himself he looks, which is the
+    // whole promise of the meter.
+    if (this.cfg.comedy && name === 'idle') {
+      const swap = ['idle', 'idleWarm', 'idleKilling'][this.comedyTier ?? 0] ?? 'idle';
+      if (swap !== 'idle' && this.anim.clips.has(swap)) return swap;
+    }
+    // MAKI: ONE NEUTRAL PER AWAKENING STAGE. Same mechanism Kashimo's coiled
+    // cycles and Inumaki's four throat idles use two blocks up, and for the
+    // same reason: the OPPONENT has to be able to read her stage off her
+    // POSTURE from across the arena rather than off a meter on the other
+    // player's side of the screen. Stage 0 has no suffix, so it IS the base
+    // clip and costs no lookup; a missing variant falls straight through.
+    if (this.cfg.awakening && this.awakenStage > 0) {
+      const s = name + 'A' + this.awakenStage;
+      if (this.anim.clips.has(s)) return s;
+      // ...and a stage with no variant of its own falls back to the highest
+      // authored one below it rather than to the braced base, so stage 2
+      // walking does not snap back to the stage-0 walk.
+      for (let k = this.awakenStage - 1; k >= 1; k--) {
+        const f = name + 'A' + k;
+        if (this.anim.clips.has(f)) return f;
+      }
+    }
+    // YUKI: past the armour threshold the neutral cycles are replaced by their
+    // HEAVY versions — lower, wider, barely moving. Same argument again: the
+    // trade she has made is legible from her posture before it is legible from
+    // the HUD, which is what makes the matchup readable.
+    if (this.cfg.mass && massArmor(this)) {
+      const swap = { idle: 'idleHeavy', walk: 'walkHeavy' }[name];
+      if (swap && this.anim.clips.has(swap)) return swap;
+    }
+    // URO: THE AERIAL SET. Every clip suffixed `Air` is the hovering version.
+    // Same string-built swap as every block above it, and it falls straight
+    // through when a clip has no air variant — which is what lets the reaction
+    // clips deliberately NOT have one (being hit out of a hover should look
+    // like being hit) without this needing to know that.
+    if (this.cfg.flight && hovering(this)) {
+      const a = name + 'Air';
+      if (this.anim.clips.has(a)) return a;
     }
     // PANDA: THE WHOLE ANIMATION SET IS PER-STANCE. Built by string from the
     // core's `clipSuffix` (''/Gor/Tri), exactly the way Toji's per-weapon idles
@@ -1008,9 +1520,14 @@ export class Fighter {
     this.play(clipName, { speed: (clip.dur / moveDur), restart: true });
   }
 
-  startCT(slot, ctx) {
+  startCT(slot, ctx, opts = {}) {
     const def = this._def(slot);
     if (!def) return false;
+    // ---- MIWA: THE DRAW ONLY EXISTS OUT OF THE STANCE --------------------
+    // The refusal lives here as well as at the press site, because `startCT`
+    // is also reached from the AI and from Yuta's Copy, and a draw fired from
+    // neutral would be her best move with none of its cost.
+    if (def.requireStance && !opts.ignoreStance) return false;
     // what this fighter leans on, for Confiscation to take away
     this.slotUse[slot] = (this.slotUse[slot] ?? 0) + 1;
 
@@ -1032,10 +1549,97 @@ export class Fighter {
       return true;
     }
 
+    // ---- INUMAKI: RB AND RT ARE WHATEVER IS BOUND TO THEM ----------------
+    // Neither slot has frame data of its own — see the note in
+    // characters/inumaki.js. Every number comes from the COMMAND currently
+    // bound to the button, so the wheel is a real decision and not a skin, and
+    // so retuning a command retunes it everywhere at once.
+    //
+    // Two refusals, both BEFORE anything is spent and both with their own
+    // line, because "nothing happened" is the worst thing a button can report:
+    //   SILENCED   he physically cannot. This is the crisis state and it has
+    //              to be legible from the button as well as from the HUD.
+    //   TOO DEAR   the word would cost more throat than he has left before
+    //              SILENCED. That is what makes BLAST AWAY a decision rather
+    //              than a habit: at 60% strain it is simply not available.
+    if (def.command) {
+      const cmd = boundCommand(this, slot);
+      if (!cmd) return false;
+      if (!canSpeak(this)) { this.emit('silenced'); return false; }
+      if (!affordable(this, cmd)) { this.emit('throatTooHigh', { cmd }); return false; }
+      const move = {
+        ...def, kind: 'ct', slot, isCT: true,
+        name: cmd.name, jpName: cmd.jp,
+        // THE UTTERANCE WINDOW *IS* THE STARTUP. The effect fires on the last
+        // frame of it (see the `ct` case), so anything that takes his state
+        // before then cancels the command for free — which is the whole
+        // counterplay and the reason it is structural rather than a check.
+        startup: cmd.utter, active: 2, recovery: def.recovery,
+        effect: 'inumaki_command', commandKey: cmd.key,
+        clip: cmd.clip, dmg: cmd.dmg, range: cmd.range
+      };
+      // `utter` is non-null for exactly as long as the cast is live and has
+      // not fired. Same contract `this.taunt` keeps — see `checkUtterance`.
+      this.utter = { key: cmd.key, fired: false };
+      this.setState('ct', { move });
+      this._syncMoveAnim(move, move.clip);
+      this.emit('utterStart', { cmd, slot });
+      return true;
+    }
+
+    // ---- INO: NO MASK, NO TECHNIQUE -------------------------------------
+    // Canon, and the hardest refusal in the game: with his face uncovered he
+    // is not a medium, so RB and RT are dead buttons. It is checked before
+    // anything is spent and it reports with its own line, because a silently
+    // dead button during the one window a player most needs to understand
+    // would be the worst possible read.
+    if (this.maskOff > 0 && this.cfg.mask && (slot === 'ct1' || slot === 'ct2')) {
+      this.emit('maskless', { slot });
+      return false;
+    }
+
+    // ---- REGGIE: RT IS WHATEVER OBJECT IS BOUND TO IT --------------------
+    // The slot has no frame data of its own worth speaking of — see the note
+    // on `ct2` in characters/reggie.js. Cost, startup, active, recovery,
+    // damage, reach, effect and clip all come from the OBJECT currently on the
+    // wheel, so the wheel is a real decision rather than a skin and retuning
+    // an object retunes it everywhere at once.
+    //
+    // Exactly the same shape as Inumaki's command branch above, and it refuses
+    // BEFORE anything is spent, with its own line, for the same reason.
+    if (def.objectSlot) {
+      const o = this.cfg.objects;
+      const obj = o?.defs?.[this.objectKey] ?? o?.defs?.[o?.default];
+      if (!obj) return false;
+      if (!canAfford(this, obj.cost)) {
+        this.emit(this.stockWet > 0 ? 'receiptsWet' : 'noStock', { need: obj.cost, have: this.stock });
+        return false;
+      }
+      if (!this.spendCE(obj.ce)) { this.emit('noCE'); return false; }
+      spendStock(this, obj.cost);
+      const move = {
+        ...def, ...obj, kind: 'ct', slot, isCT: true,
+        effect: obj.effect, clip: obj.clip, objectKey: obj.key,
+        name: obj.name, jpName: obj.jp, cost: obj.ce
+      };
+      this.setState('ct', { move });
+      this._syncMoveAnim(move, move.clip);
+      this.emit('ctStart', { move });
+      this.emit('materialise', { object: obj });
+      return true;
+    }
+
     // ---- THE SECOND-RESOURCE GATES ---------------------------------------
     // Checked BEFORE the cursed energy is spent so a refusal never costs
     // anything, and reported with their own lines — "nothing happened" is the
     // most confusing thing a button can do.
+    //
+    // REGGIE's flat-rate stock cost (his RB) joins the list. His RT is handled
+    // above, because that slot's whole definition is bound at runtime.
+    if (def.stock != null && !canAfford(this, def.stock)) {
+      this.emit(this.stockWet > 0 ? 'receiptsWet' : 'noStock', { need: def.stock, have: this.stock });
+      return false;
+    }
     if (def.blood && this.blood < def.blood) {
       this.emit('noBlood', { need: def.blood, have: this.blood });
       return false;
@@ -1046,15 +1650,36 @@ export class Fighter {
     }
 
     const wasCharged = this.charged; // must be read BEFORE the cost is paid
-    if (!this.spendCE(def.cost)) { this.emit('noCE'); return false; }
+    // ---- URO: TOTAL ENVIRONMENTAL CONTROL --------------------------------
+    // Inside her own domain she shapes the sky "without needing to make direct
+    // physical contact with her hands", and what that buys is COST and
+    // COMMITMENT: her techniques are free and their wind-up collapses. Same
+    // shape as Megumi's garden (`startShikigami` above), read off the same
+    // `isMyDomain` test, and gated on `cfg.domain.control` so it can only ever
+    // apply to a character who declares it — which is her and nobody else.
+    const ctrl = ctx?.domains?.isMyDomain?.(this) ? this.cfg.domain?.control : null;
+    if (!this.spendCE(Math.round(def.cost * (ctrl?.techCostMult ?? 1)))) {
+      this.emit('noCE'); return false;
+    }
     // Blood is committed on the PRESS, unlike Essence: his techniques all
     // produce their blood on the way out, so an interrupted Blood Edge has
     // already cost him the material. (Essence is committed on the activation
     // frame instead — see the Resonance channel below.)
     this.spendBlood(def.blood);
+    // REGGIE — committed on the PRESS, like blood and unlike essence: the tag
+    // burns on the way out, so an interrupted Quick Materialise has already
+    // cost him the paper.
+    if (def.stock != null) spendStock(this, def.stock);
     // Gojo charged: casting Blue opens the Hollow Purple window
     if (this.cfg.id === 'gojo' && slot === 'ct2' && wasCharged) this.purpleWindow = this.cfg.purple.windowFrames;
     const move = { ...def, kind: 'ct', slot, isCT: true };
+    // ...and the other half of TOTAL ENVIRONMENTAL CONTROL: the wind-up. Only
+    // `startup` is scaled, never `active` or `recovery` — she casts without
+    // the gesture, she does not get to cancel out of what she cast. A floor of
+    // 4 frames keeps the move from becoming literally unreactable.
+    if (ctrl?.techStartupMult != null) {
+      move.startup = Math.max(4, Math.round(move.startup * ctrl.techStartupMult));
+    }
     // SUKUNA — FINGER STACKS shorten technique startup. Applied HERE rather
     // than in the effect dispatcher because startup is consumed by the state
     // machine long before any effect fires; the damage and range halves of the
@@ -1064,6 +1689,26 @@ export class Fighter {
     this._applyGrowth(move);
     this._applyEssenceChannel(move);
     if (wasCharged && def.charged) Object.assign(move, def.charged, { chargedCast: true });
+    // ---- TAKABA: THE ROLL HAPPENS ON THE PRESS -------------------------
+    // Not on the active frame, and that is deliberate: each of the fourteen
+    // outcomes has its OWN animation, so the body has to know which bit it is
+    // doing before the wind-up starts. The rolled entry rides the move object
+    // — `move.bit` — so the effect dispatcher never re-rolls and the debug
+    // overlay shows the outcome that was actually bought.
+    //
+    // The roller is `rollBit` in combat/comedy.js, which is the lift of Yuta's
+    // `_rollSwordTech`: seeded stream, no immediate repeats, debug force. The
+    // only thing it adds is the Comedy Meter's weight tilt.
+    //
+    // `copyTier` is Yuta's copy, which always rolls WARM — he has no meter of
+    // his own and the meter is Takaba's confidence, not the technique's.
+    if (def.table) {
+      const b = rollBit(this, def.table, opts.copyTier ?? def.copyTier ?? null);
+      move.bit = b;
+      move.clip = b.clip ?? def.clip;
+      move.dmg = b.dmg;
+      move.name = b.name;
+    }
     // clip variants (Mahito's Body Weapon): rotate so it never repeats twice
     if (def.clips?.length) {
       let v;
@@ -1072,6 +1717,21 @@ export class Fighter {
       this.bwVariant = v;
       move.clip = def.clips[v];
       move.variant = v;
+    }
+    // ---- MIWA: THE CHARGE TIER RIDES THE MOVE ----------------------------
+    // Read off `stanceTier`, which the stance state wrote at the moment of the
+    // press, and stamped onto the move object — so the effect resolver never
+    // has to look back at a timer that has already been cleared, and the debug
+    // overlay shows the tier that was actually bought.
+    if (def.requireStance) {
+      const tiers = this._def('ct2')?.tiers ?? [];
+      const t = tiers[this.stanceTier ?? 0] ?? tiers[0];
+      if (t) {
+        move.drawTier = this.stanceTier ?? 0;
+        move.drawTierName = t.name;
+        move.dmg = (def.dmg ?? 0) * t.dmgMult;
+        move.reach = t.reach;
+      }
     }
     this.setState('ct', { move });
     this._syncMoveAnim(move, move.clip || def.clip);
@@ -1124,6 +1784,36 @@ export class Fighter {
       if (move.reach) move.reach *= 1 + (sz - 1) * 0.35;
       if (move.radius) move.radius *= sz;
       if (move.burstRadius) move.burstRadius *= sz;
+    }
+    // ---- AWAKENING, THE FRAME-DATA HALF ------------------------------------
+    // Same hook and the same reasoning as the two blocks above: this is the
+    // one place every built move passes through, so scaling here keeps the
+    // debug overlay, the hit windows and the animation speed in agreement.
+    //
+    // Her stage multiplier is ABOVE 1 at stage 0 (1.10 — every move is 10%
+    // SLOWER than printed) and below it at stages 2 and 3. That is the whole
+    // progression expressed on one line, and it is why her config's printed
+    // frame data is the mid-curve number rather than the best or worst case.
+    if (this.cfg.awakening) {
+      const k = awakenStartup(this);
+      if (move.startup) move.startup = Math.max(3, Math.round(move.startup * k));
+      if (move.recovery) move.recovery = Math.max(3, Math.round(move.recovery * k));
+    }
+    // ---- FROST, THE FRAME-DATA HALF ---------------------------------------
+    // Same hook and the same reasoning as every block above it: this is the
+    // one place every built move passes through, so scaling here keeps the
+    // debug overlay, the hit windows and the animation speed in agreement.
+    //
+    // TWO THINGS THIS DELIBERATELY DOES NOT DO. It does not touch RECOVERY —
+    // lengthening the recovery as well would double the punish window on every
+    // whiff and turn a soft debuff into a hard one — and it is NOT gated on
+    // `this.cfg`, because unlike every other block here frost is something
+    // done TO a fighter rather than something a fighter has. `frostStartup`
+    // returns 1 for a body with no stacks on it, which is everybody, almost
+    // always.
+    if (this.frost?.stacks > 0) {
+      const k = frostStartup(this);
+      if (move.startup) move.startup = Math.max(3, Math.round(move.startup * k));
     }
     if (!this.cfg.gluttony || !this.growthStage) return move;
     const k = this.reachScale;
@@ -1223,6 +1913,63 @@ export class Fighter {
     this.emit('fireArrowCancel', { reason });
   }
 
+  // ---- RYU: THE CHARGED BEAM ----------------------------------------------
+  // Entering the charge is free and instantaneous — there is no wind-up before
+  // the wind-up. What costs him is that from this frame until he lets go he is
+  // a statue, and the statue is lit up.
+  _startOutputCharge() {
+    this.outputT = 0;
+    this.outputTier = 0;
+    this.vel.x = 0; this.vel.z = 0;
+    this.setState('outputCharge', {});
+    this.play(this.cfg.output.chargeClip ?? 'charge', { fade: 0.08, speed: 1 });
+    this.emit('outputChargeStart');
+  }
+
+  // Release. The tier that fires is what he HELD, capped by what he can PAY —
+  // holding past what the bar covers does not refuse the shot, it just fires
+  // the best one he can actually buy. Refusing outright would punish a player
+  // for the one thing this character has to do constantly, which is guess.
+  _releaseBeam(ctx) {
+    const op = this.cfg.output;
+    const held = this.outputT;
+    this.outputT = 0;
+    this.outputTier = 0;
+    this.model?.setOutput?.(0, 0);
+    const tier = outputReleaseTier(this, held);
+    if (tier == null) {
+      // genuinely empty. He still has to put the cannon down, and that is the
+      // punish window — an empty Ryu who charged anyway is the worst position
+      // in the game and he should be standing in it visibly.
+      this.setState('ct', {
+        move: {
+          name: 'Granite Blast (dry)', kind: 'ct', slot: 'ct2',
+          startup: 0, active: 0, recovery: op.dryRecovery ?? 30, clip: op.fireClip ?? 'ct2'
+        }
+      });
+      this.play(op.fireClip ?? 'ct2', { fade: 0.10, speed: 1.5 });
+      this.emit('outputDry');
+      return;
+    }
+    const t = outputTierDef(tier);
+    if (!this.spendCE(t.cost)) { this.emit('noCE'); this.setState('idle', { clip: 'idle' }); return; }
+    // The move handed to the state machine carries the TIER's numbers, so
+    // there is exactly one place a beam's damage, width, range and destruction
+    // come from and the HUD, the effect and the debug overlay cannot disagree.
+    const move = {
+      ...op, ...t,
+      name: op.name, jpName: op.jpName, kind: 'ct', slot: 'ct2', isCT: true,
+      effect: op.effect, tier,
+      startup: op.fireStartup ?? 8,
+      active: op.fireActive ?? 4,
+      recovery: (op.fireRecovery ?? 26) + (op.recoveryPerTier ?? 5) * tier,
+      clip: op.fireClip ?? 'ct2'
+    };
+    this.setState('ct', { move });
+    this._syncMoveAnim(move, move.clip);
+    this.emit('outputFire', { tier });
+  }
+
   startPurple(ctx) {
     const def = { ...this.cfg.purple, kind: 'ct', isCT: true, slot: 'purple' };
     this.consumeFullBar();
@@ -1319,10 +2066,19 @@ export class Fighter {
     const def = sys.defsFor(this)[key];
     if (!this.spendCE(def.cost)) { this.emit('noCE'); return false; }
     const base = this._def(slot);
+    // A MID GRADE IS NOT A SPECIAL GRADE AND MUST NOT COST 44 FRAMES OF
+    // STARTUP. CT2's frame data is written for the monsters — a long, exposed,
+    // arms-open cast that advertises what it is paying for — and applying it to
+    // a 20-CE grasshopper would make the four new medium bodies unusable. A def
+    // may override the frames; the special grades do not, so the exposure that
+    // is the price of a monster is unchanged.
     const move = {
       name: def.name, kind: 'ct', slot, isCT: true, effect: base.effect,
-      curse: key, startup: base.startup, active: base.active,
-      recovery: base.recovery, clip: base.clip
+      curse: key,
+      startup: def.frames?.startup ?? base.startup,
+      active: def.frames?.active ?? base.active,
+      recovery: def.frames?.recovery ?? base.recovery,
+      clip: def.frames?.clip ?? base.clip
     };
     this._applyGrowth(move);
     this.setState('ct', { move });
@@ -1376,6 +2132,13 @@ export class Fighter {
     w.open = false;                 // becomes true once the hold clears TAP_MAX
     if (w.arsenal) { this.arsenal = w; this.setState('arsenal', { clip: sp.clip }); }
     else if (w.core) { this.swapWheel = w; this.setState('coreWheel', { clip: 'idle' }); }
+    // INO's ring goes to its OWN state pair rather than to the shared `wheel`,
+    // for the same reason Panda's does: releasing it commits him to a swap
+    // ANIMATION he cannot cancel, and the shared `wheel` state has no such
+    // second half. It reuses everything else — `_openWheel`, `_wheelPick`, the
+    // hold threshold, the slow-motion — so the ring behaves identically under
+    // the hand.
+    else if (w.beasts) { this.swapWheel = w; this.setState('beastWheel', { clip: sp.clip }); }
     else { this.wheel = w; this.setState('wheel', { clip: sp.clip }); }
     return true;
   }
@@ -1429,6 +2192,10 @@ export class Fighter {
     if (ctx?.match?.ritual?.active) return false;
     const def = pickTaunt(this.pick, this.tauntN);
     if (!def) return false;
+    // INO's beast turns to look at him on the line. One call, and it is the
+    // only moment in the character where the creature acknowledges its host —
+    // see the taunt note in art/anim/ino.js.
+    ctx?.match?.beasts?.tauntReact?.(this);
     // A character whose clip is missing simply does not taunt. Silently, and
     // without costing them the cooldown — a half-authored taunt should look
     // like an absent feature, not a broken button.
@@ -1481,6 +2248,37 @@ export class Fighter {
     // character with exactly one answer, chosen before he knew the question.
     // Getting seized while holding the Chain against a rushdown is a disaster.
     // It is also the correct counterplay hint — swap BEFORE the gavel lands.
+    // ---- CONFISCATION vs REGGIE'S RECEIPT STOCK -------------------------
+    // *** THE BRIEF ASKS THIS EXPLICITLY: "does locking his technique also
+    // freeze the stock?" ***
+    //
+    // THE ANSWER IS NO, AND IT IS THE SAME REASONING THE HEAVENLY-RESTRICTION
+    // CASE BELOW ALREADY USES. Higuruma's technique seizes a CURSED TECHNIQUE.
+    // 再契象 is the cursed technique; the RECEIPTS ARE NOT. They are pieces of
+    // paper in his possession, and a courtroom that seized his ability to burn
+    // them has no claim on the paper itself.
+    //
+    // So Confiscation takes a BUTTON off him like it takes one off everybody,
+    // and the stock keeps regenerating underneath it — which is a genuinely
+    // good outcome rather than a shrug: he comes out of the seizure RICH, with
+    // several seconds of banked stock and everything on the wheel affordable
+    // at once. Higuruma buys silence and pays for it afterwards.
+    //
+    // *** COMPARE WATER, WHICH DOES THE OPPOSITE AND IS THE ONLY THING THAT
+    // DOES. *** Soaking him leaves the buttons alive and makes the stock
+    // unspendable — see `canAfford` in combat/receipts.js. Those two mechanics
+    // taking opposite halves of the same character is the clearest statement
+    // this codebase makes about what the stock IS: Confiscation is about the
+    // technique, water is about the paper, and they are different things.
+    //
+    // TOJI'S INVERTED SPEAR OF HEAVEN is the same ruling by the same route: it
+    // NULLIFIES a technique in flight. Reggie's objects are NOT cursed
+    // techniques once they exist — they are a car — so the spear can no more
+    // nullify a thrown car than it can nullify a thrown rock. It touches the
+    // materialisation and nothing that came out of it. Nothing was needed to
+    // implement that: the spear's nullify path tests `hit.isCT` against
+    // techniques, and a vehicle entity's damage is charged to `reggie_car`
+    // without ever claiming to be nullifiable cursed energy.
     if (this.cfg.arsenal && this.cfg.special) {
       this.lockedSlot = { slot: 'special', t: duration };
       this.slotUse.ct1 = this.slotUse.ct2 = this.slotUse.special = 0;
@@ -1538,6 +2336,193 @@ export class Fighter {
         this._syncMoveAnim(move, sp.clip);
         return true;
       }
+      // ---- MAKI: THE WEAPON SWAP ------------------------------------------
+      // A TOGGLE, not a wheel, and that is the whole distinction from Toji's
+      // radial. There is no ring to open, no stick to steer with and no time
+      // dilation — she carries two tools and this moves one out of the way of
+      // the other. It reuses `commitWeapon` and the `arsenalSwap` STATE
+      // wholesale rather than growing a second swap path, so the vulnerable
+      // window, the 4-frame guard cancel and the prop timing are the ones that
+      // already exist and are already tested.
+      //
+      // Costs nothing, because she has nothing to spend. The cooldown exists
+      // only to stop swap-mashing.
+      // ---- RYU — BRACE ----------------------------------------------------
+      // The only special in the game whose entire payload is a resource, and
+      // the only one that is deliberately an invitation. It costs nothing to
+      // press (there is nothing to spend — spending is the problem it solves)
+      // and the price is paid entirely in seconds of standing still.
+      case 'ryu_brace': {
+        if (this.res.curCE >= this.res.maxCE - 0.01) { this.emit('braceFull'); return false; }
+        this._setSpecialCD(sp.cooldown);
+        this.braceT = 0;
+        this.vel.x = 0; this.vel.z = 0;
+        this.setState('brace', { clip: sp.clip });
+        this.emit('braceStart');
+        return true;
+      }
+
+      // ---- URAUME — FROST FIELD -------------------------------------------
+      // Freezes the ground around them instantly. It is the panic button and
+      // the setup tool at once, which is unusual and is the point: the same
+      // press that buys space also builds the floor they want to fight on.
+      // Routed through `startCT` shape rather than being its own state,
+      // because it IS a cast — it has a cost, a startup and an effect — and
+      // the effect handler owns everything that happens afterwards.
+      case 'uraume_frostfield': {
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        this._setSpecialCD(sp.cooldown);
+        const move = {
+          ...sp, name: sp.name, kind: 'ct', slot: 'special',
+          effect: 'uraume_frostfield',
+          startup: sp.castFrames, active: 1, recovery: sp.recovery ?? 16, clip: sp.clip
+        };
+        this.setState('ct', { move });
+        this._syncMoveAnim(move, sp.clip);
+        return true;
+      }
+
+      case 'maki_swap': {
+        const a = this.cfg.arsenal;
+        const cur = this.weapon ?? a.default;
+        const next = a.order[(a.order.indexOf(cur) + 1) % a.order.length];
+        this.commitWeapon(next);
+        return true;
+      }
+
+      // ---- YUKI: COMMAND GARUDA -------------------------------------------
+      // Directs the partner to dive. Note what this branch does NOT do: it
+      // does not summon anything, because Garuda is already on the field and
+      // has been since the round started. That is the character.
+      //
+      // Refused while Garuda is stunned — which is the only thing knocking it
+      // away actually buys the opponent, and it is enough.
+      case 'yuki_command': {
+        const sys = ctx.match.garuda;
+        if (!sys?.forOwner(this)) { this.emit('noCE'); return false; }
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        if (!sys.command(this, ctx.match.other(this))) {
+          this.emit('garudaStunned');
+          return false;
+        }
+        this._setSpecialCD(sp.cooldown);
+        const move = {
+          name: sp.name, kind: 'ct', slot: 'special', effect: null,
+          startup: 10, active: 1, recovery: 12, clip: sp.clip
+        };
+        this.setState('ct', { move });
+        this._syncMoveAnim(move, sp.clip);
+        return true;
+      }
+
+      // ---- MIWA: SIMPLE DOMAIN 簡易領域 ------------------------------------
+      // The character. Costs no cursed energy — she has no cursed technique
+      // and the circle is paid for entirely in stamina, continuously, for as
+      // long as she holds it.
+      //
+      // The cooldown is checked here but SET when the circle drops rather than
+      // when it is cast (see combat/newshadow.js `close`), so a long hold is
+      // followed by a long gap and she cannot re-place it the moment somebody
+      // steps out.
+      case 'miwa_simple_domain': {
+        const sys = ctx.match.newshadow;
+        if (!sys) return false;
+        // pressing it again while one is up TAKES IT DOWN — a held zone she
+        // could not dismiss would be a trap she was also caught in
+        const live = sys.zoneFor(this);
+        if (live) { live.close('dismissed'); return true; }
+        if (this.sdCooldown > 0) { this.emit('sdCooling', { t: this.sdCooldown }); return false; }
+        if (!sys.cast(this)) { this.emit('noStamina'); return false; }
+        const move = {
+          name: sp.name, kind: 'ct', slot: 'special', effect: null,
+          startup: sp.castFrames, active: 1, recovery: 8, clip: sp.clip
+        };
+        this.setState('ct', { move });
+        this._syncMoveAnim(move, sp.clip);
+        return true;
+      }
+
+      // ---- URO: SKY REFLECT 天逆鉾 -----------------------------------------
+      // A stance, not a move: it produces no hitbox and deals no damage. All
+      // it does is put `reflectLive` up for 20 frames, which is what the
+      // effect system's per-projectile check reads. See combat/reflect.js.
+      //
+      // It works in the air exactly as it does on the ground — she is airborne
+      // most of the time and a reflect she had to land for would not exist.
+      case 'uro_reflect': {
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        this._setSpecialCD(sp.cooldown);
+        const rd = reflectDef(this);
+        this._reflectR = rd.radius;
+        this._reflectArc = rd.arc;
+        this.reflectLive = 0;
+        this.setState('skyReflect', { clip: sp.clip });
+        this.play(sp.clip, { fade: 0.07 });
+        this.emit('reflectStart');
+        return true;
+      }
+
+      // ---- DAGON: SUMMON SEA SHIKIGAMI -------------------------------------
+      // ONE persistent ally outside the domain, and the STICK picks which of
+      // the three it is — the same read Jogo's eruption already uses for its
+      // aim, so there is no fourth binding and no wheel to open. The shark is
+      // domain-only; it is the payoff for getting there.
+      case 'dagon_summon': {
+        const sys = ctx.match.ocean;
+        if (!sys) return false;
+        if (sys.countFor(this) >= (sp.maxOutside ?? 1)) { this.emit('summonCapped'); return false; }
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        this._setSpecialCD(sp.cooldown);
+        const mv = input?.move ?? { x: 0, z: 0 };
+        const back = mv.z > 0.5;
+        const side = Math.abs(mv.x) > 0.5;
+        const pick = back ? sp.aim.back : side ? sp.aim.side : sp.aim.neutral;
+        const move = {
+          name: sp.name, kind: 'ct', slot: 'special', effect: 'dagon_summon',
+          startup: sp.castFrames, active: 1, recovery: 16, clip: sp.clip,
+          summonType: pick
+        };
+        this.setState('ct', { move });
+        this._syncMoveAnim(move, sp.clip);
+        return true;
+      }
+
+      // ---- YAGA: CONSTRUCTION -------------------------------------------
+      // HOLD TO BUILD. The press only OPENS the state; everything after is the
+      // `building` case below, which fills the meter, bills the cursed energy
+      // and watches for the release.
+      //
+      // Two refusals, both before anything is spent and both with their own
+      // line, because a full-hold that produces nothing is the worst thing
+      // this button could do:
+      //   CAPPED   two corpses are already standing. BLOCKED rather than
+      //            replacing the oldest — see the ruling in characters/yaga.js.
+      //   NO CE    he cannot pay the first tick. Nothing is lost; any partial
+      //            he is already carrying survives.
+      case 'yaga_build': {
+        const sys = ctx.match.construction;
+        if (sys && !sys.canBuild(this)) { this.emit('constructCapped'); return false; }
+        if (this.res.curCE < sp.ceDrain * 0.5) { this.emit('noCE'); return false; }
+        ensureBuild(this);
+        this.setState('building', { clip: sp.clip });
+        this.emit('constructStart', { progress: this.build.p });
+        return true;
+      }
+
+      // ---- TAKABA: THE RIFF ---------------------------------------------
+      // A short stance where he works the crowd. Free, on a long cooldown, and
+      // COMPLETELY vulnerable: no guard, no armour, and after `cancelBefore`
+      // no way out of it. Getting hit during it drains more meter than the
+      // whole stance was going to earn (`loseRiffInterrupt`, paid in
+      // `_applyHit`), which is what makes it a decision rather than a habit.
+      case 'takaba_riff': {
+        this._setSpecialCD(sp.cooldown);
+        this.riff = { t: 0 };
+        this.setState('riff', { clip: sp.clip });
+        this.emit('riffStart');
+        return true;
+      }
+
       case 'gojo_teleport': {
         // the one special a barrier shuts off: nothing warps out of a domain
         const d = ctx.domains.state;
@@ -1594,9 +2579,14 @@ export class Fighter {
         // nothing — but only if it is still alive. A binding pointing at a dead
         // shikigami must not be the thing a tap re-commits.
         const cur = sys.bindingOf(this, 'ct1');
+        // `selectable` is a superset of "not lost": it also excludes the
+        // ritual-only Mahoraga entry (which the wheel now SHOWS, greyed, so the
+        // technique reads as complete) and any fusion whose components have
+        // been destroyed. Both are holes in the ring rather than options that
+        // refuse at release.
         this._openWheel({
           sel: order.indexOf(cur), slot: 'ct1', t: 0, changed: false,
-          order, avail: order.filter(k => !sys.isLost(this, k))
+          order, avail: sys.selectable(this)
         }, sp);
         return true;
       }
@@ -1638,10 +2628,101 @@ export class Fighter {
         }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         // open on whatever is currently selected, so a mis-tap changes nothing
-        const order = this.cfg.curses.specialOrder;
+        // MID GRADES AND SPECIAL GRADES BOTH. The stable grew from eight to
+        // sixteen and the four new medium bodies need a home; putting them on
+        // the wheel keeps the pad mapping at three buttons (chaff / chosen /
+        // choose) instead of adding a fourth.
+        const order = this.cfg.curses.wheelOrder ?? this.cfg.curses.specialOrder;
         this._openWheel({
           sel: order.indexOf(sys.selected(this)), slot: 'ct2', t: 0, changed: false,
           order, avail: order.filter(k => !sys.isLost(this, k))
+        }, sp);
+        return true;
+      }
+
+      // ---- INUMAKI: THE COMMAND WHEEL 呪言 ---------------------------------
+      // THE FIFTH RADIAL, and it reuses `_openWheel` / `_wheelPick` and the
+      // shared `wheel` STATE wholesale rather than growing a fifth near
+      // duplicate. What differs is only what the sectors are and what
+      // confirming does, and both are read off `cfg.commands`.
+      //
+      // `avail` excludes any command his throat cannot currently pay for,
+      // which is the one thing that is genuinely new here: the ring is also
+      // the readout of what he is still allowed to say. A greyed sector is not
+      // selectable, the stick rolls past it, and the default falls through to
+      // the first word he can still afford — so the wheel can never land on a
+      // command that would be refused at release.
+      //
+      // It costs NO cursed energy and NO throat. Choosing a word is not saying
+      // one, and charging for the choice would make experimenting with the
+      // kit expensive in the only resource that matters.
+      case 'inumaki_wheel': {
+        const c = this.cfg.commands;
+        const avail = c.order.filter(k => affordable(this, c.defs[k]));
+        if (!canSpeak(this)) { this.emit('silenced'); return false; }
+        // It opens on ct2 — the heavy slot, which is the one a player is
+        // usually choosing for. RB/RT switch it while the ring is held,
+        // exactly as they do on Megumi's.
+        this._openWheel({
+          sel: c.order.indexOf(boundKey(this, 'ct2')), slot: 'ct2', t: 0, changed: false,
+          order: c.order, avail, commands: true
+        }, sp);
+        return true;
+      }
+
+      // ---- INO: THE MASK SWAP 降霊 -----------------------------------------
+      // Panda's `coreWheel` shape — a radial held open with B, time slowed, he
+      // cannot act, and release commits him to an animation he cannot cancel —
+      // with three differences that are the character:
+      //   1. IT COSTS CURRENT_CE PER SWAP, and enough of it that he cannot
+      //      cycle. See the `swapCost` note in characters/ino.js.
+      //   2. THE MASK IS A PHYSICAL OBJECT going over his face for every one
+      //      of the 30 frames (art/models/ino.js `setMask`).
+      //   3. *** IT IS REFUSED OUTRIGHT WHILE THE MASK IS OFF. *** The only
+      //      input in this game disabled by a STATE rather than by a resource.
+      //      He cannot swap to a beast he cannot channel, and the refusal is
+      //      the clearest statement the button can make about why.
+      case 'ino_wheel': {
+        if (this.maskOff > 0) { this.emit('maskless', { slot: 'special' }); return false; }
+        if (this.maskRefit > 0) { this.emit('maskless', { slot: 'special' }); return false; }
+        const b = this.cfg.beasts;
+        if (this.res.curCE < sp.cost) { this.emit('noCE'); return false; }
+        this._openWheel({
+          sel: b.order.indexOf(this.stance), slot: 'stance', t: 0, changed: false,
+          order: b.order, avail: b.order.filter(k => k !== this.stance),
+          beasts: true
+        }, sp);
+        return true;
+      }
+
+      // ---- REGGIE: THE RECEIPT WHEEL 契象選択 ------------------------------
+      // THE SIXTH RADIAL, and like Inumaki's it reuses `_openWheel` /
+      // `_wheelPick` and the shared `wheel` STATE wholesale rather than
+      // growing a sixth near duplicate. What differs is only what the sectors
+      // are and what confirming does, and both are read off `cfg.objects`.
+      //
+      // `avail` is `affordableObjects` — THE RING IS ALSO THE PRICE LIST. A
+      // sector he cannot pay for is greyed and unselectable, the stick rolls
+      // past it, and the default falls through to the first object he can
+      // still buy. So the wheel can never land on something that would be
+      // refused at release, and a player learns the economy by looking at the
+      // ring rather than by reading the HUD number.
+      //
+      // A SOAKED REGGIE HAS AN EMPTY RING. `canAfford` returns false for
+      // everything while `stockWet` is running, so `_openWheel` finds no
+      // options and refuses outright with the same `noCE` cue Geto gets with
+      // an emptied stable. That is the correct read: the technique is off.
+      case 'reggie_wheel': {
+        const o = this.cfg.objects;
+        const avail = affordableObjects(this);
+        if (!avail.length) {
+          this.emit(this.stockWet > 0 ? 'receiptsWet' : 'noStock', { need: 0, have: this.stock });
+          return false;
+        }
+        if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
+        this._openWheel({
+          sel: o.order.indexOf(this.objectKey), slot: 'ct2', t: 0, changed: false,
+          order: o.order, avail, objects: true
         }, sp);
         return true;
       }
@@ -1749,9 +2830,13 @@ export class Fighter {
       }
 
       case 'mahito_summon': {
-        // only ONE transfigured human may exist: re-summoning while one lives
-        // does nothing and costs nothing
-        if (ctx.match.minions?.aliveFor(this)) { this.emit('minionAlive'); return false; }
+        // He may field up to `maxMinions` at once. Nothing else stands in the
+        // way: with the energy and the cooldown, the summon goes out — the cap
+        // is the only limit, and at the cap the press does nothing and costs
+        // nothing.
+        const cap = sp.maxMinions ?? 3;
+        const out = ctx.match.minions?.countFor(this) ?? 0;
+        if (out >= cap) { this.emit('minionAlive', { out, cap }); return false; }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         const move = {
@@ -1957,6 +3042,61 @@ export class Fighter {
     this.emit('warp', { from, to: dest.clone() });
   }
 
+  // ---- OFF THE FIELD -------------------------------------------------------
+  // They are briefly NOT HERE. Two of Takaba's fourteen outcomes do this — the
+  // TRAPDOOR (1.1 s) and the STAGE CURTAIN (1.6 s) — and it is the single most
+  // invasive thing in either new character, so the audit the brief asks for is
+  // written here rather than in a report.
+  //
+  // WHAT IT ACTUALLY DOES: the body is hidden, the state machine runs nothing,
+  // and `applyHit` refuses everything. That last one is the load-bearing
+  // decision — ONE refusal at the single point every damage source in the game
+  // funnels through — which is why nothing had to be taught about this state
+  // individually.
+  //
+  //   DOMAINS DO NOT BREAK. A standing barrier keeps standing, keeps its
+  //     clock, and keeps its caster's buffs; its sure-hit tick simply finds
+  //     nothing to land on for a second. The one place that reaches past
+  //     `applyHit` is Unlimited Void's lockdown, which sets the victim's state
+  //     directly — `offField` is added to its non-interruptible list
+  //     (domains.js) so it cannot yank a body back out of a trapdoor.
+  //   JUGGLE COUNTERS DO NOT BREAK. They come back in a KNOCKDOWN, which is
+  //     what every other hard knockdown in the game does: `juggle` is zeroed
+  //     and the attacker gets the wake-up situation. There is no state in
+  //     which a juggle is left half-counted, because the return is not a
+  //     hitstun state.
+  //   MAHITO'S PROXIMITY GAUGE DOES NOT BREAK. *** THE POSITION IS KEPT. ***
+  //     They vanish from where they were standing and come back there. That is
+  //     deliberate and it is the whole reason nothing else needed changing:
+  //     every distance-based system in the game — the transfiguration gauge,
+  //     Miwa's circle, the soft lock, the camera frame, the arena bounds, the
+  //     summon AI's target — keeps reading a real number. The alternative (an
+  //     undefined or off-world position) would have broken all six.
+  //   MIWA'S CIRCLE DOES NOT BREAK. It is a boundary test on TRAVELLING
+  //     ENTITIES and does not care about bodies at all.
+  //   THE FINISHER TRIGGER DOES NOT BREAK. It fires on the match-ending KO,
+  //     and no KO can occur while they are gone, because nothing can damage
+  //     them. The worst case is that the killing blow lands a second later.
+  //
+  // WHAT IT REFUSES: it will not take a fighter who is already in somebody
+  // else's cinematic. A body that is being sentenced, transfigured, devoured
+  // or frozen inside Unlimited Void belongs to that system, and pulling it
+  // through a trapdoor would leave two owners.
+  setOffField(dur, opts = {}) {
+    const OWNED = ['sentenced', 'executing', 'transfigured', 'devoured', 'voided', 'ko'];
+    if (!this.alive || OWNED.includes(this.state)) return false;
+    this.offFieldT = dur;
+    this.vel.set(0, 0, 0);
+    this.activeHit = null;
+    this.move = null;
+    this.juggle = 0;
+    this.grounded = true;
+    this.model.setVisible(false);
+    this.setState('offField', { clip: 'stunned' });
+    this.emit('offField', { dur, by: opts.by ?? null });
+    return true;
+  }
+
   // TODO — Boogie Woogie: swap ground positions with the nearest opponent.
   // Only x/z trade places: each fighter keeps their own height, state, facing,
   // velocity and juggle count, so a mid-air victim keeps falling exactly as
@@ -2136,10 +3276,39 @@ export class Fighter {
   // ledger sees every route into this fighter's health — the body below
   // returns from a dozen places and each of them can subtract HP.
   applyHit(hit, ctx) {
+    // THE ONE REFUSAL THAT MAKES `offField` SAFE. They are not here, so
+    // nothing reaches them — including sure-hits, domain ticks, summons and
+    // anything added later. See `setOffField` for the full audit.
+    if (this.state === 'offField') return 'miss';
     const before = this.res.hp;
     const r = this._applyHit(hit, ctx);
     if (this.jackpot) this._rct(before);
     this._feedGauges(hit, r, before);
+    // ---- INO: THE MASK COMES OFF HERE, AND ONLY HERE ---------------------
+    // Hooked at this wrapper for exactly the reason the two second-resources
+    // above are: it is the ONE route into a fighter's health that every
+    // technique, summon, projectile, sure-hit and normal in this game already
+    // passes through. A guard break or a knockdown taking his face is the
+    // hardest counterplay window any character hands out and it must not be
+    // possible for a damage site added later to forget it. Returns immediately
+    // for anybody without `cfg.mask`, which is everyone else.
+    ctx?.match?.beasts?.onHit?.(this, hit, r);
+    // ---- FROSTBOUND SHATTERS ON THE HIT THAT USED IT ---------------------
+    // AFTER `_applyHit`, so the blow that breaks the shell is the blow that
+    // gets the 1.40x — you spend the window by hitting into it, which is the
+    // whole grammar of the state. Hooked at this wrapper rather than at any
+    // damage SITE for the same reason the two second-resources above are: it
+    // is the one route into this fighter's health that every technique,
+    // summon, projectile and sure-hit in the game already goes through, so
+    // nothing can land on a shelled body without breaking the shell.
+    //
+    // A BLOCKED hit does not break it. `_applyHit` returns 'blocked' for those
+    // and they never reached the body — the ice is still closed, and the
+    // frozen player guarding out the last tenth of a second is a real (if
+    // small) piece of counterplay rather than a bug.
+    if (this.frost?.boundT > 0 && (r === 'hit' || r === 'otg' || r === 'crit')) {
+      shatterFrost(ctx?.match ?? this._match ?? null, this);
+    }
     return r;
   }
 
@@ -2159,12 +3328,65 @@ export class Fighter {
   _feedGauges(hit, result, hpBefore) {
     const atk = hit.attacker;
     const lost = hpBefore - this.res.hp;
+    // ---- AWAKENING FEEDS FROM BOTH ENDS OF THE SAME HIT --------------------
+    // This is the one place in the codebase where an attacker and a defender
+    // are both in scope with the ACTUAL damage applied, which is exactly what
+    // the awakening meter needs: it pays for dealing damage and it pays MORE
+    // for taking it, and using the real number rather than the move's printed
+    // one means chip, blocks and resistances all feed it honestly.
+    //
+    // The asymmetry (0.80 taken vs 0.55 dealt) is the whole design — see the
+    // header of combat/awakening.js. She is built by the fight happening TO
+    // her, so a losing Maki climbs fastest and the mechanic is a comeback
+    // rather than a snowball.
+    if (lost > 0) {
+      if (hasAwakening(this)) awakenOnTake(this, lost);
+      if (atk && atk !== this && hasAwakening(atk)) awakenOnDeal(atk, lost);
+    }
+    if (result === 'block' && hasAwakening(this)) awakenOnEvent(this, 'block');
+    if (hit.type === 'knockdown' && result === 'hit' && hasAwakening(this)) {
+      awakenOnEvent(this, 'knockdown');
+    }
+    if ((result === 'hit' || result === 'otg') && hit.isCT && hasAwakening(atk)) {
+      awakenOnEvent(atk, 'land');
+    }
+    // ---- AND STAR RAGE FEEDS FROM LANDING ---------------------------------
+    // The smaller of Yuki's two build sources — charging is the main one — but
+    // it matters, because it means pressure funds the next spend rather than
+    // every heavy hit requiring a separate 1.6-second charge in neutral.
+    if ((result === 'hit' || result === 'otg' || result === 'armor') && hasMass(atk)) {
+      massOnEvent(atk, hit.isCT ? 'tech' : hit.type === 'knockdown' ? 'heavy' : 'punch');
+    }
     if (lost > 0) {
       if (this.cfg.blood) this.gainBlood(lost * (this.cfg.blood.perDamageTaken ?? 0));
       if (atk && atk !== this && atk.cfg.blood) {
         atk.gainBlood(lost * (atk.cfg.blood.perDamageDealt ?? 0));
       }
     }
+    // ---- REGGIE: THE STOCK EARNS FROM LANDING, AND DROWNS FROM WATER ------
+    // Both halves ride the same choke point every other resource here uses, so
+    // neither can be double-counted and neither needed a hook at a damage SITE.
+    //
+    // EARNING is the attacker's side. He is paid for connecting — full rate on
+    // a clean hit, a third on a block (see `blockedMult`) — which is the brief's
+    // "he's earning as the fight goes" and is also the only thing that makes
+    // the economy playable rather than a countdown.
+    if (atk && atk !== this && atk.cfg.receipts) {
+      const rc = atk.cfg.receipts;
+      const landed = result === 'hit' || result === 'otg' || result === 'armor';
+      if (landed || result === 'block') {
+        const amount = hit.stockEarn != null ? hit.stockEarn
+          : hit.isCT ? (hit.dmg ?? 0) * rc.perObject
+            : hit.type === 'knockdown' ? rc.perHeavy : rc.perPunch;
+        earnStock(atk, amount, { blocked: result === 'block' });
+      }
+    }
+    // SOAKING is the defender's side, and it is the canon counter: a wet
+    // receipt will not burn. What counts as water is `isWater` in
+    // combat/receipts.js — an explicit flag on the hit rather than a guess
+    // from its source, for the measured reason written up there.
+    if (this.cfg.receipts && isWater(hit)) soakStock(this);
+
     if (!atk || atk === this || !atk.cfg.essence) return;
     if (result !== 'hit' && result !== 'otg') return;
     const e = atk.cfg.essence;
@@ -2275,8 +3497,14 @@ export class Fighter {
     // A body this heavy gets moved, but it does not get carried. Horizontal
     // knockback and launch height scale down separately, so combos still
     // work — they are just short and low.
-    const kbR = this.cfg.kbResist ?? 1;
-    const lnR = this.cfg.launchResist ?? kbR;
+    // STAR RAGE rides the SAME block, because it is the same idea measured
+    // dynamically instead of declared statically: `massKbResist` runs from 1
+    // at empty to 0 at the armour threshold, CONTINUOUSLY rather than
+    // snapping there. A cliff would read as a bug the first time a hit at 44
+    // mass sent her flying and the same hit at 46 did not.
+    const mkb = massKbResist(this);
+    const kbR = (this.cfg.kbResist ?? 1) * mkb;
+    const lnR = (this.cfg.launchResist ?? this.cfg.kbResist ?? 1) * mkb;
     if (kbR !== 1 || lnR !== 1) {
       hit = {
         ...hit, kb: hit.kb * kbR, kbY: (hit.kbY ?? 0) * lnR,
@@ -2286,8 +3514,22 @@ export class Fighter {
 
     // armor: eat the hit, take reduced damage, no reaction.
     // RESOLVE grants armor through exactly one hit — consumed on absorb.
-    if ((this.armorFrames > 0 || this.resolveArmor) && !hit.sureHit && hit.type !== 'launcher') {
-      if (this.armorFrames <= 0) this.resolveArmor = false;
+    // STAR RAGE ARMOUR joins the existing branch rather than adding a second
+    // one. Above `mass.armorAt` she has armour through hits — and because it
+    // is THIS branch, everything already written against "is this body
+    // currently refusing to react" gets the right answer for her for free:
+    // Inumaki's three posture commands and Naoya's freeze both consult armour,
+    // and both correctly bounce off a Yuki at high mass. That interaction is
+    // called out in the delivery notes as one that had to be decided, and the
+    // decision is: YES, high mass resists forced movement, for the same reason
+    // Todo's super-armour does — being marched around is flinching.
+    //
+    // Note it obeys the same two exclusions as every other armour in the game:
+    // it does NOT stop a launcher, and it does NOT stop a sure-hit. The second
+    // is what makes Miwa's guaranteed slash beat it.
+    const heavyArmor = this.cfg.mass && massArmor(this);
+    if ((this.armorFrames > 0 || this.resolveArmor || heavyArmor) && !hit.sureHit && hit.type !== 'launcher') {
+      if (this.armorFrames <= 0 && !heavyArmor) this.resolveArmor = false;
       this.res.hp -= hit.dmg * 0.6;
       this.emit('armorHit');
       return 'armor';
@@ -2323,6 +3565,48 @@ export class Fighter {
       this.emit('guardBreak');
       return 'guardbreak';
     }
+    // ---- A SURE-HIT THAT A GUARD STILL SOFTENS -----------------------------
+    // The brief for Dagon's domain, quoted: "route their damage through the
+    // existing sure-hit path so blocking MITIGATES BUT NEVER PREVENTS."
+    //
+    // The sure-hit path as it stood did neither half of that: it skipped the
+    // block branch entirely, so a guard against a domain payload was worth
+    // exactly nothing. That was correct for every domain that existed — being
+    // told a bar of information by Unlimited Void or being cooked by the Iron
+    // Mountain are not things a raised forearm has an opinion about — but it is
+    // wrong for a creature physically biting you, which is what makes his
+    // domain different from all four of them.
+    //
+    // So: a hit that carries BOTH `sureHit` and `mitigable` still lands, still
+    // cannot be dodged, i-framed, armoured through or refused on a downed body
+    // — every guard above this line is untouched — but a raised block takes
+    // `mitigateBlock` of its damage instead of all of it. `mitigable` is set by
+    // exactly one caller (combat/ocean.js), so every existing domain payload in
+    // the game reaches this line with it absent and behaves precisely as it
+    // always has.
+    if (blocking && hit.sureHit && hit.mitigable) {
+      const soft = hit.mitigateBlock ?? 0.45;
+      const melted = this.melt && this.melt.t > 0;
+      const dealt = hit.dmg * soft * (this._tune('blockChipMult') ?? 1)
+        * awakenBlockChip(this) * (melted ? this.melt.chip : 1);
+      this.res.hp -= dealt;
+      this.res.stamina -= 10 * (this._tune('blockStaminaMult') ?? 1);
+      ctx?.match?.judgemen?.evidenceFromHit(this, true);
+      this.setState('blockstun', { clip: 'blockHit' });
+      const fwd0 = hit.dir || atk?.forward() || v3();
+      this.vel.x += fwd0.x * hit.kb * 0.35;
+      this.vel.z += fwd0.z * hit.kb * 0.35;
+      // A guard can still be BROKEN by it — which is what stops "hold block for
+      // twenty seconds" from being the answer to the domain.
+      if (this.res.stamina <= 0) {
+        this.res.stamina = 0;
+        this.setState('guardBreak', { clip: 'guardBreak' });
+        this.emit('guardBreak');
+        return 'guardbreak';
+      }
+      this._feedGauges?.(hit, 'block', this.res.hp + dealt);
+      return 'block';
+    }
     if (blocking && !hit.unblockable && !hit.sureHit) {
       // heavy guards (Mahoraga, Hanami) take a fraction of the usual chip.
       // GUARD MELT (Kurourushi's corrosive spray) multiplies both halves —
@@ -2330,7 +3614,11 @@ export class Fighter {
       // applying it here means it works against every guard in the game
       // rather than against a list of them.
       const melted = this.melt && this.melt.t > 0;
-      const chip = hit.dmg * 0.15 * (this._tune('blockChipMult') ?? 1) * (melted ? this.melt.chip : 1);
+      // AWAKENING's guard column: 1.10 at stage 0 (she guards WORSE than the
+      // roster) down to 0.74 at stage 3. Multiplied into the existing chip
+      // rather than replacing it, so a stance override still composes.
+      const chip = hit.dmg * 0.15 * (this._tune('blockChipMult') ?? 1)
+        * awakenBlockChip(this) * (melted ? this.melt.chip : 1);
       this.res.hp -= chip;
       // weak guards (Jogo) bleed stamina faster per blocked hit
       this.res.stamina -= 12 * (this._tune('blockStaminaMult') ?? 1) * (melted ? this.melt.stamina : 1);
@@ -2347,12 +3635,49 @@ export class Fighter {
         this.emit('guardBreak');
         return 'guardbreak';
       }
+      // POLITE LAUGHTER. A bit that landed and was blocked still played; it
+      // just did not kill. Small drain on the comedian, on the attacker rather
+      // than on the defender — the only place in this method that touches the
+      // other fighter's meter.
+      if (hit.attacker?.cfg?.comedy && hit.bit) {
+        gainComedy(hit.attacker, -hit.attacker.cfg.comedy.loseBlocked, 'blocked');
+      }
       return 'block';
     }
 
     // clean hit
     this.res.hp -= hit.dmg;
     this.comboTimer = 0;
+    // ---- YAGA: BEING HIT COSTS WORK ------------------------------------
+    // The single door into the interruption table, per the audit in
+    // combat/construction.js. The severity is read off the hit's own shape
+    // rather than off a per-move flag, so a technique added later is
+    // classified correctly without anybody remembering to tag it:
+    //   a KNOCKDOWN, a LAUNCHER or anything with 20+ frames of hitstun is
+    //   FORCE, and force destroys the work outright;
+    //   anything lighter is a setback.
+    // It fires whether or not he is currently HOLDING the button, which is the
+    // honest reading: a partial sitting in his hands is still in his hands.
+    if (this.build?.p > 0) {
+      // CHIP is damage that arrives in small repeated pieces rather than as a
+      // blow: a burn or bleed tick, and a domain's sure-hit tick. Nobara's
+      // Resonance reaching through a straw effigy is the case the brief names
+      // and it lands here, which is the honest classification — it hurts him
+      // at range, it is small, and it repeats.
+      const chip = hit.src === 'dot' || (hit.sureHit && hit.src === 'domain');
+      const heavy = hit.type === 'knockdown' || hit.type === 'launcher' || hit.hitstun >= 20;
+      interruptBuild(this, chip ? 'chip' : heavy ? 'heavy' : 'light');
+      if (this.state === 'building') this.emit('constructBroken');
+    }
+    // ---- TAKABA: BOMBING ------------------------------------------------
+    // Getting hit costs meter. Getting hit DURING THE RIFF costs four times as
+    // much, which is the entire price of the stance.
+    if (this.cfg.comedy) {
+      const c = this.cfg.comedy;
+      if (this.state === 'riff') gainComedy(this, -c.loseRiffInterrupt, 'riff broken');
+      else if (hit.type === 'knockdown' || hit.type === 'launcher') gainComedy(this, -c.loseHeavy, 'floored');
+      else gainComedy(this, -c.loseHit, 'hit');
+    }
     // THE CASE BUILDS FASTEST WHEN HE IS LOSING. Every clean hit landed on
     // Higuruma is evidence against whoever landed it — which is the whole
     // reason his gameplan is "survive" rather than "win the neutral".
@@ -2394,9 +3719,28 @@ export class Fighter {
     } else {
       this.vel.x += dir.x * hit.kb;
       this.vel.z += dir.z * hit.kb;
-      const heavy = hit.hitstun >= 20;
+      // ---- 麒麟 KIRIN: PAIN NULLIFICATION ---------------------------------
+      // Canon: the qilin "nullifies his sense of pain" through what the wiki
+      // describes as intracerebral doping. In this game that is not damage
+      // reduction — he takes every point — it is that HE DOES NOT FLINCH: the
+      // hitstun is cut to 62% and the knockback with it, so a Kirin Ino walks
+      // through a jab string that would put anybody else on the back foot.
+      //
+      // Applied HERE rather than at the damage site because this is where the
+      // REACTION is chosen, and the reaction is the thing being nullified. It
+      // is `stanceDef?.painNull`, so it is null for the whole roster including
+      // Ino's other two beasts, and it stops the instant the mask comes off —
+      // `stanceDef` returns null with no mask, which is the correct and
+      // automatic consequence.
+      const pn = this.stanceDef?.painNull;
+      const stun = pn ? Math.round(hit.hitstun * pn.hitstunMult) : hit.hitstun;
+      if (pn) {
+        this.vel.x -= dir.x * hit.kb * (1 - pn.kbResist);
+        this.vel.z -= dir.z * hit.kb * (1 - pn.kbResist);
+      }
+      const heavy = stun >= 20;
       this.setState(heavy ? 'hitHeavy' : 'hitLight', { clip: heavy ? 'hitHeavy' : 'hitLight' });
-      this.hitstun = hit.hitstun;
+      this.hitstun = stun;
     }
 
     // cancel whatever we were doing
@@ -2443,6 +3787,23 @@ export class Fighter {
     this.prevFacing = this.facing;
     this.f++;
 
+    // THE DASH-BURST WINDOW (see DASH_BURST). Tracked HERE rather than in
+    // `_locomote`, because locomotion only runs in the walking states: press
+    // the direction during an attack's recovery and the stick edge would never
+    // be seen, so the dodge out of it would silently be a jog.
+    this._trackDashInput(input, dt);
+
+    // ---- THE THREE NEW RESOURCES ------------------------------------------
+    // Ticked here, alongside every other per-frame resource, and each is a
+    // no-op for a config that does not declare it. Awakening has almost
+    // nothing to do (it has no decay and no passive growth — it moves only
+    // when something happens); mass runs the held charge and the dump timer
+    // and writes the model's shimmer; Miwa's circle is owned by its own
+    // system and only its cooldown lives here.
+    tickAwakening(this, dt);
+    tickMass(this, dt);
+    if (this.sdCooldown > 0) this.sdCooldown = Math.max(0, this.sdCooldown - dt);
+
     // timers
     if (this.iFrames > 0) this.iFrames--;
     if (this.armorFrames > 0) this.armorFrames--;
@@ -2470,12 +3831,77 @@ export class Fighter {
       this.gainBlood((this.cfg.blood.regen ?? 0) * dt);
     }
     tickBurn(this, dt); // Jogo's fire DoT — never feeds MAX_CE, only hurts
+    // URAUME'S FROST — the stack decay and the FROSTBOUND clock. Note what
+    // this deliberately does NOT do next to the line above it: frost has no
+    // damage-over-time at all. Burn kills you slowly; frost takes the fight
+    // away from you and does not kill you at all. See combat/frost.js.
+    tickFrost(this, dt);
     if (this.buffs.resolve > 0) {
       this.buffs.resolve -= dt;
       if (this.buffs.resolve <= 0) this.resolveArmor = false;
     }
     if (this.specialCD > 0) this.specialCD -= dt;
     if (this.tauntCD > 0) this.tauntCD -= dt;
+    // YAGA: an abandoned build sits for its grace window and then bleeds away.
+    // Ticked here rather than in the `building` state so it runs whatever he
+    // is doing — the whole point of the grace window is that he can go and
+    // fight for a second and come back to it.
+    if (this.cfg.special?.key === 'yaga_build') tickBuildDecay(this, dt);
+    // TAKABA: the slow bleed. A set does not hold itself up.
+    if (this.cfg.comedy) tickComedy(this, dt);
+    // REGGIE: the stock regenerates, the water lock counts down, and the
+    // post-ultimate halt counts down. All three are one call, and it is a
+    // no-op for everyone without `cfg.receipts`.
+    tickReceipts(this, dt);
+    // INO: the mask-off timer and the refit. One call, and a no-op for
+    // everyone without `cfg.mask`. Ticked HERE rather than in a state so it
+    // runs whatever he is doing — the whole point of the window is that it
+    // does not care what he would rather be doing.
+    ctx?.match?.beasts?.tickMask?.(this, dt);
+    // 霊亀 REIKI'S SHELL — a plain clock; the multiplier is read off it.
+    if (this.shell && this.shell.t > 0) {
+      this.shell.t -= dt;
+      if (this.shell.t <= 0) this.shell = null;
+    }
+    // ---- 龍 THE DRAGON'S WINDOW -------------------------------------------
+    // The ultimate puts him in the `ryu` stance for 8 seconds. When it closes
+    // he goes back to whatever beast he was wearing when he cast it — NOT to
+    // the default, because losing your stance as a side effect of your own
+    // ultimate would be a bug wearing a design's clothes.
+    if (this.dragonT > 0) {
+      this.dragonT -= dt;
+      if (this.dragonT <= 0) {
+        const back = this._preDragonStance ?? this.cfg.beasts?.default;
+        this._preDragonStance = null;
+        if (back) {
+          this._setStance(back, { silent: true });
+          ctx?.match?.beasts?.manifest?.(this, back);
+        }
+        this.emit('dragonEnd', {});
+      }
+    }
+    // ---- 麒麟 KIRIN: "AFTER HE FINISHES USING KIRIN, HE CAN'T MOVE" -------
+    // Canon, quoted, and it is unique on this roster: no other stance in the
+    // game punishes you for LEAVING it. Leaving Kirin for any reason — a
+    // deliberate swap, the ultimate, the mask being knocked off — roots him for
+    // `exitLock` seconds. He can still block and still attack; he simply
+    // cannot go anywhere, which is exactly what "very tired" should cost.
+    if (this.exitLockT > 0) this.exitLockT = Math.max(0, this.exitLockT - dt);
+    // KIRIN drains STAMINA as well as cursed energy — the only stance in the
+    // game that costs two resources. The CE half rides `stanceDef.ceDrain`,
+    // which Panda's Gorilla already established; this is the other half.
+    const sDrain = this.stanceDef?.staminaDrain;
+    if (sDrain) this.res.stamina = Math.max(0, this.res.stamina - sDrain * dt);
+    // ...and the PIE's slow expiring. It rides `floraSlow`, the multiplier
+    // Hanami's root field already owns and `speedMult` already reads, so no
+    // new debuff channel was needed — only a clock to hand it back. Hanami's
+    // own field rewrites `floraSlow` every frame while a fighter is standing
+    // in it, so the two cannot fight over it: whichever is active last wins,
+    // and the pie releases to 1 only if nothing else is holding it down.
+    if (this._bitSlowT > 0) {
+      this._bitSlowT -= dt;
+      if (this._bitSlowT <= 0) { this._bitSlowT = 0; this.floraSlow = 1; }
+    }
     if (this.chargeCD > 0) this.chargeCD -= dt;
     // GUARD MELT wears off on its own clock
     if (this.melt) {
@@ -2489,6 +3915,10 @@ export class Fighter {
     }
     // TOJI's three clocks. All decay on the wall clock like every other
     // cooldown here; none of them are resources and none of them build.
+    if (this.soulSplit) {
+      this.soulSplit.t -= dt;
+      if (this.soulSplit.t <= 0) { this.soulSplit = null; this.emit('soulSplitEnds'); }
+    }
     if (this.soulCut) {
       this.soulCut.t -= dt;
       if (this.soulCut.t <= 0) { this.soulCut = null; this.emit('soulCutEnds'); }
@@ -2656,6 +4086,28 @@ export class Fighter {
       this.arcWindow -= dt;
       if (this.arcWindow <= 0) this.arcChain = 0;   // the chain lapsed
     }
+    // ---- CURSED SPEECH: THE THROAT, AND THE TWO DEBUFFS IT LEAVES --------
+    // The gauge is ticked for every fighter (it returns immediately for the
+    // twenty-one who have no voice) and the model is told EVERY frame rather
+    // than only on a change, because the tier drives a continuous read too —
+    // the throat glow pulses harder as the fill climbs inside a tier.
+    if (this.cfg.throat) {
+      const t = tickThroat(this, dt);
+      this.model.setStrain?.(this.throatTier, this.throat / this.cfg.throat.max);
+      if (t !== null) this.emit('throatTier', { tier: this.throatTier, silenced: isSilenced(this) });
+    }
+    // SLEEP and GET TWISTED are plain second counters on the VICTIM, like
+    // every other debuff in this file, so the Inverted Spear's buff strip, the
+    // round reset and the KO path already know what to do with them.
+    if (this.sleepT > 0) {
+      this.sleepT -= dt;
+      if (this.sleepT <= 0) { this.sleepMult = 1; this.emit('sleepEnds'); }
+    }
+    if (this.twisted) {
+      this.twisted.t -= dt;
+      if (this.twisted.t <= 0) { this.twisted = null; this.emit('twistEnds'); }
+    }
+
     if (this.cfg.charge) {
       const changed = tickCharge(this, dt);
       // The model is told EVERY frame rather than only on a change, because
@@ -2679,7 +4131,31 @@ export class Fighter {
       this.res.curCE = Math.min(this.res.maxCE, this.res.curCE + this.cfg.stats.ceRegen * dt);
     }
     if (!dashing && !blockingNow && this.state !== 'barrierBreak') {
-      this.res.stamina = Math.min(this.cfg.stats.stamina, this.res.stamina + this.cfg.stats.staminaRegen * dt);
+      // AWAKENING scales BOTH the ceiling and the rate — 0.90 at stage 0,
+      // 1.30 at stage 3 — so "better stamina" is a real, felt improvement
+      // rather than a bigger number she refills at the same speed.
+      // MIWA: her circle HALTS regen entirely while it is up (`haltRegen`),
+      // which is what makes the drain figure honest — 26/s against a pool
+      // that is not refilling is about five seconds, not indefinite.
+      const sdHalt = this._sdZone?.live && this._sdZone.def.haltRegen;
+      // ---- FLIGHT HALTS REGEN, EXACTLY AS MIWA'S CIRCLE DOES ---------------
+      // FOUND BY PLAYING IT, and it was the difference between a leash and no
+      // leash at all. Hovering drains 13 stamina/s and her regen is 19/s, so
+      // with the regen still running she gained six a second in mid-air and
+      // could stay up for the entire round — the whole balance of the character
+      // undone by one line that was never written.
+      //
+      // With it halted, the numbers in characters/uro.js mean what they say:
+      // ~9.0 s of holding station and ~5.6 s of continuous climbing on a full
+      // bar, and she has to come down and stand still to get it back. It uses
+      // the same shape Miwa's `haltRegen` already established one line up,
+      // which is why there is no third mechanism here.
+      const flightHalt = hovering(this);
+      if (!sdHalt && !flightHalt) {
+        const sk = awakenStamina(this);
+        this.res.stamina = Math.min(this.cfg.stats.stamina * sk,
+          this.res.stamina + this.cfg.stats.staminaRegen * sk * dt);
+      }
     }
 
     // ---- REVERSE CURSED TECHNIQUE (Sukuna, passive) -------------------------
@@ -2738,6 +4214,11 @@ export class Fighter {
     // all this tick — a hit, a domain, a KO — drops its bubble on the same
     // frame the pose is interrupted rather than a frame later.
     this._tauntCheck();
+    // ...and immediately after that, for exactly the same reason: an utterance
+    // is alive only while its own `ct` state is, so ANYTHING that took his
+    // state this tick has already cancelled the command, and this is where he
+    // is charged for it. See `checkUtterance` in combat/speech.js.
+    checkUtterance(this);
     this._physics(dt);
     this._faceOpponent(ctx, dt);
     this._props(ctx);
@@ -2795,8 +4276,20 @@ export class Fighter {
   // his body is still standing in one, and that is the one that bleeds.
   _setStance(key, { silent = false } = {}) {
     if (!this.cfg.stances?.[key]) return false;
+    // THE EXIT LOCK IS ARMED ON THE WAY OUT, not on the way in — see the note
+    // in `update`. Read off the stance being LEFT, so it fires for every route
+    // out of Kirin including ones added later.
+    const leaving = this.cfg.stances[this.stance];
+    if (leaving?.exitLock && key !== this.stance) {
+      this.exitLockT = leaving.exitLock;
+      this.emit('exitLock', { from: this.stance, duration: leaving.exitLock });
+    }
     this.stance = key;
-    const i = coreIndexOf(this, key);
+    // INO has no cores, so the core index has nothing to follow. `coreIndexOf`
+    // returns -1 for a fighter with no `cores` array and the guard below
+    // already handled that, but the emit is now explicitly per-family so a
+    // beast swap announces itself as a beast swap rather than silently.
+    const i = this.cores ? coreIndexOf(this, key) : -1;
     if (i >= 0 && this.cores[i].alive) this.coreIndex = i;
     this.model.setStance?.(key);
     if (!silent && i >= 0) {
@@ -2850,6 +4343,35 @@ export class Fighter {
       this.emit('lockToggle', { on: this.lockOn });
     }
 
+    // ---- URO: THE HOVER IS A PROPERTY OF THE BODY, NOT OF A STATE --------
+    // FOUND BY PLAYING IT. The first version ticked flight only inside the
+    // `jump`/`fall` branch, which meant she held herself up in neutral and
+    // then SANK through every technique, every normal and the reflect stance —
+    // a character who fell out of the sky the moment she did anything, which
+    // is the opposite of the design.
+    //
+    // So it is ticked HERE, above the state machine, for every state that is
+    // not one of the ones below. The list is short and every entry is
+    // deliberate: they are the states in which she has LOST CONTROL of her own
+    // body, and losing the sky with it is the counterplay. Getting hit drops
+    // her, and that is the whole answer to the character.
+    if (hasFlight(this) && !this.grounded && !NO_HOVER.includes(S)) {
+      tickFlight(this, input, ctx, dt);
+    } else if (hasFlight(this)) {
+      // ...and the ELSE is not optional. `hovering()` is `hoverT > 0 &&
+      // !grounded`, and `gravityScale()` returns ZERO while that holds — but
+      // `hoverT` is only ever cleared inside `tickFlight`, which is exactly the
+      // function this branch is skipping. Launch Uro into the air and the state
+      // goes to `launched`, `tickFlight` stops running, `hoverT` keeps its last
+      // non-zero value, gravity stays switched off AND the altitude clamp at
+      // the bottom of `tickFlight` stops running too — so she rises out of the
+      // map on the knockback impulse and never comes back. Reported from a real
+      // match as flying into the multiverse. Losing the sky when you get hit is
+      // the whole counterplay to the character; this is where it actually
+      // happens.
+      resetFlight(this);
+    }
+
     // ---- THE SUMMON RITUAL (Megumi) ---------------------------------------
     // The ONE input that reaches into the domain cast. While the barrier is
     // still being drawn, the SPECIAL button (B) abandons it and calls Mahoraga
@@ -2889,6 +4411,38 @@ export class Fighter {
     // this gate for every state in the game because it is a control preference
     // and not a move. That is correct: being unable to move should not also
     // mean being unable to look.
+    // `commanded` is NOT on this list, but it is handled by its own case below
+    // and that case reads no input either — so for the length of the carry it
+    // behaves like one of these. That is stated plainly rather than dressed
+    // up: forced movement IS an input lock, and the honest defence of it is
+    // that it is SHORT (1.1 s and 0.55 s before resistance and blocking take
+    // their cuts, against Naoya's flat one second), that it deals no damage,
+    // and that it hands the body back standing and neutral rather than in
+    // hitstun. See the honesty note in the delivery report.
+    // ---- OFF THE FIELD -------------------------------------------------
+    // Placed with the other input-locked states and ABOVE their early return,
+    // because this one owns a clock and they do not: everything below this
+    // line — Black Flash's window, Nobara's confirm, the taunt, the whole
+    // switch — is correctly unreachable for a body that is not in the room,
+    // but the clock still has to run or they would never come back.
+    if (S === 'offField') {
+      this.offFieldT -= dt;
+      this.iFrames = Math.max(this.iFrames, 4);
+      this.vel.set(0, 0, 0);
+      if (this.offFieldT <= 0) {
+        this.offFieldT = 0;
+        this.model.setVisible(true);
+        // They come back in a HARD KNOCKDOWN, face down, where they left. The
+        // juggle ledger is zeroed exactly as any other knockdown zeroes it, so
+        // there is no state in which a juggle is left half-counted.
+        this.juggle = 0;
+        this.otgUsed = false;
+        this.techLock = false;
+        this.setState('knockdown', { clip: 'knockdown' });
+        this.emit('offFieldReturn');
+      }
+      return;
+    }
     if (['voided', 'simpleDomain', 'barrierBreak', 'castDomain', 'rooted', 'transfigured',
       'sentenced', 'executing', 'devoured', 'frozen'].includes(S)) return;
     if (S === 'ko' || S === 'victory' || S === 'intro') return;
@@ -2949,6 +4503,27 @@ export class Fighter {
         if (input.ultP && this.cfg.ultimate?.kind === 'cooldown') {
           if (this.assassinReady && this.grounded) { this.startAssassination(ctx); break; }
           this.emit('assassinCooling', { t: this.assassinCD });
+          break;
+        }
+        // MAKI — D-pad Right is gated on AWAKENING rather than on a bar. She
+        // has no cursed energy, so `ultReady` is permanently false for her;
+        // rather than special-casing that getter — which would have touched
+        // Toji's path — this is a separate `kind`, checked here, exactly as
+        // his `cooldown` kind is checked immediately above. A pressed-but-not-
+        // ready button reports WHY rather than being swallowed, because the
+        // whole point of the gate is that the player is chasing it all round.
+        if (input.ultP && this.cfg.ultimate?.kind === 'awakening') {
+          if (awakenUltReady(this) && this.grounded && !input.block) {
+            this.awakenUses = (this.awakenUses ?? 0) + 1;
+            this.awakenUltCD = this.cfg.ultimate.cooldown ?? 30;
+            this.startUltBurst(ctx);
+            break;
+          }
+          this.emit('awakenGate', {
+            stage: this.awakenStage,
+            need: this.cfg.ultimate.requireStage ?? 3,
+            used: (this.awakenUses ?? 0) >= (this.cfg.ultimate.uses ?? 1)
+          });
           break;
         }
         if (input.ultP && this.ultReady && this.grounded) {
@@ -3027,16 +4602,51 @@ export class Fighter {
           this.emit('nullifyCooling', { t: this.nullifyCD });
           break;
         }
+        // ---- MIWA: THE STANCE, AND THE DRAW THAT NEEDS IT ------------------
+        // RT is not a technique, it is a POSTURE, so it does not go through
+        // `startCT` at all — there is no hitbox, no cost and no active frames
+        // to build. It enters its own state and waits.
+        if (input.ct2P && this._def('ct2')?.effect === 'miwa_stance' && this.grounded) {
+          this.stanceHold = 0;
+          this._stanceTierShown = -1;
+          this.setState('stance', { clip: this._def('ct2').enterClip ?? 'stanceEnter' });
+          this.emit('miwaStance');
+          break;
+        }
+        // ---- RB FROM NEUTRAL ENTERS THE STANCE ----------------------------
+        // It used to be refused outright, which meant a player pressing RB saw
+        // nothing happen and reasonably concluded she had no RB. The draw
+        // still only exists out of the stance — that commitment is the
+        // character — but the button now TAKES YOU THERE instead of scolding
+        // you, so the relationship between the two is discoverable by pressing
+        // them. A second RB from inside the stance draws.
+        if (input.ct1P && this._def('ct1')?.requireStance && this.grounded) {
+          this.stanceHold = 0;
+          this._stanceTierShown = -1;
+          this.setState('stance', { clip: this._def('ct2').enterClip ?? 'stanceEnter' });
+          this.emit('miwaStance');
+          break;
+        }
         if (input.ct1P) { if (this.startCT('ct1', ctx)) break; }
         // SUKUNA: from two Finger stacks RT stops being a plain button. The
         // press opens an 8-frame stance — let go inside it and you get Cleave,
         // keep holding and you have committed to the Fire Arrow charge. Below
         // two stacks this branch does not exist and RT is Cleave with no delay.
         if (input.ct2P && this.fireArrowReady && this.grounded) { this._startFireStance(); break; }
+        // ---- RYU: RT IS A HOLD, ALWAYS -------------------------------------
+        // Structurally the same tap/hold split Sukuna's Fire Arrow already
+        // uses, and deliberately so — a player who has learned one has learned
+        // the other. The difference is that Sukuna's tap falls back to a
+        // DIFFERENT MOVE (Cleave) and Ryu's tap is the same move at its
+        // weakest tier, which is canon: he charges Granite Blast in a rush in
+        // ch.177 and Yuta blocks the weaker blast with his bare hands.
+        if (input.ct2P && this.cfg.output && this.grounded) { this._startOutputCharge(); break; }
         if (input.ct2P) { if (this.startCT('ct2', ctx)) break; }
         if (input.heavyP && this.grounded) { if (this.startHeavy(ctx)) break; }
         if (input.punchP && this.grounded) { this.startPunch(0); break; }
-        if (input.jumpP && this.grounded) {
+        // ...and the jump, for the same reason and on the same predicate. A
+        // body in a closed ice shell does not leave the floor.
+        if (input.jumpP && this.grounded && !frostGrounded(this)) {
           this.vel.y = stats.jumpVel;
           this.grounded = false;
           this.setState('jump', { clip: 'jump' });
@@ -3049,6 +4659,39 @@ export class Fighter {
       }
 
       case 'jump': case 'fall': {
+        // ---- URO: THE HOVER ------------------------------------------------
+        // The whole of flight, at one site. `tickFlight` returns true if she is
+        // holding herself up this frame; if she is, the air becomes a real
+        // movement state with her own locomotion, her own techniques and her
+        // own normals rather than the brief ballistic arc everyone else gets.
+        //
+        // NOTE WHAT IS NOT HERE: no new state, no new input, and no branch for
+        // anybody else. `tickFlight` returns false for the entire existing
+        // roster on its first line, so the block below is the untouched
+        // original for all twenty-five of them.
+        // `hovering` rather than `tickFlight`: the tick already ran above, for
+        // every state rather than only for this one.
+        if (hovering(this)) {
+          airLocomote(this, input, ctx, dt);
+          const air = this.cfg.air || {};
+          if (input) {
+            if (input.punchP && air.normals !== false) { this.startPunch(0); break; }
+            if (air.techniques !== false) {
+              if (input.ct1P) { if (this.startCT('ct1', ctx)) break; }
+              if (input.ct2P) { if (this.startCT('ct2', ctx)) break; }
+              if (input.copyP) { if (this.trySpecial(input, ctx)) break; }
+            }
+            if (input.ultP && this.ultReady) { /* handled by the ultimate path */ }
+            if (input.taunt) { if (this.tryTaunt(ctx)) break; }
+          }
+          // She stays in `fall` while hovering so every existing air check in
+          // the game (`airborne`, the launcher's juggle rules, the tech window)
+          // continues to see an airborne fighter — which is correct, and is why
+          // there is no `hover` state.
+          if (S === 'jump') this.setState('fall', { clip: 'fall' });
+          else this.anim.play(this._clip('fall'), { fade: 0.16, restart: false });
+          break;
+        }
         if (input) {
           const fwd = this._moveVec(input.move, ctx.camYaw);
           this.vel.x += fwd.x * 14 * dt;
@@ -3060,6 +4703,33 @@ export class Fighter {
         }
         if (this.vel.y < 0 && S === 'jump') this.setState('fall', { clip: 'fall' });
         if (this.grounded) { this.setState('land', { clip: 'land' }); this.emit('land'); }
+        break;
+      }
+
+      // ---- URO: THE SKY REFLECT STANCE ------------------------------------
+      // Three phases on one frame counter, and the ONLY thing the state does
+      // is decide whether `reflectLive` is above zero — everything else is in
+      // combat/reflect.js, which the effect system consults per projectile.
+      // Keeping the state this thin is deliberate: the reflect has to hold
+      // while she is airborne, while she is drifting, and while the world is
+      // moving her, and a state that also owned her physics would fight all
+      // three.
+      case 'skyReflect': {
+        const rd = reflectDef(this);
+        this._reflectR = rd.radius;
+        this._reflectArc = rd.arc;
+        const live = this.f > rd.startup && this.f <= rd.startup + rd.active;
+        this.reflectLive = live ? 1 : 0;
+        if (this.f === rd.startup + 1) this.emit('reflectUp');
+        if (this.f === rd.startup + rd.active + 1) this.emit('reflectDown');
+        // She keeps her altitude through the stance — the tick above handles
+        // it — but she cannot STEER: the surface is a plane she is holding
+        // still, and a reflect she can walk behind is not a read. That falls
+        // out of not calling `airLocomote` here rather than needing a flag.
+        if (this.f >= rd.startup + rd.active + rd.recovery) {
+          this.reflectLive = 0;
+          this.setState(this.grounded ? 'idle' : 'fall', { clip: this.grounded ? 'idle' : 'fall' });
+        }
         break;
       }
 
@@ -3144,12 +4814,159 @@ export class Fighter {
         // CHOSO — the PIERCING BLOOD load. One announcement on frame one; the
         // animation does the rest by simply not moving.
         if (m.effect === 'choso_piercing_blood' && this.f === 1) this.emit('piercingLoad');
+        // ---- INUMAKI: THE UTTERANCE ---------------------------------------
+        // The third long tell, and the loudest. It runs EVERY frame of the
+        // startup rather than firing once, because the whole balance of the
+        // character is that the opponent can see a command coming: the collar
+        // pulls down, the cursed energy gathers at his throat, the markings
+        // light, and the air in front of his mouth distorts, continuously,
+        // for as long as he is speaking. `k` is how far through the word he
+        // is, so the gather is a progress bar the opponent can read.
+        if (m.commandKey && this.f <= m.startup) {
+          const cmd = this.cfg.commands.defs[m.commandKey];
+          ctx.match.speechfx?.utterance(this, this.f / Math.max(1, m.startup), cmd.color, cmd.weight);
+        }
+        // ---- YUKI: THE HELD MASS CHARGE ------------------------------------
+        // "Chargeable — hold to build mass into it." Implemented by HOLDING
+        // THE FRAME COUNTER at the last frame of the startup while the button
+        // is down, rather than by a separate charge state: that way the move
+        // is already fully wound up and simply waits, the animation sits on
+        // its own wind-up key, and releasing fires the identical active frames
+        // the uncharged version would have. Nothing about the hit resolution
+        // has to know a charge happened — the meter does all of it.
+        //
+        // Capped at `maxChargeFrames` so it cannot be held for the whole
+        // round, and `massCharging` is what combat/mass.js actually reads to
+        // fill the bar.
+        if (m.chargeable && this.f >= m.startup) {
+          const held = (this.massHeld ?? 0);
+          const stillHolding = !!(input && (m.slot === 'ct1' ? input.ct1 : input.ct2));
+          if (this.f === m.startup && stillHolding && held < (m.maxChargeFrames ?? 96)) {
+            this.massHeld = held + 1;
+            this.massCharging = true;
+            this.f--;                       // hold here; the meter is filling
+            if (this.massHeld === 1) this.emit('massChargeStart');
+            break;
+          }
+          if (this.massCharging) {
+            this.massCharging = false;
+            this.massHeld = 0;
+            this.emit('massChargeRelease');
+          }
+        }
         if (this.f === m.startup) ctx.effects.fire(this, m, ctx);
         // multi-hit ults re-fire during active frames
         if (m.hits && this.f > m.startup && this.f < m.startup + m.active && (this.f - m.startup) % 14 === 0) {
           ctx.effects.fire(this, m, ctx, true);
         }
         if (this.f >= m.startup + m.active + m.recovery) { this.setState('idle', { clip: 'idle' }); this.move = null; }
+        break;
+      }
+
+      // ---- MIWA: THE SHEATHE STANCE 抜刀構え -----------------------------
+      // The only state in this project where a fighter deliberately does
+      // NOTHING and that is the move. She is nearly immobile, she has no
+      // armour, and any hit drops the stance and the charge with it. What she
+      // is buying is a damage multiplier on the draw, in four tiers, and the
+      // whole gameplan is to buy it somewhere the opponent cannot reach her —
+      // which means inside her own circle, where the auto-counter is watching
+      // the perimeter for her.
+      case 'stance': {
+        const d = this._def('ct2');
+        // ---- IT IS A TOGGLE, NOT A HOLD -----------------------------------
+        // The first version required RT to be HELD, and that was the wrong
+        // call twice over. Mechanically it was fragile — see the `keepState`
+        // note on `_locomote`, which was ejecting her every frame — and even
+        // once that was fixed it was UNDISCOVERABLE: every other technique in
+        // this game is a press, so a player tapping RT saw a single frame of
+        // nothing and concluded the button was dead. Which is exactly what
+        // happened.
+        //
+        // Now: RT enters and STAYS. The charge climbs on its own. RT again
+        // leaves it, RB draws out of it, and being hit drops it. The bluff the
+        // hold version was protecting still exists — entering the stance and
+        // NOT drawing is still a real thing to do — and it no longer costs the
+        // player a finger to stay in it.
+        if (!input) { this.stanceHold = 0; this.setState('idle', { clip: 'idle' }); break; }
+        if (input.ct2P && this.f > 6) {
+          this.stanceHold = 0;
+          this.setState('idle', { clip: 'idle' });
+          this.emit('miwaStanceExit');
+          break;
+        }
+        // guard, jump and dash all leave it, because a posture you cannot get
+        // out of defensively is a trap rather than a stance
+        if (input.block || input.jumpP || input.dash) {
+          this.stanceHold = 0;
+          this.setState(input.block ? 'block' : 'idle', { clip: input.block ? 'block' : 'idle' });
+          break;
+        }
+        this.stanceHold = Math.min(d.maxHoldFrames ?? 102, (this.stanceHold ?? 0) + 1);
+        // announce each tier as it is reached, so the player can see what they
+        // are buying without reading the config
+        {
+          const tiers = d.tiers ?? [];
+          let t = 0;
+          for (let i = 0; i < tiers.length; i++) if (this.stanceHold >= tiers[i].at) t = i;
+          if (t !== this._stanceTierShown) { this._stanceTierShown = t; this.emit('stanceTier', { tier: t, def: tiers[t] }); }
+        }
+        // the entry clip runs once, then she settles into the still one
+        if (this.f === Math.round((d.enterFrames ?? 16))) this.play(d.clip ?? 'stance', { fade: 0.12 });
+        // ---- RB DRAWS -------------------------------------------------------
+        // The tier is read off `stanceHold` at the moment of the press and
+        // written onto the move, so the effect resolver never has to look back
+        // at a timer that has already been cleared.
+        if (input.ct1P) {
+          const tiers = d.tiers ?? [];
+          let tier = 0;
+          for (let i = 0; i < tiers.length; i++) if (this.stanceHold >= tiers[i].at) tier = i;
+          this.stanceTier = tier;
+          this.stanceHold = 0;
+          if (this.startCT('ct1', ctx, { ignoreStance: true })) break;
+          this.setState('idle', { clip: 'idle' });
+          break;
+        }
+        // she can shuffle, barely, to fix her line — but nowhere near enough
+        // to escape anything. `keepState` is what lets her do that without
+        // locomotion dragging her out of the posture.
+        this._locomote(input.move, false, ctx, dt, { keepState: true });
+        break;
+      }
+
+      // ---- COMMANDED — RUN AWAY 逃げろ / COME HERE 来い ---------------------
+      // The only state in this project where a fighter's feet are moved by
+      // somebody else's decision, and it is written to be as small as the
+      // mechanic allows.
+      //
+      // WHAT IT DOES: writes `vel` and nothing else. The ordinary physics,
+      // collision and arena-bounds pass in `update` resolves the result
+      // exactly as it does for walking, which is what guarantees that forced
+      // movement can never put anybody inside geometry or off a ledge that
+      // walking could not — a promise a version that wrote `pos` could not
+      // have made on any of the ten maps.
+      //
+      // WHAT IT DOES NOT DO: damage, hitstun, knockdown, or take the camera.
+      // They come out of it standing, neutral, and able to act on the very
+      // next frame. It is a repositioning, not a combo starter.
+      //
+      // IT DOES TAKE THEIR INPUT for its length, and there is no way around
+      // that: a fighter who could keep walking would simply walk back and the
+      // command would not exist. What keeps it fair is that it is SHORT and
+      // that both cuts apply — a full-meter opponent loses 62% of it, and
+      // holding guard when the word lands loses another 45%. A blocking Gojo
+      // at MAX_CE 100 is carried for 0.23 s, which is a stumble.
+      //
+      // HOW IT ENDS: `tickForced` returns false — either the clock ran out, or
+      // (for a pull) they arrived. And, like everything else here, it also
+      // ends because SOMETHING ELSE TOOK THE STATE, for free.
+      case 'commanded': {
+        // the lock-on is deliberately released: they are facing the way the
+        // word is taking them, not the way they would choose to look
+        if (!tickForced(this, dt)) {
+          this.vel.x *= 0.4; this.vel.z *= 0.4;
+          this.setState('idle', { clip: 'idle' });
+          this.emit('commandEnds');
+        }
         break;
       }
 
@@ -3282,6 +5099,92 @@ export class Fighter {
         break;
       }
 
+      // ---- RYU: THE CHARGE -------------------------------------------------
+      // He is PLANTED. No movement, no block, no dash, no jump, no cancel into
+      // anything — the state reads no input at all except RT itself, and
+      // letting go is the only way out. That is the entire price of the
+      // largest damage number in the game, and it is why the tell below is as
+      // loud as it is: the opponent has to be able to read the tier from
+      // anywhere in the arena and decide whether to run at him or leave.
+      //
+      // NO CURSED ENERGY IS SPENT WHILE CHARGING. It is spent at RELEASE, on
+      // the tier that actually came out, so a bluffed charge costs him time
+      // and safety and nothing else. That is what makes starting one a
+      // negotiation rather than a commitment — and what makes calling his
+      // bluff by simply backing off a real, free answer.
+      case 'outputCharge': {
+        const op = this.cfg.output;
+        if (!op) { this.setState('idle', { clip: 'idle' }); break; }
+        this.outputT++;
+        const tier = outputTierOf(this.outputT);
+        if (tier !== this.outputTier) {
+          this.outputTier = tier;
+          // RE-PLAY, so the per-tier posture swap in `_clip` actually takes
+          // effect. `play` resolves the name through `_clip` at call time, so
+          // the clip only changes when something asks for it again — without
+          // this line the tier table and the muzzle glow would escalate and
+          // the BODY would hold tier 0 for the whole charge, which is the half
+          // of the tell that reads in silhouette.
+          this.play(op.chargeClip ?? 'charge', { fade: 0.12 });
+          this.emit('outputTier', { tier });
+        }
+        // he is held at the top rather than auto-firing: the mind game is how
+        // long he dares hold, and a forced release would answer it for him
+        if (this.outputT > OUTPUT_MAX_HOLD) this.outputT = OUTPUT_MAX_HOLD;
+        // THE TELL, every third frame, scaled by how far along he is
+        if (this.outputT % 3 === 0) {
+          ctx.fx?.outputCharge?.(this, this.outputT / OUTPUT_MAX_HOLD, tier);
+        }
+        this.model?.setOutput?.(tier, this.outputT / OUTPUT_MAX_HOLD);
+        if (!input?.ct2) { this._releaseBeam(ctx); break; }
+        break;
+      }
+
+      // ---- RYU: BRACE ------------------------------------------------------
+      // He plants his feet and refuels. Immobile, unguarded, and there is a
+      // wind-down afterwards during which he is still standing there.
+      //
+      // *** NO SELF-DAMAGE. *** Brace costs him time and safety, never health,
+      // and there is deliberately no line here that touches `res.hp`.
+      case 'brace': {
+        const sp = this.cfg.special;
+        this.braceT++;
+        tickBrace(this, dt);
+        ctx.fx?.braceGather?.(this, Math.min(1, this.braceT / (sp?.maxFrames ?? BRACE.maxFrames)));
+        const minF = sp?.minFrames ?? BRACE.minFrames;
+        const maxF = sp?.maxFrames ?? BRACE.maxFrames;
+        // *** `input.copy` IS THE B BUTTON. *** This read `input.special`,
+        // which is not a field on the input frame at all (see
+        // `emptyFrame` in input/input.js) — so the test was `!undefined`,
+        // which is always true, and Brace ended the instant it passed its
+        // minimum of twenty frames whether or not the player was still
+        // holding it. Measured in a live match: it refuelled 0.7 CE instead
+        // of the 26 a second it is priced at, and the whole special was
+        // effectively a 0.33-second animation.
+        //
+        // It also has to be a HOLD rather than a toggle for the risk to be
+        // real: the player chooses how long to stand there, which is the
+        // decision the move exists to pose.
+        const done = this.braceT >= maxF
+          || (this.braceT >= minF && !input?.copy)
+          || this.res.curCE >= this.res.maxCE - 0.01;
+        if (done) {
+          this.braceT = 0;
+          this.setState('braceDown', { clip: sp?.downClip ?? 'braceDown' });
+          this.emit('braceEnd');
+        }
+        break;
+      }
+
+      // The wind-down. A pure vulnerability window with no input read at all —
+      // this is the invitation half of the risk/reward, and it must not be
+      // cancellable or Brace becomes free.
+      case 'braceDown':
+        if (this.f >= (this.cfg.special?.windDownFrames ?? BRACE.windDownFrames)) {
+          this.setState('idle', { clip: 'idle' });
+        }
+        break;
+
       // brief special recovery (Gojo's warp exit, Todo's clap)
       case 'special':
         // the Executioner's Sword materialize runs on its own clock — the
@@ -3340,10 +5243,91 @@ export class Fighter {
       // id: `cfg.curses` means the sectors are his four special grades and
       // release SELECTS one, `cfg.shikigami` means the sectors are the six
       // shikigami and release BINDS one to a slot.
+      // INUMAKI shares it too, on the same contract, and his is the closest to
+      // Megumi's of the three: both hold TWO bindings and both use RB/RT to
+      // choose which one the pick lands in. The only difference is that his
+      // sectors go grey when his throat cannot afford them.
+      // ---- YAGA: BUILDING -----------------------------------------------
+      // The whole mechanic, and the state is deliberately THIN: it fills the
+      // meter, it lets him shuffle, and it watches for the release. Everything
+      // it refuses it refuses BY OMISSION — there is no attack branch, no
+      // block branch, no dash branch and no jump branch in here, so "he cannot
+      // attack, block, dash or jump while building" is structural rather than
+      // a list somebody has to remember to extend.
+      //
+      // Being hit does not exit here either: `_applyHit` puts him in a
+      // reaction state, which ends the hold on its own, and the meter damage
+      // is applied there by the shared `interruptBuild`. That is what makes
+      // the interruption table one function instead of six.
+      case 'building': {
+        const sp = this.cfg.special;
+        // He shuffles at a third of walk speed and can turn. That is all the
+        // mobility there is, and it exists so that "building" is a position
+        // he can adjust rather than a spot he is nailed to.
+        // `keepState` is the flag `_locomote` already carries for exactly this
+        // case: move the body, do not touch the state. Without it the shared
+        // locomotion would drop him straight back to idle/walk every frame and
+        // the hold could never last more than one tick.
+        const mv = input?.move ?? { x: 0, z: 0 };
+        this._locomote({ x: mv.x * sp.moveMult, z: mv.z * sp.moveMult }, false, ctx, dt, { keepState: true });
+        // Fill. Returns false when he cannot pay, which STALLS the meter
+        // rather than destroying it — running out of cursed energy is a reason
+        // to release, not a punishment.
+        tickBuilding(this, dt, ctx.match);
+        // RELEASE -> DEPLOY. A release below the SCRAP threshold produces
+        // nothing at all and says so; that is the floor of the risk.
+        if (!input?.copy) {
+          releaseBuild(this);
+          const tier = tierFor(this, this.build.p);
+          if (!tier) {
+            this.emit('constructFailed', { progress: this.build.p });
+            this.setState('idle', { clip: 'idle' });
+            break;
+          }
+          this.build.p = 0;
+          this.build.worked = 0;
+          this.setState('special', { clip: 'deploy' });
+          this.emit('constructDeploy', { tier });
+        }
+        break;
+      }
+
+      // ---- TAKABA: THE RIFF ----------------------------------------------
+      // Same shape and the same omissions: there is no branch in here that
+      // does anything except stand there. The one input it reads is the early
+      // bail-out inside `cancelBefore`, which exists so a mis-press costs a few
+      // frames rather than the whole stance.
+      case 'riff': {
+        const sp = this.cfg.special;
+        const r = this.riff;
+        if (!r) { this.setState('idle', { clip: 'idle' }); break; }
+        r.t += dt;
+        this.vel.x = 0; this.vel.z = 0;    // he is not going anywhere
+        if (r.t < sp.cancelBefore && !input?.copy) {
+          this.riff = null;
+          this.setState('idle', { clip: 'idle' });
+          break;
+        }
+        // THE FASTEST METER GAIN IN HIS KIT, paid continuously so an
+        // interrupted riff keeps what it earned up to the frame it broke —
+        // and then loses far more than that to `loseRiffInterrupt`.
+        gainComedy(this, this.cfg.comedy.gainRiffPerSec * dt, 'riff');
+        if (r.t >= sp.duration) {
+          this.riff = null;
+          this.emit('riffEnd');
+          this.setState('idle', { clip: 'idle' });
+        }
+        break;
+      }
+
       case 'wheel': {
         const sp = this.cfg.special;
         const curses = this.cfg.curses;
-        const order = curses ? curses.specialOrder : this.cfg.shikigami.order;
+        const cmds = this.cfg.commands;
+        const order = cmds ? cmds.order
+          : curses ? (curses.wheelOrder ?? curses.specialOrder)
+            : this.cfg.objects ? this.cfg.objects.order
+              : this.cfg.shikigami.order;
         const w = this.wheel;
         if (!w) { this.setState('idle', { clip: 'idle' }); break; }
         w.t += dt;
@@ -3362,9 +5346,10 @@ export class Fighter {
           // angle zero.
           const idx = this._wheelPick(w, input?.move ?? { x: 0, z: 0 });
           if (idx !== w.sel) { w.sel = idx; w.changed = true; this.emit('wheelMove'); }
-          // slot picking is MEGUMI ONLY: he holds two bindings, Geto holds one
-          // selection, so for Geto these presses would be noise
-          if (!curses) {
+          // slot picking is for the fighters who hold TWO bindings — Megumi and
+          // Inumaki. Geto holds one selection and so does Reggie, so for both
+          // of them these presses would be noise.
+          if (!curses && !w.objects) {
             if (input?.ct1P && w.slot !== 'ct1') { w.slot = 'ct1'; this.emit('wheelMove'); }
             if (input?.ct2P && w.slot !== 'ct2') { w.slot = 'ct2'; this.emit('wheelMove'); }
           }
@@ -3378,13 +5363,56 @@ export class Fighter {
           // `avail` was filtered at open time and the stick can only land on a
           // live sector, so this cannot be a corpse. Kept as a guard because a
           // shikigami can die DURING the hold.
-          const dead = curses
-            ? ctx.match.curses.isLost(this, key)
-            : ctx.match.shikigami.isLost(this, key);
-          if (dead) {
-            this.emit('curseBlocked', {
-              text: (curses ? this.cfg.curses.defs[key].short : key.toUpperCase()) + ' IS GONE'
-            });
+          // For Megumi this is now the FULL gate rather than just the loss
+          // ledger, because a fusion can also become unavailable during the
+          // hold — its components can die while the radial is open.
+          //
+          // INUMAKI takes the whole branch early: a COMMAND cannot die, but it
+          // can become UNAFFORDABLE during the hold (the gauge is still
+          // recovering, or he was hit and paid an interruption penalty while
+          // the ring was open), which is the same class of problem and gets the
+          // same guard. Handled before the summoner gate rather than inside it
+          // because neither `curses` nor `shikigami` exists on his config and
+          // both branches below would throw.
+          // REGGIE takes the whole branch early for the same reason INUMAKI
+          // does below: an OBJECT cannot die, but it can become UNAFFORDABLE
+          // during the hold (a tag spent on something else, or he was soaked
+          // while the ring was open), which is the same class of problem and
+          // gets the same guard. Handled before the summoner gate because
+          // neither `curses` nor `shikigami` exists on his config and both
+          // branches below would throw.
+          if (w.objects) {
+            const o = this.cfg.objects;
+            if (!canAfford(this, o.defs[key].cost)) {
+              this.emit('noStock', { need: o.defs[key].cost, have: this.stock });
+            } else {
+              this.objectKey = key;
+              this.emit('wheelConfirm', { key, slot: 'ct2', object: true, tapped: !w.open });
+            }
+            this._setSpecialCD(sp.cooldown);
+            this.wheel = null;
+            this.setState('special', { clip: 'idle' });
+            break;
+          }
+          if (cmds) {
+            if (!affordable(this, cmds.defs[key])) {
+              this.emit('throatTooHigh', { cmd: cmds.defs[key] });
+            } else {
+              bindCommand(this, w.slot, key);
+              this.emit('wheelConfirm', { key, slot: w.slot, command: true, tapped: !w.open });
+            }
+            this._setSpecialCD(sp.cooldown);
+            this.wheel = null;
+            this.setState('special', { clip: 'idle' });
+            break;
+          }
+          const blockText = curses
+            ? (ctx.match.curses.isLost(this, key) ? this.cfg.curses.defs[key].short + ' IS GONE' : null)
+            : (ctx.match.shikigami.selectable(this).includes(key)
+              ? null
+              : (ctx.match.shikigami.blockReason(this, key) ?? key.toUpperCase() + ' IS GONE'));
+          if (blockText) {
+            this.emit('curseBlocked', { text: blockText });
           } else if (curses) {
             ctx.match.curses.select(this, key);
             this.emit('wheelConfirm', { key, slot: 'ct2', curse: true, tapped: !w.open });
@@ -3395,6 +5423,74 @@ export class Fighter {
           this._setSpecialCD(sp.cooldown);
           this.wheel = null;
           this.setState('special', { clip: 'idle' });
+        }
+        break;
+      }
+
+      // ---- INO: THE MASK RADIAL, AND THE SWAP THAT FOLLOWS IT -------------
+      // Structurally Panda's pair below, with two differences:
+      //   · there is nothing that can DIE during the hold, so the guard at
+      //     release is about the mask rather than about a corpse
+      //   · THE COST IS PAID AT RELEASE, not at open. Opening the ring to look
+      //     at what he has is free; committing to a beast is 14 CE. That is
+      //     deliberate and is the opposite of Megumi's wheel, which charges at
+      //     open — because Megumi's ring is a BINDING and Ino's is an ACTION.
+      case 'beastWheel': {
+        const sp = this.cfg.special;
+        const w = this.swapWheel;
+        if (!w) { this.setState('idle', { clip: 'idle' }); break; }
+        w.t += dt;
+        if (!w.open && w.t >= TAP_MAX) {
+          w.open = true;
+          ctx.match.slowmo(0.12, sp.timeScale ?? 0.62);
+          this.emit('wheelOpen');
+        }
+        if (w.open) {
+          ctx.match.slowmo(0.08, sp.timeScale ?? 0.62);
+          const idx = this._wheelPick(w, input?.move ?? { x: 0, z: 0 });
+          if (idx !== w.sel) { w.sel = idx; w.changed = true; this.emit('wheelMove'); }
+        }
+        if (!input?.copy || w.t >= (sp.maxHold ?? 3.2)) {
+          const key = w.order[w.sel];
+          this.swapWheel = null;
+          // the mask can come off DURING the hold — the fight does not stop for
+          // a radial — and a swap started without a face to cover is not a swap
+          if (this.maskOff > 0 || key === this.stance) {
+            this.setState('idle', { clip: 'idle' });
+            break;
+          }
+          if (!this.spendCE(sp.cost)) {
+            this.emit('noCE');
+            this.setState('idle', { clip: 'idle' });
+            break;
+          }
+          this._pendingBeast = key;
+          this._setSpecialCD(sp.cooldown);
+          this.setState('beastSwap', { clip: 'maskSwap' });
+          this.emit('beastSwapStart', { key, tapped: !w.open });
+        }
+        break;
+      }
+
+      // THE SWAP ITSELF. 30 frames, no armour, no invulnerability, no cancel.
+      // The mask travels down his face across the whole window — driven off
+      // the frame count here rather than off the clip, so the geometry and the
+      // animation can never drift — and the BEAST CHANGES at the halfway point,
+      // which is the frame the knit reaches his eyes.
+      case 'beastSwap': {
+        const total = this.cfg.mask?.swapFrames ?? 30;
+        const half = Math.round(total / 2);
+        // 0 -> 1 over the first half (pulling it down), and it stays down
+        this.model.setMask?.(Math.min(1, this.f / half));
+        if (this.f === half && this._pendingBeast) {
+          this._setStance(this._pendingBeast);
+          ctx.match.beasts?.manifest(this, this._pendingBeast);
+          this.emit('beastSwapped', { key: this._pendingBeast });
+          this._pendingBeast = null;
+        }
+        if (this.f >= total) {
+          this.model.setMask?.(1);
+          this.setState('idle', { clip: 'idle' });
         }
         break;
       }
@@ -3508,6 +5604,16 @@ export class Fighter {
           // can ever be paid — an interrupted taunt exits through
           // `_tauntCheck` above, which never reaches this branch.
           tn.done = true;
+          // ---- THE ONE TAUNT IN THE GAME THAT DOES SOMETHING ------------
+          // Takaba's, and only Takaba's. Keyed on `cfg.comedy`, which nobody
+          // else declares, and paid HERE — the branch only an uninterrupted
+          // taunt reaches — so the risk/reward is identical to the global
+          // bonus below even though the resource is not. The global flag is
+          // untouched and still false; no other taunt gained anything.
+          if (this.cfg.comedy && tn.def.buildsComedy) {
+            gainComedy(this, this.cfg.comedy.gainTaunt, 'taunt');
+            this.emit('tauntReward', { amount: this.cfg.comedy.gainTaunt, comedy: true });
+          }
           if (TAUNT_GRANTS_METER) {
             this.res.curCE = Math.min(this.res.maxCE, this.res.curCE + TAUNT_METER_BONUS);
             this.emit('tauntReward', { amount: TAUNT_METER_BONUS });
@@ -3562,20 +5668,96 @@ export class Fighter {
   // up is "away from the camera", and _faceOpponent turns the fighter to match.
   // Without this the two halves disagree and unlocked movement is unusable.
   _moveVec(move, camYaw) {
-    const yaw = this.lockOn || camYaw == null ? this.facing : camYaw;
+    // ---- URO'S DOMAIN: THE COORDINATES ARE ROTATED ------------------------
+    // `coordTwist` is written every tick by domains/domains.js while THE
+    // WARPED FIRMAMENT holds, and cleared to 0 on collapse for every fighter.
+    // Adding it to the yaw here — and ONLY here — is what makes it a
+    // disorientation rather than a handicap: this function converts the stick
+    // into a world direction and nothing else. Facing, aim, technique
+    // direction and the camera all read `this.facing` directly and are
+    // untouched, so the trapped fighter still attacks exactly where they are
+    // looking. What has moved is the ground under the stick.
+    //
+    // Zero for everyone who is not in that domain, which is everyone, almost
+    // always — so this is one addition of 0 on the common path.
+    const twist = this.coordTwist ?? 0;
+    const yaw = (this.lockOn || camYaw == null ? this.facing : camYaw) + twist;
     const sin = Math.sin(yaw), cos = Math.cos(yaw);
     const fwd = -move.z;     // stick up (-z) = advance
     const strafe = move.x;   // stick right = strafe to the fighter's right
     return v3(sin * fwd - cos * strafe, 0, cos * fwd + sin * strafe);
   }
 
-  _locomote(move, dashHeld, ctx, dt) {
+  // HOW OLD THE TWO HALVES OF THE DODGE INPUT ARE. A direction counts as
+  // PRESSED when the stick crosses from standing (under 0.2) to committed
+  // (over 0.35) — a stick already leaning is not a press, however far it moves
+  // afterwards — and the dash counts as pressed on the frame the button goes
+  // down, not while it is held.
+  _trackDashInput(input, dt) {
+    const mag = input ? Math.hypot(input.move?.x ?? 0, input.move?.z ?? 0) : 0;
+    const dashHeld = !!input?.dash;
+    // THE WINDOW IS MEASURED IN TIME HE COULD HAVE ACTED ON IT. A dodge asked
+    // for during an attack's recovery or the tail of hitstun is a dodge asked
+    // for, and it should land on the first frame he is free rather than
+    // quietly becoming a jog because the animation outlasted the window. So
+    // the presses are always SEEN, and the clocks only run while he is
+    // actionable — a request made mid-move keeps until he can honour it.
+    if (!this.busy) {
+      this._dirEdgeT = (this._dirEdgeT ?? 9) + dt;
+      this._dashEdgeT = (this._dashEdgeT ?? 9) + dt;
+    }
+    if (mag > 0.35 && (this._prevMoveMag ?? 0) <= 0.2) this._dirEdgeT = 0;
+    if (dashHeld && !this._prevDashHeld) this._dashEdgeT = 0;
+    this._prevMoveMag = mag;
+    this._prevDashHeld = dashHeld;
+  }
+
+  // THE FIRST BEAT OF A DASH (see DASH_BURST). Fires on the frame the dash
+  // starts and only then — holding the button re-enters nothing, so the cost is
+  // paid once per dash rather than once per frame. Refuses quietly when the
+  // input was not the deliberate one, or when the stamina is not there; either
+  // way the plain dash is what is left.
+  _startDashBurst(dir, mag, stats) {
+    // `dashBurst: false` on a character (or a stance) opts out of it entirely;
+    // an object overrides the defaults field by field.
+    const t = this._tune('dashBurst');
+    if (t === false) return;
+    const b = { ...DASH_BURST, ...(t || {}) };
+    if (mag < 0.1) return;                             // no heading, no dodge
+    // BOTH HALVES, FRESH. A stick that was already leaning when the button went
+    // down is a sprint; a button that was already held when the stick moved is
+    // a sprint. Only the pair arriving together is a dodge.
+    const w = b.window ?? DASH_BURST.window;
+    if ((this._dirEdgeT ?? 9) > w || (this._dashEdgeT ?? 9) > w) return;
+    const cost = (stats.dashDrain ?? 0) * b.costSeconds;
+    if (cost > 0 && this.res.stamina < cost) return;   // spent: the jog is what is left
+    this.res.stamina = Math.max(0, this.res.stamina - cost);
+    this.dashBurst = b;
+    this.dashBurstT = b.time;
+    this.dashBurstDir.set(dir.x / mag, 0, dir.z / mag);
+    const bs = stats.dashSpeed * b.speed * this.speedMult;
+    this.vel.x = this.dashBurstDir.x * bs;
+    this.vel.z = this.dashBurstDir.z * bs;
+    this.emit('dashBurst');
+  }
+
+  // `opts.keepState` writes the VELOCITY but leaves the state alone. Normally
+  // locomotion owns the idle/walk/run/dash transitions, which is right for
+  // every state that is "standing around" — but a state that is a POSTURE
+  // (Miwa's sheathe stance) still wants to be able to shuffle its feet, and
+  // calling this without the flag ejected her back to `idle` on the very next
+  // frame. That bug is why she appeared to have no RB or RT at all.
+  _locomote(move, dashHeld, ctx, dt, opts = {}) {
     // `this.stats` — see the getter. Identical to `cfg.stats` for everyone
     // except Panda, whose three cores each carry their own movement numbers.
     const stats = this.stats;
     const m = this._moveVec(move, ctx.camYaw);
     const mag = Math.hypot(m.x, m.z);
-    const canDash = dashHeld && this.res.stamina > 1 && mag > 0.1;
+    // FROSTBOUND REFUSES THE DASH. Everything else about the victim's input
+    // still works — they can walk (at 0.18x), guard, and throw whatever they
+    // like. This is the line that keeps it a DAMAGE WINDOW rather than a
+    // lockdown: they are not disarmed, they simply cannot leave.
+    const canDash = dashHeld && this.res.stamina > 1 && mag > 0.1 && !frostGrounded(this);
     // SHADOW TRAVEL (passive, inside his own domain): the dash stops being a
     // dash and becomes a submerge. He drops under the shadow line, moves fast
     // and untargetable, and surfaces wherever he lets go. Only works while he
@@ -3584,6 +5766,10 @@ export class Fighter {
     const trav = ctx.domains.shadowTravel?.(this);
     this.shadowDash = !!(trav && canDash);
     if (this.shadowDash) {
+      // the submerge takes the dash over, burst included: he is under the
+      // shadow now, and an impulse still steering him would surface him
+      // somewhere he did not choose
+      this.dashBurstT = 0;
       const t = trav.travel;
       this.res.stamina = Math.max(0, this.res.stamina - t.drain * dt);
       this.vel.x = damp(this.vel.x, m.x * t.speed, 16, dt);
@@ -3595,12 +5781,27 @@ export class Fighter {
     // input entirely — there is no dash on him to fall back to.
     const hc = this.cfg.heavyCharge;
     if (hc && dashHeld && this.grounded && this.chargeCD <= 0 && mag > 0.1) {
+      this.dashBurstT = 0;                    // the charge owns him now
       this.chargeDir = this._moveVec(move, ctx.camYaw).normalize();
       this.armorFrames = Math.max(this.armorFrames, hc.armorFrames ?? 0);
       this.setState('charge', { clip: 'dash' });
       this.emit('charge');
       return;
     }
+    // A BURST ALREADY IN THE AIR OWNS THE FIGHTER. It carries its own heading
+    // and its own speed, it ignores the stick, and it does not care whether the
+    // button is still held: it was paid for on the frame it started. Letting go
+    // mid-dodge cancelling it would make the dodge unreliable in exactly the
+    // moment it is being used.
+    if (this.dashBurstT > 0) {
+      this.dashBurstT -= dt;
+      const bs = stats.dashSpeed * this.dashBurst.speed * this.speedMult;
+      this.vel.x = this.dashBurstDir.x * bs;
+      this.vel.z = this.dashBurstDir.z * bs;
+      this.res.stamina = Math.max(0, this.res.stamina - stats.dashDrain * dt);
+      return;
+    }
+
     let speed = 0, next = 'idle';
     if (canDash) {
       speed = stats.dashSpeed; next = 'dash';
@@ -3608,22 +5809,42 @@ export class Fighter {
     } else if (mag > 0.55) { speed = stats.runSpeed; next = 'run'; }
     else if (mag > 0.05) { speed = stats.walkSpeed; next = 'walk'; }
     speed *= this.speedMult;
-    this.vel.x = damp(this.vel.x, m.x * speed, 14, dt);
-    this.vel.z = damp(this.vel.z, m.z * speed, 14, dt);
-    if (next !== this.state) {
+    // ---- ICE TERRAIN — THE WHOLE OF IT, IN ONE NUMBER ---------------------
+    // 14 is the response rate of a fighter's legs: how fast the velocity they
+    // HAVE becomes the velocity they ASKED for. Uraume's frozen ground drops
+    // it to 3.4 (2.2 in a dash), and that single substitution produces every
+    // symptom the design asks for at once, because it is what less grip
+    // physically IS — the body keeps going where it was going, takes much
+    // longer to stop, and changes direction in an arc instead of on a pivot.
+    // There is no separate "sliding" code, no slip state and no special case
+    // in the animation, which is exactly why it composes with everything
+    // (a dash on ice, a frost-slowed walk on ice, being knocked onto ice).
+    //
+    // `tractionFor` returns null for anybody NOT on ice and for the ice's own
+    // OWNER, so "Uraume is unaffected by their own ice" lives in one place.
+    const iceP = ctx.match?.ice?.tractionFor?.(this);
+    const grip = iceP ? (next === 'dash' ? ICE_TERRAIN.dashTraction : ICE_TERRAIN.traction) : 14;
+    this.vel.x = damp(this.vel.x, m.x * speed, grip, dt);
+    this.vel.z = damp(this.vel.z, m.z * speed, grip, dt);
+    if (next !== this.state && !opts.keepState) {
       const clip = next === 'dash' ? 'dash' : next === 'idle' ? 'idle' : next;
       this.setState(next, { clip, fade: 0.14 });
       if (next === 'dash') {
         // DASH I-FRAMES, at the FRONT of the dash. Declared per character and
         // absent everywhere except Toji, so nobody else's dash changes. This is
         // his defensive identity: he does not tank hits, he isn't there.
-        const inv = this._tune('dashIFrames') ?? 0;
+        // AWAKENING grants dash i-frames FLAT rather than by multiplier —
+        // her base is zero, and multiplying zero would have left the column
+        // permanently dead. Stage 0 has no invulnerability at all (a real
+        // weakness); stage 3 has Toji's seven.
+        const inv = (this._tune('dashIFrames') ?? 0) + awakenDashIFrames(this);
         if (inv > 0) this.iFrames = Math.max(this.iFrames, inv);
         this.emit('dash');
+        this._startDashBurst(m, mag, stats);
       }
     } else if (['idle', 'walk', 'run'].includes(next)) {
       // keep the loop running (no restart)
-      this.anim.play(this._clip(next), { fade: 0.14, restart: false, speed: this.speedMult * (next === 'walk' ? 0.9 + mag * 0.3 : 1) });
+      this.anim.play(this._clip(next), { fade: 0.14, restart: false, speed: Math.max(0.35, this.speedMult) * (next === 'walk' ? 0.9 + mag * 0.3 : 1) });
     }
     // FOOTFALLS. A fighter heavy enough to declare `stepShake` reports each
     // plant so the match can shake the camera and thump the floor under it.
@@ -3648,9 +5869,16 @@ export class Fighter {
     // Velocity is zeroed on entry (FreezeSystem.freeze) rather than here, so a
     // freeze cannot be used to cancel a knockback that was already owed.
     if (this.frozenT > 0) return;
-    if (!this.grounded) this.vel.y -= GRAVITY * dt;
+    // GRAVITY, scaled. `gravityScale` returns 1 for the entire existing roster
+    // and for Uro whenever she is not actually holding herself up — so this is
+    // the same line it has always been for everybody except a hovering Uro,
+    // for whom it is zero. See combat/flight.js.
+    if (!this.grounded) this.vel.y -= GRAVITY * gravityScale(this) * dt;
     const wasFast = Math.hypot(this.vel.x, this.vel.z);
     const before = this.bounds ? { x: this.pos.x, z: this.pos.z } : null;
+    // Where the feet started this tick. The floor test below needs it: the
+    // fighter can cross a whole platform inside one step.
+    const yBefore = this.pos.y;
     this.pos.addScaledVector(this.vel, dt);
 
     const b = this.bounds;
@@ -3672,7 +5900,18 @@ export class Fighter {
       // FLOOR: the highest walkable surface at or below us. While rising we
       // ignore anything overhead so a jump passes through a mezzanine edge
       // rather than snapping onto it.
-      const ceil = this.vel.y > 0 ? this.pos.y - 0.05 : this.pos.y + STEP_TOL;
+      //
+      // FALLING, THE TEST IS SWEPT — the ceiling is where the feet were at the
+      // START of the tick, not where they ended it. Asking about the position
+      // after the step means a platform the fighter passed THROUGH during the
+      // step is already overhead and gets discarded, and they carry on down to
+      // whatever is under it: the long-drop fall-through. STEP_TOL alone hid
+      // it, because a 60 Hz tick only outruns 0.55 m of slack past about
+      // 33 m/s — which is a rooftop fall on the tall maps, a spike, or any
+      // downward knockback, and exactly the cases where it was reported.
+      const ceil = this.vel.y > 0
+        ? this.pos.y - 0.05
+        : Math.max(yBefore, this.pos.y) + STEP_TOL;
       const g = b.floorAt(this.pos.x, this.pos.z, this.grounded ? this.groundY + STEP_TOL : ceil);
       this.groundY = g;
       if (this.pos.y <= g + 1e-4 && this.vel.y <= 0) {
@@ -3787,6 +6026,36 @@ export class Fighter {
           : 0.15;
         m.setCurseOpen?.(k);
       }
+    }
+    // ---- MAKI: TWO WEAPONS, ALWAYS BOTH ON THE BODY ------------------------
+    // The visual statement of the toggle. Toji's arsenal sends everything he
+    // is not holding to the under-world stow slot, because a weapon he is not
+    // carrying is inside the inventory curse. Hers go to her BACK — she is
+    // wearing both at all times, and that is the read that separates the two
+    // characters at a glance before either of them has swung anything.
+    //
+    // Gated on `arsenal.toggle` so Toji's block above is untouched.
+    if (this.cfg.arsenal?.toggle && m.setWeapon) {
+      m.setWeapon(this.state === 'arsenalSwap'
+        // MID-SWAP the NEW weapon is not in her hand yet — the hands cross at
+        // the midpoint of the clip and that is the frame the prop moves on, so
+        // the first half of the swap still shows the old one.
+        ? (this.f < Math.round((this.cfg.arsenal.swapFrames ?? 22) / 2)
+          ? (this.weapon === 'split_soul' ? 'playful_cloud' : 'split_soul')
+          : this.weapon)
+        : this.weapon);
+    }
+    // ---- MIWA: THE BLADE AND THE SCABBARD ----------------------------------
+    // Two props that always move together. The sword is in the saya for
+    // everything except the frames after a draw, and the LEFT hand takes the
+    // scabbard for the draw and the sheathe — the classic two-handed iai
+    // action, where the saya moves as much as the blade does.
+    if (m.setDrawn) {
+      const drawing = this.state === 'ct' && this.move?.effect === 'miwa_draw';
+      const ulting = this.state === 'ult' || this.state === 'ultBurst';
+      const after = drawing && this.f > (this.move?.startup ?? 20);
+      m.setDrawn(after || (ulting && this.f > 90));
+      m.setSayaHeld?.(drawing || this.state === 'stance' || ulting);
     }
     // ---- NOBARA: hammer, nail, doll ----------------------------------------
     // The HAMMER lives on her shoulder — that is the stance, and it is half

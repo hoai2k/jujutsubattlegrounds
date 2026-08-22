@@ -51,6 +51,18 @@ const GUARD = {
   ThighR: [22, 6, 0], ShinR: [40, 0, 0], FootR: [12, 8, 0]
 };
 
+// THE HANGING POSE. Where every finishing reaction ends: upright but gone,
+// weight already going down, a beat before the body actually falls. Shared
+// because `rFall` starts here — a finisher may kill a body in any of a dozen
+// different ways, but they all hand over to the same collapse, and the handover
+// is invisible only if the pose matches on both sides of the cut.
+const HANG = {
+  Hips: [-40, 14, 0], Hips_pos: [0, -0.30, -0.24], Spine: [-18, -2, 0], Chest: [-14, -4, 0],
+  Head: [-22, 4, 0],
+  UpArmL: [-84, 6, 64], LoArmL: [-14, 0, 6], UpArmR: [-56, -6, -70], LoArmR: [-10, 0, -6],
+  ThighL: [-10, -6, 0], ShinL: [46, 0, 0], ThighR: [6, 8, 0], ShinR: [54, 0, 0]
+};
+
 // the settled floor pose — identical to base.js `ko`, so a finisher and an
 // ordinary knockout leave the body in the same shape
 const SETTLED = {
@@ -624,7 +636,262 @@ export const REACTIONS = {
         ThighR: [-40, 8, 0], ShinR: [70, 0, 0], FootR: [-12, 8, 0]
       }, 'snap'),
       K(0.40, { Hips: [-15, 18, 0], Hips_pos: [0, 0.05, -0.15], Spine: [-33, -4, 0], Chest: [-27, -8, 0], Head: [-37, -8, 6], UpArmL: [-117, 14, 52], UpArmR: [-95, -12, -58], ThighL: [-70, -6, 0], ShinL: [56, 0, 0], ThighR: [-40, 8, 0], ShinR: [70, 0, 0] }, 'hold'),
-      K(0.82, { Hips: [-40, 14, 0], Hips_pos: [0, -0.30, -0.24], Spine: [-18, -2, 0], Chest: [-14, -4, 0], Head: [-22, 4, 0], UpArmL: [-84, 6, 64], LoArmL: [-14, 0, 6], UpArmR: [-56, -6, -70], LoArmR: [-10, 0, -6], ThighL: [-10, -6, 0], ShinL: [46, 0, 0], ThighR: [6, 8, 0], ShinR: [54, 0, 0] }, 'in')
+      K(0.82, HANG, 'in')
+    ]
+  },
+
+  // =======================================================================
+  // THE DEATHS. `rFinish` is the generic one — folded around it and lifted —
+  // and for a long time it was the ONLY one, which meant twenty-one different
+  // killing blows all moved the body the same way. What kills you should be
+  // legible from what your body does: a blade through the throat is not a
+  // punch, and neither of them is being burned off the map.
+  //
+  // All of them end on HANG, so any of them can hand over to `rFall`.
+  // =======================================================================
+
+  // A POINT WEAPON THROUGH THE NECK. The body goes up onto its toes because
+  // the thing that went in is still going up, both hands come off whatever
+  // they were doing and find the throat, and then nothing moves at all. The
+  // stillness in the middle is the kill; the collapse afterwards is a
+  // formality.
+  rThroat: {
+    dur: 1.00, keys: [
+      K(0, GUARD),
+      K(0.05, {
+        Hips: [-6, 16, 0], Hips_pos: [0, 0.09, -0.05], Spine: [-16, -2, 0], Chest: [-20, -4, 0],
+        Neck: [-16, 0, 0], Head: [-40, -4, 0],
+        UpArmL: [-118, 30, 26], LoArmL: [-108, 40, 0], HandL: [-40, 80, 0],
+        UpArmR: [-114, -28, -28], LoArmR: [-112, -38, 0], HandR: [-40, -80, 0],
+        ThighL: [-26, -6, 0], ShinL: [22, 0, 0], FootL: [-30, -10, 0],
+        ThighR: [-14, 8, 0], ShinR: [30, 0, 0], FootR: [-26, 8, 0]
+      }, 'snap'),
+      // absolutely still. Up on the toes, hands on the shaft, eyes open.
+      K(0.38, {
+        Hips: [-7, 16, 0], Hips_pos: [0, 0.095, -0.05], Spine: [-16, -2, 0], Chest: [-21, -4, 0],
+        Neck: [-16, 0, 0], Head: [-41, -4, 0],
+        UpArmL: [-119, 30, 26], LoArmL: [-107, 40, 0], UpArmR: [-115, -28, -28], LoArmR: [-111, -38, 0],
+        ThighL: [-26, -6, 0], ShinL: [22, 0, 0], ThighR: [-14, 8, 0], ShinR: [30, 0, 0]
+      }, 'hold'),
+      // the hands let go first
+      K(0.66, {
+        Hips: [-24, 14, 0], Hips_pos: [0, -0.14, -0.16], Spine: [-22, -2, 0], Chest: [-18, -4, 0],
+        Neck: [-8, 0, 0], Head: [-30, 2, 0],
+        UpArmL: [-96, 14, 52], LoArmL: [-40, 0, 6], UpArmR: [-78, -12, -56], LoArmR: [-36, 0, -6],
+        ThighL: [-14, -6, 0], ShinL: [40, 0, 0], ThighR: [0, 8, 0], ShinR: [48, 0, 0]
+      }, 'out'),
+      K(1.00, HANG, 'in')
+    ]
+  },
+
+  // CUT IN HALF. The body does not travel — a cut does not push anybody, it
+  // just stops working — so it holds its own shape for a beat and then the top
+  // of it tips off the line of the cut.
+  rSplit: {
+    dur: 0.90, keys: [
+      K(0, GUARD),
+      K(0.05, {
+        Hips: [0, 20, 0], Hips_pos: [0, -0.06, -0.02], Spine: [-6, -4, 4], Chest: [-14, -6, 8],
+        Neck: [-6, 0, 4], Head: [-22, -6, 10],
+        UpArmL: [-104, 16, 54], LoArmL: [-16, 0, 6], HandL: [-8, 20, 0],
+        UpArmR: [-92, -14, -58], LoArmR: [-14, 0, -6], HandR: [-8, -20, 0],
+        ThighL: [-20, -6, 0], ShinL: [18, 0, 0], ThighR: [16, 8, 0], ShinR: [26, 0, 0]
+      }, 'snap'),
+      // held. Nothing has fallen yet and that is what makes it read as a cut.
+      K(0.28, {
+        Hips: [0, 20, 0], Hips_pos: [0, -0.07, -0.02], Spine: [-6, -4, 5], Chest: [-14, -6, 9],
+        Head: [-23, -6, 11], UpArmL: [-104, 16, 54], UpArmR: [-92, -14, -58],
+        ThighL: [-20, -6, 0], ShinL: [18, 0, 0], ThighR: [16, 8, 0], ShinR: [26, 0, 0]
+      }, 'hold'),
+      // and the top half goes over the line
+      K(0.56, {
+        Hips: [-14, 16, 0], Hips_pos: [0, -0.20, -0.14], Spine: [-16, -2, 22], Chest: [-20, -4, 30],
+        Neck: [-6, 0, 12], Head: [-26, 4, 26],
+        UpArmL: [-86, 8, 60], LoArmL: [-16, 0, 6], UpArmR: [-60, -6, -66], LoArmR: [-12, 0, -6],
+        ThighL: [-12, -6, 0], ShinL: [40, 0, 0], ThighR: [4, 8, 0], ShinR: [48, 0, 0]
+      }, 'out'),
+      K(0.90, HANG, 'in')
+    ]
+  },
+
+  // BURNED OFF THE MAP. Both arms come up in front of the face — the only
+  // reflex there is against something that arrives as light — and stay there
+  // while the body is driven back onto its heels.
+  rBurn: {
+    dur: 1.05, keys: [
+      K(0, GUARD),
+      K(0.05, {
+        Hips: [-16, 18, 0], Hips_pos: [0, -0.04, -0.16], Spine: [-24, -6, 0], Chest: [-26, -10, 0],
+        Neck: [-12, 0, 0], Head: [-34, -6, 0],
+        UpArmL: [-128, 34, 10], LoArmL: [-124, 44, 0], HandL: [-30, 90, 0],
+        UpArmR: [-124, -32, -12], LoArmR: [-128, -42, 0], HandR: [-30, -90, 0],
+        ThighL: [-38, -6, 0], ShinL: [34, 0, 0], ThighR: [10, 8, 0], ShinR: [44, 0, 0]
+      }, 'snap'),
+      K(0.30, {
+        Hips: [-18, 18, 0], Hips_pos: [0, -0.08, -0.26], Spine: [-26, -6, 0], Chest: [-28, -10, 0],
+        Head: [-36, -6, 0], UpArmL: [-130, 34, 10], LoArmL: [-126, 44, 0],
+        UpArmR: [-126, -32, -12], LoArmR: [-130, -42, 0],
+        ThighL: [-44, -6, 0], ShinL: [42, 0, 0], ThighR: [14, 8, 0], ShinR: [52, 0, 0]
+      }, 'hold'),
+      // the guard falls apart. There was never anything behind it.
+      K(0.62, {
+        Hips: [-26, 16, 0], Hips_pos: [0, -0.18, -0.22], Spine: [-20, -4, 0], Chest: [-16, -6, 0],
+        Neck: [-6, 0, 0], Head: [-26, 2, 0],
+        UpArmL: [-92, 16, 50], LoArmL: [-46, 0, 6], UpArmR: [-74, -14, -54], LoArmR: [-42, 0, -6],
+        ThighL: [-16, -6, 0], ShinL: [42, 0, 0], ThighR: [2, 8, 0], ShinR: [50, 0, 0]
+      }, 'out'),
+      K(1.05, HANG, 'in')
+    ]
+  },
+
+  // NOTHING HIT THEM. The body simply stops being theirs: a small jolt, then a
+  // beat standing perfectly still with the arms hanging — which is far worse to
+  // watch than being launched — and then it folds straight down.
+  rCrumple: {
+    dur: 0.90, keys: [
+      K(0, GUARD),
+      K(0.05, {
+        Hips: [0, 22, 0], Hips_pos: [0, -0.08, -0.02], Spine: [-4, -6, 0], Chest: [-8, -10, 0],
+        Neck: [-6, -2, 0], Head: [-18, -8, 4],
+        UpArmL: [-24, 10, 18], LoArmL: [-30, 0, 4], HandL: [-6, 20, 0],
+        UpArmR: [-20, -8, -20], LoArmR: [-28, 0, -4], HandR: [-6, -20, 0],
+        ThighL: [-16, -6, 0], ShinL: [14, 0, 0], ThighR: [12, 8, 0], ShinR: [22, 0, 0]
+      }, 'snap'),
+      // standing, and gone. The arms are the tell.
+      K(0.26, {
+        Hips: [0, 22, 0], Hips_pos: [0, -0.09, -0.02], Chest: [-6, -10, 0], Head: [-16, -8, 4],
+        UpArmL: [-14, 8, 12], LoArmL: [-20, 0, 4], UpArmR: [-10, -6, -14], LoArmR: [-18, 0, -4],
+        ThighL: [-14, -6, 0], ShinL: [12, 0, 0], ThighR: [10, 8, 0], ShinR: [20, 0, 0]
+      }, 'hold'),
+      // the knees go. Everything at once, straight down.
+      K(0.56, {
+        Hips: [-10, 18, 0], Hips_pos: [0, -0.34, -0.10], Spine: [-8, -4, 0], Chest: [-10, -6, 0],
+        Neck: [-2, 0, 0], Head: [-20, 2, 0],
+        UpArmL: [-40, 6, 44], LoArmL: [-20, 0, 6], UpArmR: [-30, -4, -48], LoArmR: [-18, 0, -6],
+        ThighL: [-58, -6, 0], ShinL: [66, 0, 0], ThighR: [-26, 8, 0], ShinR: [72, 0, 0]
+      }, 'out'),
+      K(0.90, HANG, 'in')
+    ]
+  },
+
+  // TAKEN OFF THEIR FEET AND SENT. Not up — THROUGH. The chest leads, the legs
+  // trail, and the body is still travelling when the shot cuts.
+  rBlownBack: {
+    dur: 0.95, keys: [
+      K(0, GUARD),
+      K(0.05, {
+        Hips: [-30, 16, 0], Hips_pos: [0, 0.04, -0.20], Spine: [-40, -4, 0], Chest: [-34, -8, 0],
+        Neck: [-18, -2, 0], Head: [-44, -8, 4],
+        UpArmL: [-142, 12, 40], LoArmL: [-24, 0, 6], HandL: [-6, 20, 0],
+        UpArmR: [-138, -10, -44], LoArmR: [-22, 0, -6], HandR: [-6, -20, 0],
+        ThighL: [40, -6, 0], ShinL: [64, 0, 0], FootL: [-20, -10, 0],
+        ThighR: [56, 8, 0], ShinR: [78, 0, 0], FootR: [-16, 8, 0]
+      }, 'snap'),
+      // flat out, feet behind the head, travelling
+      K(0.34, {
+        Hips: [-34, 16, 0], Hips_pos: [0, 0.06, -0.34], Spine: [-42, -4, 0], Chest: [-36, -8, 0],
+        Head: [-46, -8, 4], UpArmL: [-146, 12, 40], UpArmR: [-142, -10, -44],
+        ThighL: [46, -6, 0], ShinL: [70, 0, 0], ThighR: [62, 8, 0], ShinR: [84, 0, 0]
+      }, 'hold'),
+      K(0.64, {
+        Hips: [-38, 14, 0], Hips_pos: [0, -0.16, -0.40], Spine: [-24, -2, 0], Chest: [-18, -4, 0],
+        Neck: [-6, 0, 0], Head: [-26, 4, 0],
+        UpArmL: [-100, 8, 58], LoArmL: [-16, 0, 6], UpArmR: [-72, -6, -64], LoArmR: [-12, 0, -6],
+        ThighL: [10, -6, 0], ShinL: [54, 0, 0], ThighR: [22, 8, 0], ShinR: [60, 0, 0]
+      }, 'in'),
+      K(0.95, HANG, 'in')
+    ]
+  },
+
+  // THE PUNCH THAT ARRIVES BEFORE THE SOUND. The head leaves first and the
+  // whole body corkscrews after it — a Black Flash does not knock somebody
+  // over, it turns them inside out around the point of contact.
+  rTorque: {
+    dur: 0.90, keys: [
+      K(0, GUARD),
+      K(0.04, {
+        Hips: [-4, -30, 0], Hips_pos: [0, -0.02, -0.08], Spine: [-14, 30, 0], Chest: [-22, 44, 0],
+        Neck: [-14, 20, -8], Head: [-40, 54, -22],
+        UpArmL: [-40, 30, 66], LoArmL: [-14, 0, 6], HandL: [-4, 20, 0],
+        UpArmR: [-124, -14, -30], LoArmR: [-10, 0, -6], HandR: [-4, -20, 0],
+        ThighL: [-30, -6, 0], ShinL: [26, 0, 0], ThighR: [18, 8, 0], ShinR: [40, 0, 0]
+      }, 'snap'),
+      // the whole body off the floor, still rotating
+      K(0.26, {
+        Hips: [-14, -84, 0], Hips_pos: [0, 0.08, -0.20], Spine: [-24, 52, 0], Chest: [-30, 60, 0],
+        Neck: [-16, 22, -8], Head: [-44, 58, -24],
+        UpArmL: [-26, 24, 74], LoArmL: [-12, 0, 6], UpArmR: [-138, -8, -22], LoArmR: [-8, 0, -6],
+        ThighL: [-52, -6, 0], ShinL: [58, 0, 0], ThighR: [-24, 8, 0], ShinR: [66, 0, 0]
+      }, 'hold'),
+      K(0.58, {
+        Hips: [-30, -130, 0], Hips_pos: [0, -0.14, -0.30], Spine: [-18, 34, 0], Chest: [-16, 38, 0],
+        Neck: [-6, 12, 0], Head: [-26, 26, -10],
+        UpArmL: [-70, 14, 60], LoArmL: [-16, 0, 6], UpArmR: [-92, -6, -50], LoArmR: [-12, 0, -6],
+        ThighL: [-18, -6, 0], ShinL: [50, 0, 0], ThighR: [-4, 8, 0], ShinR: [56, 0, 0]
+      }, 'out'),
+      K(0.90, { ...HANG, Hips: [-40, -40, 0], Head: [-22, 12, 0] }, 'in')
+    ]
+  },
+
+  // PUT ON BOTH KNEES. For the finishes that are a sentence rather than a
+  // fight: the legs are taken out of it and the body is left kneeling, upright,
+  // head down, waiting for the second half of the blow.
+  rKneel: {
+    dur: 0.95, keys: [
+      K(0, GUARD),
+      K(0.06, {
+        Hips: [14, 20, 0], Hips_pos: [0, -0.26, -0.06], Spine: [22, -6, 0], Chest: [18, -10, 0],
+        Neck: [8, 0, 0], Head: [22, -6, 0],
+        UpArmL: [-52, 18, 22], LoArmL: [-96, 10, 0], UpArmR: [-46, -16, -24], LoArmR: [-100, -8, 0],
+        ThighL: [-58, -6, 0], ShinL: [62, 0, 0], ThighR: [-20, 8, 0], ShinR: [70, 0, 0]
+      }, 'snap'),
+      // both knees down. The head is the last thing to arrive.
+      K(0.28, {
+        Hips: [6, 18, 0], Hips_pos: [0, -0.62, -0.04], Spine: [16, -6, 0], Chest: [14, -10, 0],
+        Neck: [10, 0, 0], Head: [26, -4, 0],
+        UpArmL: [-16, 8, 20], LoArmL: [-40, 0, 4], HandL: [-10, 30, 0],
+        UpArmR: [-12, -6, -22], LoArmR: [-36, 0, -4], HandR: [-10, -30, 0],
+        ThighL: [-96, -6, 0], ShinL: [124, 0, 0], FootL: [26, -8, 0],
+        ThighR: [-92, 8, 0], ShinR: [126, 0, 0], FootR: [26, 8, 0]
+      }, 'snap'),
+      K(0.62, {
+        Hips: [8, 18, 0], Hips_pos: [0, -0.63, -0.04], Spine: [18, -6, 0], Head: [28, -4, 0],
+        UpArmL: [-14, 8, 20], LoArmL: [-38, 0, 4], UpArmR: [-10, -6, -22], LoArmR: [-34, 0, -4],
+        ThighL: [-96, -6, 0], ShinL: [124, 0, 0], ThighR: [-92, 8, 0], ShinR: [126, 0, 0]
+      }, 'hold'),
+      K(0.95, {
+        Hips: [16, 16, 0], Hips_pos: [0, -0.64, -0.02], Spine: [24, -6, 0], Chest: [18, -8, 0],
+        Neck: [4, 0, 0], Head: [16, -4, 0],
+        UpArmL: [-10, 6, 18], LoArmL: [-30, 0, 4], UpArmR: [-6, -4, -20], LoArmR: [-26, 0, -4],
+        ThighL: [-96, -6, 0], ShinL: [126, 0, 0], ThighR: [-92, 8, 0], ShinR: [128, 0, 0]
+      }, 'hold')
+    ]
+  },
+
+  // AND FORWARD OFF THE KNEES. The only way a kneeling body falls, and the
+  // hand-off `rFall` cannot do because `rFall` starts standing.
+  rKneelFall: {
+    dur: 1.40, keys: [
+      K(0, {
+        Hips: [16, 16, 0], Hips_pos: [0, -0.64, -0.02], Spine: [24, -6, 0], Chest: [18, -8, 0],
+        Head: [16, -4, 0], UpArmL: [-10, 6, 18], UpArmR: [-6, -4, -20],
+        ThighL: [-96, -6, 0], ShinL: [126, 0, 0], ThighR: [-92, 8, 0], ShinR: [128, 0, 0]
+      }),
+      K(0.34, {
+        Hips: [44, 12, 0], Hips_pos: [0, -0.66, 0.10], Spine: [38, -4, 0], Chest: [28, -6, 0],
+        Neck: [8, 0, 0], Head: [20, -2, 0],
+        UpArmL: [-70, 10, 26], LoArmL: [-20, 0, 6], HandL: [-30, 20, 0],
+        UpArmR: [-64, -8, -28], LoArmR: [-18, 0, -6], HandR: [-30, -20, 0],
+        ThighL: [-84, -6, 0], ShinL: [116, 0, 0], ThighR: [-80, 8, 0], ShinR: [118, 0, 0]
+      }, 'in'),
+      K(0.62, {
+        Hips: [-74, 6, 0], Hips_pos: [0, -0.66, -0.10], Spine: [-8, -2, 0], Chest: [-4, -2, 0],
+        Head: [-14, 10, 0],
+        UpArmL: [-52, 2, 70], LoArmL: [-12, 0, 6], UpArmR: [-22, -2, -74], LoArmR: [-8, 0, -6],
+        ThighL: [56, -6, 2], ShinL: [30, 0, 0], ThighR: [64, 8, -2], ShinR: [36, 0, 0]
+      }, 'snap'),
+      K(0.92, { ...SETTLED, HandR: [-14, -20, 0], UpArmR: [-20, 0, -76] }),
+      K(1.40, SETTLED, 'out')
     ]
   },
 
@@ -686,7 +953,8 @@ export const REACTIONS = {
 // height fractions are of the VICTIM's own height, so a shot to the head goes
 // to the head whether that is at 1.3 m or 3.0 m.
 export const AIM_BONE = {
-  head: 'Head', chin: 'Head', chest: 'Chest', gut: 'Spine', guard: 'HandL'
+  head: 'Head', chin: 'Head', neck: 'Neck', throat: 'Neck',
+  chest: 'Chest', heart: 'Chest', gut: 'Spine', guard: 'HandL'
 };
 
 // The two authoring scales. Everything above is written on a 1.8 m body except

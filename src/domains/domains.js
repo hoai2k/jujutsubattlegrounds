@@ -8,6 +8,10 @@ import { commitInstantKO, finishInstantKO } from '../combat/instantko.js';
 import { applyBurn } from '../combat/burn.js';
 import { cleaveDamage, fingerDmg } from '../combat/effects.js';
 import { SPECIAL } from '../combat/balance.js';
+// The circle half of `sdHolds` below, and the only line in this file that the
+// new characters required. Miwa's Simple Domain is a separate object from the
+// universal `simpleDomain` STATE this file owns — see combat/newshadow.js.
+import { sdZoneHolds } from '../combat/newshadow.js';
 
 // Length of the clash contest window: both domains are suspended and the
 // sorcerer who takes the least damage over these seconds wins the exchange.
@@ -32,6 +36,32 @@ export const CONTEST_SECONDS = 5;
 // against ordinary physical attacks, and that is exactly what it does here:
 // `blossomHolds` is only ever consulted on sure-hit paths.
 export function blossomHolds(f) { return !!f && f.blossomT > 0 && f.state === 'blossom'; }
+
+// ---------------------------------------------------------------------------
+// SIMPLE DOMAIN, BOTH KINDS — the one predicate every sure-hit site asks
+// ---------------------------------------------------------------------------
+// There are now TWO ways a body can be holding a Simple Domain:
+//
+//   THE STATE  `simpleDomain` — the universal defensive option every fighter
+//              gets while trapped inside an enemy domain, driven by
+//              `_trappedControls` below and paid for out of
+//              `cfg.simpleDomainDrain`. COMPLETELY UNCHANGED.
+//   THE ZONE   Miwa's New Shadow Style circle, a free-standing object on the
+//              ground she can place at any time. See combat/newshadow.js.
+//
+// Every site in this file that used to read `t.state === 'simpleDomain'`
+// inline now asks this instead. That is deliberately the same move
+// `blossomHolds` above already represents: fold a second anti-domain tool
+// into the checks that exist rather than duplicating sixteen of them.
+//
+// NOTE WHAT THIS DOES NOT CHANGE. For every character who is not Miwa,
+// `sdZoneHolds` is always false, so `sdHolds` is exactly the expression that
+// was there before, character for character. The universal Simple Domain is
+// untouched — including for Miwa, who can still hold the state like anybody
+// else, and whose `simpleDomainDrain` is the best number on the roster.
+export function sdHolds(f) {
+  return !!f && (f.state === 'simpleDomain' || sdZoneHolds(f));
+}
 
 // The shroud answers back. Called from each nullification site so the counter
 // is uniform no matter which domain was stopped.
@@ -264,7 +294,7 @@ export class DomainSystem {
       if (!t.alive) continue;
       const d = flatDist(t.pos, a.shrineOrigin);
       if (d >= a.shrineR) continue;                 // OUT. Running works.
-      if (t.state === 'simpleDomain') {
+      if (sdHolds(t)) {
         if (!a._sdToast) { a._sdToast = true; m.hud.toast(t, 'SIMPLE DOMAIN HOLDS'); }
         continue;
       }
@@ -570,7 +600,7 @@ export class DomainSystem {
         // mean "the lock does not take" or the counter would do nothing here.
         const blossom = blossomHolds(t);
         if (blossom) blossomCounter(m, t, a.caster);
-        const prot = t.state === 'simpleDomain' || t.state === 'barrierBreak' || blossom;
+        const prot = sdHolds(t) || t.state === 'barrierBreak' || blossom;
         const adapt = t.adapt ? (t.adapt.mark('domain'), t.adapt.reductionFor('domain')) : 0;
         // ---- HEAVENLY RESTRICTION vs UNLIMITED VOID -------------------------
         // Found by testing rather than by reasoning: with the lockdown applied
@@ -596,7 +626,11 @@ export class DomainSystem {
           if (t.state === 'voided') { t.setState('idle', { clip: 'idle' }); t.domainLock = null; }
           continue;
         }
-        let interruptible = !['knockdown', 'launched', 'getup', 'ko', 'hitLight', 'hitHeavy', 'guardBreak'].includes(t.state);
+        // `offField` is in this list for the same reason the reaction states
+        // are: the void cannot lock a body that is not in the room. It is the
+        // ONLY change this file needed for Takaba's trapdoor and curtain — see
+        // the audit on `Fighter.setOffField`.
+        let interruptible = !['knockdown', 'launched', 'getup', 'ko', 'hitLight', 'hitHeavy', 'guardBreak', 'offField'].includes(t.state);
         // ...and a NO-CURSED-ENERGY fighter mid-technique is not interruptible
         // either. Second half of the fix above, and it was also found by
         // testing: the free window let Toji START the Inverted Spear inside
@@ -633,7 +667,7 @@ export class DomainSystem {
       for (const t of trapped) {
         const blossom = blossomHolds(t);
         if (blossom && stackNow) blossomCounter(m, t, a.caster);
-        const prot = t.state === 'simpleDomain' || blossom;
+        const prot = sdHolds(t) || blossom;
         t.burn.noDecay = !prot;
         if (!t.alive || prot) continue;
         // ambient heat is a DOMAIN effect, not a burn stack — adaptation
@@ -641,6 +675,11 @@ export class DomainSystem {
         // FIRE, so Hanami's vulnerability applies to it: the Iron Mountain is
         // the worst place on the roster for a thing made of wood to be.
         t.takeChip(heat.dps * dt, 'domain', 'fire');
+        // ...and the ambient heat melts Uraume's floor out from under them.
+        // The Coffin is a volcano; there is no ice in it. Scaled by dt so a
+        // per-frame call adds up to the same melt rate the discrete fire
+        // sources produce, rather than deleting the whole arena in a frame.
+        this.match.ice?.meltAt(t.pos.clone(), 2.4, dt * 1.6);
         if (stackNow) applyBurn(t, 1);
       }
       if (a.eruptT <= 0) {
@@ -648,7 +687,7 @@ export class DomainSystem {
         for (const t of trapped) {
           // an eruption would interrupt the Barrier Break channel forever —
           // the break stays viable, so the channeler only eats ambient heat
-          if (!t.alive || t.state === 'simpleDomain' || t.state === 'barrierBreak' || blossomHolds(t)) continue;
+          if (!t.alive || sdHolds(t) || t.state === 'barrierBreak' || blossomHolds(t)) continue;
           m.fx.eruptionBlast(t.pos.clone(), 1.5);
           m.sfx.erupt();
           t.applyHit({
@@ -679,6 +718,129 @@ export class DomainSystem {
       // MALEVOLENT SHRINE — the only domain in the game with no barrier AND a
       // full sure-hit. Everything it does is in _updateShrine.
       this._updateShrine(a, dt);
+    } else if (a.def.sureHit.effect === 'captivating_skandha') {
+      // HORIZON OF THE CAPTIVATING SKANDHA — and this branch is DELIBERATELY
+      // almost empty, which is the whole point of the character.
+      //
+      // No damage tick. No stun. No lockdown. No gauge. The sea and the sky do
+      // nothing at all, and there is no line here that could be mistaken for
+      // an attrition effect. What the domain does is spawn creatures (see
+      // combat/ocean.js, driven from `beginSwarm` in `_activate`), and those
+      // creatures carry the sure-hit on their own strikes — through the same
+      // `sureHit` flag on the same `applyHit` path every other domain payload
+      // in this game uses, which is why Simple Domain, Falling Blossom, the
+      // Inverted Spear and Miwa's circle all answer it without a line here
+      // knowing they exist.
+      //
+      // The two things it DOES do are both about the caster, not the target:
+      a.caster.buffs.domainHaste = 0.2;                       // refreshed each tick
+      a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;  // he moves faster in it
+      // ...and the one courtesy the trapped fighter gets, which is that
+      // BLOSSOM AND SIMPLE DOMAIN ARE VISIBLY DOING SOMETHING. Without a tick
+      // of its own the counter-tools would silently work (each shikigami's hit
+      // is refused at the applyHit guard) and the player would never see why,
+      // so the shroud is answered here once per second exactly as the other
+      // domains answer it.
+      a.blossomT = (a.blossomT ?? 0) + dt;
+      if (a.blossomT >= 1) {
+        a.blossomT = 0;
+        for (const t of trapped) if (blossomHolds(t)) blossomCounter(m, t, a.caster);
+      }
+    } else if (a.def.sureHit.effect === 'warped_firmament') {
+      // THE WARPED FIRMAMENT 天蓋歪曲界 — Uro. Three mechanics, and they are
+      // deliberately kept apart from each other so each can be tuned or cut
+      // without touching the others.
+      //
+      // 1. TOTAL ENVIRONMENTAL CONTROL. Caster-side only. The free/instant
+      //    techniques are read in combat/fighter.js `startCT` off the same
+      //    `isMyDomain` test Megumi's garden uses; the free flight is read in
+      //    combat/flight.js. Nothing about them is applied to the target, so
+      //    none of it belongs in this loop — all that lives here is the haste
+      //    dial every other domain sets.
+      a.caster.buffs.domainHaste = 0.2;
+      a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;
+      // ...and the bar her quarter-price techniques are spent out of. Same
+      // shape as Hakari's `casterCERegen`, and gated on `backlash` for the
+      // same reason his is: a caster already paying for a spent domain does
+      // not also get fed by one.
+      if (a.def.control?.casterCERegen && a.caster.backlash <= 0) {
+        a.caster.res.curCE = Math.min(a.caster.res.maxCE,
+          a.caster.res.curCE + a.def.control.casterCERegen * dt);
+      }
+
+      const sh = a.def.shatter, ds = a.def.distort;
+      a.shatterT = (a.shatterT ?? sh.every * 0.55) - dt;
+      const breakNow = a.shatterT <= 0;
+      if (breakNow) a.shatterT = sh.every;
+
+      // 3. SPATIAL DISTORTION — the angle is a property of the DOMAIN, not of
+      //    each victim, so everyone trapped in it is turned the same way. Two
+      //    people disoriented differently reads as two bugs; one turned world
+      //    reads as a turned world.
+      a.distortT = (a.distortT ?? 0) + dt;
+      const cycle = ds.holdTime + ds.easeTime;
+      const phase = a.distortT % cycle;
+      const step = Math.floor(a.distortT / cycle);
+      // A deterministic per-step target, so a replay and both halves of a
+      // split screen agree without threading an RNG through.
+      //
+      // `n + 1`, NOT `n`. FOUND BY PLAYING IT: at `n` the very first step is
+      // `sin(0) = 0`, so the domain opened and then did nothing at all for its
+      // first 2.9 seconds — a quarter of its whole duration spent not using
+      // its own signature mechanic. The offset costs nothing and guarantees
+      // step 0 has a real angle.
+      const targetOf = n => Math.sin((n + 1) * 12.9898) * ds.maxAngle;
+      const from = step === 0 ? 0 : targetOf(step - 1);
+      const to = targetOf(step);
+      const k = phase < ds.easeTime ? phase / ds.easeTime : 1;
+      const e = k * k * (3 - 2 * k);                 // smoothstep, never a snap
+      a.distortAngle = from + (to - from) * e;
+      // the interior turns WITH it — this is the tell that makes the mechanic
+      // fair rather than a random handicap
+      m.domainfx?.setFirmamentTwist?.(a.distortAngle);
+
+      for (const t of trapped) {
+        const blossom = blossomHolds(t);
+        if (blossom && breakNow) blossomCounter(m, t, a.caster);
+        const prot = sdHolds(t) || blossom;
+        // The coordinate rotation is written onto the fighter and read by
+        // `_moveVec`. Clearing it under protection is what makes Simple Domain
+        // visibly answer this half too, rather than only the damage.
+        t.coordTwist = (!t.alive || prot) ? 0 : a.distortAngle;
+        if (!t.alive || prot) continue;
+        // the coordinates pulling at them — small, continuous, unblockable
+        t.takeChip(ds.tearDps * dt, 'domain');
+        if (!breakNow) continue;
+        // 2. GUARANTEED-HIT THIN ICE BREAKER. A TRUE sure-hit: `sureHit` and
+        //    `unblockable` together, the same pair Jogo's eruptions use, so
+        //    blocking does not soften it the way it softens Dagon's swarm.
+        //    The barrier-break channel is exempt for the same reason it is
+        //    exempt from the eruptions — an interrupt every 1.55 s would make
+        //    the counter unusable rather than costly.
+        if (t.state === 'barrierBreak') continue;
+        // THE SAME REFRACTION HER RB USES — fx/warpfx.js `thinIce`, not a
+        // bespoke domain visual. That is the point of the sure-hit: it is
+        // literally Thin Ice Breaker, so it has to LOOK literally like Thin
+        // Ice Breaker. The only difference is where it forms — the plane is
+        // built on the victim and faces the caster, rather than being aimed.
+        //
+        // Inside the domain this reads better than it does outside, because
+        // what the shards refract is the firmament interior: broken sky seen
+        // through broken sky.
+        const away = v3(t.pos.x - a.caster.pos.x, 0, t.pos.z - a.caster.pos.z);
+        if (away.lengthSq() < 1e-4) away.set(0, 0, 1);
+        m.warpfx?.thinIce(t.pos.clone().setY(1.1), away.normalize(), {
+          width: 3.6, height: 3.0, shards: sh.shards, crackTime: sh.windup, life: 0.8
+        });
+        m.sfx.thinIce?.();
+        t.applyHit({
+          dmg: sh.dmg, kb: sh.kb, kbY: sh.kbY, hitstun: sh.hitstun,
+          type: 'launcher', attacker: a.caster,
+          sureHit: true, unblockable: true, src: 'domain',
+          dir: v3(rand(-1, 1), 0, rand(-1, 1)).normalize()
+        }, m.ctxFor(a.caster));
+        m.cam.shake(0.3);
+      }
     } else if (a.def.sureHit.effect === 'shadow_garden') {
       // CHIMERA SHADOW GARDEN — no sure-hit tick at all, and that absence IS
       // the mechanic. Nothing is applied to the trapped fighter here; what the
@@ -709,7 +871,7 @@ export class DomainSystem {
           // Simple Domain halts the drain; so does the shroud. The gauge IS
           // the sure-hit here, so nullifying the sure-hit means the gauge
           // stops moving.
-          if (t.state === 'simpleDomain') continue;
+          if (sdHolds(t)) continue;
           if (blossomHolds(t)) { blossomCounter(m, t, a.caster); continue; }
           // MAHITO vs MAHORAGA. Same ruling the project already applies to
           // Megumi's shikigami: a shadow construct has no soul to reshape, so
@@ -930,13 +1092,45 @@ export class DomainSystem {
     // AML: the formation volley — katanas rain down, Yuta starts unarmed with
     // weakened punches; every roll comes from one seeded stream
     if (a.def.sureHit.effect === 'sword_rain') {
-      const seed = this.nextSwordSeed ?? ((Math.random() * 0x7fffffff) | 0);
+      // The caster's own seeded stream picks the seed when there is no forced
+      // one, so the volley rolls identically on every client in an online
+      // match. F6's `nextSwordSeed` override still wins.
+      const seed = this.nextSwordSeed
+        ?? (((a.caster.rng ? a.caster.rng() : Math.random()) * 0x7fffffff) | 0);
       this.nextSwordSeed = null;
       this.swordRoll = { seed, rng: mulberry32(seed), last: null };
       this.swords = new SwordRain(m, a.caster, a.def.swords, this.swordRoll.rng);
       a.caster.heldSword = false;
       a.caster.punchDmgMult = a.def.swords.unarmedPunchMult ?? 0.5;
       m.hud.toast(a.caster, '刀雨 SWORD VOLLEY');
+    }
+    // ---- DAGON: DEATH SWARM 死累累湧軍 ------------------------------------
+    // The domain's whole payload, handed to the ocean system on the frame the
+    // barrier resolves. Nothing is applied to the trapped fighter HERE and
+    // nothing ever will be: this is the only domain in the game with no
+    // ambient effect of its own, and every point of damage in it comes out of
+    // a creature that can be killed. See the `captivating_skandha` branch in
+    // `update` for the (deliberately near-empty) per-tick.
+    if (a.def.sureHit.effect === 'captivating_skandha') {
+      m.ocean?.beginSwarm(a.caster, a.def);
+      a.caster.model.setSeal?.(true);
+      // He is faster inside his own domain — the SAME `domainHaste` dial
+      // Jogo's furnace already uses, so this needed nothing new.
+      a.caster.buffs.domainHaste = 0.2;
+      a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;
+      m.hud.toast(a.caster, '死累累湧軍 — DEATH SWARM');
+    }
+    // ---- URO: THE WARPED FIRMAMENT 天蓋歪曲界 ------------------------------
+    // Everything the domain does to the trapped fighter is per-tick, so this
+    // only opens the caster's half of it and announces the thing the player
+    // most needs to know, which is that the ground they are standing on has
+    // stopped agreeing with their stick.
+    if (a.def.sureHit.effect === 'warped_firmament') {
+      a.caster.buffs.domainHaste = 0.2;
+      a.caster.domainHasteMult = a.def.casterSpeedMult ?? 1;
+      a.distortT = 0;
+      a.distortAngle = 0;
+      m.hud.toast(a.caster, '天蓋歪曲界 — THE WARPED FIRMAMENT');
     }
     // IDG: hand the machine over to the gamble system, which owns everything
     // from here — including the part that outlives this barrier.
@@ -996,7 +1190,7 @@ export class DomainSystem {
     const a = this.active;
     if (!a || a.phase !== 'active' || a.caster !== caster || !a.gauges || a.tfKO) return;
     if (a.def.sureHit.effect !== 'transfigure' || !target || target === caster) return;
-    if (target.state === 'simpleDomain' || blossomHolds(target)) return;
+    if (sdHolds(target) || blossomHolds(target)) return;
     const tf = a.def.transfig;
     let v = kind === 'minion'
       ? tf.chunkPunch * tf.minionMult
@@ -1144,6 +1338,29 @@ export class DomainSystem {
     // who tries the break against a second shrine should be told again.
     for (const f of m.fighters) { f.burn.noDecay = false; f._noBarrierToast = false; f._blossomToast = false; }
     a.caster.buffs.domainHaste = 0;
+    // ---- DAGON: EVERYTHING THE BARRIER WAS MAKING STOPS EXISTING ----------
+    // The shikigami are the domain's SURE-HIT PAYLOAD, not summons he paid for
+    // separately — so when the barrier stops existing, so does what it was
+    // producing. Every creature on the field dies on the spot, whichever of
+    // the five exits brought the barrier down: the timer, a Barrier Break, a
+    // domain clash lost, Toji's Inverted Spear, or the caster being killed.
+    //
+    // That ruling is what makes the anti-domain tools MEAN anything against
+    // him. If breaking the barrier left twenty sharks standing, breaking the
+    // barrier would not be a counter to this character — it would be a
+    // formality he had already been paid for. See the audit in the delivery
+    // report; all four counters route through this line.
+    //
+    // Note what SURVIVES: anything he put out with his SPECIAL before casting.
+    // That body is his, he paid cursed energy for it, and the barrier had
+    // nothing to do with it — `endSwarm` only kills creatures flagged `domain`.
+    if (a.def.sureHit.effect === 'captivating_skandha') {
+      const stats = m.ocean?.endSwarm({ kill: true });
+      a.caster.model.setSeal?.(false);
+      if (stats && import.meta.env?.DEV) {
+        console.info('[skandha] spawned', stats.spawned, 'culled', stats.culled, 'peak slots', stats.peakSlots);
+      }
+    }
     // MEGUMI: the restored shikigami were on loan. Anything on the field whose
     // key is still in the loss ledger goes back down with the shadow — it was
     // only ever standing because the domain was.
@@ -1162,6 +1379,16 @@ export class DomainSystem {
     if (a.def.sureHit.effect === 'malevolent_shrine') {
       for (const f of m.fighters) { f._noBarrierToast = false; }
       m.hud.toast(a.caster, 'THE SHRINE FALLS');
+    }
+    // URO: give everyone their coordinates back. This MUST be unconditional
+    // over all fighters rather than over `trapped`, and must not depend on the
+    // domain ending cleanly: a fighter who walked out of the barrier, or who
+    // was protected on the last tick, or who died in there, still has a stale
+    // `coordTwist` written on them, and a rotated stick that outlives the
+    // domain is the worst bug this mechanic could possibly have.
+    if (a.def.sureHit.effect === 'warped_firmament') {
+      for (const f of m.fighters) f.coordTwist = 0;
+      m.domainfx?.setFirmamentTwist?.(0);
     }
     // release every trapped fighter: void lock + lingering neurological debuff
     for (const t of this.trapped(a.caster)) {
@@ -1498,7 +1725,7 @@ export class DomainSystem {
     m.sfx.swordShatter();
 
     if (!target.alive) return;
-    if (target.state === 'simpleDomain') {
+    if (sdHolds(target)) {
       m.hud.toast(target, 'SIMPLE DOMAIN HOLDS');
       return;
     }

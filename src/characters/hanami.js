@@ -93,25 +93,12 @@ export const HANAMI = withDefaults({
     staminaCost: 18, armorFrames: 20, ceGain: 1.7, clip: 'heavy'
   },
 
-  // ---- RB · CT1 — ROOT ERUPTION -------------------------------------------
-  // Wooden spikes burst out of the ground at a targeted position: aim with the
-  // left stick, neutral leads the opponent's feet. The growing marker IS the
-  // move — it is a trap and a wake-up punish, not a poke. Deliberately built
-  // on the same shape as Jogo's Volcanic Eruption because the two are the
-  // roster's two ground traps and they should be read the same way; where they
-  // differ is that this one LAUNCHES, and that it is faster and hits harder on
-  // natural ground.
-  ct1: {
-    name: 'Root Eruption', jpName: '根の噴出', cost: 16,
-    startup: 22, active: 4, recovery: 31,          // 57f = the clip's 0.95 s
-    effect: 'hanami_roots', clip: 'ct1',
-    dmg: 16, delay: 0.75, radius: 2.6, aimRange: 9, kb: 4, kbY: 9.5,
-    // NATURAL GROUND: it comes up faster, wider and harder, because there is
-    // something down there to come up out of.
-    natural: { dmg: 22, delay: 0.52, radius: 3.05 }
-  },
-
-  // ---- RT · CT2 — CURSED BUD ----------------------------------------------
+  // ---- RB · CT1 / RT · CT2 -------------------------------------------------
+  // ROSTER CONVENTION: RB holds the furthest-reaching technique, RT the
+  // strongest. The Root Swarm travels 11 m; the Root Eruption is placed
+  // within 9 m and hits harder (16, and 22 on natural ground).
+  //
+  // ---- THE CURSED BUD (carried by the Root Swarm) --------------------------
   // Canon calls this the Cursed Bud: a parasitic seed that lives on cursed
   // energy and grows by taking the victim's. Direct damage is almost nothing.
   // The point is STARVING them — six seconds of drain is most of a bar, and a
@@ -122,15 +109,43 @@ export const HANAMI = withDefaults({
   // counterplay to "you cannot reach your ultimate" is to go and hit him, which
   // is exactly the fight he wants to have and exactly the fight you have to
   // win anyway.
+  // ---- RB · CT1 — ROOT SWARM 根の群れ --------------------------------------
+  // He drives an arm into the deck and the roots go hunting UNDER it: a line
+  // of them races away in THE DIRECTION HE IS MOVING, surfacing as it travels
+  // (real wooden geometry, one clump every metre), and whatever the line
+  // reaches is thrown into the air. UNBLOCKABLE — you do not guard a floor
+  // that has stopped being a floor, you get off it, and the swarm is slow
+  // enough that walking off the line is a real answer.
+  //
+  // Connecting also plants the CURSED BUD: the parasite is now something the
+  // roots do to a body they have hold of rather than a seed thrown on its
+  // own, which keeps his CE-drain identity and loses the worst-looking move
+  // in his kit. Everything about the drain itself is unchanged and still
+  // lives in combat/flora.js — including the cleanse counterplay.
+  ct1: {
+    name: 'Root Swarm', jpName: '根の群れ', cost: 16,
+    startup: 18, active: 3, recovery: 26,
+    effect: 'hanami_rootswarm', clip: 'ct2',
+    dmg: 14, range: 11, speed: 15, step: 1.1, radius: 1.5,
+    kbY: 11, hitstun: 34,
+    // what the roots plant on whoever they catch
+    bud: {
+      duration: 7, drainPerSec: 6, feedMult: 0.85, cleanseHits: 4,
+      // vs a fighter with no cursed-energy system — see combat/flora.js, and
+      // the ruling written out there for Toji and Mahoraga
+      flatVsNoCE: { dps: 3.4 }
+    }
+  },
+
+  // ---- RT · CT2 — ROOT ERUPTION 根の噴出 ------------------------------------
   ct2: {
-    name: 'Cursed Bud', jpName: '呪詛の芽', cost: 12,
-    startup: 18, active: 3, recovery: 22,          // 43f = the clip's 0.72 s
-    effect: 'hanami_bud', clip: 'ct2',
-    dmg: 4, range: 7.0, speed: 13,
-    duration: 7, drainPerSec: 6, feedMult: 0.85, cleanseHits: 4,
-    // vs a fighter with no cursed-energy system — see combat/flora.js, and the
-    // ruling written out there for Toji and Mahoraga
-    flatVsNoCE: { dps: 3.4 }
+    name: 'Root Eruption', jpName: '根の噴出', cost: 16,
+    startup: 22, active: 4, recovery: 31,          // 57f = the clip's 0.95 s
+    effect: 'hanami_roots', clip: 'ct1',
+    dmg: 16, delay: 0.75, radius: 2.6, aimRange: 9, kb: 4, kbY: 9.5,
+    // NATURAL GROUND: it comes up faster, wider and harder, because there is
+    // something down there to come up out of.
+    natural: { dmg: 22, delay: 0.52, radius: 3.05 }
   },
 
   // ---- LT · BLOCK ---------------------------------------------------------

@@ -1,4 +1,4 @@
-# CURSED ARENA
+# JUJUTSU BATTLEGROUNDS
 
 A 3D anime arena brawler in the browser — a Jujutsu Kaisen: Cursed Clash-style
 1v1 fighter. **Every visual and sound effect is procedural**: models, rigs,
@@ -36,6 +36,19 @@ default mode**; VS CPU is the second option. (`npm run dev` is the same server
 without the browser auto-open.)
 
 Model viewer (turntable + clip switching): **http://localhost:5173/#viewer**
+
+Workbench (look at one system without playing to it):
+**http://localhost:5173/workbench/?edit=finishers** — pick a winner, a loser, a
+location and, if you want a specific one, the finisher itself; press **SHOW
+FINISHER** and the cutscene plays full screen and hands the page back when it
+is done. **Esc** returns early. It runs the shipped director against a real
+match on a real map, so what you see there is what the game plays. `?edit=`
+selects the bench; `finishers` is the default and currently the only one.
+
+Visitor stats (who is playing, and from where):
+**http://localhost:5173/stats/** — a live dashboard over the anonymous visit
+rows the game writes. Off in a dev build unless you add `?stats=1`. See
+[docs/stats.md](docs/stats.md) for what is collected and what is not.
 
 Production build / preview:
 
@@ -140,6 +153,8 @@ hole in the ring is a hole — muscle memory survives.
 | HIGURUMA | **SUMMON JUDGEMAN** | A blind shikigami that never attacks. It holds a post behind him and files **EVIDENCE** on the opponent — 3.2/s passively and much faster while Higuruma is the one being hit. Evidence lowers his domain's cast gate and shortens the execution sequence inside it. 22 hp: destroying it turns the tap off until he spends 18 CE and ten seconds putting it back. |
 | SUKUNA | **CONSUME A FINGER** | He eats one of his own fingers and is permanently stronger for the rest of the **match** — technique damage ×1.09, range ×1.08 and startup ×0.94, cumulative, per stack. Four of them, ever. Costs no cursed energy: the price is **58 frames in which he cannot act**, and being clipped out of the channel loses the second but *not* the finger. Two stacks unlock **FIRE ARROW**. |
 | MEGUMI | **SHIKIGAMI WHEEL** (hold) | Hold **B** to open a radial selector — the game keeps running and time slows to ~0.62×, so opening it in someone's face is a real risk. The **left stick picks the shikigami**, **RB / RT picks which technique slot it lands in**, and **releasing confirms**. Re-binding mid-fight is part of his rhythm, not a once-a-round commitment. |
+| YAGA | **CONSTRUCT** (hold) | **HOLD B and he builds a cursed corpse in his hands.** A meter fills over 6.4 s, billed at 7.5 CURRENT_CE per second, and what walks off his hands when you release is whatever tier the meter reached — SCRAP at 25%, STANDARD at 50%, REFINED at 75%, MASTERWORK at 100%, each a visibly different body. He is **completely vulnerable** while it fills: no attacking, no blocking, no dashing, no jumping, and a third of his walk speed. A light hit takes 22% of the bar; **a heavy hit, a launcher or a knockdown destroys the work outright.** Let go early and the progress sits for three seconds before it starts bleeding, so building in two bites around their pressure is a real plan. Two corpses at once; a third is refused rather than swapping one out. |
+| TAKABA | **RIFF** | A short stance where he works the crowd. It builds **COMEDY METER** faster than anything else in his kit (26/s) and he is **completely vulnerable** for all of it — no guard, no armour, and after the first few frames no way out. Getting hit during it drains 22 meter, which is more than the whole stance was going to earn. Pure risk, and the only button in his kit that is a decision rather than a dice roll. |
 
 Gojo special combo: while **charged** (MAX 100 + full bar), cast **Blue then
 Red** within the window → **Hollow Purple** (consumes the whole bar).
@@ -200,6 +215,15 @@ that screen D-pad Left is the cursor.
 never). A bot only taunts out of a genuinely safe opening: the opponent on the
 floor, or a real gap in neutral. Never in or near a combo, never under
 pressure, never while losing, never inside a domain.
+
+**THE ONE EXCEPTION, and it is deliberate: TAKABA'S TAUNT DOES SOMETHING.** It
+is an actual joke — he turns to *camera*, takes his time, delivers, and a
+rimshot plays — and completing it uninterrupted pays **+14 COMEDY METER**, which
+makes taunting part of his gameplan rather than a flourish. Everything else
+about it obeys every rule above: fully vulnerable, interruptible, rate-limited
+by the same 2.4 s, blocked everywhere taunts are blocked, and it pays nothing if
+it is cut. It is keyed on `cfg.comedy`, which only he declares, so it cannot
+leak to anybody else — the global flag below is untouched and still off.
 
 **`TAUNT_GRANTS_METER`** (`src/combat/taunts.js`) is a config flag, **off by
 default**. Turned on, an *uninterrupted* taunt pays a small CURRENT_CE bonus —
@@ -788,6 +812,194 @@ ultimate buys utility (free cursed energy, no swap animation, both techniques,
 6.0 run) and no damage payoff at all. A three-core one takes the round. That
 spread is the reward for having protected all three.
 
+## YAGA 夜蛾正道
+
+The builder, and the only summoner in the game whose creature is **manufactured
+mid-fight** rather than called. Every other summoner spends a resource and
+receives a fixed thing. Yaga spends **time under pressure** and receives
+**whatever he managed to finish** — the corpse that walks off his hands is a
+direct readout of how long you left him alone.
+
+Canon-correct: **no Domain Expansion.** D-pad Right is a burst ultimate on the
+standard gate.
+
+### CONSTRUCTION — the four tiers
+
+Hold **B**. The meter fills over 6.4 uninterrupted seconds at 7.5 CURRENT_CE per
+second. Release at any point and you get the tier the meter reached. Each tier
+is a **different model with its own rig and its own animation set**, not one
+body rescaled, because the whole negotiation depends on the opponent being able
+to *see* what they are letting him build.
+
+| tier | meter | time | CE | hp | dmg | lifespan | speed | flinches | extra |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **SCRAP** 屑骸 | 25% | 1.6 s | 12 | 18 | 3.0 | 7 s | 2.6 | **yes** | — |
+| **STANDARD** 呪骸 | 50% | 3.2 s | 24 | 46 | 7.5 | 15 s | 3.8 | no | — |
+| **REFINED** 精骸 | 75% | 4.8 s | 36 | 74 | 10.5 | 22 s | 5.0 | no | LUNGE |
+| **MASTERWORK** 傑作 | 100% | 6.4 s | 48 | 128 | 15.0 | 34 s | 5.6 | no | LUNGE + SLAM + it **body-blocks for him** |
+
+**They do not flinch.** Canon: a cursed corpse feels no pain or fear and does
+not flinch when struck. Every tier above SCRAP carries it, and it is the single
+most important thing about fighting one — hitting it does not interrupt it.
+
+**Two at once. A third is refused, not swapped.** The character is about the
+value of work already done, and a rule that quietly destroys finished work to
+make room for worse work contradicts it. It also gives the opponent something to
+do: killing a corpse unlocks his B button.
+
+### Interrupting him
+
+| what happens to him | what happens to the work |
+| --- | --- |
+| a **light** hit | −22% of the bar |
+| a **heavy** hit, a launcher, a knockdown, a guard break | **destroyed** |
+| a burn/bleed tick, a domain sure-hit tick, Nobara's Resonance | −6% |
+| Inumaki's speech · Naoya's freeze · Boogie Woogie · being pulled into a domain | the hold ends, **the work survives** |
+
+The rule underneath, so a new case answers itself: **a build is destroyed by
+FORCE and only by force.** Anything that merely takes his body away from him
+ends the hold and leaves the work alone. Cancelled progress sits for 3 s, then
+bleeds at 42%/s.
+
+### The rest of the kit
+
+* **X** — a heavy three-hit string with **armour on the first hit**, which is
+  the load-bearing number of the whole character: without it he cannot contest
+  a rushdown, and a builder who cannot contest a rushdown never builds.
+* **RB · COMMAND** — free, and it reaches **every corpse on the field wherever
+  they are**. It overwrites their task list with a point (the stick aims;
+  neutral sends them at the opponent) for four seconds at ×1.35 speed and ×1.20
+  damage. Canon: a cursed corpse "is programmed to complete a set list of given
+  tasks", so COMMAND overwrites the list rather than issuing an order.
+* **RT · HAYMAKER** — 34 damage, a hard knockdown and a **guard break** at
+  2.3 m, with 38 frames of recovery. It is not a damage tool, it is a **space**
+  tool: landing one buys the four seconds STANDARD costs.
+* **D-pad Right · MASTERPIECE** — a MASTERWORK with no build time, bigger and
+  longer-lived than one he could make by hand. It is the shortcut past the
+  entire construction risk, which is exactly why it costs a full bar. It is
+  also the only path allowed to retire one of his own corpses to make room.
+
+### Is it viable?
+
+**STANDARD is the realistic ceiling**, and against a character who applies
+pressure from outside 2.3 m even that is optimistic. That is the honest answer
+and the design accepts it: MASTERPIECE exists because "can he reach MASTERWORK
+by building?" is *almost never*. The three things that make the mechanic work at
+all are the armoured jab, the Haymaker, and the three-second grace window that
+lets him build in two bites.
+
+## TAKABA 高羽史彦
+
+The wildcard, and the deliberate tonal break. Every technique he owns resolves
+into a **random absurd outcome** off a weighted table — nobody can plan around
+him, including the player holding him.
+
+Canon-correct: **no Domain Expansion.**
+
+### The two tables
+
+**RB · A BIT** rolls one of eight: a giant boxing glove on a spring, an
+oversized mallet, a banana peel, a bucket over the head, a pie, a rake that
+swings up, a trapdoor, a falling stage light.
+**RT · THE BIG ONE** rolls one of six: an anvil, a cartoon safe, a stage
+curtain that wraps them, a fire hose, an enormous foam finger, a piano.
+
+**Every outcome in a table is worth roughly the same and is worth it
+differently.** The banana peel is three damage and a *hard knockdown*; the
+mallet is twelve damage and leaves them standing in front of you; the trapdoor
+removes them from the field for 1.1 s. No dud that feels like losing your turn,
+no jackpot that wins the round alone — the fun is in not knowing what *shape*
+the next hit takes. Every roll announces itself with a stylized callout, its own
+VFX and its own sound cue, and it announces on the **roll** rather than on the
+connect, so a whiff is never silent.
+
+The four biggest numbers arrive **from above on a telegraph** — a real light
+cone or dust ring on the floor you can walk out of on sight. That is what pays
+for them.
+
+### COMEDY METER 笑
+
+Not an invented resource: canon says the Comedian runs on his *genuine* belief
+that something is funny, and that shaking his confidence stops it. This is that,
+with a bar on it.
+
+It fills when the material lands (a bit +7, a Big One +13, a punch +1.6, a
+knockdown +5, **the taunt +14**, the riff +26/s) and drains when he bombs
+(idle −1.5/s, a whiff −5, a hit −4, being floored −9, **being hit during the
+riff −22**).
+
+| tier | at | what changes |
+| --- | --- | --- |
+| **OPEN MIC** 滑り | 0% | rolls small, tame, faintly pathetic. His idle is apologetic. |
+| **WARMING UP** 温まる | 40% | the tables as authored. His idle is level. |
+| **KILLING** 爆笑 | 82% | rolls colossal — plus **an audience**: crowd laughter under his hits, a spotlight that follows him, applause on knockdowns. His idle is a showman's. |
+
+**It does not make him stronger.** Every table entry declares an equal-value
+column and the meter tilts only how *enormous* the outcome looks. A Takaba who
+is rolling gets more absurd, not more dangerous. Nothing is ever weighted to
+zero — a cold Takaba can still roll a piano, it is just rare.
+
+### D-pad Right — THE SET 持ちネタ
+
+Not a cutscene and not a quick-time event. **The arena goes away and the
+opponent is somewhere else**, on foot, with the controller still in their hands.
+
+> *"Takaba's cursed technique brings him and his opponent into imaginary
+> scenarios manifested from his imagination... reviving a dead goldfish at a
+> hospital, participating in a game show in a valley, or playing with water on
+> the beach. Any damage incurred to his opponent will persist, but damage done
+> to Takaba are nothing but simulations to him."*
+
+That last line is the whole design. Inside the set Takaba **takes no damage and
+deals none** — he is in there with you, in a bow tie, jogging alongside and
+getting in the way, and none of it is real to him. It is not a Domain Expansion:
+there is no barrier, no sure-hit, no domain UI, and it refuses to open on top of
+somebody else's domain with the line **SOMEBODY ELSE'S WORLD**.
+
+**Three scenes drawn from a pool of six**, back to back, each a real 26 m
+corridor you have to physically run, jump and dodge your way down to a lit exit
+arch before its clock runs out. The camera swings to a fixed side-on platformer
+bearing, lock-on is suspended, and the stick means *toward the exit* instead of
+*toward the opponent*.
+
+| scene | 場面 | what it is | panel |
+| --- | --- | --- | --- |
+| **PICK A DOOR** | 二択 | three banks of five doors; exactly one opens, and it lights a beat before it unlocks. A read under a clock. | ch.242, the quiz |
+| **MIND THE TRAFFIC** | 横断歩道 | four lanes of taxis sliding across the corridor. There is a cat sitting in lane three, because there is a cat in the panel. | ch.242, the cat in the road |
+| **CODE BLUE** | 病棟 | a hospital corridor; gurneys come out of the side rooms across your line, and the goldfish plinth is a 1.1 m step you go **over**. | ch.242, the dead goldfish |
+| **IT IS RISING** | 波 | the floor floods on a clock and the rafts behind you go under first. The most vertical of the six. | ch.242, drowning while Kenjaku paddles out |
+| **THE WRONG WAY** | 工場 | a conveyor running against you with crates dropping onto it. The only scene that punishes standing still directly. | the oldest gag in physical comedy |
+| **DO NOT LOOK DOWN** | 屋上 | five rooftops with real gaps, and his own enormous foam finger sweeping across the middle three. | his RT, turned into level geometry |
+
+Every scene is built to the game's actual movement numbers rather than by eye:
+jump velocity 8.6 against gravity 26 gives a 1.42 m apex and 0.66 s of airtime,
+so **nothing steps up more than 1.20 m and no gap is wider than 2.20 m**. A
+scene you cannot physically clear is a bug, not a challenge. Everything that
+moves is a hazard entity, never a collider — getting clipped by a cab costs chip
+damage and throws you back down the corridor, it does not end the run. Only the
+clock does.
+
+**Difficulty is his COMEDY METER at the moment he casts it.** The tier sets the
+clock on every scene (5.0–6.0 s cold, 3.8–4.6 s at KILLING) and is printed on
+the title card.
+
+| score | outcome |
+| --- | --- |
+| **3 of 3** | they got out. 6 chip damage, applause, and Takaba visibly sulks. |
+| **2 of 3** | 34 damage |
+| **1 of 3** | 62 damage — likely near death |
+| **0 of 3** | **INSTANT KO** — routed through the shared category, so it bypasses Hakari's Jackpot healing and is resisted *by chance* by Mahoraga's adaptation, exactly as Mahito's transfiguration and Higuruma's execution already are. Confetti, a fanfare, and Takaba genuinely delighted. |
+
+**It is a movement check the opponent can win outright**, and unlike a domain
+there is nothing to break — you just have to run. The whole run is scored on the
+HUD live: a progress bar down the corridor, the scene clock, and three lamps.
+
+Measured against the CPU contestant over 99 scenes: at OPEN MIC it has never
+killed and nearly nine in ten walk out clean; at WARMING UP it kills one time in
+eight and half get out; at KILLING it kills a bit under half the time and one in
+nine still gets out. A human who has seen the scenes should do better than the
+bot at all three, which is the direction a skill check ought to be wrong in.
+
 ## Stages
 
 Ten locations, chosen on a screen between character select and the fight, each
@@ -905,8 +1117,9 @@ screen. The life pips sit next to each name plate; spent stocks go hollow.
 
 ## Music
 
-Streamed tracks live in `public/music/` and are the only non-procedural assets
-in the project:
+Streamed tracks live in `public/music/`. Along with the site icons in
+`public/brand/`, they are the only non-procedural assets in the project —
+everything the game itself draws is built in code:
 
 | File | Plays during |
 | --- | --- |
@@ -981,9 +1194,21 @@ domain can absolutely win: Yuta beats Gojo outright if Gojo eats the exchange.
 
 ```
 index.html
-vite.config.js            dev server + /__shot screenshot sink (dev only)
+workbench/index.html      second page: the developer workbench (/workbench/)
+vite.config.js            dev server + /__shot screenshot sink (dev only),
+                          and the two-page build input list
+public/                   copied to the build root verbatim
+  music/                  the four streamed tracks (see Music)
+  brand/                  favicon set + web manifest, linked from both pages.
+                          Referenced as /brand/... so Vite rewrites them
+                          relative to each page for the sub-path deploy
 src/
   main.js                 entry: #viewer -> model viewer, else game
+  workbench/
+    main.js               bench router: ?edit=<bench>, defaults to finishers
+    finishers.js          the finisher bench: winner / loser / map / entry
+    run.js                builds a real match, wins it on frame zero, plays the
+                          finisher full screen, tears it all down again
   core/
     loop.js               fixed 60Hz logic, interpolated render
     stage.js              renderer, bloom/vignette/grade post stack, lights
@@ -1069,7 +1294,12 @@ Four files, using `newguy` as the placeholder id:
    in `anim/index.js` `CHAR_CLIPS`.
 3. **Config** — `src/characters/newguy.js`: `withDefaults({ id, stats, punches,
    heavy, ct1, ct2, special, ultimate, domain|null, … })` — the schema is
-   documented in `schema.js`. Frame data lives here, not in code.
+   documented in `schema.js`. Frame data lives here, not in code. **Mind the
+   slot convention**: RB (`ct1`) takes the pair's furthest-reaching technique,
+   RT (`ct2`) the strongest, B the signature special and any summon. It is a
+   convention, not an assertion — the roster's four kinds of exception, and
+   what to do if your character is one, are written up under THE SLOT
+   CONVENTION in `schema.js`.
 4. **Register** — add to `ROSTER` in `src/characters/index.js`. Done: select
    screen, viewer, CPU and domains pick it up.
 

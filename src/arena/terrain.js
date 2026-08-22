@@ -36,6 +36,31 @@
 export const NATURAL = 'natural';
 export const ARTIFICIAL = 'artificial';
 
+// ---------------------------------------------------------------------------
+// ICE — the third class, and the only one that is not authored by a map.
+// ---------------------------------------------------------------------------
+// Added for Uraume. Everything above is a description of what a map WAS BUILT
+// OUT OF and is fixed for the round; ice is a description of what somebody has
+// DONE to a surface, it is laid down mid-match through the runtime authoring
+// door `Bounds.terrain()` already had, and it is torn down again through
+// `Bounds.drop()`. See the header of combat/frost.js for why this is a third
+// value of the existing classification rather than a second surface layer:
+// the whole point is that there is exactly one query in the game that answers
+// "what is the floor here", and it keeps being exactly one.
+//
+// *** NO MATERIAL MAPS TO IT. *** `MAT_TERRAIN` below is untouched, because no
+// map is built out of ice and none should be: a map that wanted a frozen lake
+// would want a `MAT_TERRAIN` entry pointing at it, and the day that map exists
+// is the day to add one. Until then the only producer is the IceSystem, which
+// means every ice rect in the game has an owner, a lifetime and a melt path.
+//
+// WHAT IT MEANS TO A CONSUMER. Nothing in the project reads a terrain class
+// except Hanami's regeneration (combat/flora.js), the HUD readout and the
+// debug overlay, and all three now have an explicit answer. Hanami's is the
+// one that is a ruling rather than a label, and it is written down where it
+// applies rather than here.
+export const ICE = 'ice';
+
 // Material name (as keyed in kit.js `surfaces()`) -> terrain class. Anything
 // absent falls back to ARTIFICIAL, which is the safe default: a new material
 // nobody classified should not silently hand Hanami a free map.
@@ -73,13 +98,18 @@ export function classifyMaterial(mats, mat) {
 // Presentation, so the HUD and the debug overlay never disagree about wording.
 export const TERRAIN_LABEL = {
   [NATURAL]: 'NATURAL GROUND',
-  [ARTIFICIAL]: 'DEAD GROUND'
+  [ARTIFICIAL]: 'DEAD GROUND',
+  [ICE]: 'FROZEN GROUND'
 };
 export const TERRAIN_JP = {
   [NATURAL]: '土',
-  [ARTIFICIAL]: '人工'
+  [ARTIFICIAL]: '人工',
+  [ICE]: '氷'
 };
 export const TERRAIN_COLOR = {
   [NATURAL]: 0x7fc46a,
-  [ARTIFICIAL]: 0x8a8f9c
+  [ARTIFICIAL]: 0x8a8f9c,
+  // deliberately the PALE ice blue rather than Gojo's saturated #7fd0ff or
+  // Miwa's #a8d8e8 — see the palette audit in art/models/uraume.js
+  [ICE]: 0xcfeaf6
 };

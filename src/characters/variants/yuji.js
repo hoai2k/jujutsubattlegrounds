@@ -72,7 +72,7 @@ export const YUJI_VARIANTS = [
       // that lands seven of them in a row
       blackFlash: { delay: 5, window: 8, dmgMult: 2.7, ceRefund: 30, maxSpike: 10, chainDmg: 0.09, reach: 2.5 },
       special: { key: 'yuji_blackflash', name: 'BLACK FLASH', cost: 0, cooldown: 2.6 },
-      ct1: { cost: 20 },       // the Flash opener is rationed
+      ct2: { cost: 20 },       // the Flash opener is rationed
       ultimate: { kind: 'domain' },
 
       // =====================================================================

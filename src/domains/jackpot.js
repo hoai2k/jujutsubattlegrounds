@@ -108,8 +108,11 @@ export class GambleSystem {
     // certainty has to look like the biggest thing the machine can do
     const tier = guaranteed
       ? g.cfg.tiers[g.cfg.tiers.length - 1]
-      : this._rollTier(g.cfg.tiers);
-    const win = guaranteed || Math.random() < tier.odds;
+      : this._rollTier(g.cfg.tiers, g.caster);
+    // The caster's seeded stream, not Math.random. Which tier came up and
+    // whether it paid are gameplay outcomes; online they have to be the same
+    // outcome on every screen. See combat/fighter.js.
+    const win = guaranteed || g.caster.rng() < tier.odds;
     g.scenario = {
       tier, guaranteed, win,
       t: tier.dur, dur: tier.dur,
@@ -130,10 +133,10 @@ export class GambleSystem {
     m.domainfx.setReachTier?.(tier.key);
   }
 
-  _rollTier(tiers) {
+  _rollTier(tiers, caster) {
     let total = 0;
     for (const t of tiers) total += t.weight;
-    let r = Math.random() * total;
+    let r = (caster?.rng ? caster.rng() : Math.random()) * total;
     for (const t of tiers) { r -= t.weight; if (r <= 0) return t; }
     return tiers[0];
   }
@@ -182,7 +185,7 @@ export class GambleSystem {
 
     if (!s.shown && k >= SHOW_AT) {
       s.shown = true;
-      s.reels[2] = s.win ? JACKPOT_SYM : (1 + Math.floor(Math.random() * (SYMBOLS.length - 1)));
+      s.reels[2] = s.win ? JACKPOT_SYM : (1 + Math.floor(g.caster.rng() * (SYMBOLS.length - 1)));
       if (s.win) {
         // Clear the scenario BEFORE the payout: _jackpot brings the barrier
         // down, and endDomain() plays a "reach failed" sting if it finds a

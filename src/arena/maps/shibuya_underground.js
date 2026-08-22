@@ -138,8 +138,15 @@ export function build(quality) {
         const body = new THREE.BoxGeometry(CARL, 3.3, 2.94);
         body.translate(cx, 0.75, ZC);
         b.static_(body, M.metal, Z);
-        b.bounds.wall(cx - CARL / 2, ZC - 1.55, cx + CARL / 2, ZC + 1.55, -1.10, 2.45,
+        // A ROOF YOU CAN STAND ON. The car is a 3.5 m solid mass beside a
+        // mezzanine you can drop off, and its top was nothing but the top of a
+        // wall: anyone who landed on it sank into the collider and was pushed
+        // out sideways, which reads exactly like falling through the train.
+        // Deck at the drawn roof height, wall stopping under it.
+        b.bounds.wall(cx - CARL / 2, ZC - 1.55, cx + CARL / 2, ZC + 1.55, -1.10, 2.28,
           { id: 'train' + s + c });
+        b.bounds.platform(cx - CARL / 2, ZC - 1.55, cx + CARL / 2, ZC + 1.55, 2.40,
+          { id: 'train' + s + c, prop: true });
       } else {
         buildOpenCar(b, M, Z, cx, ZC, CARL, s);
       }
@@ -344,6 +351,9 @@ function buildOpenCar(b, M, Z, cx, ZC, CARL, s) {
 
   b.floor(x0, ZC - HW, x1, ZC + HW, FY, { mat: M.darkMetal, zone: Z, id });
   b.ceiling(x0, ZC - HW, x1, ZC + HW, ROOF, { mat: M.metal, zone: Z });
+  // and the top of that ceiling is a roof, same as the sealed cars beside it:
+  // without it the open car is the one train you drop straight through.
+  b.bounds.platform(x0, ZC - HW, x1, ZC + HW, ROOF + 0.35, { id: id + 'roof', prop: true });
   // the ends
   for (const ex of [x0, x1]) {
     b.wall(ex, ZC - HW, ex, ZC + HW, FY, ROOF, { mat: M.metal, thick: 0.14, zone: Z, id: id + 'e' + ex });

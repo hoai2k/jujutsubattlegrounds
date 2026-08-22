@@ -2,11 +2,12 @@
 // Unlimited Void: black infinity, information streams, a starfield horizon.
 // Authentic Mutual Love: dark field of cross pillars, infinite katanas, ropes.
 import * as THREE from 'three';
+import { xrayAll } from '../art/shaders/xray.js';
 import { makeGlowMat } from '../arena/arena.js';
 import { toonMaterial } from '../art/shaders/toon.js';
 import { rand, v3 } from '../core/mathutil.js';
 
-const ENV_COLOR = { void: 0x4f7fff, swordfield: 0x8fe8b0, volcano: 0xff6a2f, flesh: 0x9fb0bd, shadow: 0x8fb6d8, pachinko: 0xffc93c, courtroom: 0xd8c78a, shrine: 0xff2f45 };
+const ENV_COLOR = { void: 0x4f7fff, swordfield: 0x8fe8b0, volcano: 0xff6a2f, flesh: 0x9fb0bd, shadow: 0x8fb6d8, pachinko: 0xffc93c, courtroom: 0xd8c78a, shrine: 0xff2f45, shoreline: 0x7fd8c8, firmament: 0xa9d6ee };
 const CONTACT_Y = 2.9;   // height of the clash contact point, above both heads
 
 export class DomainFX {
@@ -65,7 +66,15 @@ export class DomainFX {
     else if (kind === 'shrine') this._buildShrine(g, caster);
     else if (kind === 'pachinko') this._buildPachinko(g);
     else if (kind === 'courtroom') this._buildCourtroom(g);
+    else if (kind === 'shoreline') this._buildShoreline(g, caster);
+    else if (kind === 'firmament') this._buildFirmament(g, caster);
     else this._buildSwordField(g, caster);
+    // A domain replaces the level, so it inherits the level's rule: anything
+    // standing between an eye and the fighter it follows dissolves rather than
+    // blocking the shot. Without this the courtroom's pillars, the shrine's
+    // torii and the parlor's cabinets were the only solid occluders left in
+    // the game.
+    xrayAll(g);
     this.scene.add(g);
     this.env = g;
     if (!open) this._buildBarrier(kind);
@@ -576,6 +585,124 @@ export class DomainFX {
     g.add(halo);
   }
 
+  // ---- URO: THE WARPED FIRMAMENT 天蓋歪曲界 -------------------------------
+  // The inside of a sky that has been taken apart and put back wrong.
+  //
+  // THE ONE RULE THIS INTERIOR IS BUILT ON: it must SHOW THE ROTATION. The
+  // domain turns the coordinates of the space the trapped fighter is standing
+  // in (domains/domains.js, `warped_firmament`), and a control effect the
+  // player cannot see coming is indistinguishable from a broken controller.
+  // So every horizon in here lives under `twist`, and `setFirmamentTwist`
+  // turns that group to exactly the angle the stick is about to be turned by.
+  // The world leans, and then the ground goes with it — in that order, because
+  // `easeTime` is 0.7 s and the lean is the tell.
+  //
+  // Everything else follows from "up and down do not agree":
+  //   · the floor is SKY, not ground — the same cloud deck as overhead, so
+  //     there is no visual cue for which way is down except your own feet
+  //   · SIX horizon rings at six different tilts, none of them level, so no
+  //     single one of them can be read as the true horizon
+  //   · cloud banks at contradictory angles
+  //   · thin-ice shards hanging in the air, which is where the sure-hit comes
+  //     from and which pre-announce the technique before it ever fires
+  _buildFirmament(g, caster) {
+    // MEASURED AND RETUNED. The first version of this palette was built around
+    // 0xbcd6ea / 0xdcebf6 and rendered as an almost uniform white sheet: with
+    // bloom on top of a +0.075 grade lift, every ring, cloud and shard in here
+    // was invisible and the interior had no depth at all. Deepened across the
+    // board, and the grade's lift cut with it (core/stage.js). It still reads
+    // as an overexposed sky; it now also reads as having things IN it.
+    this.scene.background = new THREE.Color(0x84acd0);
+    const PALE = 0xc6dcec, DEEP = 0x3f6a95, ICE = 0x7ab8dd;
+
+    // THE TWIST GROUP. Everything whose orientation is a lie goes in here.
+    const twist = this.firmamentTwist = new THREE.Group();
+    g.add(twist);
+
+    // ---- the floor, which is sky ------------------------------------------
+    // Not a mirror and deliberately not: a true reflection gives the eye a
+    // symmetry to lock onto, and the point is that there is nothing to lock
+    // onto. It is simply another cloud deck, lit the same, facing up.
+    const deck = new THREE.Mesh(new THREE.CircleGeometry(15, 56),
+      new THREE.MeshBasicMaterial({ color: 0x9dc0dc, transparent: true, opacity: 0.62 }));
+    deck.rotation.x = -Math.PI / 2;
+    g.add(deck);
+    // a faint grid on it — the COORDINATES, drawn. It is the only straight
+    // reference in the interior, and it is the thing that visibly turns.
+    const grid = new THREE.GridHelper(30, 24, DEEP, DEEP);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.62;
+    grid.material.depthWrite = false;
+    grid.position.y = 0.02;
+    twist.add(grid);
+
+    // ---- six horizons, none of them level ---------------------------------
+    this.firmamentRings = [];
+    for (let i = 0; i < 6; i++) {
+      // pulled IN from 34-69 m to 20-45 m: at the old radii they were outside
+      // the camera's useful range and contributed nothing but a faint smear
+      const r = 20 + i * 5;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.16 + i * 0.04, 6, 96),
+        makeGlowMat(i % 2 ? ICE : DEEP, 0.85 - i * 0.07));
+      ring.rotation.x = Math.PI / 2 + rand(-0.42, 0.42);
+      ring.rotation.z = rand(-0.42, 0.42);
+      ring.position.y = rand(-9, 13);
+      this.firmamentRings.push({ mesh: ring, sp: rand(-0.13, 0.13), tilt: rand(-0.3, 0.3) });
+      twist.add(ring);
+    }
+
+    // ---- cloud banks at contradictory angles ------------------------------
+    this.firmamentClouds = [];
+    for (let i = 0; i < 22; i++) {
+      const w = rand(7, 19), h = rand(3.5, 9);
+      const c = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({
+          color: i % 3 ? PALE : ICE, transparent: true,
+          opacity: rand(0.38, 0.72), depthWrite: false, side: THREE.DoubleSide
+        }));
+      const a = rand(0, Math.PI * 2), rr = rand(14, 40);
+      c.position.set(Math.sin(a) * rr, rand(-16, 26), Math.cos(a) * rr);
+      c.rotation.set(rand(-1.2, 1.2), a + rand(-0.8, 0.8), rand(-1.2, 1.2));
+      this.firmamentClouds.push({ mesh: c, sp: rand(0.02, 0.11), a, rr });
+      twist.add(c);
+    }
+
+    // ---- the thin ice, hanging ---------------------------------------------
+    // Shards of already-broken space, drifting. They are the domain telling
+    // you what its sure-hit is before it uses it.
+    this.firmamentShards = [];
+    for (let i = 0; i < 34; i++) {
+      const s = rand(0.5, 2.3);
+      const sh = new THREE.Mesh(new THREE.PlaneGeometry(s, s * rand(0.5, 1.5)),
+        new THREE.MeshBasicMaterial({
+          color: ICE, transparent: true, opacity: rand(0.45, 0.85),
+          depthWrite: false, side: THREE.DoubleSide
+        }));
+      const a = rand(0, Math.PI * 2), rr = rand(4, 17);
+      sh.position.set(Math.sin(a) * rr, rand(0.6, 13), Math.cos(a) * rr);
+      sh.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
+      this.firmamentShards.push({
+        mesh: sh, rx: rand(-0.5, 0.5), ry: rand(-0.5, 0.5),
+        bob: rand(0.3, 0.9), ph: rand(0, 6.3), y0: sh.position.y
+      });
+      twist.add(sh);
+    }
+
+    // a cold sun directly overhead, with no warmth in it at all
+    const sun = new THREE.Mesh(new THREE.CircleGeometry(6, 40), makeGlowMat(0xf2fbff, 0.22));
+    sun.position.y = 30;
+    sun.rotation.x = Math.PI / 2;
+    g.add(sun);
+  }
+
+  // Called every tick by domains/domains.js with the CURRENT coordinate angle.
+  // The interior leads the stick: the same number that will rotate the trapped
+  // fighter's movement is applied here first, and `easeTime` is what turns that
+  // into a warning rather than a simultaneity.
+  setFirmamentTwist(angle) {
+    if (this.firmamentTwist) this.firmamentTwist.rotation.y = angle;
+  }
+
   _buildSwordField(g, caster) {
     this.scene.background = new THREE.Color(0x201018);
     const floor = new THREE.Mesh(new THREE.CircleGeometry(15, 48),
@@ -711,6 +838,202 @@ export class DomainFX {
       color: 0x6a5a50, size: 0.12, transparent: true, opacity: 0.5, depthWrite: false
     }));
     g.add(this.soot);
+  }
+
+  // ---- HORIZON OF THE CAPTIVATING SKANDHA 蕩蘊平線 -------------------------
+  // A tropical shoreline: an endless calm sea to the horizon, pale sand, a
+  // bright empty sky, gentle surf, and a forest of palms along one side of the
+  // shore (which the source has and the brief omits).
+  //
+  // *** IT IS THE MOST PLEASANT-LOOKING PLACE IN THE GAME, AND THAT IS THE
+  // POINT. *** Every other domain in this project announces itself: Jogo's is
+  // on fire, Mahito's is made of people, Sukuna's is a shrine over a ruin,
+  // Gojo's is an abyss. This one is a holiday. The horror is entirely in what
+  // arrives, and if the beach ever stops looking nice the character stops
+  // working — so this build is deliberately the brightest, warmest, most
+  // unthreatening environment in the file. It is also the hardest possible
+  // contrast against Mahito's flesh and Jogo's volcano, which is what makes it
+  // land when it comes up on the same select screen.
+  //
+  // THE WATER IS REAL WORK, as the brief asks:
+  //   SURFACE   a subdivided plane displaced by two crossed swells in `update`
+  //             — a genuine animated mesh, not a scrolling texture
+  //   CAUSTICS  a bright additive pattern projected on the SAND under the
+  //             shallows, drifting on its own slower clock, so the wet sand
+  //             has moving light on it
+  //   FOAM      a band of white at the shoreline that breathes in and out with
+  //             the swell, plus a scatter of individual breakers
+  //   REFLECT   the sky is mirrored in the water as a second, inverted, very
+  //             low-opacity dome, which is what stops the sea reading as
+  //             coloured glass
+  //   DISPLACE  handled outside this file — arena.splash and the existing
+  //             wading system already displace water under a moving fighter,
+  //             and the sea plane is registered with them.
+  _buildShoreline(g, caster) {
+    // a bright empty sky — the palest background any domain sets
+    this.scene.background = new THREE.Color(0xbfe4ee);
+
+    // ---- THE SAND ---------------------------------------------------------
+    const sand = new THREE.Mesh(new THREE.CircleGeometry(17, 56),
+      toonMaterial({
+        vertexColors: false, color: 0xe8dcc0, steps: [150, 205, 255],
+        rim: 0.16, rimStart: 0.82, rimColor: 0xfff4dc, warm: 0x6a5a3a, cool: 0x8898a8
+      }));
+    sand.rotation.x = -Math.PI / 2;
+    sand.position.y = 0.01;
+    g.add(sand);
+    // WET SAND — a darker band where the water reaches, which is most of what
+    // makes a beach read as a beach rather than as a yellow disc
+    const wet = new THREE.Mesh(new THREE.RingGeometry(9.6, 13.2, 56),
+      toonMaterial({ vertexColors: false, color: 0xcbbb9a, steps: [140, 200, 255], rim: 0.3, rimColor: 0xfff4dc }));
+    wet.rotation.x = -Math.PI / 2;
+    wet.position.y = 0.02;
+    g.add(wet);
+    // scattered shells and stones, so the sand has scale
+    const stoneMat = toonMaterial({ vertexColors: false, color: 0xd6c8ac, steps: [130, 200, 255] });
+    for (let i = 0; i < 26; i++) {
+      const a = rand(0, Math.PI * 2), r = rand(3, 15);
+      const st = new THREE.Mesh(new THREE.SphereGeometry(rand(0.06, 0.16), 6, 5), stoneMat);
+      st.scale.set(1, rand(0.3, 0.6), rand(0.7, 1.3));
+      st.position.set(Math.sin(a) * r, 0.04, Math.cos(a) * r);
+      g.add(st);
+    }
+
+    // ---- THE SEA ----------------------------------------------------------
+    // A large subdivided plane, displaced per frame in `update`. 64x64 is
+    // enough to carry two crossed swells legibly and cheap enough to write
+    // every frame without showing up in a profile.
+    const seaGeo = new THREE.PlaneGeometry(150, 150, 64, 64);
+    seaGeo.rotateX(-Math.PI / 2);
+    const seaMat = toonMaterial({
+      vertexColors: false, color: 0x2f9fb4, steps: [90, 170, 255],
+      rim: 0.46, rimStart: 0.62, rimColor: 0xdff6ff, gloss: 0.5,
+      transparent: true, opacity: 0.94, warm: 0x1a4a58, cool: 0x123a52
+    });
+    const sea = new THREE.Mesh(seaGeo, seaMat);
+    // the shore runs across -Z: sand in front of the camera line, sea beyond
+    sea.position.set(0, -0.06, -68);
+    g.add(sea);
+    this.shoreSea = sea;
+    this.shoreBase = Float32Array.from(seaGeo.getAttribute('position').array);
+
+    // A SHALLOW SHELF the fighters can stand in — the source is explicit that
+    // "its waters are shallow enough for someone to stand in it while close to
+    // the beach", and it is what makes the surf line a place rather than a
+    // wall.
+    const shelf = new THREE.Mesh(new THREE.RingGeometry(12.6, 17.4, 56),
+      toonMaterial({
+        vertexColors: false, color: 0x63c4cc, steps: [120, 190, 255],
+        rim: 0.4, rimColor: 0xdff6ff, transparent: true, opacity: 0.72
+      }));
+    shelf.rotation.x = -Math.PI / 2;
+    shelf.position.y = 0.05;
+    g.add(shelf);
+    this.shoreShelf = shelf;
+
+    // ---- FOAM -------------------------------------------------------------
+    // The shoreline band, which breathes with the swell, plus individual
+    // breakers scattered along it.
+    const foam = new THREE.Mesh(new THREE.RingGeometry(12.2, 13.4, 64),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.62, depthWrite: false }));
+    foam.rotation.x = -Math.PI / 2;
+    foam.position.y = 0.07;
+    g.add(foam);
+    this.shoreFoam = foam;
+    this.shoreBreakers = [];
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + rand(-0.08, 0.08);
+      const br = new THREE.Mesh(new THREE.PlaneGeometry(rand(1.6, 3.4), rand(0.28, 0.6)),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false }));
+      br.rotation.x = -Math.PI / 2;
+      br.rotation.z = -a;
+      const r = rand(12.4, 14.2);
+      br.position.set(Math.sin(a) * r, 0.08, Math.cos(a) * r);
+      g.add(br);
+      this.shoreBreakers.push({ m: br, phase: rand(0, 6.28), rate: rand(0.5, 0.95), r, a });
+    }
+
+    // ---- CAUSTICS ---------------------------------------------------------
+    // Bright additive light on the wet sand under the shallows, drifting on
+    // its own slower clock. Built as a ring of soft blobs rather than as a
+    // texture so it costs nothing to animate and never tiles visibly.
+    this.shoreCaustics = [];
+    const causticMat = makeGlowMat(0xdffaff, 0.22);
+    for (let i = 0; i < 34; i++) {
+      const a = rand(0, Math.PI * 2), r = rand(9.8, 15.6);
+      const c = new THREE.Mesh(new THREE.CircleGeometry(rand(0.5, 1.5), 8), causticMat);
+      c.rotation.x = -Math.PI / 2;
+      c.position.set(Math.sin(a) * r, 0.055, Math.cos(a) * r);
+      g.add(c);
+      this.shoreCaustics.push({ m: c, phase: rand(0, 6.28), rate: rand(0.6, 1.4), a, r });
+    }
+
+    // ---- THE PALMS --------------------------------------------------------
+    // "A forest of palm trees on one side of the shore" — the detail the
+    // source has and the brief does not. They are all on the +Z side, which is
+    // what makes the space have a direction: sea one way, forest the other.
+    const trunkMat = toonMaterial({ vertexColors: false, color: 0x8a6f4c, steps: [80, 160, 255], rim: 0.24, rimColor: 0xffe0a8 });
+    const frondMat = toonMaterial({ vertexColors: false, color: 0x3f8a48, steps: [90, 170, 255], rim: 0.34, rimColor: 0xcfffb0, transparent: true, opacity: 0.97 });
+    this.shorePalms = [];
+    for (let i = 0; i < 22; i++) {
+      const a = rand(-1.15, 1.15);                 // a fan on the +Z side only
+      const r = rand(17, 34);
+      const h = rand(4.5, 8.2);
+      const lean = rand(-0.22, 0.22);
+      const palm = new THREE.Group();
+      palm.position.set(Math.sin(a) * r, 0, Math.cos(a) * r + 4);
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.24, h, 7), trunkMat);
+      trunk.position.y = h * 0.5;
+      trunk.rotation.z = lean;
+      palm.add(trunk);
+      const crown = new THREE.Group();
+      crown.position.set(Math.sin(lean) * h * 0.5, h, 0);
+      for (let k = 0; k < 7; k++) {
+        const fa = (k / 7) * Math.PI * 2 + rand(-0.2, 0.2);
+        const frond = new THREE.Mesh(new THREE.PlaneGeometry(rand(2.0, 3.2), rand(0.5, 0.85)), frondMat);
+        frond.position.set(Math.sin(fa) * 1.2, rand(-0.35, 0.15), Math.cos(fa) * 1.2);
+        frond.rotation.set(rand(-0.5, -0.15), -fa + Math.PI / 2, rand(-0.3, 0.3));
+        crown.add(frond);
+      }
+      palm.add(crown);
+      g.add(palm);
+      this.shorePalms.push({ crown, phase: rand(0, 6.28), rate: rand(0.5, 0.9) });
+    }
+
+    // ---- THE SKY, AND ITS REFLECTION --------------------------------------
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(95, 20, 14),
+      new THREE.MeshBasicMaterial({ color: 0xbfe4ee, side: THREE.BackSide }));
+    g.add(dome);
+    // a low warm band at the horizon, so the sky is not a flat fill
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(92, 92, 14, 28, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xffe6c4, transparent: true, opacity: 0.5, side: THREE.BackSide, depthWrite: false }));
+    band.position.y = 5;
+    g.add(band);
+    // a few soft clouds, drifting
+    this.shoreClouds = [];
+    const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false });
+    for (let i = 0; i < 12; i++) {
+      const cl = new THREE.Group();
+      for (let k = 0; k < 4; k++) {
+        const puff = new THREE.Mesh(new THREE.SphereGeometry(rand(2.5, 5.5), 7, 5), cloudMat);
+        puff.scale.set(rand(1.4, 2.4), rand(0.45, 0.7), 1);
+        puff.position.set(rand(-6, 6), rand(-1, 1), rand(-2, 2));
+        cl.add(puff);
+      }
+      const a = rand(0, Math.PI * 2);
+      cl.position.set(Math.sin(a) * rand(45, 78), rand(16, 32), Math.cos(a) * rand(45, 78));
+      g.add(cl);
+      this.shoreClouds.push({ m: cl, drift: rand(0.25, 0.7), a });
+    }
+    // THE SKY MIRRORED IN THE WATER — a second inverted dome at very low
+    // opacity, which is what stops the sea reading as coloured glass.
+    const mirror = new THREE.Mesh(new THREE.SphereGeometry(88, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.5),
+      new THREE.MeshBasicMaterial({ color: 0xdff4fa, transparent: true, opacity: 0.16, side: THREE.BackSide, depthWrite: false }));
+    mirror.scale.y = -0.45;
+    mirror.position.y = -0.1;
+    g.add(mirror);
+
+    this.shoreT = 0;
   }
 
   // ---- SELF-EMBODIMENT OF PERFECTION: claustrophobic, fleshy, patchwork ----
@@ -1256,6 +1579,13 @@ export class DomainFX {
     }
     if (this.envKind === 'swordfield') this.fx.rikaManifest(false);
     this.envKind = null;
+    // URO — dropped with the group above. `firmamentTwist` is nulled with the
+    // rest so a later `setFirmamentTwist(0)` from the domain's collapse path
+    // cannot touch a group that is no longer in the scene.
+    this.firmamentTwist = null;
+    this.firmamentRings = null;
+    this.firmamentClouds = null;
+    this.firmamentShards = null;
     this.open = false;
     this.ash = null;
     this.soot = null;
@@ -1305,6 +1635,28 @@ export class DomainFX {
         pos.array[i * 3 + 2] = Math.cos(m.a) * m.r;
       }
       pos.needsUpdate = true;
+    }
+    if (this.envKind === 'firmament') {
+      // Nothing in here holds still and nothing in here agrees. The rings
+      // counter-rotate at their own rates so no two of them ever line up, the
+      // clouds drift on their own arcs, and the shards tumble and bob.
+      // All of it is UNDER the twist group, so `setFirmamentTwist` turns the
+      // whole disagreeing mess at once.
+      for (const r of this.firmamentRings || []) {
+        r.mesh.rotation.z += r.sp * dt;
+        r.mesh.rotation.x += r.tilt * dt * 0.18;
+      }
+      for (const c of this.firmamentClouds || []) {
+        c.a += c.sp * dt;
+        c.mesh.position.x = Math.sin(c.a) * c.rr;
+        c.mesh.position.z = Math.cos(c.a) * c.rr;
+        c.mesh.rotation.y += c.sp * dt * 0.5;
+      }
+      for (const s of this.firmamentShards || []) {
+        s.mesh.rotation.x += s.rx * dt;
+        s.mesh.rotation.y += s.ry * dt;
+        s.mesh.position.y = s.y0 + Math.sin(this.t * s.bob + s.ph) * 0.5;
+      }
     }
     if (this.envKind === 'volcano') {
       // ash falls, embers rise; both wrap vertically
@@ -1379,6 +1731,72 @@ export class DomainFX {
           pos.array[i * 3 + 1] = py;
         }
         pos.needsUpdate = true;
+      }
+    }
+    // ---- THE SHORELINE, PER FRAME -----------------------------------------
+    // The whole "water needs real treatment" list, ticked. Everything here is
+    // on its own clock at its own rate, deliberately incommensurate, so
+    // nothing in the domain ever visibly loops — which matters more here than
+    // anywhere else in the file, because this is the one environment the
+    // player is meant to LOOK at rather than survive.
+    if (this.envKind === 'shoreline' && this.shoreSea) {
+      this.shoreT += dt;
+      const T = this.shoreT;
+      // SURFACE. Two crossed swells at different wavelengths and rates, plus a
+      // small third ripple, written straight into the plane's positions.
+      const pos = this.shoreSea.geometry.getAttribute('position');
+      const base = this.shoreBase;
+      for (let i = 0; i < pos.count; i++) {
+        const x = base[i * 3], z = base[i * 3 + 2];
+        const h =
+          Math.sin(x * 0.085 + T * 0.85) * 0.30 +
+          Math.sin(z * 0.062 - T * 0.62) * 0.24 +
+          Math.sin((x + z) * 0.19 + T * 1.7) * 0.07;
+        pos.setY(i, base[i * 3 + 1] + h);
+      }
+      pos.needsUpdate = true;
+      this.shoreSea.geometry.computeVertexNormals();
+
+      // FOAM. The shoreline band breathes in and out with the swell — the
+      // radius moves, so the waterline visibly advances and retreats.
+      if (this.shoreFoam) {
+        const breathe = 1 + Math.sin(T * 0.72) * 0.028;
+        this.shoreFoam.scale.set(breathe, breathe, 1);
+        this.shoreFoam.material.opacity = 0.50 + Math.sin(T * 0.72) * 0.16;
+      }
+      if (this.shoreShelf) {
+        const b2 = 1 + Math.sin(T * 0.72 - 0.4) * 0.022;
+        this.shoreShelf.scale.set(b2, b2, 1);
+      }
+      // individual breakers, each running its own little wash up the sand
+      for (const b of this.shoreBreakers) {
+        const k = (Math.sin(T * b.rate + b.phase) + 1) * 0.5;
+        b.m.material.opacity = 0.18 + k * 0.55;
+        const r = b.r - k * 0.55;
+        b.m.position.set(Math.sin(b.a) * r, 0.08, Math.cos(b.a) * r);
+        b.m.scale.set(1, 0.6 + k * 0.8, 1);
+      }
+      // CAUSTICS. Slow, independent, and they SWIM — each blob drifts around
+      // its own anchor rather than pulsing in place, which is what makes the
+      // light on the wet sand read as coming through moving water.
+      for (const c of this.shoreCaustics) {
+        const k = (Math.sin(T * c.rate + c.phase) + 1) * 0.5;
+        c.m.scale.setScalar(0.6 + k * 0.9);
+        const r = c.r + Math.sin(T * c.rate * 0.6 + c.phase) * 0.7;
+        const a = c.a + Math.cos(T * c.rate * 0.4 + c.phase) * 0.05;
+        c.m.position.set(Math.sin(a) * r, 0.055, Math.cos(a) * r);
+      }
+      // the palms move in the wind, crowns only
+      for (const p of this.shorePalms) {
+        p.crown.rotation.z = Math.sin(T * p.rate + p.phase) * 0.075;
+        p.crown.rotation.x = Math.cos(T * p.rate * 0.7 + p.phase) * 0.05;
+      }
+      // and the clouds drift, very slowly, around the dome
+      for (const c of this.shoreClouds) {
+        c.a += dt * c.drift * 0.012;
+        const r = Math.hypot(c.m.position.x, c.m.position.z);
+        c.m.position.x = Math.sin(c.a) * r;
+        c.m.position.z = Math.cos(c.a) * r;
       }
     }
     if (this.envKind === 'shadow' && this.shadowSea && domainState) {

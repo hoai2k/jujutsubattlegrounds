@@ -23,7 +23,23 @@ export const MAHITO = withDefaults({
     name: 'Flesh Maul', dmg: 15, startup: 17, active: 5, recovery: 29,
     reach: 2.0, kb: 5.5, hitstun: 30, step: 2.2, staminaCost: 20, clip: 'heavy'
   },
+  // ---- RB · CT1 — THE RANGED SLOT ------------------------------------------
+  // ROSTER CONVENTION: RB holds the furthest-reaching technique, RT the
+  // strongest. Body Lance extends to 6.5 m; Soul Touch is a 1.6 m read that
+  // leaves a Soul Wound behind it, which is the bigger payload of the two.
   ct1: {
+    // BODY WEAPON — the arm reshapes into a blade / hammer / spike fan and
+    // swings. Committed, high damage, long reach. The variant (geometry AND
+    // animation) rotates so it never repeats twice in a row — see
+    // fighter.startCT clip-variant support + the model's showBodyWeapon.
+    name: 'Body Lance', cost: 20, startup: 20, active: 5, recovery: 30,
+    effect: 'mahito_bodyweapon', dmg: 16, reach: 6.5,
+    extendTime: 0.22, holdTime: 0.1,
+    kb: 5, kbY: 2, hitstun: 30,
+    clips: ['bwBlade', 'bwHammer', 'bwSpikes'], clip: 'bwBlade'
+  },
+  // ---- RT · CT2 — THE POWER SLOT -------------------------------------------
+  ct2: {
     // SOUL TOUCH — short-range grab-strike: damage plus a lingering SOUL
     // WOUND (increased damage taken from all sources). Narrow and whiffs
     // badly on a miss — it's a read, not a poke.
@@ -32,22 +48,15 @@ export const MAHITO = withDefaults({
     kb: 2.5, kbY: 0, hitstun: 26,
     soulWound: { duration: 6, dmgTakenMult: 1.3 }, clip: 'ct1'
   },
-  ct2: {
-    // BODY WEAPON — the arm reshapes into a blade / hammer / spike fan and
-    // swings. Committed, high damage, long reach. The variant (geometry AND
-    // animation) rotates so it never repeats twice in a row — see
-    // fighter.startCT clip-variant support + the model's showBodyWeapon.
-    name: 'Body Weapon', cost: 20, startup: 20, active: 5, recovery: 30,
-    effect: 'mahito_bodyweapon', dmg: 16, reach: 2.6, arc: 1.9,
-    kb: 5, kbY: 2, hitstun: 30,
-    clips: ['bwBlade', 'bwHammer', 'bwSpikes'], clip: 'bwBlade'
-  },
-  // SPECIAL — SUMMON TRANSFIGURED HUMAN (B): one weak independent
-  // AI ally. Fragile, low damage; its value is pressure. Only ONE may exist —
-  // re-summoning while one lives does nothing (no cost is paid). Each summon's
+  // SPECIAL — SUMMON TRANSFIGURED HUMAN (B): a weak independent AI ally.
+  // Fragile, low damage; its value is pressure, and the pressure is meant to
+  // stack. UP TO THREE may stand at once, and nothing else gates the summon:
+  // if he has the cursed energy and the cooldown is up, he gets another one.
+  // At the cap the button does nothing and costs nothing. Each summon's
   // proportions, limb count and mass are randomized (see combat/minion.js).
   special: {
     key: 'mahito_summon', name: 'SUMMON', cost: 25, cooldown: 12,
+    maxMinions: 3,
     castFrames: 30, clip: 'summon',
     minion: {
       hp: 18, dmg: 3, hitstun: 14, kb: 1.4,

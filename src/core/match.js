@@ -18,10 +18,38 @@ import { FloraSystem } from '../combat/flora.js';
 import { SwarmSystem } from '../combat/swarm.js';
 import { CurseSystem } from '../combat/curses.js';
 import { FreezeSystem } from '../combat/freeze.js';
+import { IceSystem } from '../combat/frost.js';
 import { DomainFX } from '../fx/domainfx.js';
+import { NewShadowFx } from '../fx/newshadowfx.js';
+// URO's refraction, and DAGON's creatures. See the headers of both: the warp
+// system is the only thing in the project that captures the scene to a texture
+// and samples it back, and the ocean system is the only summon engine with a
+// hard concurrent cap.
+import { WarpFX } from '../fx/warpfx.js';
+import { OceanSystem } from '../combat/ocean.js';
+// YAGA'S CONSTRUCTION. The sixth summon family, and the only one that is
+// manufactured mid-fight rather than called — see combat/construction.js.
+import { ConstructionSystem, tierFor as corpseTierFor } from '../combat/construction.js';
+// TAKABA. The Comedy Meter, and the Game Show, which is the only system in the
+// project that hands control of the round to the opponent.
+import { gainComedy, tierOf as comedyTierOf } from '../combat/comedy.js';
+import { TheSet } from '../combat/theset.js';
+import { spotlight as comedySpotlight, confetti as comedyConfetti, craftMotes, corpseDeploy, commandPulse } from '../fx/comedyfx.js';
+import { awakenBurst, massField } from '../fx/newfx.js';
+import { GarudaSystem } from '../combat/garuda.js';
+import { NewShadowSystem } from '../combat/newshadow.js';
+import { ReceiptSystem } from '../combat/receipts.js';
+import { BeastSystem } from '../combat/beasts.js';
 import { FXSystem } from '../fx/fx.js';
+// CURSED SPEECH — the extruded-kanji layer and the title-card overlay. Both
+// are Inumaki's, both are inert when nobody in the match has a voice, and both
+// are built unconditionally for the same reason every other system here is:
+// a seat can change character between rounds.
+import { SpeechFX } from '../fx/speechfx.js';
+import { CommandCard } from '../ui/commandcard.js';
+import { wheelSnapshot as commandWheelSnapshot } from '../combat/speech.js';
 import { BubbleSystem } from '../fx/bubble.js';
-import { tauntWeight, pickTaunt } from '../combat/taunts.js';
+import { tauntWeight, pickTaunt, tauntLine } from '../combat/taunts.js';
 import { buildMap, applyMapLighting, registerMapGrade, currentQuality, MAP_IDS } from '../arena/index.js';
 import { FightCamera } from './camera.js';
 import { setXrayFocus, clearXrayFocus } from '../art/shaders/xray.js';
@@ -30,6 +58,13 @@ import { Finishers } from '../finishers/index.js';
 import { HUD } from '../ui/hud.js';
 import { makeCharacter, pickInfo, hex } from '../characters/index.js';
 import { yawBetween, flatDist } from './mathutil.js';
+import { emptyFrame } from '../input/input.js';
+
+// A single neutral frame, reused. Online it is what a paused seat and the
+// non-fighting phases put on the wire, so the tick stream never has a hole in
+// it. Nothing writes to it — it is read-only by convention, and cheaper than
+// allocating a frame per tick per seat.
+const EMPTY_FRAME = emptyFrame();
 
 // Where each fighter starts. Maps author their own spawns (a station platform
 // and a mountain clearing do not want the same opening positions); the ring
@@ -66,6 +101,25 @@ export class Match {
     this.opts = opts;
 
     this.mode = picks.mode || 'local'; // 'local' 2P is the default
+
+    // ---- ONLINE ---------------------------------------------------------
+    // `net` is a NetMatch (src/net/sync.js) or null. NULL IS THE PATH THAT
+    // MUST NEVER REGRESS: every net call below is optional-chained, and with
+    // no net object this class behaves exactly as it did before online play
+    // existed. See docs/online-multiplayer.md §7.
+    this.net = opts.net || null;
+    // Seats driven by a device on THIS machine, in view order. Local and VS
+    // CPU own every seat they render; online owns only its own. This is the
+    // one place in the whole match that knows about locality — the combat
+    // layer sees four fighters and cannot tell which are remote.
+    this.viewSeats = null;   // filled in below, once playerCount is known
+    this.seatView = new Map();
+    this.cpuSeats = new Map();   // seat -> CPU, for players who dropped
+    this._livenessT = 0;
+    // A modal panel (settings) is open over the match. Offline that stops the
+    // update entirely; online the match keeps running and the seat is fed
+    // neutral input, exactly like the pause menu.
+    this.uiModal = false;
 
     this.root = new THREE.Group();
     this.root.name = 'matchRoot';
@@ -108,16 +162,55 @@ export class Match {
     this.p1 = this.fighters[0];
     this.p2 = this.fighters[1];
 
-    this.fx = new FXSystem(this.root, stage.camera);
+    // Which seats this machine renders a camera for, and the reverse lookup.
+    this.viewSeats = this.net
+      ? this.net.localSeats.slice()
+      : this.mode === 'local' ? this.fighters.map((_, i) => i) : [0];
+    // A client with no seat of its own (it joined as the match was starting and
+    // missed the plan) watches seat 0 rather than rendering nothing. It is a
+    // degenerate case the lobby's ready-gate normally prevents, and spectating
+    // is a much better failure than a black screen.
+    if (!this.viewSeats.length) this.viewSeats = [0];
+    this.viewSeats.forEach((seat, v) => this.seatView.set(seat, v));
+    // Shared seeds: online every client seeds each fighter's private stream
+    // identically, so crits, jackpot tiers and sword rolls agree everywhere.
+    if (picks.seed != null) this._seedFighters(picks.seed);
+
+    this.fx = new FXSystem(this.root);
     // Speech bubbles. On the match root so a round teardown takes them with it.
     this.bubbles = new BubbleSystem(this.root, stage.camera);
     for (const f of this.fighters) this.fx.attachShadow(f);
     this.domainfx = new DomainFX(stage.scene, this.arena, this.fx);
+    // On the SCENE rather than the match root, like the domain FX above: the
+    // circle is a world object standing on the floor, and it has to survive
+    // the arena being swapped out from under it when a domain opens — which
+    // is exactly the case her whole anti-domain role exists for.
+    this.newshadowfx = new NewShadowFx(stage.scene);
+    // WARP FX. On the SCENE rather than the match root, because it renders the
+    // scene into its own target and a group inside the thing being captured is
+    // exactly the feedback loop it exists to avoid. The pre-render hook is how
+    // it gets a chance to capture before each eye composites — see
+    // core/stage.js.
+    this.warpfx = new WarpFX(stage.scene, stage.renderer);
+    stage.preRender = cam => this.warpfx.capture(cam);
+    // On the MATCH ROOT rather than the scene, like the bubbles above, so a
+    // round teardown takes every glyph still in the air with it.
+    this.speechfx = new SpeechFX(this.root, stage.camera, this.fx);
     this.effects = new Effects(this);
     this.domains = new DomainSystem(this);
     this.minions = new Minions(this);          // Mahito's transfigured humans
     this.judgemen = new Judgemen(this);        // Higuruma's evidence shikigami
     this.shikigami = new ShikigamiSystem(this); // Megumi's Ten Shadows
+    this.ocean = new OceanSystem(this);        // Dagon's sea shikigami
+    // YAGA'S CURSED CORPSES. Deliberately a sibling of `minions` rather than a
+    // special case inside it: the two entity families never look at each other
+    // (see the anti-summon audit at the foot of combat/construction.js), so
+    // putting a fifth list beside the four that already exist is the whole
+    // integration.
+    this.construction = new ConstructionSystem(this);
+    // TAKABA'S THE SET. It does NOT freeze the fighters — it replaces the world
+    // and both of them keep playing inside it. See combat/theset.js.
+    this.theset = new TheSet(this);
     // Hanami's terrain layer and Kurourushi's swarm. Both own state that
     // outlives the technique that made it — a root field outlives the cast, a
     // roach outlives the wave — so both are match-scoped like the shikigami.
@@ -129,24 +222,54 @@ export class Match {
     // combat/curses.js for how the three share a field without any of them
     // having to know about the others' internals.
     this.curses = new CurseSystem(this);
+    // ---- THE TWO NEW SYSTEMS ----------------------------------------------
+    // GARUDA is the FOURTH ally system, and the only one whose occupant is
+    // never summoned and never lost — see combat/garuda.js for what that
+    // changes. NEW SHADOW is Miwa's Simple Domain zone, which is a separate
+    // thing from the universal `simpleDomain` STATE the domain system already
+    // owns and does not touch it.
+    this.garuda = new GarudaSystem(this);
+    this.newshadow = new NewShadowSystem(this);
+    // REGGIE'S MATERIALISED OBJECTS. The SEVENTH ally family on the field
+    // (shikigami, transfigured humans, curses, Garuda, ocean shikigami,
+    // cursed corpses, and now a drone), and the only one that also owns a
+    // piece of PLAYER-PLACED TERRAIN — the vending-machine wreck, which is
+    // real geometry in the Bounds for fourteen seconds. Match-scoped for the
+    // same reason a root field is: both outlive the technique that made them.
+    this.receipts = new ReceiptSystem(this);
+    // INO'S AUSPICIOUS BEASTS. The EIGHTH ally family — and the only one whose
+    // occupants have no health, no AI, no pathing and NO DEATH. See the header
+    // of combat/beasts.js for why that is structural rather than a shortcut,
+    // and for the audit against every anti-summon mechanic in the game.
+    this.beasts = new BeastSystem(this);
     this.freeze = new FreezeSystem(this);
+    // URAUME'S ICE. Match-scoped for the same reason a root field is: a frozen
+    // patch outlives the technique that made it and has to survive its owner
+    // being knocked into the air. It is deliberately NOT a second surface
+    // layer — every patch registers an `ICE` rect through the terrain
+    // classification Hanami's regeneration already reads, so there stays
+    // exactly one query in the game that answers "what is the floor here".
+    // See the header of combat/frost.js.
+    this.ice = new IceSystem(this);
     // Hakari's reach scenarios and JACKPOT. Owned by the match rather than by
     // the domain system because Jackpot outlives the barrier that starts it.
     this.gamble = new GambleSystem(this);
     // Local VS: one over-the-shoulder camera per human seat (2 up, or a 2x2
     // grid for 3-4). VS CPU: one full-screen camera behind P1.
+    // ONE VIEW PER LOCALLY-DRIVEN SEAT. Local VS splits for everyone at the
+    // couch; online splits only for the people at THIS couch, which is what
+    // makes two-on-two across two machines render as two halves each rather
+    // than four quarters.
     this.cams = [];
-    if (this.mode === 'local') {
-      stage.setViews(this.playerCount);
-      for (let i = 0; i < this.playerCount; i++) {
-        this.cams.push(new FightCamera(i === 0 ? stage.camera : stage.cameraFor(i), 'follow'));
-      }
+    const views = this.viewSeats.length;
+    stage.setViews(views);
+    for (let i = 0; i < views; i++) {
+      this.cams.push(new FightCamera(i === 0 ? stage.camera : stage.cameraFor(i), 'follow'));
+    }
+    if (views >= 2) {
       // quarter-screen cells are much narrower than halves — pull in further
-      const ds = this.playerCount >= 3 ? 0.76 : 0.84;
+      const ds = views >= 3 ? 0.76 : 0.84;
       for (const c of this.cams) { c.distScale = ds; c.pitch = 0.19; }
-    } else {
-      stage.setViews(1);
-      this.cams.push(new FightCamera(stage.camera, 'follow'));
     }
     this.cam = this.cams[0];
     this.cam.links = this.cams.slice(1); // shakes/cut-ins fan out to every view
@@ -156,7 +279,14 @@ export class Match {
     // hand the destruction system the combat services it was built without
     Object.assign(this.arena.destruct.ctx, { fx: this.fx, sfx: this.sfx, cam: this.cam, stage });
     this.cam2 = this.cams[1] || null;
-    this.cpu = this.mode === 'local' ? null : new CPU(this.p2, this.p1, this);
+    this.cpu = this.mode === 'cpu' ? new CPU(this.p2, this.p1, this) : null;
+    // Is this fighter driven by a bot right now? Both doors: the offline VS
+    // CPU seat, and an online seat a CPU inherited when its player dropped.
+    // Added for THE GAME SHOW, which is the only system in the game that has
+    // to know — it hands control of the round to the opponent, so it has to
+    // play their side for them when there is nobody there.
+    this.isCPU = f => (this.mode === 'cpu' && f === this.p2)
+      || [...this.cpuSeats.values()].some(c => c.me === f);
 
     // MEGUMI'S SUMMON RITUAL. Owns its own clock, camera and overlay; while it
     // is running the logic tick does not run at all, so the opponent is frozen.
@@ -164,6 +294,11 @@ export class Match {
     this.ritual = new Ritual(this, uiRoot);
 
     this.hud = new HUD(uiRoot);
+    // The title card lives on the HUD's own root so `hud.setHidden` takes it
+    // with everything else — a finisher cinematic must show nothing but the
+    // scene, and a command card left up over one would be the exception that
+    // proves the switch does not work.
+    this.commandCard = new CommandCard(this.hud.el);
     // FINISHERS. Like the ritual above: its own clock, camera and overlay, and
     // while it runs no logic tick happens at all. It is offered the match-
     // ending KO in _koFlow and declines silently if the winner has no finisher
@@ -171,12 +306,19 @@ export class Match {
     this.finishers = new Finishers(this, uiRoot);
     this.hud.shikigami = this.shikigami;
     this.hud.curses = this.curses;
+    this.hud.construction = this.construction;
+    this.hud.theset = this.theset;
     this.hud.domains = this.domains;
     this.hud.gamble = this.gamble;
     this.hud.flora = this.flora;
     this.hud.swarms = this.swarms;
+    // GARUDA JOINS THE FIELD HERE, before the first frame, because it is not
+    // summoned — it has been with her the whole time and the round opening
+    // should show that. `ensure` is idempotent and a no-op for anyone whose
+    // config does not declare a partner.
+    for (const f of this.fighters) this.garuda.ensure(f);
     this.hud.setFighters(this.fighters);
-    this.hud.setSplit(this.mode === 'local' ? this.playerCount : 0);
+    this.hud.setSplit(this.viewSeats.length >= 2 ? this.viewSeats.length : 0);
 
     this.phase = 'intro';
     this.phaseT = 0;
@@ -240,8 +382,19 @@ export class Match {
       fx: this.fx, sfx: this.sfx, match: this
     };
   }
-  // the camera that belongs to a seat (VS CPU has only one, behind P1)
-  camFor(f) { return this.cams[f.index] || this.cams[0]; }
+  // The camera that belongs to a seat. Seats are GLOBAL (0..3) and views are
+  // LOCAL (0..n-1); online those two numberings differ, so every camera lookup
+  // goes through `seatView` and none of them index `cams` by seat.
+  camFor(f) { return this.cams[this.seatView.get(f.index) ?? 0] || this.cams[0]; }
+
+  // Seeds every fighter's private random stream off one match seed. Called
+  // once at construction and again each round, so a rematch or a round two is
+  // not a replay of round one.
+  _seedFighters(seed, round = 1) {
+    const base = (seed | 0) ^ (round * 0x2545f491);
+    this.fighters.forEach((f, i) => f.reseed?.(base ^ Math.imul(i + 1, 0x9e3779b1)));
+    this.matchSeed = seed | 0;
+  }
   hitstop(frames) { this.hitstopFrames = Math.max(this.hitstopFrames, frames); }
   slowmo(dur, scale = 0.35) { this.slowmoT = Math.max(this.slowmoT, dur); this.slowmoScale = scale; }
 
@@ -252,11 +405,30 @@ export class Match {
     for (const c of this.cams) c.mode = mode;
   }
 
+  // How the local input manager should be driven. Online with a single local
+  // seat wants VS CPU's keyboard layout (arrows steer the camera); two or more
+  // local seats want the split keyboard, exactly as a couch match does.
+  get inputMode() {
+    if (!this.net) return this.mode;
+    return this.viewSeats.length >= 2 ? 'local' : 'cpu';
+  }
+
   update(dt) {
-    const seats = this.mode === 'local' ? this.playerCount : 2;
-    const { all } = this.input.pollAll(this.mode, seats);
-    if (all.some(f => f.pauseP)) { this.opts.onPause?.(); return; }
-    if (this.paused) return;
+    const seats = Math.max(2, this.viewSeats.length);
+    const { all } = this.input.pollAll(this.inputMode, seats);
+    if (all.some(f => f.pauseP)) { this.opts.onPause?.(); if (!this.net) return; }
+    // ONLINE NEVER STOPS. One player's pause menu must not freeze three other
+    // people's match, so the tick keeps running behind it and the pausing
+    // seat is fed neutral input in _logicTick. Offline, pause is a real stop.
+    if (this.paused && !this.net) return;
+    if (this.net) {
+      // ABOVE every early return below. The ritual, a finisher and a long
+      // hitstop all stop the logic tick — and with it the input stream — for
+      // seconds at a time, and silence is indistinguishable from a dropped
+      // connection unless something keeps talking.
+      this.net.keepAlive();
+      this._netFlow();
+    }
     // THE RITUAL owns everything while it plays. No logic tick runs, so no
     // fighter can act and no timer advances — the opponent is genuinely
     // frozen, and it is driven from render() on real frame time.
@@ -264,7 +436,7 @@ export class Match {
     // ...and so does a FINISHER. No logic tick, no phase clock, no HUD tick —
     // the HUD is hidden for the duration and there is nothing left to fight.
     if (this.finishers.active) return;
-    if (all.some(f => f.selectP)) this.opts.onLegend?.();
+    if (all.some(f => f.selectP) && !this.paused) this.opts.onLegend?.();
     this.phaseT += dt;
 
     if (this.phase === 'intro') {
@@ -337,11 +509,41 @@ export class Match {
   _logicTick(frames) {
     const fight = this.phase === 'fight';
 
-    // seat 0..n-1 take their own frame; in VS CPU seat 1 is the bot
+    // ONLINE: the tick opens by applying whatever arrived since the last one —
+    // snapshots first, then each remote seat's jitter buffer steps forward by
+    // one. Nothing here blocks or allocates; see net/sync.js.
+    if (this.net) {
+      this.net.beginTick(this);
+      this._netLiveness();
+    }
+
+    // Seat 0..n-1 take their own frame. VS CPU: seat 1 is the bot. Online: a
+    // locally-owned seat takes its device's frame (ZERO added latency — this
+    // is the whole point), a dropped seat takes the CPU that inherited it, and
+    // everyone else replays their owner's transmitted input.
     this.fighters.forEach((f, i) => {
-      const inp = !fight ? null
-        : (this.mode !== 'local' && i === 1) ? this.cpu.frame()
-          : (frames[i] || null);
+      let inp = null;
+      if (fight) {
+        if (this.net) {
+          if (this.net.isLocalSeat(i)) {
+            // A local seat whose player is staring at the pause menu is fed
+            // neutral input rather than the menu's own presses.
+            const away = this.paused || this.uiModal;
+            inp = away ? null : (frames[this.net.deviceFor(i)] || null);
+            this.net.recordLocal(i, away ? EMPTY_FRAME : (frames[this.net.deviceFor(i)] || frames[0]));
+          } else if (this.cpuSeats.has(i)) {
+            inp = this.cpuSeats.get(i).frame();
+          } else {
+            inp = this.net.inputFor(i);
+          }
+        } else {
+          inp = (this.mode === 'cpu' && i === 1) ? this.cpu.frame() : (frames[i] || null);
+        }
+      } else if (this.net && this.net.isLocalSeat(i)) {
+        // Keep the outgoing stream continuous through the intro and the KO, so
+        // the tick numbering on both ends never develops a hole.
+        this.net.recordLocal(i, EMPTY_FRAME);
+      }
       this.inputs.set(f, inp);
     });
     for (const f of this.fighters) f.update(this.inputs.get(f), this.ctxFor(f));
@@ -384,12 +586,88 @@ export class Match {
         for (const b of live) if (a !== b) resolveMelee(this, a, b);
       }
       this.effects.update(1 / 60);
+      // CURSED SPEECH ON THE LOGIC TICK, NOT THE RENDER TICK. This was in
+      // `render` beside fx.update and domainfx.update, where every other
+      // visual system lives, and it was WRONG — a command's payload fires from
+      // the SpeechFX arrival callback, so putting the glyph flight on the
+      // render clock made a gameplay effect depend on frame rate. The bug it
+      // actually produced in testing: with the tab hidden and rAF throttled,
+      // commands were spoken, the throat was charged, and nothing ever
+      // resolved. The same hole is reachable in a shipped build during a
+      // ritual or a finisher, both of which keep rendering while the logic
+      // tick is suspended — a word in flight would have arrived mid-cinematic.
+      //
+      // On the fixed 1/60 step the flight time, the constrict half-beat and
+      // the payload are all frame-rate independent, like every other timed
+      // entity in the game.
+      this.speechfx.update(1 / 60);
       this.minions.update(1 / 60);
+      this.construction.update(1 / 60);   // Yaga's corpses
+      // THE SET runs INSIDE the fight tick rather than replacing it: both
+      // fighters keep moving, attacking and taking hazards the whole time,
+      // which is the entire difference between this and the QTE version it
+      // replaced. It only advances its own scenes and clocks here.
+      this.theset.update(1 / 60);
       this.judgemen.update(1 / 60);
       this.shikigami.update(1 / 60);
+      this.ocean.update(1 / 60);
       this.flora.update(1 / 60);
+      // ICE ticks immediately after flora, because the two are the roster's
+      // two terrain-modifying systems and their ordering has to be stated
+      // somewhere rather than being an accident of construction order. Flora
+      // first: a Root Field placed this frame is already live when the ice
+      // laid over it asks how much to bite out of it.
+      this.ice.update(1 / 60);
       this.swarms.update(1 / 60);
       this.curses.update(1 / 60);
+      // Garuda ticks with the other allies. Miwa's circle ticks AFTER them,
+      // so a projectile spawned this frame is already in the entity list when
+      // the boundary check runs and gets cut on the frame it crosses rather
+      // than on the next one.
+      this.garuda.update(1 / 60);
+      // Reggie's drone and wrecks tick with the other allies, and BEFORE
+      // Miwa's circle for the same reason Garuda does: a wreck placed this
+      // frame is already a collider when the boundary check runs.
+      this.receipts.update(1 / 60);
+      this.beasts.update(1 / 60);
+      this.newshadow.update(1 / 60);
+      // THE GRAVITATIONAL LATTICE. Emitted on a slow cadence rather than every
+      // frame — it is a persistent tell, and spawning three torus meshes at
+      // 60 Hz would be the most expensive thing in the project for something
+      // the player reads as one continuous object.
+      for (const f of this.activeFighters) {
+        if (!f.cfg.mass || !f.alive) continue;
+        f._massFxT = (f._massFxT ?? 0) - 1 / 60;
+        if (f._massFxT <= 0) {
+          f._massFxT = 0.16;
+          massField(this.fx, f, (f.mass ?? 0) / f.cfg.mass.max, 0x6f7fd0);
+        }
+      }
+      // ---- YAGA: THE CRAFT MOTES ------------------------------------------
+      // Sawdust and shavings off his hands while the meter fills, coloured by
+      // the TIER HE IS CURRENTLY IN. Emitted on a slow cadence like the mass
+      // lattice above, for the same reason. The opponent reading the tier off
+      // the colour of what is coming off his hands, from across the arena, is
+      // the whole counterplay loop of the character.
+      // ---- TAKABA: THE SPOTLIGHT ------------------------------------------
+      // At maximum meter only, and it grants nothing — it is the meter being
+      // legible. Re-issued on the same slow cadence so it follows him without
+      // allocating a cone every frame.
+      for (const f of this.activeFighters) {
+        if (!f.alive) continue;
+        if (f.state === 'building' && f.build?.p > 0) {
+          f._craftT = (f._craftT ?? 0) - 1 / 60;
+          if (f._craftT <= 0) {
+            f._craftT = 0.07;
+            const tier = corpseTierFor(f, f.build.p);
+            craftMotes(this.fx, f, tier?.accent ?? 0x8a7a5e, 0.6 + f.build.p * 1.2);
+          }
+        }
+        if (f.cfg.comedy && (f.comedy ?? 0) >= f.cfg.comedy.max * f.cfg.comedy.audienceAt) {
+          f._spotT = (f._spotT ?? 0) - 1 / 60;
+          if (f._spotT <= 0) { f._spotT = 0.18; comedySpotlight(this.fx, f, 0.22); }
+        }
+      }
       // ticked AFTER every damage source, so a freeze applied this frame gets
       // a full second rather than a second minus the frame it landed on
       this.freeze.update(1 / 60);
@@ -408,11 +686,87 @@ export class Match {
     this._tickFlourish(1 / 60);
     this._chargedAuras();
 
-    // round ends when at most one fighter is still standing
-    if (fight && this.livingCount() <= 1) this._startKO();
+    // Round ends when at most one fighter is still standing. ONLINE: only the
+    // host may declare it — a guest racing the host on its own local HP would
+    // decrement lives twice. The guest applies the host's `ko` instead.
+    if (fight && this.livingCount() <= 1 && (!this.net || this.net.mayStartKO())) {
+      this._startKO();
+      this._emitKO();
+    }
     if (this.phase === 'ko') this._koFlow();
     this._winTauntFlow();
-    if (this.mode === 'local' && this.playerCount > 2) this._seatStatus();
+    if (this.viewSeats.length > 2) this._seatStatus();
+    if (this.net) this.net.endTick(this);
+  }
+
+  // ---- ONLINE: flow authority ---------------------------------------------
+  // Host side. Everything downstream of the KO instant is a pure clock, so
+  // sharing that one instant (plus the resulting lives and the finisher roll)
+  // is enough to keep every screen on the same beat.
+  _emitKO() {
+    if (!this.net || !this.net.isHost) return;
+    this.net.emitKO({
+      down: this.fighters.map((f, i) => (f.res.hp <= 0 ? i : -1)).filter(i => i >= 0),
+      lives: this.fighters.map(f => f.lives),
+      winner: this.fighters.indexOf(this.winner)
+    });
+  }
+
+  _netFlow() {
+    const msgs = this.net.takeFlow();
+    if (!msgs) return;
+    for (const m of msgs) if (m.k === 'ko') this._applyNetKO(m);
+  }
+
+  _applyNetKO(m) {
+    if (this.phase === 'ko' || this.phase === 'result' || this.matchOver) return;
+    // Force the fallers down first, so _startKO's own bookkeeping (poses, FX,
+    // the closing shot) runs through the game's normal path rather than being
+    // reproduced here.
+    for (const i of m.down || []) { const f = this.fighters[i]; if (f) f.res.hp = 0; }
+    this._startKO();
+    if (Array.isArray(m.lives)) m.lives.forEach((lv, i) => { if (this.fighters[i]) this.fighters[i].lives = lv; });
+    this.matchOver = this.fighters.filter(f => f.lives > 0).length <= 1;
+    if (m.winner >= 0 && this.fighters[m.winner]) this.winner = this.fighters[m.winner];
+    if (typeof m.fin === 'number') this.net.finRoll = m.fin;
+  }
+
+  // ---- ONLINE: liveness ----------------------------------------------------
+  // Checked eight times a second, not every tick: this walks a handful of
+  // peers and pushes DOM-facing strings, and neither belongs in the hot path.
+  _netLiveness() {
+    if (++this._livenessT < 8) return;
+    this._livenessT = 0;
+    this.net.tickLiveness();
+    for (const st of this.net.liveness()) {
+      if (st.lost && !this.cpuSeats.has(st.seat)) this._cpuTakeover(st.seat, 'DISCONNECTED');
+    }
+    const notices = this.net.takeNotices();
+    if (notices) for (const n of notices) {
+      const f = this.fighters[n.seat];
+      if (!f) continue;
+      if (n.kind === 'back' && this.cpuSeats.has(n.seat)) {
+        // They came back. Handing the seat straight back to its owner is the
+        // whole point of keeping the match running through a drop.
+        this.cpuSeats.delete(n.seat);
+        this.hud.toast(f, 'RECONNECTED');
+        this.opts.onNetNotice?.(f.cfg.name + ' RECONNECTED', 'good');
+      }
+    }
+  }
+
+  // A player who is gone hands their fighter to the CPU rather than leaving a
+  // statue in the arena. The match carries on, which is the only outcome that
+  // is fair to everyone still playing.
+  _cpuTakeover(seat, why) {
+    const f = this.fighters[seat];
+    if (!f || this.cpuSeats.has(seat) || this.net?.isLocalSeat(seat)) return;
+    this.cpuSeats.set(seat, new CPU(f, this.other(f) || this.p1, this));
+    // The chip rides the fighter's own plate; the sentence goes to the single
+    // online message channel, so every online event reads the same way
+    // wherever the player happens to be looking.
+    this.hud.toast(f, 'CPU');
+    this.opts.onNetNotice?.(f.cfg.name + ' ' + why + ' — CPU TOOK OVER', 'bad');
   }
 
   // Free-for-all: someone runs out of HP but two or more fighters are still
@@ -441,13 +795,14 @@ export class Match {
     }
   }
 
-  // split-screen cell labels: who is dead, who is only watching
+  // Split-screen cell labels: who is dead, who is only watching. Indexed by
+  // VIEW, not by seat — online this machine may be rendering seats 2 and 3.
   _seatStatus() {
-    for (let i = 0; i < this.playerCount; i++) {
-      const f = this.fighters[i];
-      if (!f) continue;
-      this.hud.setSeatStatus(i, f.eliminated ? 'SPECTATING' : !f.alive ? 'DOWN' : '');
-    }
+    this.viewSeats.forEach((seat, v) => {
+      const f = this.fighters[seat];
+      if (!f) return;
+      this.hud.setSeatStatus(v, f.eliminated ? 'SPECTATING' : !f.alive ? 'DOWN' : '');
+    });
   }
 
   // Whose shoulder a dead or eliminated seat rides: the living fighter nearest
@@ -467,11 +822,147 @@ export class Match {
       switch (e.type) {
         case 'jump': this.sfx.jump(); this.fx.jumpPuff(f.pos.clone()); break;
         case 'land': this.sfx.land(); break;
+        case 'dashBurst':
+          // the push-off, on top of the dash's own sound and trail
+          this.sfx.dashBurst();
+          this.fx.dashBurst(f, f.dashBurstDir);
+          break;
         case 'dash':
           this.sfx.dash();
           this.fx.dashTrail(f);
           // Jogo: the dash leaves burning ground in his wake
           if (f.cfg.dashFire) this.effects.startBurnTrail(f);
+          break;
+        // ---- YAGA: CONSTRUCTION -------------------------------------------
+        case 'constructStart':
+          this.sfx.buildStart?.();
+          this.hud.toast(f, '製作開始');
+          break;
+        // A TIER CROSSED. Announced LOUDLY and to BOTH players, because the
+        // entire mechanic is a negotiation about whether the opponent is going
+        // to allow this — and a negotiation neither side can see is not one.
+        case 'constructTier':
+          this.sfx.buildTier?.(e.tier.key);
+          this.hud.techFlash(e.tier.name, e.tier.accent);
+          this.fx._ring(f.pos.clone().setY(f.pos.y + 1.1), e.tier.accent,
+            { size: 0.45, growRate: 5, life: 0.35, flat: false });
+          break;
+        case 'constructStalled':
+          this.hud.toast(f, 'OUT OF CURSED ENERGY');
+          break;
+        // THE WORK TOOK A HIT. Says which — a setback and a demolition are
+        // completely different pieces of news and the player has to be able to
+        // tell them apart on the frame it happens.
+        case 'constructHit':
+          if (e.destroyed) {
+            this.hud.message('WORK DESTROYED', 1.1);
+            this.sfx.buildBreak?.();
+            this.fx.debris?.(f.pos.clone().setY(f.pos.y + 1.0), 12, 0x8a7a5e);
+          } else if (e.severity === 'light') {
+            this.hud.toast(f, 'SETBACK — ' + Math.round(e.remaining * 100) + '%');
+            this.sfx.buildKnock?.();
+          }
+          break;
+        case 'constructFailed':
+          this.hud.toast(f, 'NOTHING TO SHOW FOR IT');
+          this.sfx.buildFail?.();
+          break;
+        case 'constructCapped':
+          this.hud.toast(f, 'TWO IS THE LIMIT');
+          this.sfx.uiBad?.() ?? this.sfx.uiOk?.();
+          break;
+        // THE DEPLOY. The corpse is built HERE, at the event, so the entity
+        // system is the only thing that ever constructs one and the state
+        // machine never has to know what a corpse is.
+        case 'constructDeploy': {
+          const c = this.construction.deploy(f, e.tier);
+          if (c) {
+            corpseDeploy(this.fx, c.pos, e.tier);
+            this.sfx.corpseDeploy?.(e.tier.key);
+            this.hud.cutin(f, '呪骸', e.tier.name);
+            if (e.tier.key === 'masterwork') { this.cam.shake(0.4); this.stage.flash(0.25); }
+          }
+          break;
+        }
+        case 'corpseDeployed':
+          if (e.ultimate) this.hud.message('MASTERPIECE', 1.4);
+          break;
+        case 'corpseLost':
+          this.hud.toast(f, e.tier.short + ' DOWN');
+          break;
+
+        // ---- TAKABA -------------------------------------------------------
+        case 'comedyTier':
+          this.hud.techFlash(e.def.name, e.def.color);
+          this.sfx.comedyTier?.(e.tier, e.up);
+          if (e.up && e.def.key === 'killing') {
+            this.hud.message('THE ROOM IS HIS', 1.2);
+            comedyConfetti(this.fx, f.pos.clone().setY(f.pos.y + 2.0), 26);
+          }
+          break;
+        case 'riffStart':
+          this.sfx.riff?.();
+          break;
+        case 'riffEnd':
+          this.hud.toast(f, 'THEY LOVED IT');
+          break;
+        case 'bitRolled':
+          // The stylized callout, and it is DELIBERATELY the same presentation
+          // Yuta's domain rolls use: `hud.techFlash` plus `sfx.techReveal` at
+          // the entry's own tone. Two random-outcome techniques in one game
+          // that announced themselves differently would read as two features.
+          this.hud.techFlash(e.bit.name, e.bit.color);
+          this.sfx.techReveal?.(e.bit.tone);
+          this.sfx.bitCue?.(e.bit.key);
+          break;
+        case 'showRefused':
+          this.hud.toast(f, e.label);
+          break;
+        case 'setOpen':
+          this.sfx.showTitle?.(0);
+          break;
+        case 'setScene':
+          this.hud.techFlash(e.def.name, 0xff4d7a);
+          break;
+        case 'setCleared':
+          this.hud.toast(f, 'THEY GOT THROUGH IT');
+          break;
+        case 'setFailed':
+          break;
+        case 'setHazard':
+          break;
+        case 'setEnded':
+          if (e.outcome === 'escaped') this.hud.toast(f, 'TOUGH CROWD');
+          break;
+
+        // ---- URO ----------------------------------------------------------
+        case 'reflectStart':
+          this.sfx.skyReflectUp?.();
+          break;
+        case 'reflectUp':
+          // THE SURFACE. It materializes on the frame the window actually
+          // opens rather than on the input, so what the opponent sees IS the
+          // active window — the tell and the hitbox are the same object.
+          this.warpfx.reflectSurface(f, (f.cfg.special.reflect?.active ?? 20) / 60 + 0.10);
+          break;
+        case 'reflectDown':
+          this.sfx.skyReflectDown?.();
+          break;
+        case 'skyReflected':
+          this.hud.cutin(f, 'SKY MANIPULATION', 'SKY REFLECT  天逆鉾');
+          break;
+        case 'hoverStart':
+          this.sfx.hoverStart?.();
+          break;
+        case 'hoverDrop':
+          // out of stamina, out of the sky. Loud on purpose: it is the whole
+          // counterplay to the character and the opponent should hear it land.
+          this.sfx.hoverDrop?.();
+          this.hud.toast(f, 'OUT OF SKY');
+          break;
+        // ---- DAGON --------------------------------------------------------
+        case 'summonCapped':
+          this.hud.toast(f, 'ONE AT A TIME — OUTSIDE THE DOMAIN');
           break;
         case 'overheatStart':
           this.hud.cutin(f, 'DISASTER FLAMES', 'OVERHEAT  奰');
@@ -488,7 +979,11 @@ export class Match {
           this._tauntFlourish(f, e.def);
           break;
         case 'tauntSay':
-          this.bubbles.say(f, e.def.say, {
+          // THE OPPONENT-SPECIFIC LINE. `tauntLine` falls straight through to
+          // `def.say` for every pairing that has nothing special — which is
+          // all of them but one, the Yaga-versus-Panda nod. One lookup, no new
+          // state, no intro system. See combat/taunts.js.
+          this.bubbles.say(f, tauntLine(e.def, f.pick ?? f.cfg.id, this.other(f)?.pick ?? this.other(f)?.cfg.id), {
             hold: e.def.hold ?? 1.3, accent: hex(pickInfo(f.pick)?.accent ?? 0xffffff),
             // split-screen: billboard to the taunting seat's own eye
             cam: this.cams[f.index]?.cam
@@ -500,9 +995,18 @@ export class Match {
         // does nothing here.
         case 'tauntBreak':
           if (!e.completed) this.bubbles.cut(f);
+          // INUMAKI: the collar goes back up whether the taunt finished or was
+          // cut in half, and the queued drop is cancelled so a taunt punished
+          // on frame two cannot open his collar a beat later on a body that is
+          // by then on the floor.
+          this._pendingCollar = null;
+          if (f.cfg.throat) { f.model.setCollar?.(0); f.model.setMarks?.(false); }
           break;
         case 'tauntCancel': this.bubbles.cut(f); break;
-        case 'minionAlive': this.hud.toast(f, 'ONE IS ENOUGH'); this.sfx.noCE(); break;
+        case 'minionAlive':
+          this.hud.toast(f, (e.cap ?? 3) + ' IS ALL HE CAN HOLD');
+          this.sfx.noCE();
+          break;
         // ---- SUKUNA -------------------------------------------------------
         case 'fingerStart':
           // the vulnerable second, announced so the opponent knows to punish it
@@ -763,6 +1267,57 @@ export class Match {
         case 'weaponReady':
           this.sfx.swordSwing?.();
           break;
+        // ---- maki: the awakening ------------------------------------------
+        case 'awakenStage': {
+          // NOT a glow. She has no cursed energy and a glow would say the
+          // opposite of what the character is — this is a hard shell that
+          // cracks outward, pressure leaving a body rather than power
+          // entering one. See fx/newfx.js `awakenBurst`.
+          awakenBurst(this.fx, f, e.stage, 0x5fae7a);
+          this.hud.message(e.def.jp + ' ' + e.def.name, 1.4);
+          this.hud.toast(f, 'AWAKENING ' + e.stage);
+          this.sfx.charged?.() ?? this.sfx.uiOk?.();
+          this.cam.shake(0.25 + e.stage * 0.12);
+          this.stage.flash(0.10 + e.stage * 0.05);
+          break;
+        }
+        case 'awakenGate':
+          this.hud.toast(f, e.used ? 'ALREADY SPENT'
+            : '天与呪縛 ' + e.stage + '/' + e.need);
+          this.sfx.noCE();
+          break;
+        // ---- yuki: star rage ----------------------------------------------
+        case 'massChargeStart':
+          this.sfx.techCharge?.() ?? this.sfx.uiMove();
+          break;
+        case 'massDump':
+          this.hud.toast(f, '質量解放');
+          this.cam.shake(0.3);
+          break;
+        case 'garudaStunned':
+          this.hud.toast(f, 'ガルダ DOWN');
+          this.sfx.noCE();
+          break;
+        // ---- miwa: the circle and the stance -------------------------------
+        case 'sdStart':
+          this.hud.message('簡易領域', 1.0);
+          break;
+        case 'sdCooling':
+          this.hud.toast(f, '簡易領域 ' + e.t.toFixed(1) + 's');
+          this.sfx.noCE();
+          break;
+        case 'miwaStance':
+          this.sfx.swordGrab?.() ?? this.sfx.uiMove();
+          this.hud.toast(f, '抜刀構え');
+          break;
+        case 'stanceTier':
+          // each charge tier announces itself, so the player can see what they
+          // are buying without reading the config
+          if (e.tier > 0) { this.hud.toast(f, e.def.name); this.sfx.uiMove(); }
+          break;
+        case 'needStance':
+          this.hud.toast(f, 'NEEDS THE STANCE');
+          break;
         case 'ctSealed':
           this.hud.toast(f, '強制解除 — TECHNIQUES SEALED');
           this.sfx.noCE();
@@ -870,9 +1425,25 @@ export class Match {
         case 'wheelConfirm':
           this.sfx.uiOk();
           this.hud.setWheel(f, null, null);
-          if (e.curse) {
+          if (e.command) {
+            this.hud.toast(f, (e.slot === 'ct1' ? 'RB · ' : 'RT · ')
+              + f.cfg.commands.defs[e.key].short);
+            this.fx._ring(f.pos.clone().setY(0.06), f.cfg.commands.defs[e.key].color,
+              { size: 0.5, growRate: 7, life: 0.35 });
+          } else if (e.curse) {
             this.hud.toast(f, 'RT · ' + f.cfg.curses.defs[e.key].short);
             this.fx._ring(f.pos.clone().setY(0.06), 0x6b2fa0, { size: 0.5, growRate: 7, life: 0.35 });
+          } else if (e.object) {
+            // *** REGGIE. *** This branch is the whole reason the object wheel
+            // silently did nothing on its first playtest: without it the
+            // handler fell through to `cfg.shikigami.defs`, which he does not
+            // have, and the throw left the rest of the frame's event queue
+            // undrained — so it re-threw every frame forever and every input
+            // after the wheel appeared to be ignored. A missing case in a
+            // switch is not a missing feature; it is a jammed queue.
+            const od = f.cfg.objects.defs[e.key];
+            this.hud.toast(f, 'RT · ' + od.short + '  ¥' + (od.cost * f.cfg.receipts.yenPerStock).toLocaleString('en-US'));
+            this.fx._ring(f.pos.clone().setY(0.06), 0xf2e3af, { size: 0.5, growRate: 7, life: 0.35 });
           } else {
             this.hud.toast(f, (e.slot === 'ct1' ? 'RB · ' : 'RT · ')
               + f.cfg.shikigami.defs[e.key].short);
@@ -882,6 +1453,112 @@ export class Match {
         case 'shikiBlocked':
           this.hud.toast(f, e.text);
           this.sfx.noCE();
+          break;
+        // ---- REGGIE: 再契象 ------------------------------------------------
+        // The two refusals get their own lines for the same reason Inumaki's
+        // do: "nothing happened" is the worst thing a button can report, and
+        // BROKE and SOAKED are completely different problems with completely
+        // different answers.
+        case 'noStock':
+          this.hud.toast(f, 'NO STOCK — ¥' + Math.round(e.need * f.cfg.receipts.yenPerStock).toLocaleString('en-US') + ' SHORT');
+          this.sfx.noCE();
+          break;
+        case 'receiptsWet':
+          this.hud.toast(f, '濡 SOAKED — THE TAGS WON\'T BURN');
+          this.sfx.noCE();
+          break;
+        case 'stockSoaked':
+          this.hud.toast(f, '濡 RECEIPTS SOAKED · ' + e.duration.toFixed(1) + 's');
+          this.sfx.noCE();
+          this.cam.shake(0.3);
+          break;
+        case 'registerCleared':
+          this.hud.toast(f, '全契焼却 · ¥' + Math.round(e.spent * f.cfg.receipts.yenPerStock).toLocaleString('en-US') + ' BURNED');
+          break;
+        // ---- INO: 来訪瑞獣 -------------------------------------------------
+        case 'beastManifest':
+          this.hud.toast(f, e.jp + ' ' + e.name);
+          this.fx._ring(f.pos.clone().setY(0.06), e.color, { size: 0.6, growRate: 8, life: 0.4 });
+          break;
+        // THE MASK COMING OFF IS THE LOUDEST THING THIS CHARACTER DOES, and it
+        // happens TO him rather than because of him — so it gets the guard-break
+        // cue and a real screen shake on top of the toast. Both players need to
+        // know the window has opened, immediately.
+        case 'maskOff':
+          this.hud.toast(f, '面無 MASK OFF · ' + e.duration.toFixed(1) + 's');
+          this.sfx.guardBreak?.();
+          this.cam.shake(0.5);
+          break;
+        case 'maskRefit':
+          this.hud.toast(f, '着面 REFITTING');
+          break;
+        case 'maskless':
+          this.hud.toast(f, 'NO MASK — NO TECHNIQUE');
+          this.sfx.noCE();
+          break;
+        case 'exitLock':
+          this.hud.toast(f, '麒麟 CRASH · ' + e.duration.toFixed(2) + 's');
+          break;
+        case 'dragon':
+          this.hud.toast(f, '龍 THE DRAGON');
+          break;
+        // ---- MIWA'S CIRCLE MEETING SOMETHING HEAVY -------------------------
+        // Both outcomes of the mass rule get a line, because the difference
+        // between "she cut the car" and "she could not pay for it" is the
+        // entire matchup and it happens in a third of a second.
+        case 'bigCut':
+          this.hud.toast(f, '簡易領域 · CUT (' + Math.round(e.cost) + ' STAM)');
+          break;
+        case 'cutFailed':
+          this.hud.toast(f, 'TOO HEAVY — IT CAME THROUGH');
+          this.sfx.noCE();
+          break;
+        // ---- inumaki: CURSED SPEECH ---------------------------------------
+        // The utterance itself needs no case: it is driven every frame from
+        // the `ct` state (see combat/fighter.js) so that the gather is a
+        // continuous read rather than a one-shot. What IS here is everything
+        // that happens at the EDGES of one.
+        case 'utterStart':
+          // The reaction cue, and it is deliberately loud. The whole balance
+          // of the character is that a command can be seen and heard coming.
+          this.sfx.utterStart?.(e.cmd.weight, f.throatTier);
+          break;
+        case 'utterBroken':
+          // INTERRUPTED. The gather collapses, the collar snaps back, and he
+          // is charged the penalty (combat/speech.js does the charging; this
+          // is only the picture). A player who has just rushed him down needs
+          // to see that it worked.
+          this.sfx.utterBreak?.();
+          this.commandCard.hide();
+          this.hud.toast(f, '呪言 CUT OFF');
+          this.fx._ring(f.pos.clone().setY(f.pos.y + 1.45),
+            e.cmd?.color ?? 0xffffff, { size: 0.4, growRate: 3, life: 0.3, flat: false });
+          break;
+        case 'silenced':
+          this.hud.toast(f, '失声 — NO VOICE');
+          this.sfx.noCE();
+          break;
+        case 'throatTooHigh':
+          this.hud.toast(f, e.cmd.short + ' — THROAT TOO RAW');
+          this.sfx.noCE();
+          break;
+        case 'throatTier':
+          // Every tier change is announced, because his gauge is information
+          // the OPPONENT needs at least as much as he does — SILENCED in
+          // particular is the moment to walk in, and it should not be
+          // something you have to be watching a bar to notice.
+          if (e.silenced) {
+            this.hud.message('失声 SILENCED', 1.1);
+            this.sfx.silenced?.();
+          } else {
+            this.hud.toast(f, ['清明 CLEAR', '嗄れ STRAINED', '血声 RAW', '失声 SILENCED'][e.tier]);
+          }
+          break;
+        case 'commandEnds':
+        case 'sleepEnds':
+        case 'twistEnds':
+          // nothing to announce: the mark on the body has already faded and
+          // the fighter is simply theirs again
           break;
         // ---- geto ---------------------------------------------------------
         case 'curseBlocked':
@@ -1074,7 +1751,15 @@ export class Match {
         case 'step':
           // every footfall registers
           this.sfx.mahoragaStep();
-          this.cam.shake(f.cfg.size?.stepShake ?? 0.12);
+          // COERCE, don't trust. `stepShake` is authored per character and a
+          // boolean `true` here once read as a magnitude of 1.0 and shook the
+          // screen on every footfall. Anything that is not a finite number
+          // falls back to the default, and the magnitude is capped at the
+          // heaviest legitimate value on the roster.
+          {
+            const sh = f.cfg.size?.stepShake;
+            this.cam.shake(Number.isFinite(sh) ? Math.min(sh, 0.3) : 0.12);
+          }
           this.arena.splash?.(f.pos.x, f.pos.z, 0.8);
           break;
       }
@@ -1093,6 +1778,14 @@ export class Match {
   // Last fighter standing takes the round; everyone knocked out loses a stock.
   // With two fighters this is the original behaviour exactly.
   _startKO() {
+    // ---- THE SET MUST NOT SURVIVE THE ROUND -------------------------------
+    // It hides the arena and clamps both fighters into a corridor, so a KO
+    // landing mid-set (a hazard finishing somebody, or Takaba himself dying to
+    // a corpse that outlived the cast) would otherwise leave the level
+    // invisible and the win pose playing inside a set piece. `clear()` puts
+    // the world back unconditionally, which is the only reason a system that
+    // hides the arena is safe to write at all.
+    this.theset?.clear?.();
     this.phase = 'ko';
     this.phaseT = 0;
     const survivors = this.fighters.filter(f => f.alive);
@@ -1160,6 +1853,22 @@ export class Match {
   // rather than in the clips because both are model/FX calls, and both are
   // optional-chained so a body that does not have them is simply a body that
   // does not have them.
+  // The queued collar drop, ticked on the game clock next to `_pendingPuff`.
+  _tickPendingCollar(dt) {
+    const p = this._pendingCollar;
+    if (!p) return;
+    p.t -= dt;
+    if (p.t > 0) return;
+    this._pendingCollar = null;
+    // Only if he is STILL taunting. A taunt that was interrupted in the
+    // meantime must not drop his collar a beat later on a body that has since
+    // been knocked down.
+    if (p.f.alive && p.f.state === 'taunt') {
+      p.f.model.setCollar?.(1);
+      p.f.model.setMarks?.(true);
+    }
+  }
+
   _tauntFlourish(f, def) {
     // MAHORAGA: the wheel actually turns. `spinWheel` is the same call the
     // adaptation uses, at a fraction of the power — a lazy idle revolution
@@ -1171,12 +1880,23 @@ export class Match {
     // reason the win-pose bubble is — a wall-clock timer would put a shadow at
     // his feet through a pause, and 0.62 s late if the frame hitched.
     if (f.cfg.shikigami) this._pendingPuff = { f, t: 0.62 };
+    // INUMAKI: THE COLLAR ACTUALLY COMES DOWN. He is genuinely opening it to
+    // say a word — the word is just "salmon". Driven from here rather than
+    // from fx/speechfx.js because a taunt has no utterance for the dial to
+    // ride, and queued on the GAME clock for the same reason the shadow puff
+    // above is: a wall-clock timer would drop his collar through a pause.
+    //
+    // `tauntBreak` puts it back, so a taunt cut in half by a punch leaves him
+    // with his collar hanging open for exactly as long as the model's own
+    // 0.35 s settle takes — which is the correct picture.
+    if (f.cfg.throat) this._pendingCollar = { f, t: 0.55 };
   }
 
   // Drained from the update, beside the taunt bubble. One line each, but they
   // are the two places this feature reaches out of the animation and into the
   // world, so they share a clock with it.
   _tickFlourish(dt) {
+    this._tickPendingCollar(dt);
     const p = this._pendingPuff;
     if (!p) return;
     p.t -= dt;
@@ -1225,7 +1945,11 @@ export class Match {
     // hitstop" the sequence opens on. It returns false — and this becomes a
     // dead line — whenever the feature is off, the winner has no finisher, or
     // there is no body to play it against, so the flow below is unchanged.
-    if (this.matchOver && this.phaseT > 0.5 && this.finishers.tryBegin(this.winner)) return;
+    // The roll travels on the host's KO event, so every client plays the same
+    // cinematic — one screen running a finisher while another does not would
+    // put the whole match clock out of step.
+    if (this.matchOver && this.phaseT > 0.5
+      && this.finishers.tryBegin(this.winner, null, this.net?.finRoll ?? null)) return;
     // only take a victory pose when the whole match is decided
     if (this.matchOver && this.phaseT > 1.4 && this.winner.state !== 'victory') {
       this.winner.setState('victory', { clip: 'victory' });
@@ -1280,7 +2004,24 @@ export class Match {
   // to them (CT1 takes the first available), so putting them on the wheel
   // would be four sectors that do nothing.
   _wheelSnapshot(f) {
-    if (f.cfg.curses) return this.curses.snapshot(f).filter(s => s.def.specialGrade);
+    // INUMAKI: THE COMMAND RADIAL REUSES THE SHIKIGAMI WIDGET, like Panda's
+    // cores do. The mapping is natural and the one interesting part is that
+    // `affordable` here means "his throat can still pay for this word", so the
+    // ring greys out exactly what he is no longer allowed to say. It obeys the
+    // same rule as the curse branch below — the snapshot IS `cfg.commands.order`
+    // in order, because the widget indexes it with `wheel.sel`.
+    if (f.cfg.commands) return commandWheelSnapshot(f);
+    // THE SNAPSHOT AND THE WHEEL'S SECTOR LIST HAVE TO BE THE SAME LIST, in the
+    // same order — the widget indexes the snapshot with `wheel.sel`. Geto's
+    // wheel now offers his MID grades as well as his special grades (that is
+    // where the four new medium bodies live), so filtering to `specialGrade`
+    // here left an eleven-sector wheel indexing a seven-entry array and the HUD
+    // read past the end of it. Both sides read `wheelOrder`.
+    if (f.cfg.curses) {
+      const order = f.cfg.curses.wheelOrder ?? f.cfg.curses.specialOrder;
+      const by = new Map(this.curses.snapshot(f).map(s => [s.key, s]));
+      return order.map(k => by.get(k)).filter(Boolean);
+    }
     // PANDA: THE CORE RADIAL REUSES THE SHIKIGAMI WIDGET rather than getting a
     // fourth one. All the widget needs is this shape, and the mapping is
     // natural: a DESTROYED core is `lost` (greyed and struck through, exactly
@@ -1305,11 +2046,21 @@ export class Match {
 
   _nextRound() {
     this.round++;
+    // Fresh streams for the new round, still identical on every client.
+    if (this.matchSeed != null) this._seedFighters(this.matchSeed, this.round);
     this.ritual.abort();
     this._revertSummons();
     this.effects.clear();
     this.minions.clear();
+    this.construction.clear();
+    this.theset.clear();
+    this.ocean.clear();
+    this.warpfx.clear();
     this.judgemen.clear();
+    // ...and so is every kanji still in the air, every cage still standing
+    // round a body, and any command card mid-slam
+    this.speechfx.clear();
+    this.commandCard.hide();
     // shikigami losses are round-scoped, like every other resource here
     this.shikigami.resetRound();
     // ...and so are root fields, cursed buds, swarms and Gluttony
@@ -1321,7 +2072,25 @@ export class Match {
     // Megumi's is match-scoped. Any live freeze is released cleanly here so a
     // fighter frozen at the buzzer does not start the next round grey.
     this.curses.resetRound();
+    // GARUDA IS NOT REMOVED AND NOT REBUILT — it is put back beside her with
+    // its timers cleared. Rebuilding it would be cheap and would also be a lie
+    // about what the object is: it is the one ally in the game that is always
+    // there. Miwa's circle IS torn down, because a zone is a thing she placed
+    // and a round boundary un-places it.
+    this.garuda.resetRound();
+    // ...and so is every drone still flying and every wreck still standing.
+    // The wrecks in particular MUST come out here rather than being left to
+    // expire: they are real colliders, and a round that ended with three of
+    // them on the field would start the next one inside a maze.
+    this.receipts.resetRound();
+    // ...and the beast comes back with the mask, because neither of them is a
+    // thing he can lose for a match.
+    this.beasts.resetRound();
+    this.newshadow.resetRound();
     this.freeze.clear();
+    // ...and every ice rect comes back out of the Bounds, so a round that
+    // ended on a frozen arena does not start the next one on one.
+    this.ice.clear();
     this.hud.setWheel(null, null, null);
     this.hud.setArsenal(null, null);
     // the level goes back up between rounds: every destructible is restored
@@ -1355,7 +2124,10 @@ export class Match {
   }
 
   render(alpha, frameDt) {
-    if (this.paused) frameDt = 0; // hold the frame, keep the scene composited
+    // Offline, pause holds the frame and keeps the scene composited. Online
+    // the match is still running behind the menu, so the frame must keep
+    // moving or the pausing player would come back to a teleport.
+    if (this.paused && !this.net) frameDt = 0;
     // The cutscene runs here rather than in the fixed update so its camera and
     // its hold-frames land on real frame time — a shot list judders badly if
     // it is quantised to the logic step.
@@ -1371,7 +2143,7 @@ export class Match {
     // each view rides its own seat's shoulder, framed on whoever that seat is
     // currently closest to
     this.cams.forEach((cam, i) => {
-      let me = this.fighters[i] || this.p1;
+      let me = this.fighters[this.viewSeats[i]] || this.p1;
       // downed for the round, or out of stocks entirely: ride a living
       // fighter's shoulder instead of staring at your own body
       if (!me.alive || me.eliminated) me = this._spectateTarget(me) || me;
@@ -1381,23 +2153,112 @@ export class Match {
       // dissolves rather than blocking the shot. Aimed at the chest, not the
       // feet, so the hole is centred on the body.
       _xrayAt.copy(me.pos).setY(me.pos.y + 1.0 + (me.cfg?.size?.camHeight ?? 0) * 0.6);
-      setXrayFocus(cam.cam, _xrayAt);
+      // his FEET as well as his chest: the cut protects the ground he is
+      // standing on and cuts everything else, and it can only tell them apart
+      // if it knows where his footing is (see art/shaders/xray.js).
+      setXrayFocus(cam.cam, _xrayAt, me.pos.y);
     });
-    this.arena.update(frameDt, this.stage.camera);
+    this._wading(frameDt);
+    // EVERY eye, not just the first: the arena culls zones and detail props
+    // against the cameras it is given, and anything culled is culled out of
+    // the one shared scene — so a second seat's interior has to count.
+    this.arena.update(frameDt, this.cams.map(c => c.cam));
     this.fx.update(frameDt);
+    // URO's refraction. Ticked on REAL frame time rather than on the logic
+    // step: it is entirely visual, and the distortion should keep flowing
+    // through hitstop and slow-motion rather than freezing with the fight.
+    // THE CONSTANT HEAT-HAZE. "A faint constant heat-haze around her body so
+    // she reads as slightly displaced even when idle" — refreshed once a frame
+    // per flying fighter rather than spawned, so it costs one warp item for
+    // the whole round. It intensifies while she is actually hovering, which
+    // makes the passive readable from across the arena without a HUD element.
+    for (const f of this.fighters) {
+      if (!f.cfg.flight || !f.alive || f.eliminated) continue;
+      const k = (f.model?.warpHaze ?? 0.35) + (f.hoverT > 0 ? 0.45 : 0);
+      this.warpfx.haze(f, Math.min(1, k));
+    }
+    this.warpfx.update(frameDt, this.stage.camera);
+    // the title card is pure UI and stays on real frame time; the glyphs are
+    // not, and are ticked from the logic step in `update`
+    this.commandCard.update(frameDt);
     this.domainfx.update(frameDt, this.domains.state);
+  }
+
+  // ---- WADING --------------------------------------------------------------
+  // A FIGHTER STANDING IN WATER HAS TO LOOK LIKE ONE. The maps have had water
+  // since the beginning and it only ever answered to techniques landing in it,
+  // so a body in Kyoto's river — which is most of the middle of that map — was
+  // cut off at the thigh by a flat green sheet that did not move, did not
+  // sound, and did not part. Every player who saw it read it as falling
+  // through the floor, and they were right to: nothing on screen said water.
+  //
+  // Purely presentational, and deliberately so — it runs on frame time next to
+  // the rest of the FX rather than in the fixed step, and it changes nothing
+  // about how anyone moves or how a hit resolves. The surface itself is driven
+  // through the arena's own `splash`, which is the same ripple techniques use.
+  _wading(dt) {
+    if (!this.arena?.waterAt) return;
+    for (const f of this.fighters) {
+      if (f.eliminated) continue;
+      const wy = f.alive ? this.arena.waterAt(f.pos.x, f.pos.z) : null;
+      // the SURFACE has to be over his feet AND not over his head — a fighter
+      // on the stepping stones or on a bank is not wading
+      const inWater = wy != null && f.pos.y < wy - 0.04;
+      // Outside the fight itself — the intro, a KO, the round change — the
+      // state is tracked SILENTLY. A fighter respawning on dry land after a
+      // round that ended in the river would otherwise open the next one with a
+      // splash out of nothing.
+      if (this.phase !== 'fight') { f._inWater = inWater; continue; }
+      const was = f._inWater ?? false;
+      const spd = Math.hypot(f.vel.x, f.vel.z);
+      if (inWater && !was) {
+        // ARRIVING. A drop into the river is a bigger event than walking into
+        // it, so the fall speed is most of the power.
+        const p = Math.max(0.55, Math.min(1.6, 0.55 + Math.abs(f.vel.y) * 0.09 + spd * 0.04));
+        this.sfx.splash(p);
+        this.fx.waterRing(f.pos.x, wy, f.pos.z, p);
+        this.arena.splash?.(f.pos.x, f.pos.z, p);
+        f._wadeT = 0;
+      } else if (inWater) {
+        // STANDING IN IT. Ripples keep coming even at a standstill — moving
+        // water is what makes it read as water — and quicken with the pace.
+        f._wadeT = (f._wadeT ?? 0) - dt;
+        if (f._wadeT <= 0) {
+          const p = 0.3 + Math.min(0.7, spd * 0.075);
+          f._wadeT = spd > 0.4 ? 0.16 : 0.6;
+          this.fx.waterRing(f.pos.x, wy, f.pos.z, p);
+          this.arena.splash?.(f.pos.x, f.pos.z, 0.35 + p);
+          if (spd > 1.2) this.sfx.wade();
+        }
+      } else if (was) {
+        // LEAVING IT, at the last place he was in it.
+        this.fx.waterRing(f.pos.x, f._waterY ?? f.pos.y, f.pos.z, 0.5);
+        this.arena.splash?.(f.pos.x, f.pos.z, 0.6);
+        this.sfx.wade();
+      }
+      f._inWater = inWater;
+      if (inWater) f._waterY = wy;
+    }
   }
 
   destroy() {
     clearXrayFocus();
+    this.speechfx.clear();
     this.ritual.abort();
     this.finishers.abort();
+    this.construction.clear();
+    this.theset.clear();
     this.minions.clear();
     this.judgemen.clear();
     this.shikigami.clear();
+    this.ocean.clear();
+    this.warpfx.clear();
     this.curses.clear();
+    this.receipts.clear();
+    this.beasts.clear();
     this.freeze.clear();
     this.flora.clear();
+    this.ice.clear();
     this.swarms.clear();
     this.gamble.dispose();
     this.arena.dispose?.();

@@ -2,6 +2,7 @@
 // (ratio crits, block/chip, juggle), hitstop + feedback dispatch.
 import { v3 } from '../core/mathutil.js';
 import { gainCharge, chargeAoE } from './charge.js';
+import { impactGeo, guardGeo, armorGeo } from '../fx/impactgeo.js';
 
 export function computeDamage(attacker, baseDmg, opts = {}) {
   let dmg = baseDmg * attacker.dmgMult;
@@ -9,7 +10,10 @@ export function computeDamage(attacker, baseDmg, opts = {}) {
   let crit = !!opts.forceCrit || attacker.ratioPrimed === 2;
   const ratio = attacker.cfg.ratio;
   if (ratio && !crit && opts.canCrit !== false) {
-    if (attacker.ratioMark || Math.random() < ratio.critChance) {
+    // The attacker's own seeded stream, not Math.random: a crit is a gameplay
+    // outcome, and online every client has to roll the same one. See the
+    // stream note in combat/fighter.js.
+    if (attacker.ratioMark || (attacker.rng ? attacker.rng() : Math.random()) < ratio.critChance) {
       crit = true;
       attacker.ratioMark = false;
     }
@@ -54,6 +58,15 @@ export function hitFeedback(match, attacker, defender, result, opts = {}) {
   const { fx, sfx, cam } = match;
   const p = defender.pos.clone();
   p.y += 1.25;
+  // ---- THE STRIKE AXIS AND THE ATTACKER'S COLOUR -------------------------
+  // Both feed fx/impactgeo.js. The axis is what lets the 3D constructs be
+  // oriented along the blow instead of at the camera, and the colour is read
+  // off the attacker's own model palette so a player can tell whose hit landed
+  // from the debris. Older models without an `accent` fall through to the
+  // neutral default inside impactGeo.
+  const axis = opts.dir
+    || (attacker ? v3(defender.pos.x - attacker.pos.x, 0, defender.pos.z - attacker.pos.z) : null);
+  const accent = attacker?.model?.palette?.accent;
   // Heavy contact damages the level around it, and anything landing in water
   // throws a ripple. Both are cheap here and cover every damage source that
   // routes through the normal hit pipeline.
@@ -64,15 +77,29 @@ export function hitFeedback(match, attacker, defender, result, opts = {}) {
   }
   if (result === 'block') {
     fx.guardSpark(p);
+    guardGeo(fx, p, axis, accent);
     sfx.guard();
     match.hitstop(2);
   } else if (result === 'guardbreak') {
     fx.guardBreak(p);
+    // a guard BREAK gets the full impact construct: the guard did not hold, so
+    // the event is a landed hit that happened to go through a raised arm
+    impactGeo(fx, p, axis, 'knockdown', accent, defender.pos.y);
     sfx.guardBreak();
     cam.shake(0.5);
     match.hitstop(8);
   } else if (result === 'hit' || result === 'otg' || result === 'tech') {
     fx.hitSpark(p, opts.crit ? 'crit' : opts.heavy ? 'heavy' : 'light');
+    // ---- THE 3D IMPACT ----------------------------------------------------
+    // Fires for EVERY landed hit in the game, not only the new characters'.
+    // The basic string was the most-thrown thing in the project and the least
+    // interesting to look at — a camera-facing spark card has no orientation,
+    // no volume and no relationship to the direction the blow travelled. This
+    // is real geometry, oriented along the strike. See fx/impactgeo.js for the
+    // five constructs and the weight ladder.
+    impactGeo(fx, p, axis,
+      opts.crit ? 'crit' : opts.knockdown ? 'knockdown' : opts.heavy ? 'heavy' : 'light',
+      accent, defender.pos.y);
     if (opts.crit) { sfx.crit(); fx.ratioMark(p); cam.shake(0.42); match.hitstop(8); cam.fovKick(5); }
     // the knockdown swing gets the biggest read in the game short of a crit
     else if (opts.knockdown) { sfx.hit(true); sfx.slam(); cam.shake(0.52); match.hitstop(11); cam.fovKick(6); }
@@ -80,6 +107,9 @@ export function hitFeedback(match, attacker, defender, result, opts = {}) {
     else { sfx.hit(false); cam.shake(0.16); match.hitstop(4); }
   } else if (result === 'armor') {
     fx.armorFlash(defender.pos.clone().setY(1.2));
+    // the shell that hardens and shrinks — the one construct in the set that
+    // moves INWARD, because nothing left the body
+    armorGeo(fx, p, axis, accent);
     sfx.armor();
     match.hitstop(3);
   }
@@ -100,11 +130,29 @@ export function resolveMelee(match, a, b) {
   // are radius 0.62, half-height 1.45, centre 1.05 — exactly what was
   // hard-coded here before, and exactly what `hurtBox` returns for anyone who
   // does not grow.
+  // ---- MIWA'S SIMPLE DOMAIN: THE GUARANTEE -------------------------------
+  // "Every sword slash she makes inside her Simple Domain hits. It cannot be
+  // blocked, dodged, i-framed or SPACED OUT."
+  //
+  // The spacing half is why this sits ABOVE the capsule test rather than only
+  // tagging the hit below: her circle is 3.1 m across and her sword reaches
+  // 1.7, so a target who has backed to the far side of the ring is outside her
+  // range and inside her domain at the same time. "Spaced out" has to mean
+  // something, and it means the range check is skipped for exactly this case.
+  //
+  // The rest of the guarantee — beating blocks, i-frames, armour, Hakari's two
+  // intercepts and the downed-target refusal — is bought by ONE FLAG on the
+  // hit below, because combat/fighter.js `_applyHit` already carries a
+  // `!hit.sureHit` guard on every one of those. There is one bypass path in
+  // this codebase and this uses it. See combat/newshadow.js for the audit.
+  const guaranteed = match.newshadow?.shouldGuarantee(a, b,
+    win.isPunch === true ? 'punch' : (def.kind === 'heavy' ? 'heavy' : 'punch')) ?? false;
+
   const hb = b.hurtBox;
   const dx = b.pos.x - origin.x, dz = b.pos.z - origin.z;
   const horiz = Math.hypot(dx, dz);
   const centerY = b.pos.y + hb.center;
-  if (horiz > hb.radius + 0.5 || Math.abs(origin.y - centerY) > hb.height) return;
+  if (!guaranteed && (horiz > hb.radius + 0.5 || Math.abs(origin.y - centerY) > hb.height)) return;
 
   win.confirmed = true;
   // punchDmgMult: bare hands are weakened inside the caster's own sword domain
@@ -112,6 +160,11 @@ export function resolveMelee(match, a, b) {
   const result = b.applyHit({
     dmg, kb: def.kb, kbY: def.kbY, hitstun: def.hitstun, type: def.type,
     attacker: a, dir: fwd, otgOk: true, isCT: false,
+    // THE FLAG. `unblockable` rides alongside it because the guard branch in
+    // `_applyHit` tests both and the intent here is "this connects", not
+    // "this connects unless they happen to be guarding".
+    sureHit: guaranteed || undefined,
+    unblockable: guaranteed || undefined,
     // ADAPTATION SOURCE. The whole punch string and the heavy are one
     // category: they are all "he hit me with his body".
     src: def.src ?? 'punch',

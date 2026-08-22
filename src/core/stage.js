@@ -65,6 +65,22 @@ export const GRADES = {
   // pocket dimension); `reach` pushes it further and pinks it, and is what
   // bleeds out of the corner window on a super reach; `jackpot` floods gold
   // and survives the barrier collapsing, because Jackpot does.
+  // TAKABA. THE GAME SHOW, and it is deliberately the brightest grade in the
+  // table — brighter than Hakari's parlor, which is the only other one that
+  // makes the screen lighter rather than darker. A studio is over-lit, the
+  // vignette is almost gone (there is no pocket dimension here, there is a
+  // SET), and the saturation is pushed past every other grade because the
+  // whole point of the ultimate is that the game has stopped being serious.
+  //
+  // TUNED DOWN FROM A FIRST PASS AT lift 0.07 / sat 1.42, which blew the whole
+  // frame to white and turned both fighters into pale mannequins — a studio is
+  // over-lit, not over-exposed, and the panel is already the loudest thing on
+  // screen without the arena competing with it.
+  // ...and the tint is nearly neutral with a warm bias rather than the first
+  // pass's [1.10, 1.02, 1.08], which pushed magenta and turned every grey
+  // surface in the set — the rooftops, the taxis, the hospital lino — a flat
+  // lavender. A studio is over-lit, not tinted.
+  gameshow: { vignette: 0.30, tint: [1.07, 1.02, 0.99], lift: 0.012, sat: 1.20 },
   pachinko: { vignette: 0.30, tint: [1.12, 1.00, 1.10], lift: 0.03, sat: 1.28 },
   reach: { vignette: 0.26, tint: [1.30, 1.02, 1.20], lift: 0.06, sat: 1.48 },
   jackpot: { vignette: 0.34, tint: [1.32, 1.14, 0.80], lift: 0.05, sat: 1.32 },
@@ -81,6 +97,33 @@ export const GRADES = {
   // gentle -0.05: at -0.13 the room went with them and the shot was two
   // figures in a void, which is Gojo's domain, not this one.
   sentence: { vignette: 0.90, tint: [1.02, 0.99, 0.96], lift: -0.05, sat: 0.30 },
+  // DAGON. THE ONLY DOMAIN GRADE IN THE GAME THAT IS NOT A THREAT, and the
+  // whole character depends on it staying that way: the horror of Horizon of
+  // the Captivating Skandha is that it looks like somewhere you would want to
+  // be. So it is BRIGHT — the second-most open vignette after Hakari's parlor,
+  // a lift rather than a crush, saturation pushed up, and a warm tropical tint
+  // rather than a cold one. Next to Jogo's furnace and Mahito's drained flesh
+  // it should read as a holiday photograph.
+  //
+  // Two constraints it also has to satisfy, both of them about somebody else:
+  //   · Uro's warp effects are near-colourless, so they have to stay readable
+  //     against a bright, warm, high-saturation frame. The tint is kept under
+  //     1.12 on red for exactly that reason — see the grade audit in the
+  //     delivery report.
+  //   · the shikigami are cold blue-grey against warm sand, and the grade
+  //     must not close that gap. Saturation up rather than tint hard is what
+  //     keeps the creatures legible against the beach.
+  shoreline: { vignette: 0.34, tint: [1.10, 1.04, 0.94], lift: 0.035, sat: 1.20 },
+  // URO — THE WARPED FIRMAMENT. The palest grade in the game and the only one
+  // that LIFTS as hard as it does: the interior is an overexposed sky, so the
+  // blacks come up until there are almost none left. Cool tint, low saturation
+  // (there is no colour up there), and the lightest vignette of any domain,
+  // because a dark frame edge would give the eye an anchor and the whole
+  // interior is built on not having one.
+  // RETUNED after looking at it: lift 0.075 on top of bloom blew the whole
+  // interior to flat white and hid everything in it. 0.018 keeps the "there is
+  // no black in the sky" reading without erasing the contents.
+  firmament: { vignette: 0.36, tint: [0.94, 1.00, 1.12], lift: 0.018, sat: 0.92 },
   overtime: { vignette: 0.5, tint: [1.12, 1.02, 0.9], lift: 0, sat: 1.05 },
   ko: { vignette: 0.66, tint: [1.05, 0.95, 0.92], lift: 0, sat: 0.6 }
 };
@@ -179,6 +222,54 @@ export function createStage() {
     else { seamV.scale.set(0.008, 2, 1); seamV.position.set(0, 0, 0); }
   }
 
+  // ---- BILLBOARDS ---------------------------------------------------------
+  // A camera-facing quad can only face ONE camera, and the scene is drawn once
+  // per eye. Orienting them when the world updates therefore aims every
+  // billboard in the game at eye 0: correct on one screen, and edge-on — which
+  // is to say INVISIBLE — in every other view of a split-screen match. That is
+  // exactly what Choso's Blood Edge looked like from seat 2, and it was never
+  // his bug: every particle, ring, spark, HP bar and technique flare in the
+  // project is built the same way.
+  //
+  // So the aim moved here, to the only place that knows which eye is about to
+  // draw. Anything marked `userData.billboard` is re-aimed immediately before
+  // each eye renders (with an optional fixed roll in `userData.bbRoll`), so
+  // every view gets its own correct orientation out of the one shared scene.
+  // The list is gathered once per frame; the per-eye cost is a quaternion copy.
+  const bbList = [];
+  function collectBillboards(dt) {
+    bbList.length = 0;
+    scene.traverse(o => {
+      if (o.userData.billboard) bbList.push(o);
+      if (o.userData.spin) o.rotation.y += dt * 5;
+    });
+  }
+  // Local orientation is what gets written, so a billboard hanging off
+  // something that TURNS — an HP bar on a curse's body, the freeze countdown
+  // over a fighter's head — has to cancel its parent out or the plate swings
+  // with the body it is labelling. Parents repeat (every particle in the game
+  // shares the match root), so each one is solved once per eye and reused.
+  const _bbCache = new Map();
+  function parentAim(parent, cam) {
+    let q = _bbCache.get(parent);
+    if (!q) {
+      parent.updateWorldMatrix(true, false);
+      // world = parent * local, and world has to come out as the camera's
+      // orientation, so the local we want is parent⁻¹ * cam.
+      q = parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(cam.quaternion);
+      _bbCache.set(parent, q);
+    }
+    return q;
+  }
+  function aimBillboards(cam) {
+    _bbCache.clear();
+    for (const o of bbList) {
+      if (o.parent && o.parent !== scene) o.quaternion.copy(parentAim(o.parent, cam));
+      else o.quaternion.copy(cam.quaternion);
+      if (o.userData.bbRoll) o.rotateZ(o.userData.bbRoll);
+    }
+  }
+
   const gradeState = { ...GRADES.neutral, tint: [...GRADES.neutral.tint] };
   let gradeTarget = GRADES.neutral;
   let flash = 0;
@@ -225,6 +316,8 @@ export function createStage() {
 
   const api = {
     renderer, scene, camera, lights: { key, rim, hemi },
+    // set by core/match.js — see the note at the call site in `render`
+    preRender: null,
     get splitCamera() { return eyeAt(1).camera; },
     cameraFor(i) { return eyeAt(i).camera; },
     get isSplit() { return views > 1; },
@@ -262,8 +355,19 @@ export function createStage() {
       // material, so it has to be pointed at the right subject immediately
       // before each eye draws — in split screen the same materials are drawn
       // once per view, each following a different fighter.
+      collectBillboards(dt);
+
       if (views === 1) {
         applyXray(camera);
+        aimBillboards(camera);
+        // ---- THE PRE-RENDER HOOK --------------------------------------------
+        // One optional callback, invoked with the camera about to draw, before
+        // that eye composites. It exists for exactly one customer:
+        // fx/warpfx.js, which has to capture the scene WITHOUT its own
+        // geometry in it so a refracting shard can sample the arena behind
+        // itself. Null for every frame in which nothing is warped, so this
+        // line costs one comparison.
+        api.preRender?.(camera);
         applyGrade(eyes[0]);
         if (quality === 0) {
           renderer.setRenderTarget(null);
@@ -289,6 +393,7 @@ export function createStage() {
           renderer.setViewport(vx, vy, vw, vh);
           renderer.setScissor(vx, vy, vw, vh);
           applyXray(eyeAt(i).camera);
+          aimBillboards(eyeAt(i).camera);
           renderer.render(scene, eyeAt(i).camera);
         });
         renderer.setScissorTest(false);
@@ -298,6 +403,11 @@ export function createStage() {
       for (let i = 0; i < views; i++) {
         const eye = eyeAt(i);
         applyXray(eye.camera);
+        aimBillboards(eye.camera);
+        // split screen captures per eye too, so a warp shard shows the arena
+        // from the viewpoint it is actually being seen from rather than from
+        // player one's
+        api.preRender?.(eye.camera);
         applyGrade(eye);
         eye.composer.renderToScreen = false;
         eye.composer.render();

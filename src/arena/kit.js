@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMaterial } from '../art/shaders/toon.js';
-import { xrayable } from '../art/shaders/xray.js';
+import { xrayable, xrayAll } from '../art/shaders/xray.js';
 import { Bounds } from './bounds.js';
 import { Destructibles } from './destruct.js';
 import { classifyMaterial, NATURAL, ARTIFICIAL } from './terrain.js';
@@ -215,6 +215,20 @@ export class MapBuilder {
     this.destructReg = [];        // deferred until the Destructibles exists
     this.instanced = [];
     this._statics = new Map();    // material -> geometry[] awaiting merge
+    // ---- COLLAPSIBLE FLOORS ------------------------------------------------
+    // A floor that a destructible can DROP has to be drawable on its own, or
+    // the collapse takes the collider away and leaves the slab hanging there in
+    // full view: the fighter falls through a roof that is still drawn. Every
+    // `drops: [id]` in the maps shipped that way, because a floor goes into the
+    // merged static batch where nothing can hide it again.
+    //
+    // So floors with an id are held back here instead of being merged on the
+    // spot. `finish()` knows by then which ids something drops, draws exactly
+    // those as their own meshes, and hands them to the destructible as
+    // `dropMeshes` — the field the collapse path has always read and nobody
+    // ever filled. Everything else still merges.
+    this._idFloors = [];          // {id, geo, mat, zone} awaiting the verdict
+    this.meshById = new Map();    // id -> [Mesh] drawn solo for exactly this
   }
 
   add(obj) { this.group.add(obj); return obj; }
@@ -283,10 +297,15 @@ export class MapBuilder {
       const m = new THREE.Mesh(g, mat);
       this.add(m);
       if (opts.zone) this._zoneAdd(opts.zone, m);
+      if (opts.id) this._regMesh(opts.id, m);
       if (opts.walk !== false) this.bounds.platform(x0, z0, x1, z1, y, { id: opts.id });
       return m;
     }
-    this.static_(g, mat, opts.zone);
+    // A NAMED floor is held back until finish() knows whether anything drops
+    // it (see `_idFloors`); an anonymous one can never be dropped and merges
+    // straight away.
+    if (opts.id) this._idFloors.push({ id: opts.id, geo: g, mat, zone: opts.zone });
+    else this.static_(g, mat, opts.zone);
     if (opts.walk !== false) this.bounds.platform(x0, z0, x1, z1, y, { id: opts.id });
     return null;
   }
@@ -350,6 +369,35 @@ export class MapBuilder {
     this.static_(g, mat, opts.zone);
     if (opts.collide !== false) this.bounds.wall(cx - hx, cz - hz, cx + hx, cz + hz, y0, y1, { id: opts.id });
     return null;
+  }
+
+  // ---- BANK FACE ----------------------------------------------------------
+  // The visible face under a raised deck: a cliff, a retaining wall, the rock
+  // skirt round a plateau. It is drawn PROUD of the deck it edges, so the deck
+  // does not z-fight with its own edge — and that overhang is the fault this
+  // helper exists to stop. Drawn as bare geometry it left a rim you can see and
+  // stand on with nothing under it: walk to the edge of Kyoto's grass bench and
+  // you drop 3.6 m through the lip you were standing on. Every raised deck in
+  // the set was edged that way.
+  //
+  // So a face is three things at once, and none of them is optional:
+  //   · the geometry, drawn from `base` up to `top`
+  //   · a BLOCKER, so the cliff cannot be walked into from below (pass
+  //     `collide: false` for a face that is meant to be pure decoration —
+  //     a low kerb, a skirt inside a room)
+  //   · a LIP at `top`, carrying the deck out to the drawn edge
+  // The blocker stops 0.12 m under the lip for the usual reason: a wall topping
+  // out level with the floor beside it collides with anyone standing there.
+  bankFace(x0, z0, x1, z1, top, base = 0, opts = {}) {
+    this.wall(x0, z0, x1, z1, base, opts.collide === false ? top : top - 0.12,
+      { ...opts, collide: opts.collide });
+    // The lip has to match what was DRAWN, and `wall` fattens a degenerate rect
+    // (a face authored as a line) out to `thick` — so the same expansion is
+    // applied here or the lip is a zero-area rect over a 0.5 m ledge.
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    const hx = Math.max(Math.abs(x1 - x0), opts.thick ?? 0.3) / 2;
+    const hz = Math.max(Math.abs(z1 - z0), opts.thick ?? 0.3) / 2;
+    this.bounds.platform(cx - hx, cz - hz, cx + hx, cz + hz, top, { id: opts.id, prop: true });
   }
 
   _rubblePile(x, y, z, r, mat) {
@@ -785,10 +833,21 @@ export class MapBuilder {
     g.position.set(x, y, z);
     g.rotation.y = ry;
     this.add(g);
-    this.bounds.wall(x - 1.1, z - 2.2, x + 1.1, z + 2.2, y, y + 1.6, { id: 'car' + x + z });
+    // A CAR YOU CAN STAND ON. It used to be one 1.6 m wall and nothing else,
+    // so a fighter who landed on the roof sank into the band and was squirted
+    // out sideways — the body is solid to walk into and was thin air to land
+    // on. Now it collides the way it is drawn: the bonnet and boot are a floor
+    // at their own height, the cabin is a low block standing on it, and both
+    // carry the car's id so destroying it takes the whole lot with it. The
+    // wall under the deck stops 0.06 m short of it for the usual reason — a
+    // wall topping out level with a floor collides with anyone standing there.
+    const cid = 'car' + x + z;
+    this.bounds.wall(x - 1.1, z - 2.2, x + 1.1, z + 2.2, y, y + 1.02, { id: cid });
+    this.bounds.platform(x - 1.1, z - 2.2, x + 1.1, z + 2.2, y + 1.08, { id: cid, prop: true });
+    this.bounds.wall(x - 0.86, z - 1.2, x + 0.86, z + 0.9, y + 1.08, y + 1.71, { id: cid });
     return this.breakable(g, {
       hp: 90, kind: 'metal', center: v3(x, y + 0.8, z), radius: 2.2, height: 1.7, baseY: y,
-      colliderIds: ['car' + x + z], debrisScale: 1.3
+      colliderIds: [cid], debrisScale: 1.3
     });
   }
 
@@ -824,8 +883,13 @@ export class MapBuilder {
     }
     g.position.set(x, y, z);
     this.add(g);
-    this.bounds.wall(x - 1.1 * scale, z - 1.1 * scale, x + 1.1 * scale, z + 1.1 * scale, y, y + 1.6 * scale, { id: 'rock' + x + z });
-    this.bounds.platform(x - 0.9 * scale, z - 0.9 * scale, x + 0.9 * scale, z + 0.9 * scale, y + 1.5 * scale);
+    // THE BLOCKER STOPS UNDER THE TOP. It used to run 0.1 m HIGHER than the
+    // deck laid on it, so a fighter standing on the boulder was standing inside
+    // the wall band and got shoved off the rock they had just climbed.
+    this.bounds.wall(x - 1.1 * scale, z - 1.1 * scale, x + 1.1 * scale, z + 1.1 * scale,
+      y, y + 1.5 * scale - 0.12, { id: 'rock' + x + z });
+    this.bounds.platform(x - 0.9 * scale, z - 0.9 * scale, x + 0.9 * scale, z + 0.9 * scale,
+      y + 1.5 * scale, { id: 'rock' + x + z, prop: true });
     // standing on a boulder is standing on stone, whatever is under it
     this.bounds.terrain(x - 0.9 * scale, z - 0.9 * scale, x + 0.9 * scale, z + 0.9 * scale,
       y + 1.5 * scale, NATURAL);
@@ -888,11 +952,21 @@ export class MapBuilder {
         // field of dinner-plate white blobs
         uSize: { value: new THREE.Vector2(w, d) },
         uAlpha: { value: opts.opacity ?? 0.84 },
-        uCaustic: { value: opts.caustic ?? 0.34 }
+        uCaustic: { value: opts.caustic ?? 0.34 },
+        // THE GRAZING COLOUR. Water read from a low angle is mostly what is
+        // reflected in it, not what is under it — which is exactly the angle a
+        // fight camera reads it from, and exactly where this surface used to
+        // fail: flat, dark and the same value as the grass beside it, so a
+        // fighter standing knee-deep in Kyoto's river looked like a fighter
+        // sunk into the lawn. Derived from `shallow` so every pool keeps its
+        // own identity (a sewer channel must not sprout a blue sky), or set
+        // outright with `opts.sky`.
+        uSky: { value: opts.sky != null ? new THREE.Color(opts.sky)
+          : new THREE.Color(opts.shallow ?? 0x5fb4d8).lerp(new THREE.Color(0xffffff), 0.55) }
       },
       vertexShader: /* glsl */`
         uniform float uT; uniform vec3 uHits[8];
-        varying vec2 vUv; varying float vW;
+        varying vec2 vUv; varying float vW; varying vec3 vWP;
         void main(){
           vUv = uv;
           vec3 p = position;
@@ -905,19 +979,31 @@ export class MapBuilder {
           }
           p.z += w;
           vW = w;
+          vWP = (modelMatrix * vec4(p,1.0)).xyz;
           gl_Position = projectionMatrix*modelViewMatrix*vec4(p,1.0);
         }`,
       fragmentShader: /* glsl */`
-        uniform vec3 uShallow; uniform vec3 uDeep; uniform float uT;
+        uniform vec3 uShallow; uniform vec3 uDeep; uniform vec3 uSky; uniform float uT;
         uniform vec2 uSize; uniform float uAlpha; uniform float uCaustic;
-        varying vec2 vUv; varying float vW;
+        varying vec2 vUv; varying float vW; varying vec3 vWP;
         void main(){
           vec3 c = mix(uDeep, uShallow, clamp(vW*5.0+0.5, 0.0, 1.0));
           // caustics on a fixed ~0.9 m cell whatever the surface measures
           vec2 m = vUv * uSize / 0.9;
           float ca = sin(m.x + uT*1.7) * sin(m.y*0.92 - uT*1.3);
           c += vec3(0.26,0.36,0.42) * uCaustic * smoothstep(0.80, 1.0, ca);
-          gl_FragColor = vec4(c, uAlpha);
+          // FRESNEL. Look straight down and you see through it; look ALONG it
+          // and you see the sky sitting on it. Without this the surface has one
+          // colour from every angle, and the angle a fight is watched from is
+          // the shallow one — which is where a river stopped looking like a
+          // river and started looking like ground with a fighter buried in it.
+          vec3 V = normalize(cameraPosition - vWP);
+          float fres = pow(1.0 - clamp(abs(V.y), 0.0, 1.0), 3.0);
+          c = mix(c, uSky, fres * 0.86);
+          // and it turns from a window into a sheet as it goes, the way water
+          // does: the legs under it read from above, the shine reads from the side
+          float a = mix(uAlpha, min(0.94, uAlpha + 0.30), fres);
+          gl_FragColor = vec4(c, a);
         }`
     });
     const mesh = new THREE.Mesh(geo, mat);
@@ -1005,13 +1091,29 @@ export class MapBuilder {
   // A huge ground disc under everything. Without it the playable floor simply
   // ends and the background silhouettes read as cut-outs hanging in the sky —
   // which is exactly what the first outdoor pass looked like.
-  groundPlane(color, radius = 260, y = -0.15) {
+  // THE FAR FIELD: one flat disc under the whole map, so the world does not end
+  // at the edge of the level in a cliff of sky.
+  //
+  // ITS HEIGHT IS THE WHOLE PROBLEM. It defaulted to y = -0.15 — a hand's
+  // breadth under the ground — which is fine on a level that is flat and a
+  // catastrophe on one that digs. Kyoto's river bed is at -1.60 and its banks
+  // at -0.96, so the middle of the map sat UNDER a 300 m opaque green disc: a
+  // fighter in the trench was behind it, the x-ray punched a dithered hole in
+  // it to keep him visible, and the whole thing read exactly like standing
+  // inside the lawn. Sendai's pool hall, Shinjuku's sunken plaza, the tomb and
+  // the bridge's river were all under their own.
+  //
+  // So an auto-placed plane is DEFERRED to finish(), which is the first moment
+  // the map's lowest floor is known — the pits and the basements are declared
+  // long after the sky is. A map that passes its own `y` is left alone.
+  groundPlane(color, radius = 260, y = null) {
     const m = new THREE.Mesh(new THREE.CircleGeometry(radius, 40),
       new THREE.MeshBasicMaterial({ color }));
     m.rotation.x = -Math.PI / 2;
-    m.position.y = y;
+    m.position.y = y ?? -0.15;
     m.frustumCulled = false;
     this.add(m);
+    if (y == null) (this._autoGround = this._autoGround || []).push(m);
     return m;
   }
 
@@ -1075,9 +1177,59 @@ export class MapBuilder {
     return pts;
   }
 
+  _regMesh(id, mesh) {
+    let list = this.meshById.get(id);
+    if (!list) this.meshById.set(id, list = []);
+    list.push(mesh);
+    return mesh;
+  }
+
+  // Every mesh drawn for a named floor. Maps that build a destructible by hand
+  // (rather than through `pillar`) use this to fill in `dropMeshes`.
+  meshesFor(id) { return this.meshById.get(id) || []; }
+
   // ---- finish --------------------------------------------------------------
   finish(ctx) {
+    // WHAT COLLAPSES. Anything a destructible can drop is drawn on its own so
+    // the collapse can hide it; everything else merges as usual.
+    const dropped = new Set();
+    for (const e of this.destructReg) for (const id of e.dropPlatformIds || []) dropped.add(id);
+    for (const f of this._idFloors) {
+      if (dropped.has(f.id)) {
+        const m = new THREE.Mesh(f.geo, f.mat);
+        m.name = 'floor:' + f.id;
+        this.add(m);
+        if (f.zone) this._zoneAdd(f.zone, m);
+        this._regMesh(f.id, m);
+      } else {
+        this.static_(f.geo, f.mat, f.zone);
+      }
+    }
+    this._idFloors.length = 0;
+    // and hand each destructible the meshes for the floors it brings down
+    for (const e of this.destructReg) {
+      if (!e.dropPlatformIds?.length) continue;
+      const meshes = new Set(e.dropMeshes || []);
+      for (const id of e.dropPlatformIds) for (const m of this.meshesFor(id)) meshes.add(m);
+      e.dropMeshes = [...meshes];
+    }
     this._flushStatics();
+    // THE FAR FIELD, under everything (see groundPlane). By now every pit, every
+    // basement and every sunken room has been declared, so the lowest thing a
+    // fighter can stand on is known and the disc can go below it.
+    if (this._autoGround?.length) {
+      let low = this.bounds.groundY;
+      for (const p of this.bounds.pits) low = Math.min(low, p.y);
+      for (const p of this.bounds.platforms) low = Math.min(low, p.ramp ? Math.min(p.ramp.yLow, p.ramp.yHigh) : p.y);
+      for (const m of this._autoGround) m.position.y = low - 0.4;
+      this._autoGround.length = 0;
+    }
+
+    // THE OCCLUSION CUT, over the whole level in one pass. See xrayAll: the
+    // per-helper wrapping this replaces was missing the props — a car, a
+    // vending machine, a big screen, a torii — which are precisely the things
+    // that end up between the camera and the fighter and used to stay solid.
+    xrayAll(this.group);
     const destruct = new Destructibles(this.group, {
       ...ctx, bounds: this.bounds, quality: ctx.quality
     });
@@ -1131,27 +1283,37 @@ export class MapBuilder {
         }
         return null;
       },
+      // `camera` may be a single camera or the whole list of eyes. It has to be
+      // the whole list in split screen: culling is a property of the SCENE, not
+      // of a view, so anything one eye needs has to stay switched on for all of
+      // them. Culling on eye 0 alone deleted the interior out from under the
+      // other seats — walls and floor gone, the fighter apparently standing on
+      // nothing — while player 1's screen looked perfect.
       update(dt, camera) {
         t += dt;
         for (const fn of tickers) fn(dt);
         destruct.update(dt);
+        const cams = Array.isArray(camera) ? camera : camera ? [camera] : [];
         // ZONE CULLING: an interior does not pay for the exterior and vice
-        // versa. A zone is active when any camera is inside it or near it.
-        if (camera) {
-          const p = camera.position;
+        // versa. A zone is active when ANY eye is inside it or near it.
+        if (cams.length) {
           for (const z of zones) {
             const b = z.box;
-            const inside = p.x > b.x0 - 8 && p.x < b.x1 + 8 && p.z > b.z0 - 8 && p.z < b.z1 + 8
-              && p.y > b.y0 - 6 && p.y < b.y1 + 10;
+            const inside = cams.some(c => {
+              const p = c.position;
+              return p.x > b.x0 - 8 && p.x < b.x1 + 8 && p.z > b.z0 - 8 && p.z < b.z1 + 8
+                && p.y > b.y0 - 6 && p.y < b.y1 + 10;
+            });
             const want = z.interior ? inside : !inside || true;
             if (want !== z.active) {
               z.active = want;
               for (const o of z.objects) o.visible = want;
             }
           }
-          // DETAIL LOD: small props switch off past their range
+          // DETAIL LOD: small props switch off past their range — from EVERY
+          // eye, for the same reason.
           for (const d of detail) {
-            const vis = p.distanceToSquared(d.pos) < d.dist * d.dist;
+            const vis = cams.some(c => c.position.distanceToSquared(d.pos) < d.dist * d.dist);
             if (vis !== d.obj.visible) d.obj.visible = vis;
           }
         }

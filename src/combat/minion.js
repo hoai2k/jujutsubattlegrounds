@@ -7,81 +7,31 @@
 // Boogie Woogie ignores it entirely (the swap trades sorcerer positions —
 // a transfigured lump is not a valid anchor, see the integration notes).
 import * as THREE from 'three';
-import { toonMaterial } from '../art/shaders/toon.js';
 import { v3, rand, yawBetween, flatDist } from '../core/mathutil.js';
 import { computeDamage, hitFeedback } from './hits.js';
+import { buildTransfigured, TRANSFIGURED_IDS } from '../art/models/transfigured.js';
 
-const FLESH = [0xb8a9a0, 0xcbb6a6, 0x9a8f92, 0xc4a8b0, 0xa8b0a0];
+// ---------------------------------------------------------------------------
+// THE BODY
+// ---------------------------------------------------------------------------
+// This used to build one procedural lump here — a stack of spheres with one to
+// four cylinders for arms, randomized per summon. Every result was the same
+// silhouette at a different size, which is not what "no two are identical"
+// meant and is nowhere near what a transfigured human looks like.
+//
+// It now picks one of FIVE HAND-AUTHORED BODY PLANS from
+// art/models/transfigured.js, each with its own rig, its own animator and its
+// own procedural skin. The randomization is unchanged in SPIRIT and completely
+// changed in EFFECT: the variance is now between designs rather than inside
+// one. See that file's reference sheet for what each variant is and why.
+//
+// NOTHING ABOUT THE GAMEPLAY BELOW CHANGED. Same stats off `cfg.special.minion`,
+// same chase-and-swipe plan, same body-block, same one-at-a-time rule, same
+// interactions with domains, shikigami and curses. This is an asset overhaul.
+function buildMinionModel(variant) {
+  const model = buildTransfigured(variant);
 
-// one randomized misshapen body; returns {group, parts} for procedural anim
-function buildMinionModel() {
-  const g = new THREE.Group();
-  const tone = FLESH[(Math.random() * FLESH.length) | 0];
-  const tone2 = FLESH[(Math.random() * FLESH.length) | 0];
-  const mat = toonMaterial({ vertexColors: false, color: tone, steps: [70, 150, 255], rim: 0.4, rimColor: 0x8b9bab });
-  const mat2 = toonMaterial({ vertexColors: false, color: tone2, steps: [70, 150, 255], rim: 0.4, rimColor: 0x8b9bab });
-
-  const H = rand(1.15, 1.75);            // mass varies per summon
-  const wide = rand(0.75, 1.5);
-  const lean = rand(-0.22, 0.22);        // permanent sideways slump
-
-  // torso: stacked squashed lumps
-  const torso = new THREE.Group();
-  const lumps = 2 + ((Math.random() * 2) | 0);
-  for (let i = 0; i < lumps; i++) {
-    const r = (0.16 + rand(-0.03, 0.05)) * wide * H;
-    const lump = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), i % 2 ? mat2 : mat);
-    lump.scale.set(rand(0.8, 1.3), rand(0.7, 1.1), rand(0.8, 1.2));
-    lump.position.set(rand(-0.05, 0.05), H * (0.35 + 0.16 * i), rand(-0.04, 0.04));
-    torso.add(lump);
-  }
-  torso.rotation.z = lean;
-  g.add(torso);
-
-  // head: too small or too big, off-center, one dark eye pit
-  const headR = H * rand(0.07, 0.16);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 10, 8), mat);
-  head.scale.set(rand(0.8, 1.3), rand(0.8, 1.5), rand(0.8, 1.2));
-  head.position.set(rand(-0.1, 0.1) * H, H * (0.38 + 0.17 * lumps), rand(-0.03, 0.06) * H);
-  const eye = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.28, 6, 5),
-    new THREE.MeshBasicMaterial({ color: 0x14090c }));
-  eye.position.set(rand(-0.35, 0.35) * headR, rand(-0.1, 0.3) * headR, headR * 0.85);
-  head.add(eye);
-  torso.add(head);
-
-  // arms: 1 to 4, mismatched lengths and girths
-  const arms = [];
-  const nArms = 1 + ((Math.random() * 4) | 0);
-  for (let i = 0; i < nArms; i++) {
-    const side = i % 2 ? 1 : -1;
-    const len = H * rand(0.28, 0.62);
-    const r = H * rand(0.028, 0.06);
-    const arm = new THREE.Group();
-    const seg = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.7, r, len, 7), i % 2 ? mat : mat2);
-    seg.position.y = -len / 2;
-    const fist = new THREE.Mesh(new THREE.SphereGeometry(r * rand(1.2, 2.4), 7, 6), mat);
-    fist.position.y = -len;
-    arm.add(seg, fist);
-    arm.position.set(side * H * 0.16 * wide, H * (0.42 + rand(0.1, 0.3)), rand(-0.05, 0.08) * H);
-    arm.rotation.z = side * rand(0.25, 0.8);
-    torso.add(arm);
-    arms.push(arm);
-  }
-
-  // legs: sometimes two, sometimes a single trunk it hops on
-  const legs = [];
-  const nLegs = Math.random() < 0.25 ? 1 : 2;
-  for (let i = 0; i < nLegs; i++) {
-    const side = nLegs === 1 ? 0 : (i ? 1 : -1);
-    const len = H * 0.4;
-    const r = H * (nLegs === 1 ? 0.09 : rand(0.04, 0.065));
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.8, r * 1.15, len, 7), i % 2 ? mat2 : mat);
-    leg.position.set(side * H * 0.08 * wide, len / 2, 0);
-    g.add(leg);
-    legs.push(leg);
-  }
-
-  // floating health bar (billboarded in update)
+  // floating health bar (camera-facing; aimed per eye in core/stage.js)
   const barG = new THREE.Group();
   const back = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.07),
     new THREE.MeshBasicMaterial({ color: 0x14161f, transparent: true, opacity: 0.75, depthWrite: false }));
@@ -89,14 +39,20 @@ function buildMinionModel() {
     new THREE.MeshBasicMaterial({ color: 0x9fd08a, transparent: true, opacity: 0.95, depthWrite: false }));
   fill.position.z = 0.002;
   barG.add(back, fill);
-  barG.position.y = head.position.y + headR * 2 + 0.25;
-  g.add(barG);
+  barG.userData.billboard = true;   // camera-facing, aimed per eye in core/stage.js
+  barG.position.y = model.height + 0.30;
+  model.group.add(barG);
 
-  return { group: g, torso, head, arms, legs, barG, barFill: fill, H, hopper: nLegs === 1 };
+  model.barG = barG;
+  model.barFill = fill;
+  // `H` is read by the hit-spark and death-burst heights below; it used to be
+  // the randomized mass and is now simply the variant's height.
+  model.H = model.height;
+  return model;
 }
 
 class Minion {
-  constructor(owner, match) {
+  constructor(owner, match, variant = null) {
     this.owner = owner;
     this.match = match;
     const def = owner.cfg.special.minion;
@@ -104,9 +60,11 @@ class Minion {
     this.hp = def.hp;
     this.maxHp = def.hp;
     this.life = def.duration;
-    this.model = buildMinionModel();
+    this.model = buildMinionModel(variant);
+    this.variant = this.model.variant;
     this.pos = owner.pos.clone().addScaledVector(owner.forward(), 1.2);
-    this.pos.y = 0;
+    // on the floor under the spot he called it out of, not on a hardcoded 0
+    this.pos.y = match.arena?.bounds?.floorAt(this.pos.x, this.pos.z, owner.pos.y + 0.55) ?? 0;
     this.facing = owner.facing;
     this.state = 'chase';       // chase | windup | recover | hit | block | dying
     this.t = 0;
@@ -115,10 +73,20 @@ class Minion {
     this.blocking = false;
     this.animT = rand(0, 5);
     this.dead = false;
+    this.reveal = 0;
+    // THE SURFACING BEAT. Canon: "the 'sweat' of a human's soul 'trickles out'
+    // every now and then, causing them to partially regain consciousness and
+    // cry, plead for help, or ask for death." Every so often the creature stops
+    // fighting, the wrong anatomy goes slack, and the person inside gets to the
+    // surface for a second. It is the most upsetting thing about them and it is
+    // free: it costs one float and it does not touch the AI.
+    this.surface = 0;
+    this.surfaceT = rand(2, this.model.surfaceRate);
+    this.anim = {};
     match.root.add(this.model.group);
     // arrival: it claws its way up out of the floor
     this.model.group.position.copy(this.pos);
-    this.model.group.scale.setScalar(0.01);
+    this.model.setReveal(0);
   }
 
   get alive() { return !this.dead && this.hp > 0; }
@@ -158,8 +126,17 @@ class Minion {
 
     if (this.state === 'dying') {
       this.t -= dt;
-      g.scale.multiplyScalar(Math.max(0.01, 1 - dt * 3));
-      g.position.y -= dt * 0.8;
+      // it sinks back into the floor it came out of rather than shrinking to a
+      // point — the same emergence, reversed, which is what the reveal hook on
+      // each variant is for
+      this.reveal = Math.max(0, this.t / 0.8);
+      this.model.setReveal(this.reveal);
+      this.model.barG.visible = false;
+      this.animT += dt;
+      this.anim.hurt = true;
+      this.anim.speed = 0;
+      this.model.tick(dt, this.anim);
+      g.position.y = this.pos.y + this.model.revealOffset;
       if (this.t <= 0) { m.root.remove(g); return false; }
       return true;
     }
@@ -177,10 +154,22 @@ class Minion {
       if (this.hp <= 0) { this.die(); return true; }
     }
 
-    // grow in on arrival
-    if (g.scale.x < 1) g.scale.setScalar(Math.min(1, g.scale.x + dt * 4));
+    // haul itself up out of the floor on arrival
+    if (this.reveal < 1) {
+      this.reveal = Math.min(1, this.reveal + dt * 2.6);
+      this.model.setReveal(this.reveal);
+    }
 
-    const target = m.other(this.owner);
+    // GETO'S DECOY EYE writes `_decoyLure` onto hostile summons; while it is
+    // alive and close, that is what this thing chases instead. Same
+    // substitution the shikigami take, done here rather than in the curse
+    // system so no existing file's behaviour is rewritten to add it.
+    let target = m.other(this.owner);
+    if (this._decoyLure) {
+      const lure = this._decoyLure;
+      if (lure.alive && flatDist(this.pos, lure.pos) < (lure.def.decoy?.radius ?? 9)) target = lure;
+      else this._decoyLure = null;
+    }
     const distT = target ? flatDist(this.pos, target.pos) : 99;
 
     if (!hostileDomain && target?.alive) {
@@ -204,17 +193,23 @@ class Minion {
           // reduced transfiguration drain inside his domain
           if (flatDist(this.pos, target.pos) < this.def.reach + 0.4) {
             const { dmg } = computeDamage(this.owner, this.def.dmg, { canCrit: false });
-            const r = target.applyHit({
-              dmg, kb: this.def.kb, kbY: 0, hitstun: this.def.hitstun, type: 'light',
-              attacker: this.owner, isCT: false, minion: true, src: 'summon',
-              dir: v3(target.pos.x - this.pos.x, 0, target.pos.z - this.pos.z).normalize()
-            }, m.ctxFor(this.owner));
-            hitFeedback(m, this.owner, target, r, {});
-            if (r === 'hit' || r === 'otg') {
-              this.owner.gainMaxCE(this.owner.cfg.stats.ceGainPerPunch * this.def.ceFeedMult);
-              m.domains.transfigChunk(this.owner, target, 'minion', false);
-            } else if (r === 'block') {
-              m.domains.transfigChunk(this.owner, target, 'minion', true);
+            // a decoy curse is not a Fighter and has no `applyHit` — see the
+            // `_decoyLure` substitution above
+            if (!target.applyHit) {
+              target.hurt?.(dmg * 1.3, this.owner, { kb: 0.3 });
+            } else {
+              const r = target.applyHit({
+                dmg, kb: this.def.kb, kbY: 0, hitstun: this.def.hitstun, type: 'light',
+                attacker: this.owner, isCT: false, minion: true, src: 'summon',
+                dir: v3(target.pos.x - this.pos.x, 0, target.pos.z - this.pos.z).normalize()
+              }, m.ctxFor(this.owner));
+              hitFeedback(m, this.owner, target, r, {});
+              if (r === 'hit' || r === 'otg') {
+                this.owner.gainMaxCE(this.owner.cfg.stats.ceGainPerPunch * this.def.ceFeedMult);
+                m.domains.transfigChunk(this.owner, target, 'minion', false);
+              } else if (r === 'block') {
+                m.domains.transfigChunk(this.owner, target, 'minion', true);
+              }
             }
           }
         }
@@ -253,28 +248,75 @@ class Minion {
     const r = Math.hypot(this.pos.x, this.pos.z);
     if (r > this.owner.arenaRadius) { const s = this.owner.arenaRadius / r; this.pos.x *= s; this.pos.z *= s; }
 
-    // ---- procedural animation: lurching, wrong, alive ----------------------
+    // ---- THE SURFACING -----------------------------------------------------
+    // On its own timer, unrelated to the fight. It ramps up over half a second,
+    // holds for about a second, and drops — and while it holds, every variant's
+    // animator slackens its wrong anatomy and pushes a human face up through
+    // the flesh. Deliberately NOT gated on the AI state: the person inside does
+    // not wait for a convenient moment.
+    this.surfaceT -= dt;
+    if (this.surfaceT <= 0) {
+      this.surfaceT = rand(this.model.surfaceRate * 0.7, this.model.surfaceRate * 1.5);
+      this.surfaceHold = 1.4;
+    }
+    if (this.surfaceHold > 0) {
+      this.surfaceHold -= dt;
+      this.surface = Math.min(1, this.surface + dt * 2.2);
+      // one wet mote per surfacing beat — the "sweat of the soul", which is
+      // the phrase the reference actually uses
+      if (Math.random() < 0.25) {
+        m.fx._spawn(this.pos.clone().add(v3(rand(-0.3, 0.3), this.model.height * rand(0.5, 0.9), rand(-0.3, 0.3))), {
+          color: 0xc8d4e0, size: rand(0.05, 0.12), life: rand(0.4, 0.8), opacity: 0.55,
+          vel: v3(rand(-0.3, 0.3), rand(-0.4, 0.2), rand(-0.3, 0.3)), gravity: 2
+        });
+      }
+    } else {
+      this.surface = Math.max(0, this.surface - dt * 1.6);
+    }
+
+    // ---- drive the variant's own animator ----------------------------------
+    // Each of the five body plans owns its gait; this hands it the state and
+    // gets out of the way. Nothing here knows how many arms the thing has,
+    // which is exactly the point of splitting the models out.
+    // ---- the ground under it ------------------------------------------------
+    // It walks in x/z and used to be pinned to the y it was summoned at, which
+    // was a hardcoded 0: summon on a mezzanine and the thing appeared on the
+    // ground floor, and anywhere with terrain it waded through the map. It
+    // takes the floor under it, and the walls turn it, the same as a fighter —
+    // it just does not fall, because a summon has no weight to speak of.
+    const bd = m.arena?.bounds;
+    if (bd) {
+      bd.resolveWalls(this.pos, 0.36);
+      this.pos.y = bd.floorAt(this.pos.x, this.pos.z, this.pos.y + 0.55);
+    }
+
     this.animT += dt;
     const mm = this.model;
     g.position.set(this.pos.x, this.pos.y, this.pos.z);
     g.rotation.y = this.facing;
-    const lurch = Math.sin(this.animT * (mm.hopper ? 9 : 6));
-    g.position.y += mm.hopper ? Math.abs(lurch) * 0.12 : Math.abs(lurch) * 0.05;
-    mm.torso.rotation.x = 0.15 + lurch * 0.06;
-    mm.torso.rotation.z += ((Math.sin(this.animT * 1.7) * 0.12) - mm.torso.rotation.z) * 0.1;
-    mm.head.rotation.z = Math.sin(this.animT * 2.3) * 0.25;
-    mm.head.rotation.y = Math.sin(this.animT * 1.1) * 0.5;
-    mm.arms.forEach((a, i) => {
-      const base = (i % 2 ? 1 : -1) * 0.5;
-      if (this.state === 'windup') a.rotation.x = -2.2 + (0.38 - this.t) * 2;
-      else if (this.state === 'recover') a.rotation.x = Math.min(0.6, a.rotation.x + dt * 8);
-      else a.rotation.x = Math.sin(this.animT * 5 + i * 1.7) * 0.4;
-      a.rotation.z = base + Math.sin(this.animT * 3 + i) * 0.15;
-    });
-    if (this.state === 'hit') mm.torso.rotation.x = -0.3;
+    this.anim.speed = this.state === 'chase' ? this.def.speed * (distT > 4 ? 1.4 : 1) : 0;
+    this.anim.hurt = this.state === 'hit';
+    this.anim.surface = this.surface;
+    if (this.state === 'windup') {
+      this.anim.action = 'swipe';
+      this.anim.actionK = Math.max(0, Math.min(1, 1 - this.t / 0.38));
+    } else if (this.state === 'recover') {
+      this.anim.action = 'swipe';
+      this.anim.actionK = Math.max(0, this.t / 0.5);
+    } else {
+      this.anim.action = null;
+      this.anim.actionK = 0;
+    }
+    this._lodT = (this._lodT ?? 0) - dt;
+    if (this._lodT <= 0 && mm.setLOD) {
+      this._lodT = 0.2;
+      mm.setLOD(this.pos.distanceTo(m.stage.camera.position));
+    }
+    mm.tick(dt, this.anim);
+    // the emergence sinks the whole body into the floor; the variant's own
+    // animator does the bobbing on an inner joint, so the two never fight
+    g.position.y = this.pos.y + mm.revealOffset;
 
-    // health bar faces the camera
-    mm.barG.quaternion.copy(m.stage.camera.quaternion);
     mm.barFill.scale.x = Math.max(0.02, this.hp / this.maxHp);
     mm.barFill.material.color.setHex(this.hp < this.maxHp * 0.35 ? 0xd85a4a : 0x9fd08a);
     return true;
@@ -287,12 +329,23 @@ export class Minions {
     this.list = [];
   }
 
-  spawn(owner) {
-    this.list.push(new Minion(owner, this.match));
+  // `variant` is optional and only ever passed by the model bench and the
+  // verification harness; the game always lets it pick at random.
+  spawn(owner, variant = null) {
+    this.list.push(new Minion(owner, this.match, variant));
+    return this.list[this.list.length - 1];
   }
 
   aliveFor(owner) {
     return this.list.some(mn => mn.owner === owner && mn.alive);
+  }
+
+  // How many of his are standing. The summon is capped on this rather than on
+  // "is one out", so Mahito can field a crew as long as he can pay for it.
+  countFor(owner) {
+    let n = 0;
+    for (const mn of this.list) if (mn.owner === owner && mn.alive) n++;
+    return n;
   }
 
   // area damage from techniques (eruptions, burning ground)

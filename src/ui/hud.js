@@ -8,6 +8,18 @@
 // frame. The tier table is imported rather than duplicated so the bar, the
 // model and the frame data can never disagree about what tier he is in.
 import { TIERS as CHARGE_TIERS, TIER_AT as CHARGE_TIER_AT } from '../combat/charge.js';
+// RYU'S OUTPUT and URAUME'S FROST. Same discipline as the charge tiers above:
+// the tables are imported rather than duplicated, so the HUD and the mechanic
+// are reading one source and the pips cannot end up in the wrong place.
+import { TIERS as OUTPUT_TIERS, MAX_HOLD as OUTPUT_MAX_HOLD, tierOf as outputTierOf, chargeFrac as outputFrac } from '../combat/output.js';
+import { FROST } from '../combat/frost.js';
+// INUMAKI'S THROAT. Same discipline as the charge tiers above: the table is
+// imported rather than duplicated, so the bar, the model, the frame data and
+// the animation set can never disagree about which tier he is in.
+import {
+  TIERS as THROAT_TIERS, TIER_AT as THROAT_TIER_AT,
+  resistBand, RESIST_BANDS
+} from '../combat/speech.js';
 
 export class HUD {
   constructor(root) {
@@ -120,7 +132,25 @@ export class HUD {
         <div class="duel-clock"><div class="fill"></div><div class="duel-time"></div></div>
         <div class="duel-foot"></div>
       </div>
+      <!-- THE SET. A title card that comes and goes, a thin run band that
+           only exists while a scene is live, and three lamps. See _theset
+           for why this is deliberately small. -->
+      <div class="tset">
+        <div class="ts-card">
+          <div class="ts-tier"></div>
+          <div class="ts-name"></div>
+          <div class="ts-jp"></div>
+          <div class="ts-blurb"></div>
+        </div>
+        <div class="ts-run">
+          <span class="ts-lab">EXIT</span>
+          <div class="ts-prog"><div class="fill"></div><i class="ts-goal"></i></div>
+          <span class="ts-clock"></span>
+        </div>
+        <div class="ts-score"></div>
+      </div>
       <div class="crawl"></div>
+      <div class="gascloud"></div>
       <div class="blackout"></div>
       <div class="flash"></div>
       <div class="hint-bar">START/TAB: controls &nbsp; F3: debug &nbsp; F4: quality</div>`;
@@ -203,6 +233,15 @@ export class HUD {
           <span class="badge b-soulwound">SOUL WOUND</span>
           <span class="badge b-locked">SEIZED</span>
           <span class="badge b-frozen">FROZEN</span>
+          <!-- URAUME. TWO ENTRIES, and they are separate on purpose: the STACK
+               COUNT is a meter a player manages and the SHELL is a state they
+               are in. Collapsing them into one badge would lose the thing the
+               opponent most needs to read, which is HOW CLOSE they are.
+               b-frostbound is deliberately worded and coloured differently
+               from b-frozen above (Naoya's) so the two never read as the
+               same status — see combat/frost.js for the full distinction. -->
+          <span class="badge b-frost">霜 FROST</span>
+          <span class="badge b-frostbound hot">霜凪 FROSTBOUND ×1.40</span>
           <span class="badge b-stance hot">投射 ARMED</span>
           <span class="badge b-maxproj hot">極 MAX PROJECTION</span>
           <span class="badge b-toast"></span>
@@ -238,6 +277,27 @@ export class HUD {
           <span class="core-key">呪骸核</span>
           <div class="core-segs"></div>
         </div>
+        <div class="rcp-row">
+          <span class="rcp-key">控</span>
+          <div class="bar bar-rcp"><div class="fill"></div><div class="rcp-ticks"></div></div>
+          <span class="rcp-yen"></span>
+          <span class="rcp-obj"></span>
+        </div>
+        <div class="msk-row">
+          <span class="msk-key">面</span>
+          <div class="msk-beasts"></div>
+          <span class="msk-state"></span>
+        </div>
+        <div class="thr-row">
+          <span class="thr-key">喉</span>
+          <div class="bar bar-thr"><div class="fill"></div><div class="thr-ticks"></div></div>
+          <span class="thr-tier"></span>
+        </div>
+        <div class="res-row">
+          <span class="rs-key">抗</span>
+          <div class="rs-pips"><i></i><i></i><i></i><i></i></div>
+          <span class="rs-band"></span>
+        </div>
         <div class="glut-row">
           <span class="gl-key">暴食</span>
           <div class="bar bar-gl"><div class="fill"></div><div class="gl-ticks"></div></div>
@@ -247,6 +307,30 @@ export class HUD {
           <span class="bud-key">呪詛の芽</span>
           <div class="bar bar-bud"><div class="fill"></div></div>
           <span class="bud-cleanse"></span>
+        </div>
+        <div class="awk-row">
+          <span class="awk-key">天与</span>
+          <div class="bar bar-awk"><div class="fill"></div><div class="awk-ticks"></div></div>
+          <span class="awk-stage"></span>
+        </div>
+        <!-- RYU. One row, five pips, and the pip that is FILLING is the whole
+             point: the opponent has to be able to see which tier the next
+             fraction of a second buys without doing arithmetic. Same
+             construction as Kashimo's charge ticks and Yaga's build tiers. -->
+        <div class="out-row">
+          <span class="ot-key">放出</span>
+          <div class="bar bar-ot"><div class="fill"></div><div class="ot-ticks"></div></div>
+          <span class="ot-tier"></span>
+        </div>
+        <div class="mass-row">
+          <span class="ms-key">質量</span>
+          <div class="bar bar-ms"><div class="fill"></div><div class="ms-armor"></div></div>
+          <span class="ms-num"></span>
+        </div>
+        <div class="sd-row">
+          <span class="sd-key">簡易領域</span>
+          <div class="bar bar-sd"><div class="fill"></div></div>
+          <span class="sd-state"></span>
         </div>
         <div class="blood-row">
           <span class="bl-key">血</span>
@@ -259,6 +343,23 @@ export class HUD {
           <span class="es-num"></span>
         </div>
         <div class="ratio-bar"><div class="rb-red"></div><div class="rb-marker"></div></div>
+        <!-- YAGA. Two rows, and the split is the mechanic: the METER is the
+             work in progress and the STRIP is what is already standing. The
+             meter carries a tick per quality tier so both players can see
+             which one the next release would produce. -->
+        <div class="build-row">
+          <span class="bd-key">呪骸製作</span>
+          <div class="bar bar-bd"><div class="fill"></div><div class="bd-ticks"></div></div>
+          <span class="bd-tier"></span>
+        </div>
+        <div class="corpse-row"></div>
+        <!-- TAKABA. One row, three tiers, and the tier NAME is the readout —
+             the number matters far less than whether the room is with him. -->
+        <div class="comedy-row">
+          <span class="cm-key">笑</span>
+          <div class="bar bar-cm"><div class="fill"></div><div class="cm-ticks"></div></div>
+          <span class="cm-tier"></span>
+        </div>
         <div class="shiki-row">
           <div class="shiki-slot s1"><div class="ss-cd"></div><span class="ss-key">RB</span><span class="ss-name"></span></div>
           <div class="shiki-slot s2"><div class="ss-cd"></div><span class="ss-key">RT</span><span class="ss-name"></span></div>
@@ -320,20 +421,96 @@ export class HUD {
         chgRow.querySelector('.chg-ticks').innerHTML = CHARGE_TIER_AT.slice(1)
           .map(t => `<i style="left:${(t * 100).toFixed(1)}%"></i>`).join('');
       }
+      // ---- RYU: THE CHARGE TIERS ------------------------------------------
+      // Built ONCE here like the charge ticks above, from the SAME table the
+      // mechanic reads (combat/output.js), so the pip positions and the tier
+      // boundaries can never drift apart. The row is hidden for everybody who
+      // does not declare `output`, which is the entire rest of the roster.
+      const outRow = plate.querySelector('.out-row');
+      outRow.style.display = f.cfg.output ? '' : 'none';
+      if (f.cfg.output) {
+        outRow.querySelector('.ot-ticks').innerHTML = OUTPUT_TIERS.slice(1)
+          .map(t => `<i style="left:${(t.hold / OUTPUT_MAX_HOLD * 100).toFixed(1)}%"></i>`).join('');
+      }
       // ---- PANDA: THE THREE CORES ------------------------------------------
-      // Three segments in place of one health bar. Built once, and the segment
-      // WIDTHS are proportional to each core's maximum so a glance reads the
-      // real distribution rather than three equal thirds — his Panda core is
-      // genuinely the biggest and the HUD should say so.
+      // A STANCE STRIP, not three health bars. The cores share one pool now
+      // (see combat/cores.js), so the ordinary `bar-hp` above already tells
+      // the whole health story and three segments draining in lockstep would
+      // say the same thing three times. What the strip is for is the thing the
+      // bar cannot show: WHICH of his three fighters is on the field, which is
+      // what both players actually need to read off him.
+      //
+      // Equal thirds, because the pools are no longer different sizes. The
+      // pre-shared build weighted the widths by each core's maximum; that is
+      // kept below for any config that still declares separate pools.
       const coreRow = plate.querySelector('.core-row');
       coreRow.style.display = f.cores ? '' : 'none';
       if (f.cores) {
+        const shared = !!f.cfg.cores?.shared;
         const total = f.cores.reduce((a, c) => a + c.max, 0);
         coreRow.querySelector('.core-segs').innerHTML = f.cores.map(c =>
-          `<div class="core-seg" data-k="${c.key}" style="flex:${(c.max / total).toFixed(4)}">
+          `<div class="core-seg" data-k="${c.key}" style="flex:${shared ? '1' : (c.max / total).toFixed(4)}">
              <div class="cs-fill"></div><b>${c.short}</b>
            </div>`).join('');
       }
+      // ---- INUMAKI: THE THROAT --------------------------------------------
+      // Built ONCE here like the charge ticks and the stable strip, and only
+      // widths and classes touched per frame. The tick marks matter more on
+      // this bar than on any other in the game: SILENCED is a crisis, and a
+      // player has to be able to see how close it is without arithmetic. The
+      // last tick is drawn heavier (`crit`) because it is the only one that
+      // removes his kit rather than weakening it.
+      // ---- REGGIE: THE RECEIPT STOCK ---------------------------------------
+      // A bar, a RUNNING YEN TOTAL, and the name of whatever is bound to RT.
+      // The yen counter is the brief's ask and it earns its place: the stock is
+      // the only resource in the game a player has to do ARITHMETIC with —
+      // "can I afford the car yet" — and a percentage bar cannot answer that
+      // while a number can.
+      //
+      // THE TICKS ARE THE PRICE LIST. One mark per object, at its cost, so the
+      // bar itself tells you what you can buy without a menu. It is the same
+      // argument the throat's SILENCED tick makes and it is the reason this row
+      // is built here rather than being a plain bar.
+      const rcpRow = plate.querySelector('.rcp-row');
+      rcpRow.style.display = f.cfg.receipts ? '' : 'none';
+      if (f.cfg.receipts && f.cfg.objects) {
+        const max = f.cfg.receipts.max;
+        rcpRow.querySelector('.rcp-ticks').innerHTML = f.cfg.objects.order
+          .map(k => f.cfg.objects.defs[k])
+          .map(o => `<i data-k="${o.key}" style="left:${(o.cost / max * 100).toFixed(1)}%"></i>`)
+          .join('');
+      }
+      // ---- INO: THE MASK AND THE BEAST -------------------------------------
+      // Three pips, one per wearable beast, in wheel order — so the row is also
+      // the muscle-memory map of the radial. The worn one lights in its beast's
+      // own colour, which is the same colour the mask's eye slot is glowing
+      // across the arena, so the HUD and the model agree without either
+      // knowing about the other.
+      const mskRow = plate.querySelector('.msk-row');
+      mskRow.style.display = f.cfg.beasts ? '' : 'none';
+      if (f.cfg.beasts) {
+        mskRow.querySelector('.msk-beasts').innerHTML = f.cfg.beasts.order
+          .map(k => {
+            const d = f.cfg.beasts.defs[k].spirit;
+            return `<i data-k="${k}" style="--bc:${'#' + d.color.toString(16).padStart(6, '0')}">${f.cfg.beasts.defs[k].short}</i>`;
+          }).join('');
+      }
+      const thrRow = plate.querySelector('.thr-row');
+      thrRow.style.display = f.cfg.throat ? '' : 'none';
+      if (f.cfg.throat) {
+        thrRow.querySelector('.thr-ticks').innerHTML = THROAT_TIER_AT.slice(1)
+          .map((t, i) => `<i class="${i === THROAT_TIER_AT.length - 2 ? 'crit' : ''}" style="left:${(t * 100).toFixed(1)}%"></i>`)
+          .join('');
+      }
+      // ---- COMMAND RESISTANCE ---------------------------------------------
+      // Shown on EVERYBODY's plate, and it is the target's number rather than
+      // their owner's: it says how well THIS fighter shrugs off cursed speech.
+      // Hidden unless somebody in the match actually has a voice — a
+      // resistance readout in a fight with no Inumaki in it is noise.
+      // Deliberately visible to both players, for the same reason Geto's
+      // Uzumaki projection is: the opponent's meter growth is the counterplay,
+      // and a counterplay you cannot see is not one.
+      plate.querySelector('.res-row').style.display = 'none';
       // TERRAIN, for the one character whose strength depends on it. Visible
       // to BOTH players: the opponent needs to know when Hanami is standing on
       // something that is healing him, because moving him off it is the whole
@@ -358,6 +535,42 @@ export class HUD {
       // OPPONENT needs more than Nobara does — it is how much of themselves
       // she is currently holding, and it is the number that decides whether
       // disengaging is safe.
+      // ---- MAKI: THE AWAKENING METER --------------------------------------
+      // Built ONCE here like the charge ticks and the throat tiers, and only
+      // widths and classes touched per frame. The ticks matter more on this
+      // bar than on any other in the game, because the LAST one is also the
+      // ultimate gate: she has no cursed energy and therefore no MAX CE badge
+      // to light, so this bar reaching the end is the only "your ultimate is
+      // ready" signal she has. It is drawn heavier (`ult`) for exactly that
+      // reason — the player should be chasing it all round.
+      //
+      // Visible to BOTH players, like every other second resource here: her
+      // stage is the opponent's most important piece of information and a
+      // counterplay you cannot see is not one.
+      const awkRow = plate.querySelector('.awk-row');
+      awkRow.style.display = f.cfg.awakening ? '' : 'none';
+      if (f.cfg.awakening) {
+        const a = f.cfg.awakening;
+        awkRow.querySelector('.awk-ticks').innerHTML = a.thresholds
+          .map((t, i) => `<i class="${i === a.thresholds.length - 1 ? 'ult' : ''}" style="left:${(t / a.max * 100).toFixed(1)}%"></i>`)
+          .join('');
+      }
+      // ---- YUKI: THE MASS METER -------------------------------------------
+      // One tick, and it is the ARMOUR THRESHOLD — the single number that
+      // decides whether she is currently the immovable object. Both players
+      // need it: hers to know when to walk in, theirs to know when hitting her
+      // stops working.
+      const msRow = plate.querySelector('.mass-row');
+      msRow.style.display = f.cfg.mass ? '' : 'none';
+      if (f.cfg.mass) {
+        msRow.querySelector('.ms-armor').style.left = (f.cfg.mass.armorAt / f.cfg.mass.max * 100) + '%';
+      }
+      // ---- MIWA: THE CIRCLE'S CLOCK ---------------------------------------
+      // Shown only while a circle is up or cooling. It is a STAMINA readout
+      // rather than a resource of its own, and that is the point: the honest
+      // question for both players is "how much longer can she hold this", and
+      // the answer is her stamina bar filtered through the drain rate.
+      plate.querySelector('.sd-row').style.display = f.cfg.simpleDomainZone ? '' : 'none';
       plate.querySelector('.blood-row').style.display = f.cfg.blood ? '' : 'none';
       const esRow = plate.querySelector('.ess-row');
       esRow.style.display = f.cfg.essence ? '' : 'none';
@@ -429,11 +642,20 @@ export class HUD {
     const key = snapshot.length + ':' + fighter.cfg.id;
     if (this._wheelKey !== key) {
       this._wheelKey = key;
+      // THE RING GREW. Megumi went from six entries to thirteen, so the radius
+      // is scaled by count — thirteen sectors at the six-entry radius overlap
+      // into an unreadable smear. Fusions get a marker class so they read as a
+      // different KIND of entry before anything is selected.
+      const R = snapshot.length > 8 ? 41 : 37;
       ring.innerHTML = snapshot.map((s, i) => {
         const a = (i / snapshot.length) * Math.PI * 2;
-        const x = 50 + Math.sin(a) * 37, y = 50 - Math.cos(a) * 37;
-        return `<div class="sw-opt" style="left:${x}%;top:${y}%">
-          <b>${s.def.short}</b><i>${s.def.jp}</i><u>${s.def.cost}</u></div>`;
+        const x = 50 + Math.sin(a) * R, y = 50 - Math.cos(a) * R;
+        const cls = 'sw-opt'
+          + (s.fusion ? ' fusion' : '')
+          + (s.ritualOnly ? ' ritual' : '')
+          + (snapshot.length > 8 ? ' dense' : '');
+        return `<div class="${cls}" style="left:${x}%;top:${y}%">
+          <b>${s.def.short}</b><i>${s.def.jp}</i><u>${s.ritualOnly ? '儀' : s.def.cost}</u></div>`;
       }).join('');
     }
     const opts = [...ring.querySelectorAll('.sw-opt')];
@@ -442,15 +664,23 @@ export class HUD {
       if (!o) return;
       o.classList.toggle('focus', i === wheel.sel);
       o.classList.toggle('lost', s.lost);
-      o.classList.toggle('cool', !s.lost && s.cd > 0);
-      o.classList.toggle('broke', !s.lost && s.cd <= 0 && !s.affordable);
+      // BLOCKED is its own state, distinct from LOST: a fusion whose components
+      // are dead is not itself destroyed, it is unreachable, and the two want
+      // different treatment because only one of them can come back.
+      o.classList.toggle('blocked', !!s.blocked && !s.lost);
+      o.classList.toggle('cool', !s.lost && !s.blocked && s.cd > 0);
+      o.classList.toggle('broke', !s.lost && !s.blocked && s.cd <= 0 && !s.affordable);
       o.classList.toggle('b1', s.bound === 'ct1');
       o.classList.toggle('b2', s.bound === 'ct2');
       // GETO: no slots to bind to, so the "currently selected" mark reuses the
       // slot-2 highlight rather than inventing a third visual language
       if (s.selected) o.classList.add('b2');
     });
-    const sel = snapshot[wheel.sel];
+    // A defensive clamp, because `wheel.sel` is an index into the fighter's own
+    // order and this widget serves four different radials. Cheaper than a
+    // crash, and it fails to the first entry rather than to an exception.
+    const sel = snapshot[wheel.sel] ?? snapshot[0];
+    if (!sel) { el.classList.remove('on'); return; }
     // The wheel serves both summoners. A curse snapshot carries `selected`
     // where a shikigami snapshot carries `bound`, and that is the only thing
     // the widget needs to tell them apart: Megumi is choosing WHICH SLOT, Geto
@@ -459,8 +689,43 @@ export class HUD {
     el.querySelector('.sw-center b').textContent = curseWheel
       ? 'RT · SPECIAL GRADE'
       : (wheel.slot === 'ct1' ? 'RB · SLOT I' : 'RT · SLOT II');
-    el.querySelector('.sw-center small').textContent =
-      sel.lost ? sel.def.name + ' — DESTROYED' : sel.def.name + ' · ' + sel.def.desc;
+    // ---- THE FUSION READOUT -------------------------------------------------
+    // "HUD must make the tradeoff legible: show which components are alive and
+    // what fusing will cost, BEFORE the player commits." The centre of the
+    // wheel is where that has to live, because it is the one place the player
+    // is already looking while choosing. Three cases:
+    //   READY + CONSUMES   name every component that is about to be spent
+    //   READY, FREE        say so — Totality after the Dogs died, and the Abyss
+    //   NOT READY          name the components that are missing
+    let line;
+    if (sel.ritualOnly) line = sel.def.name + ' — SUMMONED BY RITUAL ONLY';
+    else if (sel.lost) line = sel.def.name + ' — DESTROYED';
+    else if (sel.fusion && !sel.fusion.ready) {
+      line = sel.def.name + ' — NEEDS ' + sel.fusion.missing.map(p => p.short).join(' + ');
+    } else if (sel.fusion && sel.fusion.consumes.length) {
+      line = sel.def.name + ' — CONSUMES ' + sel.fusion.consumes.join(' + ') + ' FOR THE MATCH';
+    } else if (sel.fusion) {
+      line = sel.def.name + ' — ' + (sel.fusion.unlocked ? 'INHERITED · COSTS NOTHING MORE' : sel.def.desc);
+    } else line = sel.def.name + ' · ' + sel.def.desc;
+    el.querySelector('.sw-center small').textContent = line;
+
+    // and the component strip: one chip per part, lit if alive, struck if not,
+    // so "which of the four do I still have" is answered without reading a
+    // sentence. Built fresh only when the selection changes.
+    let strip = el.querySelector('.sw-parts');
+    if (!strip) {
+      strip = document.createElement('div');
+      strip.className = 'sw-parts';
+      el.querySelector('.sw-center').append(strip);
+    }
+    const wantParts = sel.fusion ? sel.fusion.parts.map(p => p.short + (p.lost ? '!' : '')).join(',') : '';
+    if (strip.dataset.v !== wantParts) {
+      strip.dataset.v = wantParts;
+      strip.innerHTML = sel.fusion
+        ? sel.fusion.parts.map(p => `<i class="${p.lost ? 'gone' : 'live'}">${p.short}</i>`).join('')
+        : '';
+    }
+    el.classList.toggle('fusing', !!sel.fusion);
     el.classList.toggle('slot2', curseWheel || wheel.slot === 'ct2');
   }
 
@@ -574,9 +839,25 @@ export class HUD {
       // time (Heavenly Restriction) — every query below would be null.
       const ceBar = plate.querySelector('.bar-ce');
       if (ceBar) {
-        ceBar.querySelector('.maxfill').style.width = f.res.maxCE + '%';
-        ceBar.querySelector('.fill').style.width = f.res.curCE + '%';
+        // ---- THE CEILING, AND WHY THIS IS NOT `f.res.maxCE + '%'` ---------
+        // It was, for the project's whole life, because every fighter's
+        // ceiling was 100 and the number and the percentage were the same
+        // thing. Ryu's is 150, and left alone this line would have set a width
+        // of 150% and drawn his bar straight out of its own plate.
+        //
+        // Normalising by the ceiling is right for a second reason as well: his
+        // bar should be FULL at 150, not 150% of full, because what the player
+        // needs to read off it is "how close am I to a shot" and not "how do I
+        // compare to Nobara". The size difference is stated where it belongs —
+        // in the NUMBER — rather than by drawing him a longer bar than his
+        // opponent, which would be unreadable at a glance and would also break
+        // the plate's layout.
+        const ceil = f.ceCeiling || 100;
+        ceBar.querySelector('.maxfill').style.width = (f.res.maxCE / ceil * 100) + '%';
+        ceBar.querySelector('.fill').style.width = (f.res.curCE / ceil * 100) + '%';
         ceBar.classList.toggle('charged', f.charged);
+        // and the plate says so, once, for the one fighter it is true of
+        ceBar.classList.toggle('oversized', ceil > 100);
       }
       const st = plate.querySelector('.bar-st');
       st.querySelector('.fill').style.width = (f.res.stamina / f.cfg.stats.stamina * 100) + '%';
@@ -590,6 +871,130 @@ export class HUD {
       plate.querySelector('.b-sukuna').classList.toggle('on', f.buffs.sukuna > 0);
       plate.querySelector('.b-redscale').classList.toggle('on', f.buffs.redScale > 0);
       // ---- BLOOD (Choso) ---------------------------------------------------
+      // ---- AWAKENING, per frame -------------------------------------------
+      if (f.cfg.awakening) {
+        const a = f.cfg.awakening;
+        const row = plate.querySelector('.awk-row');
+        const pct = Math.max(0, Math.min(100, (f.awaken ?? 0) / a.max * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        const st = a.stages[f.awakenStage ?? 0];
+        row.querySelector('.awk-stage').textContent = st ? st.jp : '';
+        row.dataset.stage = f.awakenStage ?? 0;
+        // MAX and USED are different states and read differently: at maximum
+        // awakening the row lights and says READY; once the once-per-round
+        // ultimate has been spent it goes quiet again, because a bar that
+        // stays lit after the button stops working is a lie.
+        const maxed = (f.awakenStage ?? 0) >= a.stages.length - 1;
+        const spent = (f.awakenUses ?? 0) >= (f.cfg.ultimate?.uses ?? 1);
+        row.classList.toggle('maxed', maxed && !spent);
+        row.classList.toggle('spent', maxed && spent);
+      }
+      // ---- MASS, per frame -------------------------------------------------
+      if (f.cfg.mass) {
+        const row = plate.querySelector('.mass-row');
+        const pct = Math.max(0, Math.min(100, (f.mass ?? 0) / f.cfg.mass.max * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        row.querySelector('.ms-num').textContent = Math.round(f.mass ?? 0);
+        // ARMOURED is the state that matters and it gets its own class rather
+        // than being inferred from the width — the threshold is a rule, not a
+        // percentage, and it should read as one.
+        row.classList.toggle('armored', (f.mass ?? 0) >= f.cfg.mass.armorAt);
+        row.classList.toggle('full', (f.mass ?? 0) >= f.cfg.mass.max - 0.5);
+      }
+      // ---- SIMPLE DOMAIN, per frame ---------------------------------------
+      if (f.cfg.simpleDomainZone) {
+        const row = plate.querySelector('.sd-row');
+        const live = !!(f._sdZone && f._sdZone.live);
+        const cd = f.sdCooldown ?? 0;
+        row.style.display = (live || cd > 0) ? '' : 'none';
+        if (live) {
+          // how much longer she can hold it: stamina divided by the drain,
+          // shown as a fraction of the longest hold a full tank would buy
+          const d = f.cfg.simpleDomainZone;
+          const secs = f.res.stamina / d.drain;
+          const maxSecs = f.cfg.stats.stamina / d.drain;
+          row.querySelector('.fill').style.width =
+            Math.max(0, Math.min(100, secs / maxSecs * 100)) + '%';
+          row.querySelector('.sd-state').textContent = secs.toFixed(1) + 's';
+          row.classList.toggle('low', secs < 1.2);
+          row.classList.remove('cooling');
+        } else if (cd > 0) {
+          row.querySelector('.fill').style.width =
+            (100 - cd / f.cfg.special.cooldown * 100) + '%';
+          row.querySelector('.sd-state').textContent = cd.toFixed(1) + 's';
+          row.classList.add('cooling');
+          row.classList.remove('low');
+        }
+      }
+      // ---- YAGA: THE CONSTRUCTION METER AND THE BENCH --------------------
+      // The meter is only interesting while there is something on it, so the
+      // row hides at zero rather than sitting at empty — an always-visible bar
+      // at 0% for most of a round is noise. The TICKS are built once.
+      const bdRow = plate.querySelector('.build-row');
+      if (f.cfg.special?.key === 'yaga_build') {
+        const p = f.build?.p ?? 0;
+        bdRow.style.display = p > 0.001 ? '' : 'none';
+        if (p > 0.001) {
+          const tiers = f.cfg.special.tiers;
+          const ticks = bdRow.querySelector('.bd-ticks');
+          if (!ticks.childElementCount) {
+            ticks.innerHTML = tiers.map(t => `<i style="left:${t.at * 100}%"></i>`).join('');
+          }
+          bdRow.querySelector('.fill').style.width = (p * 100) + '%';
+          let cur = null;
+          for (const t of tiers) if (p >= t.at - 1e-6) cur = t;
+          const el = bdRow.querySelector('.bd-tier');
+          el.textContent = cur ? cur.short : '—';
+          el.style.color = cur ? '#' + cur.accent.toString(16).padStart(6, '0') : '';
+          bdRow.classList.toggle('holding', f.state === 'building');
+          bdRow.classList.toggle('full', p >= 0.999);
+          for (const i of ticks.children) i.classList.toggle('passed', p >= parseFloat(i.style.left) / 100 - 1e-6);
+        }
+      } else bdRow.style.display = 'none';
+
+      // THE BENCH. What he has standing, each with its own health and its own
+      // clock — because a corpse the opponent has nearly killed and a corpse
+      // that is about to expire are two completely different situations and
+      // one bar cannot say both.
+      const cpRow = plate.querySelector('.corpse-row');
+      if (f.cfg.special?.key === 'yaga_build' && this.construction) {
+        const snap = this.construction.snapshot(f);
+        cpRow.style.display = snap.length ? '' : 'none';
+        const key = snap.map(c => c.key + (c.commanded ? '!' : '')).join('|');
+        if (cpRow.dataset.key !== key) {
+          cpRow.dataset.key = key;
+          cpRow.innerHTML = snap.map(c =>
+            `<div class="cp${c.commanded ? ' cmd' : ''}" style="--cc:#${c.color.toString(16).padStart(6, '0')}">
+               <span>${c.short}</span><i class="cp-hp"></i><i class="cp-life"></i></div>`).join('');
+        }
+        snap.forEach((c, k) => {
+          const el = cpRow.children[k];
+          if (!el) return;
+          el.querySelector('.cp-hp').style.width = Math.max(2, c.hp * 100) + '%';
+          el.querySelector('.cp-life').style.width = Math.max(2, c.life * 100) + '%';
+          el.classList.toggle('dying', c.life < 0.25);
+        });
+      } else cpRow.style.display = 'none';
+
+      // ---- TAKABA: THE COMEDY METER ---------------------------------------
+      const cmRow = plate.querySelector('.comedy-row');
+      cmRow.style.display = f.cfg.comedy ? '' : 'none';
+      if (f.cfg.comedy) {
+        const c = f.cfg.comedy;
+        const ticks = cmRow.querySelector('.cm-ticks');
+        if (!ticks.childElementCount) {
+          ticks.innerHTML = c.tiers.slice(1).map(t => `<i style="left:${t.at * 100}%"></i>`).join('');
+        }
+        const pct = Math.max(0, Math.min(100, (f.comedy ?? 0) / c.max * 100));
+        cmRow.querySelector('.fill').style.width = pct + '%';
+        const t = c.tiers[f.comedyTier ?? 0];
+        const el = cmRow.querySelector('.cm-tier');
+        el.textContent = t.name;
+        el.style.color = '#' + t.color.toString(16).padStart(6, '0');
+        cmRow.dataset.tier = t.key;
+        cmRow.classList.toggle('killing', t.key === 'killing');
+      }
+
       if (f.cfg.blood) {
         const row = plate.querySelector('.blood-row');
         const pct = Math.max(0, Math.min(100, f.blood / f.cfg.blood.max * 100));
@@ -599,6 +1004,92 @@ export class HUD {
         row.classList.toggle('full', f.blood >= f.cfg.blood.max - 0.5);
       }
       // ---- CHARGE (Kashimo) ------------------------------------------------
+      // ---- THE RECEIPT STOCK, PER FRAME -----------------------------------
+      if (f.cfg.receipts) {
+        const row = plate.querySelector('.rcp-row');
+        const rc = f.cfg.receipts;
+        const pct = Math.max(0, Math.min(100, (f.stock ?? 0) / rc.max * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        // THE MONEY COUNTER, and it TICKS. `stockFlash` is set by every earn
+        // (combat/receipts.js) and decays over 0.9 s, so the number visibly
+        // jumps and glows on every landed hit — which is the brief's "show the
+        // earning explicitly", and is the only place in this HUD where a
+        // number is animated rather than a bar.
+        const yen = Math.round((f.stock ?? 0) * rc.yenPerStock);
+        row.querySelector('.rcp-yen').textContent = '¥' + yen.toLocaleString('en-US');
+        row.classList.toggle('earning', (f.stockFlash ?? 0) > 0);
+        // WET is the crisis state and it gets the whole row, exactly as
+        // SILENCED does on the throat: he keeps the number and cannot spend a
+        // point of it, and that difference has to be legible instantly.
+        row.classList.toggle('wet', (f.stockWet ?? 0) > 0);
+        row.classList.toggle('locked', (f.stockLock ?? 0) > 0);
+        // and each price tick lights when he can afford it
+        for (const t of row.querySelectorAll('.rcp-ticks i')) {
+          const o = f.cfg.objects?.defs?.[t.dataset.k];
+          t.classList.toggle('afford', !!o && (f.stock ?? 0) >= o.cost && (f.stockWet ?? 0) <= 0);
+          t.classList.toggle('bound', t.dataset.k === f.objectKey);
+        }
+        const bound = f.cfg.objects?.defs?.[f.objectKey];
+        row.querySelector('.rcp-obj').textContent =
+          (f.stockWet ?? 0) > 0 ? '濡 SOAKED'
+            : (f.stockLock ?? 0) > 0 ? '空 BROKE'
+              : (bound?.short ?? '');
+      }
+      // ---- THE MASK AND THE BEAST, PER FRAME ------------------------------
+      if (f.cfg.beasts) {
+        const row = plate.querySelector('.msk-row');
+        const off = (f.maskOff ?? 0) > 0;
+        const refit = (f.maskRefit ?? 0) > 0;
+        row.classList.toggle('off', off);
+        row.classList.toggle('refit', refit && !off);
+        // The state label is the whole counterplay readout. MASK OFF is the
+        // hardest window in the game and both players need to see it.
+        row.querySelector('.msk-state').textContent = off
+          ? '面無 MASK OFF ' + (f.maskOff).toFixed(1)
+          : refit ? '着面 REFITTING'
+            : (f.dragonT > 0 ? '龍 DRAGON ' + f.dragonT.toFixed(1)
+              : (f.cfg.beasts.defs[f.stance]?.jp ?? ''));
+        for (const p of row.querySelectorAll('.msk-beasts i')) {
+          p.classList.toggle('on', !off && !refit && p.dataset.k === f.stance);
+          p.classList.toggle('dead', off);
+        }
+      }
+      // ---- THE THROAT, PER FRAME ------------------------------------------
+      if (f.cfg.throat) {
+        const row = plate.querySelector('.thr-row');
+        const pct = Math.max(0, Math.min(100, f.throat / f.cfg.throat.max * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        const td = THROAT_TIERS[f.throatTier] || THROAT_TIERS[0];
+        row.dataset.tier = f.throatTier;
+        // `voiceSpent` is the ultimate's latch and it is a DIFFERENT sentence
+        // from "the gauge is full": one of them recovers and the other does
+        // not, and a player watching a bar that is going down while his voice
+        // stays gone deserves to be told which they are looking at.
+        row.querySelector('.thr-tier').textContent =
+          f.voiceSpent ? '失声 SPENT' : td.jp + ' ' + td.name;
+        row.classList.toggle('spent', !!f.voiceSpent);
+        const ticks = row.querySelectorAll('.thr-ticks i');
+        for (let k = 0; k < ticks.length; k++) {
+          ticks[k].classList.toggle('passed', f.throatTier > k);
+        }
+      }
+      // ---- COMMAND RESISTANCE, PER FRAME ----------------------------------
+      // The row appears on every plate the moment anybody in the match has a
+      // voice, and reports THIS fighter's resistance — which climbs as their
+      // own MAX_CE does, so a player watching their bar fill is also watching
+      // themselves become harder to command.
+      {
+        const anyVoice = this.fighters.some(x => x?.cfg?.throat);
+        const rrow = plate.querySelector('.res-row');
+        rrow.style.display = (anyVoice && !f.cfg.throat) ? '' : 'none';
+        if (anyVoice && !f.cfg.throat) {
+          const band = resistBand(f);
+          rrow.dataset.band = band;
+          const pips = rrow.querySelectorAll('.rs-pips i');
+          for (let k = 0; k < pips.length; k++) pips[k].classList.toggle('on', k <= band);
+          rrow.querySelector('.rs-band').textContent = RESIST_BANDS[band];
+        }
+      }
       if (f.cfg.charge) {
         const row = plate.querySelector('.chg-row');
         const pct = Math.max(0, Math.min(100, f.charge / f.cfg.charge.max * 100));
@@ -619,13 +1110,17 @@ export class HUD {
       // already carries, and for the same reason: the opponent needs to see
       // which of his three characters they have already killed.
       if (f.cores) {
+        const shared = !!f.cfg.cores?.shared;
         const segs = plate.querySelectorAll('.core-row .core-seg');
         for (let k = 0; k < f.cores.length; k++) {
           const c = f.cores[k], el = segs[k];
           if (!el) continue;
-          el.querySelector('.cs-fill').style.width =
-            Math.max(0, Math.min(100, c.hp / c.max * 100)) + '%';
-          el.classList.toggle('dead', !c.alive);
+          // shared pool: the segment fills to show WHICH core is standing, and
+          // no core is ever struck through because none of them can die alone
+          el.querySelector('.cs-fill').style.width = shared
+            ? (k === f.coreIndex ? 100 : 0) + '%'
+            : Math.max(0, Math.min(100, c.hp / c.max * 100)) + '%';
+          el.classList.toggle('dead', !shared && !c.alive);
           el.classList.toggle('active', k === f.coreIndex && c.alive);
         }
       }
@@ -646,6 +1141,43 @@ export class HUD {
       const burnBadge = plate.querySelector('.b-burn');
       burnBadge.classList.toggle('on', f.burn.stacks > 0);
       if (f.burn.stacks > 0) burnBadge.textContent = '🔥 BURN ×' + f.burn.stacks;
+      // ---- FROST, ON THE VICTIM'S PLATE ------------------------------------
+      // Same place burn goes and for the same reason: a debuff belongs on the
+      // bar of the person carrying it, not on the bar of whoever applied it.
+      //
+      // THE STACK BADGE prints the count AND the cap, which burn's does not,
+      // because with frost the distance to the cap is the actual information —
+      // at 5/6 the opponent should be running, and at 2/6 they should not.
+      const frostBadge = plate.querySelector('.b-frost');
+      const fr = f.frost;
+      frostBadge.classList.toggle('on', (fr?.stacks ?? 0) > 0);
+      if (fr?.stacks > 0) frostBadge.textContent = `霜 FROST ${fr.stacks}/${FROST.maxStacks}`;
+      // THE SHELL is its own badge and it is worded and coloured to be
+      // impossible to confuse with `b-frozen` (Naoya's), because the correct
+      // response to the two is opposite: you spend a FROSTBOUND window with
+      // your single biggest hit, and you fill a FROZEN one with your fastest
+      // string. Printing the multiplier is what makes that legible without a
+      // manual.
+      plate.querySelector('.b-frostbound').classList.toggle('on', (fr?.boundT ?? 0) > 0);
+      // ---- RYU: THE CHARGE, LIVE -------------------------------------------
+      // Shown on HIS plate rather than the opponent's, because unlike frost
+      // this is a resource he is spending rather than a status he is in — but
+      // the OPPONENT reads it too, which is why the tier name is spelled out
+      // rather than being a number. The model's muzzle, the ground cracks and
+      // the arena rings say the same thing in world space; this is the precise
+      // version for the player who wants to count frames.
+      if (f.cfg.output) {
+        const row = plate.querySelector('.out-row');
+        const held = f.outputT ?? 0;
+        const tier = outputTierOf(held);
+        const pct = Math.max(0, Math.min(100, outputFrac(held) * 100));
+        row.querySelector('.fill').style.width = pct + '%';
+        const def = OUTPUT_TIERS[tier];
+        row.querySelector('.ot-tier').textContent = held > 0 ? `${def.jp} ${def.name}` : '';
+        row.classList.toggle('charging', f.state === 'outputCharge');
+        row.classList.toggle('max', tier >= OUTPUT_TIERS.length - 1);
+        row.classList.toggle('bracing', f.state === 'brace');
+      }
       plate.querySelector('.b-soulwound').classList.toggle('on', f.buffs.soulWound > 0);
       // ---- CONFISCATION -----------------------------------------------------
       // The seized button lives on the VICTIM's plate, because they are the
@@ -843,9 +1375,12 @@ export class HUD {
         const count = this.curses.uzumakiCount(f);
         // the bar is scaled against a FULL stable, so "how much of my ultimate
         // is left" is the length of the bar and needs no arithmetic
+        // the same sublinear curve the system itself uses, so the bar's FULL
+        // reference point and the number printed next to it cannot drift
+        const fullWeight = f.cfg.curses.stable.reduce((a, k) =>
+          a + (f.cfg.curses.defs[k].uzumakiWeight ?? 1), 0);
         const fullRaw = (f.cfg.ultimate.baseDmg ?? 18)
-          + (f.cfg.curses.stable.reduce((a, k) =>
-            a + (f.cfg.curses.defs[k].uzumakiWeight ?? 1), 0)) * (f.cfg.ultimate.dmgPerWeight ?? 8);
+          + (f.cfg.ultimate.dmgPerWeight ?? 8) * Math.pow(fullWeight, f.cfg.ultimate.weightExp ?? 1);
         const full = fullRaw * (f.cfg.stats.damageScale ?? 1);
         uzRow.querySelector('.bar-uz .fill').style.width =
           Math.min(100, dmg / (full * 1.3) * 100) + '%';
@@ -1031,8 +1566,44 @@ export class HUD {
       c.style.opacity = k.toFixed(3);
     }
 
+    // ---- REGGIE'S GAS ------------------------------------------------------
+    // The same CSS-overlay trick the crawl above uses, and for the same
+    // reason: it costs nothing and it cannot become an unplayable brownout.
+    //
+    // *** IT IS THE LOCAL SEAT'S BLINDNESS, NOT A GLOBAL ONE. *** The crawl is
+    // global because Kurourushi's swarm genuinely fills the arena; a gas cloud
+    // is a place, and only the fighter standing in it cannot see. On a shared
+    // screen that is a real limitation — seat 1 sees seat 0's fog — so the
+    // overlay is deliberately weak (capped at 0.55) and the cloud does most of
+    // its work as actual PARTICLES in the world, which obscure honestly for
+    // everybody from wherever they are standing.
+    //
+    // The MECHANICAL half is not here at all: `gasBlind` is read by the CPU's
+    // own sight test in combat/ai.js, so a bot in the cloud genuinely loses
+    // track of you rather than being handed a screen effect it cannot see.
+    {
+      const g = this.q('.gascloud');
+      if (g) {
+        const f0 = this.fighters?.[0];
+        let k = 0;
+        if (f0 && (f0.gasBlindT ?? 0) > 0) k = Math.min(0.55, f0.gasBlind ?? 0);
+        if (f0) {
+          f0.gasBlindT = Math.max(0, (f0.gasBlindT ?? 0) - dt);
+          if (f0.gasBlindT <= 0) f0.gasBlind = 0;
+        }
+        const f1 = this.fighters?.[1];
+        if (f1) {
+          f1.gasBlindT = Math.max(0, (f1.gasBlindT ?? 0) - dt);
+          if (f1.gasBlindT <= 0) f1.gasBlind = 0;
+        }
+        g.classList.toggle('on', k > 0.02);
+        g.style.opacity = k.toFixed(3);
+      }
+    }
+
     this._duel(duel);
     this._trial(trial);
+    this._theset(this.theset?.snapshot?.() ?? null);
     if (this.blackT > 0) {
       this.blackT -= dt;
       if (this.blackT <= 0) this.q('.blackout').classList.remove('on');
@@ -1157,6 +1728,63 @@ export class HUD {
     el.querySelector('.trial-foot').textContent = rev
       ? `${t.caster?.cfg.name ?? ''} CALLED ${t.guess ?? '?'} · PLEA WAS ${t.plea ?? '?'}`
       : `${t.pleaded ? 'PLEA IN' : 'DEFENDANT CHOOSING'} · ${t.guessed ? 'CALL IN' : 'HIGURUMA CHOOSING'}`;
+  }
+
+  // ---- THE SET -------------------------------------------------------------
+  // DELIBERATELY A THIN BAND, NOT A PANEL. The QTE version this replaced owned
+  // the middle of the screen, because the contest WAS the UI. Here the contest
+  // is the room, so the HUD's whole job is to say four things and then get out
+  // of the way: which scene this is, how far along the corridor they are, how
+  // long is left, and how many they have cleared. Anything larger would be
+  // covering the thing the player is trying to jump over.
+  _theset(g) {
+    const el = this.q('.tset');
+    if (!g) { el.classList.remove('on'); this._tsKey = null; return; }
+    el.classList.add('on');
+    el.dataset.phase = g.phase;
+    el.dataset.tier = g.tierKey;
+    el.style.setProperty('--gs', '#' + g.tierColor.toString(16).padStart(6, '0'));
+
+    const card = el.querySelector('.ts-card');
+    card.classList.toggle('on', g.phase === 'open' || g.phase === 'title' || g.phase === 'result');
+    if (g.phase === 'open') {
+      el.querySelector('.ts-tier').textContent = 'DIFFICULTY — ' + g.tier;
+      el.querySelector('.ts-name').textContent = 'THE SET';
+      el.querySelector('.ts-jp').textContent = '持ちネタ';
+      el.querySelector('.ts-blurb').textContent = g.contestant + ' IS TODAY\'S CONTESTANT';
+    } else if (g.scene && g.phase !== 'result') {
+      el.querySelector('.ts-tier').textContent = 'SCENE ' + (g.index + 1) + ' OF ' + g.scenes + ' — ' + g.tier;
+      el.querySelector('.ts-name').textContent = g.scene.name;
+      el.querySelector('.ts-jp').textContent = g.scene.jp;
+      el.querySelector('.ts-blurb').textContent = g.scene.blurb;
+    } else if (g.phase === 'result') {
+      el.querySelector('.ts-tier').textContent = g.cleared + ' OF ' + g.scenes + ' CLEARED';
+      el.querySelector('.ts-name').textContent =
+        g.outcome === 'ko' ? 'NOBODY GOT OUT'
+          : g.outcome === 'escaped' ? 'THEY GOT OUT'
+            : g.killRefused ? g.killRefused : 'CURTAIN';
+      el.querySelector('.ts-jp').textContent = '';
+      el.querySelector('.ts-blurb').textContent = '';
+    }
+
+    // the run band: a progress rail with the exit at the far end, and a clock
+    const run = el.querySelector('.ts-run');
+    const live = g.phase === 'run' && g.scene;
+    run.classList.toggle('on', !!live);
+    if (live) {
+      run.querySelector('.ts-prog .fill').style.width = (g.scene.progress * 100) + '%';
+      const left = Math.max(0, g.scene.time - g.scene.t);
+      run.querySelector('.ts-clock').textContent = left.toFixed(1);
+      run.classList.toggle('critical', left < g.scene.time * 0.3);
+    }
+
+    // three lamps, filled as scenes resolve
+    const lamps = Array.from({ length: g.scenes }, (_, i) => {
+      const r = g.results[i];
+      return `<i class="tsp${r ? (r.cleared ? ' pass' : ' fail') : ''}"></i>`;
+    }).join('');
+    const sc = el.querySelector('.ts-score');
+    if (sc.dataset.k !== lamps) { sc.dataset.k = lamps; sc.innerHTML = lamps; }
   }
 
   _duel(d) {

@@ -197,12 +197,22 @@ export function buildHumanoid(spec) {
     ];
     const legColor = spec.pantColor ?? spec.clothColor ?? 0x22242e;
     const lb = spec.legBulk ?? 1;
-    bag.add('cloth', tubeBetween(hp.clone().add(v3(0, 0.03 * H, 0)), kn, [0.049 * H * lb, 0.031 * H * lb], { bulge: 0.05, hSeg: 5 }),
+    // LEGS SEPARATELY, for the same reason `armSlot` and `foreArmSlot` above
+    // exist: a dressed torso does not imply dressed legs. Uro is bare-legged
+    // and barefoot, and shading a bare thigh out of the cloth slot bands it
+    // like fabric. Defaults to 'cloth', so every existing model is
+    // bit-identical.
+    const legSlot = spec.legSlot ?? 'cloth';
+    bag.add(legSlot, tubeBetween(hp.clone().add(v3(0, 0.03 * H, 0)), kn, [0.049 * H * lb, 0.031 * H * lb], { bulge: 0.05, hSeg: 5 }),
       { chain: legChain, color: legColor, blend: 0.07 });
-    bag.add('cloth', tubeBetween(kn, an.clone().add(v3(0, 0.008 * H, 0)), [0.031 * H * lb, 0.019 * H], { hSeg: 5 }),
+    bag.add(legSlot, tubeBetween(kn, an.clone().add(v3(0, 0.008 * H, 0)), [0.031 * H * lb, 0.019 * H], { hSeg: 5 }),
       { chain: legChain, color: legColor, blend: 0.07 });
-    // shoe
-    bag.add('cloth', buildShoe(H, an, spec.shoe || {}), { bone: 'Foot' + s, color: spec.shoeColor ?? 0x14151c });
+    // SHOE. `shoe: false` omits it entirely — the barefoot case, where the
+    // block under a bare ankle reads as a sock however small it is scaled.
+    if (spec.shoe !== false) {
+      bag.add(spec.shoeSlot ?? 'cloth', buildShoe(H, an, spec.shoe || {}),
+        { bone: 'Foot' + s, color: spec.shoeColor ?? 0x14151c });
+    }
   }
 
   return { spec, m, rig, bag, group };

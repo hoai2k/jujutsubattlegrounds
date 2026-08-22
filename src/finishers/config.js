@@ -9,7 +9,8 @@
 // Turn them off from the console with `__finishers.enabled = false` (dev), or
 // permanently with `setFinishersEnabled(false)`.
 
-const KEY = 'cursed-arena.finishers';
+const KEY = 'jujutsu-battlegrounds.finishers';
+const OLD_KEY = 'cursed-arena.finishers';   // pre-rename key; read-only fallback
 
 export const FINISHERS = {
   // THE FLAG THE BRIEF ASKS FOR. Defaults ON.
@@ -25,7 +26,7 @@ export const FINISHERS = {
 };
 
 try {
-  const raw = localStorage.getItem(KEY);
+  const raw = localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY);
   if (raw) Object.assign(FINISHERS, JSON.parse(raw));
 } catch (e) { /* private mode / corrupt: the defaults above stand */ }
 

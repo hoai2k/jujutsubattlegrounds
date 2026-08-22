@@ -294,7 +294,11 @@ export function build(quality) {
     }
     g.position.set(x, LY, z);
     b.add(g);
-    b.bounds.wall(x - 0.8, z - 0.8, x + 0.8, z + 0.8, LY, LY + 1.1, { id: 'crate' + x + z });
+    // The stack is low enough to jump onto, so it gets a top: as one bare wall
+    // a fighter who landed on the crates sank into the collider and was shoved
+    // off sideways. Deck at the pile height, wall stopping just under it.
+    b.bounds.wall(x - 0.8, z - 0.8, x + 0.8, z + 0.8, LY, LY + 0.98, { id: 'crate' + x + z });
+    b.bounds.platform(x - 0.8, z - 0.8, x + 0.8, z + 0.8, LY + 1.1, { id: 'crate' + x + z, prop: true });
     b.breakable(g, {
       hp: 30, kind: 'wood', center: v3(x, LY + 0.6, z), radius: 0.9, height: 1.2, baseY: LY,
       colliderIds: ['crate' + x + z]

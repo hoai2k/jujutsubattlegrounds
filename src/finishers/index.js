@@ -37,6 +37,9 @@ import { DEFAULT_SHOTS } from './shots.js';
 import { pickFinisher } from './registry.js';
 import { FinisherOverlay } from './overlay.js';
 import { FinisherAudio } from './audio.js';
+// URO. A finisher cannot be performed on somebody who is hovering, so both
+// bodies are put on the floor before the first frame — see the call site.
+import { groundFlight } from '../combat/flight.js';
 
 // The black an action list opens out of and hands the win screen over in.
 const DIP_IN = 0.34;
@@ -57,7 +60,12 @@ const GIANT_MOVE = {
   fCleave: 'gBackhand', fOverhead: 'gSmash', fGrab: 'gSweep',
   rSnapHead: 'rgRock', rFoldGut: 'rgRock', rSpin: 'rgRock', rLaunch: 'rgKneel',
   rSlam: 'rgKneel', rBlockPush: 'rgRock', rStagger: 'rgRock',
-  rFinish: 'rgKneel', rFall: 'rgTopple'
+  rFinish: 'rgKneel', rFall: 'rgTopple',
+  // the authored deaths. Nothing that size gets thrown across a street or
+  // corkscrewed by a punch, so every one of them resolves to the same kneel —
+  // what differs on a giant is the FX and the shot, not the physics.
+  rThroat: 'rgKneel', rSplit: 'rgKneel', rBurn: 'rgKneel', rCrumple: 'rgKneel',
+  rBlownBack: 'rgKneel', rTorque: 'rgKneel', rKneel: 'rgKneel', rKneelFall: 'rgTopple'
 };
 
 function sizedMove(f, name) {
@@ -80,14 +88,18 @@ export class Finishers {
   // THE GATE. Every refusal path leaves the match exactly as it would have been
   // without this feature.
   // -------------------------------------------------------------------------
-  tryBegin(winner) {
+  // `forced` is a finisher definition to play INSTEAD of rolling for one. The
+  // game never passes it — the only caller is the workbench (/workbench/), which
+  // exists to look at a chosen finisher rather than at whichever one the roll
+  // happened to land on. Every gate below still applies to it.
+  tryBegin(winner, forced = null, roll = null) {
     if (this.spent || this.active) return false;
     if (!finishersEnabled()) { this.spent = true; return false; }
     const m = this.match;
     if (!m.matchOver || !winner || !winner.model) { this.spent = true; return false; }
     const loser = this._loser(winner);
     if (!loser) { this.spent = true; return false; }
-    const def = pickFinisher(winner.pick, winner.cfg, m, winner, loser);
+    const def = forced || pickFinisher(winner.pick, winner.cfg, m, winner, loser, roll);
     if (!def || !def.actions?.length) { this.spent = true; return false; }
     this.spent = true;
     this._begin(def, winner, loser);
@@ -248,6 +260,15 @@ export class Finishers {
     m.minions?.clear?.();
     m.judgemen?.clear?.();
     m.shikigami?.clear?.();
+    // DAGON'S SEA. The brief's cleanup requirement, and the obvious case:
+    // nothing should be swimming through his own finisher except the fish the
+    // finisher itself puts there. Cleared for BOTH fighters — the loser having
+    // summons out is the same problem.
+    m.ocean?.clear?.();
+    // URO'S SKY. Every warp surface, every shard and the constant haze go with
+    // everything else, so a shattered plane left hanging in the air does not
+    // end up in the first frame of somebody else's cinematic.
+    m.warpfx?.clear?.();
     m.curses?.clear?.();
     m.flora?.clear?.();
     m.swarms?.clear?.();
@@ -271,6 +292,19 @@ export class Finishers {
     for (const f of m.fighters) {
       if (f !== win && f !== lose) f.model.group.visible = false;
     }
+    // ---- A FLYING BODY CANNOT BE STOOD OVER ------------------------------
+    // The brief's non-standard-body list, with a new entry on it: a finisher
+    // cannot be performed on somebody who is hovering. The director already
+    // pins both bodies to the floor under them every frame, so the geometry
+    // was never the problem — the STATE was, because a fighter whose hover is
+    // still running keeps having gravity switched off underneath the
+    // director's own placement.
+    //
+    // `groundFlight` is one call that clears it, and it is applied to the
+    // WINNER as well as the loser: Uro performing a finisher stands on the
+    // ground for it too, which is the only time in the game she does.
+    groundFlight(win);
+    groundFlight(lose);
     for (const s of m.fx.shadows) {
       if (s.fighter !== win && s.fighter !== lose) s.mesh.visible = false;
     }
@@ -545,7 +579,14 @@ export class Finishers {
         a.hold = Math.max(a.hold, HITSTOP * 0.5 * power);
         a.overlay.impact(0.08);
       }
-      if (act.onContact) { try { act.onContact(this._ctx(a), at); } catch (e) { } }
+      // A THROW HERE IS AN AUTHORING BUG, not a runtime condition — a wrong FX
+      // name or a bad argument — and swallowing it silently meant a finisher
+      // could lose its entire impact effect with nothing anywhere saying so.
+      // It still must not take the cinematic down, so it is caught and LOUD.
+      if (act.onContact) {
+        try { act.onContact(this._ctx(a), at); }
+        catch (e) { console.warn('[finisher] onContact failed', a.def.id, e); }
+      }
       return;
     }
 
@@ -570,7 +611,10 @@ export class Finishers {
     a.mark.set(victim, to);
     this._tween(a, victim, to, a.t, a.t + 0.10 + power * 0.16, 'out');
 
-    if (act.onContact) { try { act.onContact(this._ctx(a), at); } catch (e) { } }
+    if (act.onContact) {
+      try { act.onContact(this._ctx(a), at); }
+      catch (e) { console.warn('[finisher] onContact failed', a.def.id, e); }
+    }
   }
 
   // Where the blow actually connects, in world space — used for the spark, the
@@ -702,6 +746,27 @@ export class Finishers {
     // ask whether anything has landed
     if (dt > 0) this._fireContacts(a);
 
+    // ---- AMBIENCE ---------------------------------------------------------
+    // An optional per-frame hook on the finisher itself, for the effects that
+    // are a STATE rather than an event: Jogo steaming for the whole scene and
+    // the body he set alight still burning three actions later, the arcs
+    // coming off Kashimo between his own strikes. Everything else in this
+    // feature fires on a beat, and a technique that only exists on beats reads
+    // as a character who switches their power on twice and off again.
+    //
+    // THROTTLED, deliberately. Called at ~11 Hz rather than per frame, because
+    // every one of these spawns particles and a finisher that spawns them 60
+    // times a second is a finisher that drops frames on the hardware this game
+    // is built to run on.
+    if (a.def.ambient && dt > 0) {
+      a.ambT = (a.ambT || 0) + dt;
+      if (a.ambT >= 0.09) {
+        a.ambT = 0;
+        try { a.def.ambient(this._ctx(a), a.t); }
+        catch (e) { console.warn('[finisher] ambient failed', a.def.id, e); }
+      }
+    }
+
     // THE CAMERA. One shot per action, cut hard, with its own shake.
     const u = act ? clamp((a.t - act.t0) / act.span, 0, 1) : 0;
     const s = a.shot ? a.shot(this._camCtx(a), u) : null;
@@ -725,6 +790,17 @@ export class Finishers {
     }
 
     m.fx.update(dt);
+    // CURSED SPEECH. `Match.update` returns early for the whole length of a
+    // finisher, so the glyph system would freeze mid-flight — a word thrown in
+    // the choreography would hang in the air and never arrive. It is ticked
+    // here instead, on the cinematic's own clock, which also means a command
+    // still travelling when the KO landed carries through into the opening
+    // shot rather than being cut off.
+    //
+    // Nothing gameplay-facing rides on it here: every `speak` in a finisher
+    // passes `onArrive: null`, so the payload never fires and the damage comes
+    // from the director's own `blast` like every other finisher hit.
+    m.speechfx?.update(dt);
     m.arena.update(dt, m.stage.camera);
   }
 

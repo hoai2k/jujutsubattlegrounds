@@ -369,7 +369,7 @@ export function buildToji() {
       playful_cloud: {
         node: buildPlayfulCloud(spec.H), default: 'away',
         attachments: {
-          hand: { bone: 'HandR', pos: [0, -0.052 * spec.H, 0.010 * spec.H], rot: [-8, 0, 0] },
+          hand: { bone: 'HandR', pos: [0, -0.052 * spec.H, 0.010 * spec.H], rot: [-19, 32, -144] },
           away: { bone: 'Hips', pos: [0, -40, 0], rot: [0, 0, 0] }
         }
       },
@@ -379,7 +379,7 @@ export function buildToji() {
           // POINTY END UP. See the note on split_soul below — the same
           // solve, aimed a little more forward because this is a dagger held
           // out in front rather than a blade carried at the shoulder.
-          hand: { bone: 'HandR', pos: [0, -0.058 * spec.H, 0.012 * spec.H], rot: [62, -21, -35] },
+          hand: { bone: 'HandR', pos: [0, -0.058 * spec.H, 0.012 * spec.H], rot: [62, 8, -143] },
           away: { bone: 'Hips', pos: [0, -40, 0], rot: [0, 0, 0] }
         }
       },
@@ -400,7 +400,7 @@ export function buildToji() {
           // +Y on the direction the blade should point. Verified with
           // `__viewer.armSheet` afterwards, because a solve can still be right
           // about the axis and wrong about the roll.
-          hand: { bone: 'HandR', pos: [0, -0.055 * spec.H, 0.012 * spec.H], rot: [57, -15, -27] },
+          hand: { bone: 'HandR', pos: [0, -0.055 * spec.H, 0.012 * spec.H], rot: [-140, -38, 23] },
           away: { bone: 'Hips', pos: [0, -40, 0], rot: [0, 0, 0] }
         }
       },

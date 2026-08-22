@@ -3,6 +3,18 @@
 import { emptyFrame } from '../input/input.js';
 import { rand, flatDist, yawBetween } from '../core/mathutil.js';
 import { tauntWeight } from './taunts.js';
+// Cursed speech, for the one profile that has to decide what a button IS
+// before it decides whether to press it. Both helpers are pure reads.
+import { affordable as speechAffordable, boundKey as speechBoundKey } from './speech.js';
+// The three new profiles each ask their own system exactly one question. Every
+// one of these is a pure read and returns a sensible default for a fighter
+// whose config does not declare the resource.
+import { awakenAggression } from './awakening.js';
+import { massReady, massFrac } from './mass.js';
+// URO's reflect table. The CPU consults the SAME source of truth the effect
+// system does, so a bot can never put the surface up for something that would
+// not have been reflected.
+import { REFLECTABLE } from './reflect.js';
 
 export class CPU {
   constructor(fighter, opponent, match) {
@@ -19,6 +31,39 @@ export class CPU {
     this._tauntWeight = tauntWeight(fighter.pick || fighter.cfg.id);
     this._tauntGrace = 6;        // never in the opening seconds of a round
     this._tauntRoll = 2;
+    this._cmdSwap = null;        // inumaki: the command wheel, held across frames
+  }
+
+  // ---- INUMAKI: THE THROAT BUDGET ----------------------------------------
+  // The single line that separates a bot that plays this character from a bot
+  // that says two words and then spends ninety seconds silent.
+  //
+  // The rule: a command is only worth saying if, AFTER saying it, he could
+  // still afford his cheapest word. That is exactly the calculation a human
+  // makes — "if I spend Blast Away here, am I mute?" — and it means the bot
+  // naturally paces itself into the speak / disengage / recover rhythm the
+  // character is built around, without a single timer anywhere.
+  //
+  // The one exception is being about to lose: below a quarter health it stops
+  // budgeting and says whatever it can, because a silent Inumaki at 20 health
+  // is a dead one either way.
+  //   RESERVE is the second half, and it is what the first version got wrong.
+  //   Budgeting only against the CHEAPEST word made the bot spam DON'T MOVE
+  //   forever: measured over sixty seconds it said it twenty-seven times and
+  //   said GET CRUSHED twice, and sat pinned at RAW the whole match. It was
+  //   technically managing the gauge and it was playing one button.
+  //
+  //   So an OPENER has to leave room for the word it is opening FOR. Pass the
+  //   heavy binding's cost as `reserve` and a cheap command is only thrown
+  //   when the payoff still fits behind it — which produces the intended
+  //   rhythm on its own: open, follow up, disengage, breathe.
+  _throatBudget(me, cmd, reserve = 0) {
+    if (!cmd) return false;
+    if (me.res.hp < me.cfg.stats.hp * 0.25) return true;
+    const defs = me.cfg.commands.defs;
+    const cheapest = Math.min(...Object.values(defs).map(d => d.throat));
+    const cap = me.cfg.throat.max * 0.90;         // the SILENCED threshold
+    return me.throat + cmd.throat + Math.max(cheapest, reserve) <= cap;
   }
 
   // A seat's fighter was replaced mid-round (Megumi -> Mahoraga, and back
@@ -39,6 +84,14 @@ export class CPU {
   frame() {
     const f = emptyFrame();
     const me = this.me;
+    // ---- THE SET OWNS THE CONTESTANT ---------------------------------------
+    // While Takaba's ultimate is running, the bot on the receiving end is not
+    // fighting — it is running an obstacle course, and the course knows what
+    // the course wants. `cpuFrame` writes the stick and the jump; everything
+    // below this line would be steering it at the host instead of at the exit.
+    // Returns false for every fighter that is not the contestant and for every
+    // frame the set is not live, so this costs one property read otherwise.
+    if (this.match.theset?.cpuFrame?.(me, f)) { this._edges(f); return f; }
     // in a free-for-all the bot fights whoever is closest right now
     const foe = this.foe = this.match.other(me) || this.foe;
     const dt = 1 / 60;
@@ -55,6 +108,62 @@ export class CPU {
     this._tauntGrace -= dt;
     this._tauntRoll -= dt;
     const dist = flatDist(me.pos, foe.pos);
+    // ---- HOLDING A RADIAL OPEN, AND *** IT HAS TO LIVE ABOVE `busy` *** ---
+    // Every per-character block in this file is gated on `!me.busy`, and
+    // `Fighter.busy` is "not idle/walk/run/dash/jump/fall" — so the moment a
+    // radial OPENS the fighter is busy and the block that was holding the
+    // button down becomes unreachable. The hold ends on the next frame and the
+    // ring confirms as a TAP, which commits whatever was already bound.
+    //
+    // Measured on Reggie before this moved: one wheel confirm in a
+    // forty-five-second match, and every one of his fifteen materialisations
+    // was the default object. The bot had a whole price list and bought the
+    // same tin of gas fifteen times.
+    //
+    // So the driver runs HERE, before anything can gate it, for both radials.
+    // It is one block rather than two because the shape is identical: hold
+    // `copy`, steer the stick to the sector's angle, release after 16 frames.
+    // `_wheelPick` reads the stick as an angle and snaps to the nearest
+    // AVAILABLE sector, so an unaffordable target is simply rolled past rather
+    // than mis-committed.
+    for (const [key, order] of [['_objSwap', me.cfg.objects?.order], ['_beastSwap', me.cfg.beasts?.order]]) {
+      const sw = this[key];
+      if (!sw || !order) continue;
+      sw.t++;
+      const ang = (sw.idx / order.length) * Math.PI * 2;
+      f.move.x = Math.sin(ang);
+      f.move.z = -Math.cos(ang);
+      f.copy = sw.t < 18;
+      // it also gives up if the radial never opened — a refusal (no stock, no
+      // cursed energy, mask off) must not leave the bot mashing B forever
+      if (sw.t >= 18 || (sw.t > 6 && me.state !== 'wheel' && me.state !== 'beastWheel')) {
+        this[key] = null;
+      }
+      this._edges(f);
+      return f;
+    }
+
+    // ---- REGGIE'S GAS: THE MECHANICAL HALF -------------------------------
+    // A bot standing in the cloud genuinely loses track of the opponent
+    // rather than being handed a screen effect it cannot see. It keeps the
+    // LAST POSITION it had and plays against that until it steps out, which is
+    // exactly what a human in a smoke screen does — and it is why the canister
+    // is a mix-up tool rather than a damage tool.
+    //
+    // A WRECK BETWEEN THEM DOES THE SAME THING, for the same reason: a vending
+    // machine on its side is real cover, and a bot that could see straight
+    // through it would make the wreck decorative.
+    const blinded = (me.gasBlind ?? 0) > 0.3 && (me.gasBlindT ?? 0) > 0;
+    const covered = this.match.receipts?.blocksSight?.(me.pos, foe.pos) ?? false;
+    if (blinded || covered) {
+      // remember where they were, and go on believing it for a moment
+      this._lastSeen = this._lastSeen ?? { x: foe.pos.x, z: foe.pos.z, t: 0 };
+      this._lastSeen.t += dt;
+      // after a second of not seeing them the bot stops committing and holds
+      if (this._lastSeen.t > 1.0 && !me.busy) { this.plan = 'strafe'; this.planT = 0.4; }
+    } else {
+      this._lastSeen = { x: foe.pos.x, z: foe.pos.z, t: 0 };
+    }
     const dState = this.match.domains.state;
     // cleared every frame: an override left set would pin the soft lock to a
     // summon that has since died
@@ -463,6 +572,277 @@ export class CPU {
       return f;
     }
 
+    // ---- MAKI: PLAY FOR THE AWAKENING --------------------------------------
+    // "Maki plays for awakening and gets more aggressive as she scales."
+    //
+    // The profile is ONE NUMBER — `awakenAggression`, 0 at the start of the
+    // round and 1 at maximum — and everything below is that number driving a
+    // dial. What makes it interesting rather than a ramp is the thing her
+    // meter does that nothing else does: TAKING DAMAGE FEEDS IT. So an early
+    // Maki bot is not simply passive, it is willing to TRADE. It will stand in
+    // a hit to land one, because the trade is profitable for her in a way it
+    // is not for anybody else in this file, and that is the character.
+    //
+    // Four rules:
+    //   1. EARLY, TRADE. Stay in range, throw the fast weapon, accept hits.
+    //   2. LATE, COMMIT. The heavy weapon, the slow techniques, and pressure.
+    //   3. SWAP ON PURPOSE. The katana in neutral (fast, unblockable RT), the
+    //      staff when they are guarding (it has the guard break).
+    //   4. THE ULTIMATE IS THE WHOLE ROUND. Once stage 3 lands it fires at
+    //      the first opportunity — it is once per round and holding it is
+    //      strictly worse than using it.
+    if (me.cfg.awakening) {
+      const agg = awakenAggression(me);
+      const c1 = me._def('ct1'), c2 = me._def('ct2');
+      const armed = me.weapon ?? me.cfg.arsenal.default;
+      const guarding = foe.state === 'block' || foe.state === 'blockstun';
+
+      // 4 — the ultimate, the moment it exists
+      if (!me.busy && me.cfg.ultimate?.kind === 'awakening'
+        && me.awakenStage >= (me.cfg.ultimate.requireStage ?? 3)
+        && (me.awakenUses ?? 0) < (me.cfg.ultimate.uses ?? 1)
+        && dist < 4.5 && me.grounded) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+
+      // 3 — the swap. Deliberately on a long-ish timer rather than reactive:
+      // a bot that swapped the instant they blocked would be swapping twice a
+      // second, and the swap has a real vulnerable window.
+      this.makiSwapT = (this.makiSwapT ?? 0) - 1 / 30;
+      if (!me.busy && me.specialCD <= 0 && this.makiSwapT <= 0 && dist > 2.2) {
+        const want = guarding ? 'playful_cloud' : 'split_soul';
+        if (armed !== want) {
+          f.copy = true;                 // B — the swap
+          this.makiSwapT = 2.4;
+          this._edges(f);
+          return f;
+        }
+      }
+
+      if (!me.busy) {
+        // 1 / 2 — the approach. Closes hard at every stage; what changes is
+        // how willing she is to sit inside their range once she is there.
+        // MOVEMENT IS CHARACTER-RELATIVE and -z ADVANCES along the facing
+        // axis — see the `toward` constant in the shared plan switch at the
+        // bottom of this file. Getting this sign wrong makes a bot that runs
+        // away from the fight while believing it is charging.
+        f.move.z = dist > 2.4 ? -1 : (agg > 0.5 ? 0 : 0.15);
+        f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * (0.3 - agg * 0.2);
+        f.dash = dist > 6 && me.res.stamina > 40;
+        if (dist < (c1?.reach ?? 2.6) && me.specialCD <= 0) {
+          // the technique rate scales with the stage — at base she throws them
+          // sparingly because they are slow and she is weak, and at maximum
+          // she throws them constantly because they are fast and she is not
+          if (Math.random() < 0.10 + agg * 0.30) {
+            // the guard break when they are holding a guard; otherwise the
+            // unblockable, which is the better neutral tool
+            f.ct2 = guarding && armed === 'playful_cloud';
+            f.ct1 = !f.ct2 && armed === 'playful_cloud';
+            if (armed === 'split_soul') { f.ct2 = Math.random() < 0.45; f.ct1 = !f.ct2; }
+          }
+        }
+        if (!f.ct1 && !f.ct2 && dist < (me.cfg.punches[0].reach + 0.5) && this.punchT <= 0) {
+          f.punch = true;
+          this.punchT = rand(0.12, 0.30);
+        }
+        // ---- THE TRADE, AND IT IS THE WHOLE PROFILE ------------------------
+        // Guard rate FALLS as she awakens, from 30% down to 6%. That is
+        // backwards for every other bot in this file and correct for her:
+        // early, a hit taken is a hit converted into meter, so refusing to
+        // block is profitable; late, she does not need to trade because she
+        // wins the exchange outright.
+        if (dist < 2.6 && (foe.state === 'attack' || foe.state === 'ct')
+          && Math.random() < 0.30 - agg * 0.24) {
+          f.block = true; f.punch = false; f.ct1 = false; f.ct2 = false;
+        }
+      }
+      this._edges(f);
+      return f;
+    }
+
+    // ---- YUKI: BUILD MASS, WALK THROUGH HITS, HUNT THE GRAB ----------------
+    // "Yuki builds mass, walks through hits, and hunts the command grab."
+    //
+    // The profile is a two-state machine and the state is `massReady` — am I
+    // above the armour threshold:
+    //
+    //   LIGHT (below the threshold)  hold range, charge the slam whenever
+    //                                there is a window, and do NOT commit. She
+    //                                loses every trade here and knows it.
+    //   HEAVY (above it)             walk forward in a straight line, through
+    //                                whatever they throw, and grab. This is
+    //                                the scary state and it is the one the
+    //                                whole character is for.
+    //
+    // The single most important line is that she does NOT block in the heavy
+    // state. She has armour; guarding would waste it, and a bot that armoured
+    // up and then hid behind a guard would never show the player what the
+    // mechanic is.
+    if (me.cfg.mass) {
+      const heavy = massReady(me);
+      const c2 = me._def('ct2');
+      const g = this.match.garuda?.forOwner(me);
+
+      // GARUDA, on cooldown, whenever they are at a distance she cannot cover.
+      // It is her only ranged option and the profile treats it as one.
+      if (!me.busy && me.specialCD <= 0 && g && !g.stunned
+        && dist > 3.4 && dist < 11 && me.res.curCE >= (me.cfg.special.cost ?? 0)) {
+        f.copy = true;
+        this._edges(f);
+        return f;
+      }
+
+      if (!me.busy) {
+        if (heavy) {
+          // ---- THE HEAVY STATE -------------------------------------------
+          // Straight forward. No strafing, no dashing (her dash is the worst
+          // in the game and worse still at high mass), no guard.
+          f.move.z = -1;               // -z advances; see the note in Maki's block
+          f.move.x = 0;
+          f.dash = false;
+          // THE GRAB, at its own range. It whiffs on an airborne target, so
+          // the bot checks — a bot that grabbed at a jumping opponent would
+          // teach the player the wrong lesson about the move.
+          if (dist < (c2?.reach ?? 2.4) && foe.grounded && me.res.curCE >= (c2?.cost ?? 0)) {
+            f.ct2 = true;
+          } else if (dist < 2.9 && this.punchT <= 0) {
+            // the long jab has armour on its first hit, so it is the correct
+            // thing to throw INTO their pressure
+            f.punch = true;
+            this.punchT = rand(0.18, 0.36);
+          }
+        } else {
+          // ---- THE LIGHT STATE -------------------------------------------
+          // Hold the range her enormous normals own, and charge whenever they
+          // are not on top of her. The charge is held by keeping RB down,
+          // which for the bot means asserting ct1 across several frames.
+          // ---- SHE HAS TO STAND IN HER OWN RANGE ------------------------
+          // This used to advance only beyond 4.2 m and back off below 2.6,
+          // which parked her in a band OUTSIDE her own normals (reach 2.9) —
+          // fine against a bot that chases, a dead fight against one that does
+          // not. Miwa is exactly that bot, by design, so the two of them stood
+          // at four metres for forty seconds and traded nothing.
+          //
+          // She now closes to where her normals actually reach and only gives
+          // ground when someone is genuinely on top of her.
+          f.move.z = dist > 3.0 ? -0.6 : dist < 1.8 ? 0.5 : 0;
+          f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * 0.3;
+          this.yukiChargeT = (this.yukiChargeT ?? 0) - 1 / 30;
+          if (dist > 3.4 && me.res.curCE >= (me._def('ct1')?.cost ?? 0)) {
+            // hold the charge for a real length of time — this is the bot
+            // visibly making the trade the player has to learn
+            if (this.yukiChargeT <= 0) this.yukiChargeT = rand(0.9, 1.5);
+            f.ct1 = true;
+          } else if (this.yukiChargeT > 0 && dist < 3.0) {
+            // they closed while she was charging: release it into them
+            this.yukiChargeT = 0;
+          }
+          if (dist < 2.9 && this.punchT <= 0 && !f.ct1) {
+            f.punch = true;
+            this.punchT = rand(0.20, 0.40);
+          }
+          // she guards ONLY in the light state — see the header
+          if (dist < 3.0 && (foe.state === 'attack' || foe.state === 'ct')
+            && Math.random() < 0.34) {
+            f.block = true; f.punch = false; f.ct1 = false; f.ct2 = false;
+          }
+        }
+      }
+      if (me.ultReady && !me.busy && dist < 8 && dist > 2) f.ult = true;
+      this._edges(f);
+      return f;
+    }
+
+    // ---- MIWA: PLACE THE CIRCLE AND BAIT — AND NEVER, EVER CHASE -----------
+    // "The CPU must not chase, since chasing defeats her entire design."
+    //
+    // That is not a preference, it is a hard constraint, and it is enforced
+    // structurally rather than by tuning: THERE IS NO BRANCH IN THIS PROFILE
+    // THAT SETS `f.move.z` POSITIVE WHILE A CIRCLE IS UP. She physically
+    // cannot advance out of her own trap, because the code that would tell her
+    // to does not exist. That is the only way to be sure — a probability would
+    // eventually roll.
+    //
+    // The plan, in priority order:
+    //   1. THE CIRCLE, placed when they are close enough to be tempted but not
+    //      yet inside. Placing it across the arena just burns the clock;
+    //      placing it while they are already on top of her wastes the counter.
+    //   2. INSIDE IT: CHARGE THE DRAW AND WAIT. This is the whole character —
+    //      circle down, stance up, and dare them to come in. The auto-counter
+    //      is watching the perimeter, so the charge is safe in a way it is
+    //      nowhere else.
+    //   3. THEY CAME IN → draw. At whatever tier is bought.
+    //   4. NO CIRCLE → play a normal, cautious, weak swordswoman: hold
+    //      mid-range, poke, parry, step back. She is the worst character in
+    //      the game here and the bot plays like it.
+    if (me.cfg.simpleDomainZone) {
+      const sys = this.match.newshadow;
+      const z = sys?.zoneFor(me) ?? null;
+      const inCircle = !!z;
+      const theyreIn = !!(z && z.contains(foe.pos));
+      const c2 = me._def('ct2');
+
+      // 1 — place it
+      if (!me.busy && !inCircle && sys?.shouldCast(me, dist)) {
+        f.copy = true;                   // B
+        this._edges(f);
+        return f;
+      }
+
+      if (inCircle && !me.busy) {
+        // 3 — they came in. Draw, and let the tier be whatever was bought.
+        if (theyreIn && me.state === 'stance') {
+          f.ct2 = true;                  // keep holding the stance...
+          f.ct1 = true;                  // ...and release the draw
+        } else if (theyreIn) {
+          // caught out of stance: the fast string still cannot miss in here
+          if (this.punchT <= 0) { f.punch = true; this.punchT = rand(0.10, 0.22); }
+        } else {
+          // 2 — HOLD THE STANCE AND WAIT. This is the branch that makes her
+          // work, and it is also the branch that must never move forward.
+          f.ct2 = true;
+        }
+        // THE CONSTRAINT, stated as code: never advance while the circle is
+        // up. Small backward drift only, to stay centred in her own ring.
+        const off = flatDist(me.pos, z.origin);
+        f.move.z = 0;
+        f.move.x = 0;
+        if (off > z.radius * 0.55) {
+          // drift back toward the middle so she does not wander out of it —
+          // leaving drops the circle, which would be the bot beating itself
+          const to = z.origin.clone().sub(me.pos);
+          const fwd = me.forward();
+          const along = to.x * fwd.x + to.z * fwd.z;
+          f.move.z = along > 0 ? -0.35 : 0.35;
+        }
+        f.dash = false;
+        this._edges(f);
+        return f;
+      }
+
+      // 4 — no circle: cautious mid-range poking, and a real guard
+      if (!me.busy) {
+        f.move.z = dist > 4.6 ? -0.5 : dist < 2.4 ? 0.6 : 0.1;
+        f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * 0.4;
+        f.dash = dist > 7 && me.res.stamina > 40;
+        if (dist < 2.0 && this.punchT <= 0) {
+          f.punch = true;
+          this.punchT = rand(0.10, 0.24);
+        }
+        // she has a real parry and the bot uses it — a tight, well-timed
+        // guard rather than a held one, which is the whole difference
+        if (dist < 2.8 && (foe.state === 'attack' || foe.state === 'ct')
+          && Math.random() < 0.42) {
+          f.block = true; f.punch = false;
+        }
+      }
+      if (me.ultReady && !me.busy && dist < 9) f.ult = true;
+      this._edges(f);
+      return f;
+    }
+
     // ---- HANAMI: HOLD GROUND ------------------------------------------------
     // The one profile in the file that NEVER CHASES, and that is the whole
     // character rather than a stylistic choice — he has the worst legs and the
@@ -493,12 +873,16 @@ export class CPU {
           this._edges(f);
           return f;
         }
-        // 2. the seed — and it is thrown at a target who does not already
-        //    have one, because re-planting only refreshes it
+        // 2. THE ROOT SWARM. Sent at a target who does not already carry the
+        //    bud (a second one only refreshes it) and only from inside its
+        //    own range — it is a line that travels, so it wants them roughly
+        //    in front rather than merely nearby. The CPU aims it by walking
+        //    into them, which is exactly how the stick-steering reads.
         this._budT = (this._budT ?? 0) - dt;
-        if (this._budT <= 0 && dist < (me.cfg.ct2.range ?? 7) && !fl?.budOn(foe)
-          && me.res.curCE >= me.cfg.ct2.cost + 8) {
-          f.ct2 = true;
+        if (this._budT <= 0 && dist < (me.cfg.ct1.range ?? 11) - 1.5 && !fl?.budOn(foe)
+          && me.res.curCE >= me.cfg.ct1.cost + 8) {
+          f.ct1 = true;
+          f.move.z = 1;                 // lean into the swarm's direction
           this._budT = rand(1.4, 2.4);
           this._edges(f);
           return f;
@@ -513,10 +897,10 @@ export class CPU {
         const opening = ['knockdown', 'getup'].includes(foe.state)
           || (dist < 7 && (foe.state === 'run' || foe.state === 'dash'));
         this._rootT = (this._rootT ?? 0) - dt;
-        if (this._rootT <= 0 && dist < (me.cfg.ct1.aimRange ?? 9)
-          && me.res.curCE >= me.cfg.ct1.cost
+        if (this._rootT <= 0 && dist < (me.cfg.ct2.aimRange ?? 9)
+          && me.res.curCE >= me.cfg.ct2.cost
           && Math.random() < (opening ? 0.62 : 0.30)) {
-          f.ct1 = true;
+          f.ct2 = true;
           this._rootT = opening ? rand(0.9, 1.7) : rand(1.8, 3.0);
           this._edges(f);
           return f;
@@ -532,7 +916,7 @@ export class CPU {
       //    slowest pace in the game, and once he owns the space he does not
       //    give it back and does not follow you out of it.
       if (!f.ct1 && !f.ct2 && !f.copy) {
-        if (dist > (me.cfg.ct1.aimRange ?? 9) - 1.5) f.move.z = -0.55;
+        if (dist > (me.cfg.ct2.aimRange ?? 9) - 1.5) f.move.z = -0.55;
         else if (dist < 1.4) f.move.z = 0.4;          // he is being crowded
         else if (onDead && dist > 4) {
           // walk toward the nearest patch of his own that is still alive,
@@ -570,6 +954,504 @@ export class CPU {
     //      is the whole reason that tool exists.
     //   3. HUNT DEVOUR ON A KNOCKDOWN, where it comes out faster and cannot be
     //      jumped. Out of range it eats its own swarm instead, which is free.
+    // ---- URAUME: THE CONTROL ZONER -----------------------------------------
+    // The brief's four rules, in order, and each is a real read rather than a
+    // timer:
+    //   1. KEEP DISTANCE. Not Jogo's "keep them out" — Uraume wants a SPECIFIC
+    //      band (5-9 m: inside Frost Calm's reach and outside the opponent's
+    //      normals) and walks back into it rather than fleeing to the wall.
+    //   2. LAYER FROST. Icefall on a cadence, because the stacks are the win
+    //      condition and a bot that only threw ice when it had a clean line
+    //      would never reach the cap.
+    //   3. FREEZE THE GROUND UNDER AN APPROACHING OPPONENT. The interesting
+    //      one: it reads their STATE and their CLOSING SPEED, and lays the
+    //      floor in front of them rather than under itself.
+    //   4. FROST FIELD TO ESCAPE PRESSURE. Under 3 m and off cooldown, always.
+    if (me.cfg.frost) {
+      const sp = me.cfg.special;
+      const onIce = !!this.match.ice?.patchAt(foe.pos);
+      const stacks = foe.frost?.stacks ?? 0;
+
+      if (!me.busy) {
+        // 4. PANIC / SETUP. The same button for both, which is the character.
+        if (dist < 3.0 && me.specialCD <= 0 && me.res.curCE >= sp.cost) {
+          f.copy = true;
+          this._edges(f);
+          return f;
+        }
+        // 3. THE GROUND UNDER AN APPROACH. `closing` is measured off their
+        //    state rather than off a velocity sample, so it cannot be fooled
+        //    by a fighter who happens to be strafing.
+        const closing = ['run', 'dash'].includes(foe.state) && dist < 9;
+        if (closing && !onIce && me.specialCD <= 0 && me.res.curCE >= sp.cost + 6) {
+          f.copy = true;
+          this._edges(f);
+          return f;
+        }
+        // 2b. FROST CALM. Thrown when it is worth throwing: into an opening,
+        //     or when the stacks are close enough to the cap that three more
+        //     shells them. A bot that threw it on a flat timer would spend the
+        //     one tool that can actually finish the meter on empty air.
+        const opening = ['knockdown', 'getup'].includes(foe.state)
+          || foe.state === 'ct' || closing;
+        const finishing = stacks >= 3;
+        this._calmT = (this._calmT ?? 0) - dt;
+        if (this._calmT <= 0 && dist < (me.cfg.ct2.range ?? 9) - 0.5
+          && me.res.curCE >= me.cfg.ct2.cost
+          && (opening || finishing) && Math.random() < 0.7) {
+          f.ct2 = true;
+          f.move.z = -1;                // lean the line into them
+          this._calmT = rand(1.2, 2.2);
+          this._edges(f);
+          return f;
+        }
+        // 2a. ICEFALL, the cadence. Faster when the stacks are decaying,
+        //     because letting the meter fall back to zero is the only way this
+        //     character actually loses a neutral.
+        this._shardT = (this._shardT ?? 0) - dt;
+        if (this._shardT <= 0 && dist < (me.cfg.ct1.range ?? 14) - 1
+          && me.res.curCE >= me.cfg.ct1.cost + 4) {
+          f.ct1 = true;
+          this._shardT = stacks > 0 ? rand(0.5, 0.9) : rand(0.8, 1.4);
+          this._edges(f);
+          return f;
+        }
+        // the ultimate, when there is room for the wall to travel
+        if (me.ultReady && dist > 3.0 && dist < 26) { f.ult = true; this._edges(f); return f; }
+      }
+
+      // 1. THE BAND. Walk back into 5-9 m and stop. It never runs to the wall
+      //    — a cornered zoner is a dead zoner, and this character's answer to
+      //    being crowded is the special rather than the legs.
+      if (!f.ct1 && !f.ct2 && !f.copy) {
+        if (dist < 4.5) f.move.z = 1;
+        else if (dist > 9.5) f.move.z = -0.7;
+        // ...and it PUNCHES when they are on top of it and the special is
+        // down, because the string is a stack per hit and standing still while
+        // somebody hits you is not a plan.
+        if (dist < 2.0 && me.specialCD > 0 && this.punchT <= 0) {
+          f.punch = true;
+          this.punchT = rand(0.28, 0.5);
+        }
+      }
+      this._edges(f);
+      return f;
+    }
+
+    // ---- REGGIE: THE ECONOMY ------------------------------------------------
+    // The brief's three rules, and the middle one is the whole profile:
+    //   1. MANAGE THE STOCK. Never spend down to nothing, because a broke
+    //      Reggie has a punch string and that is all.
+    //   2. *** SAVE FOR THE CAR WHEN THE OPPONENT IS COMMITTED. *** Not on a
+    //      timer and not when merely far away — the bot reads whether they are
+    //      in a state they cannot cancel, and 46 frames of car wind-up needs
+    //      one of those to exist.
+    //   3. THE ROD CLOSES ON ZONERS. Against anybody holding space it is the
+    //      answer, and the bot uses it as one.
+    //
+    // The whole thing is expressed as a BUDGET, in the same shape Inumaki's
+    // throat budget is (`_throatBudget` at the top of this file), and for the
+    // same reason: a bot that spends whatever it can afford right now plays
+    // one button, and a bot that asks "if I buy this, can I still act" plays
+    // the character.
+    if (me.cfg.receipts && me.cfg.objects && !me.busy) {
+      const O = me.cfg.objects.defs;
+      // ---- THE BAR GOES FIRST, AND IT HAS TO BE HANDLED HERE -------------
+      // *** EVERY BRANCH IN THIS BLOCK ENDS IN `return f`, WHICH MEANS THE
+      // SHARED ULTIMATE PRESS AT THE BOTTOM OF `frame()` IS UNREACHABLE FOR
+      // HIM. *** Measured: zero ultimate presses and zero heavy presses across
+      // a full forty-five-second match. A profile that returns early owns
+      // everything it skipped.
+      //
+      // And he wants his own rule anyway, which is the good reason rather than
+      // the forced one: CLEARING THE REGISTER scales with the stock it burns
+      // (22 + stock x 0.42), so pressing it at 20 stock is a wasted bar and
+      // pressing it at 90 is a round-ender. The bot waits for the stock the
+      // same way a player should.
+      // *** THE THRESHOLD DECAYS. *** A flat 62 was measured unreachable: with
+      // the spend rule fixed above he cycles between roughly 4 and 52, so a bot
+      // holding out for 62 holds out forever — zero ultimates across three full
+      // matches. The bar is a resource too, and one that is never spent is
+      // worth nothing. So he wants 62, and every second he sits on a ready bar
+      // he wants four less, down to a floor of 26 — which is still a bigger
+      // register than a moped and change. `_regT` is the ready-bar clock.
+      this._regT = me.ultReady ? (this._regT ?? 0) + dt : 0;
+      const wantStock = Math.max(26, 62 - this._regT * 4);
+      if (me.ultReady && !me.busy && (me.stock ?? 0) >= wantStock && dist < 12
+        && !this.match.domains.state) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+      const stock = me.stock ?? 0;
+      const wet = (me.stockWet ?? 0) > 0;
+      const cheapest = Math.min(...Object.values(O).map(o => o.cost));
+
+      // SOAKED. Nothing he owns works, so the bot does what a human does: it
+      // backs off and waits it out rather than walking into a punish holding
+      // a technique it cannot use. This is the only state in this profile that
+      // makes it retreat.
+      // *** AND IT IS `strafe`, NOT `retreat`, NOW THAT THE PUNCH STRING
+      // ACTUALLY REACHES. *** With the 1.38 m reach it did not matter what he
+      // did while soaked, because he had nothing either way; a full retreat
+      // was simply the least bad option. With the reach fixed his string is a
+      // real threat — 19 hits from 20 attempts for 52.9 damage against Yuji's
+      // 14 for 35.3, measured point blank — so a soaked Reggie is a normal
+      // fighter for three seconds rather than a man with no kit. He gives
+      // ground and keeps his hands up instead of running for the corner.
+      if (wet) {
+        this.plan = 'strafe';
+        this.planT = Math.max(this.planT, Math.min(0.8, me.stockWet));
+      }
+
+      // ---- WHAT IT WANTS, AND THE ORDER IS THE WHOLE PROFILE -----------
+      // *** THE FIRST VERSION GATED EVERY OBJECT ON DISTANCE AND THE BOT
+      // BOUGHT FIFTEEN TINS OF GAS. *** Measured: `objUsed: { canister: 15 }`
+      // across a full match, because the generic approach logic keeps him
+      // inside 3.2 m almost permanently and the gas branch was the only one
+      // whose range test passed there. A price list nobody reads past the first
+      // line is not a price list.
+      //
+      // The order is now by VALUE FIRST and range second, which is how a human
+      // plays a resource character: you decide what you are saving for, and
+      // then you make the range happen. Range still matters — it decides
+      // whether he PRESSES — but it no longer decides what he is holding.
+      //
+      // `_lastObject` is the anti-repeat. Without it the same branch wins every
+      // frame and the character has one button again; with it he genuinely
+      // rotates, which also happens to be his answer to Mahoraga.
+      const committed = ['knockdown', 'getup', 'ct', 'launched', 'stunned'].includes(foe.state);
+      const zoning = dist > 8 && (foe.state === 'ct' || foe.state === 'charge' || foe.state === 'outputCharge');
+      const spare = k => stock >= O[k].cost + cheapest && O[k].key !== this._lastObject;
+      if (!wet) {
+        // *** THE LIST IS NOW A BUDGET, NOT A LADDER OF SPECIAL CASES. ***
+        // Three rewrites of this block all failed the same way: whatever the
+        // bottom branch was, the bot's own approach logic parks him inside
+        // 3.4 m and the bottom branch wins every frame. First it was fifteen
+        // tins of gas because the gas was the only branch whose RANGE passed;
+        // then, after the value-first rewrite, it was fifteen tins of gas
+        // again because the gas was the only branch whose AFFORDABILITY passed
+        // at the stock he actually runs at.
+        //
+        // So the general case is now one line — SPEND UP, buy the most
+        // expensive thing he can afford that is not the thing he just threw —
+        // and the two genuinely situational objects sit above it as overrides
+        // rather than below it as leftovers. That is also how the character
+        // reads: the gas is not a cheap attack, it is the button you press
+        // when somebody is on top of you, and the rod is not a cheap attack
+        // either, it is the answer to somebody who will not come to you.
+        const pressed = dist < 3.4 && (foe.state === 'ct' || foe.state === 'punch' || foe.state === 'heavy');
+        if (pressed && stock >= O.canister.cost) this._wantObject = 'canister';
+        else if ((zoning || dist > 11) && spare('rod')) this._wantObject = 'rod';
+        // the drone is worth having out at all times and does not compete with
+        // the throw list, so it jumps the queue when he has none
+        else if (spare('drone') && !this.match.receipts?.dronesFor(me).length) this._wantObject = 'drone';
+        else {
+          // SPEND UP. The car and the vending machine still want a commitment
+          // to land in, so they only enter the pool when they have one.
+          const pool = Object.values(O).filter(o => {
+            if (o.key === this._lastObject || stock < o.cost) return false;
+            if (o.key === 'car') return committed && dist < 14;
+            if (o.key === 'vending') return committed && dist < 9;
+            if (o.key === 'canister') return dist < 3.4;
+            return true;
+          });
+          pool.sort((a, b) => b.cost - a.cost);
+          this._wantObject = pool.length ? pool[0].key : null;
+        }
+      }
+
+      // BIND IT. The wheel is a hold-and-release, so the bot drives it the
+      // same way the Inumaki command bot drives its ring: hold B for a few
+      // frames, steer with the stick, release. `_objSwap` carries the plan
+      // across frames.
+      // the `specialCD` gate came off: the wheel refuses on its own when it is on
+      // cooldown, and the driver above already gives up six frames after a
+      // refusal. Gating the PLAN on the cooldown meant a swap the bot decided
+      // on during those 2.4 s was simply forgotten instead of made late.
+      if (this._wantObject && this._wantObject !== me.objectKey) {
+        this._objSwap = this._objSwap ?? {
+          idx: me.cfg.objects.order.indexOf(this._wantObject), t: 0
+        };
+      }
+      // 1. SPEND. RT for the bound object when it is affordable and the range
+      //    is right; RB for chip the rest of the time, but ONLY while the
+      //    budget survives it — the bot will not spend its last four points on
+      //    a traffic cone when it is two hits from a moped.
+      // *** `_lastObject` IS SET AT THE PRESS, NOT AT THE BIND. *** The first
+      // version stamped it as soon as the bound object matched what the bot
+      // wanted, which is one frame BEFORE the dice roll that actually spends
+      // it — so `spare()` immediately disqualified the thing he was holding,
+      // `_wantObject` moved on, the equality gate below closed, and a fresh
+      // `_objSwap` opened. Measured over a full match: 908 frames where the
+      // bound object was the wanted one and TWO ct2 presses in total, with the
+      // stock pinned at its 100 cap from the fourteenth second onward. The bot
+      // shopped for the whole round and never bought anything.
+      //
+      // The equality gate went with it. A human who has a car bound, can
+      // afford the car and is in range throws the car; he does not re-open the
+      // wheel because his shopping list has moved on. The list decides what he
+      // BINDS. What is bound decides what he THROWS.
+      // SAVING FOR THE REGISTER. The ultimate burns the whole stock and scales
+      // with it, so a Reggie who spends every point the moment he has it can
+      // never afford a good one. Measured after the `_lastObject` fix above:
+      // fifteen materialisations, an average stock of 20 and ZERO ultimates in
+      // a full match — he was solvent enough to keep throwing and never once
+      // solvent enough to cash out. So the moment the bar is ready he stops
+      // buying anything he does not need, and banks toward the threshold.
+      // He still throws junk (which costs almost nothing) and still answers a
+      // point-blank rush with gas, because standing still to save is how you
+      // lose the round you were saving for.
+      // *** AND HE BANKS CURSED ENERGY THE SAME WAY, WHICH IS THE HALF I DID
+      // NOT SEE COMING. *** Reggie has no domain, so `ultReady` is plain
+      // `charged` — a FULL bar, 100/100. Every object he materialises costs
+      // between 3 and 10 CE, and with the spend rule fixed he materialises
+      // seventeen times a match, so the bar never closed the last fifteen
+      // points and `ultReady` was false for the entire round. Three matches,
+      // zero ultimates, and the reason was never the stock rule I had been
+      // tuning. Clearing the Register competes with his own kit for the same
+      // resource, which is a real tension in the character and not a bug — but
+      // a bot that never notices it is just a bot that has no ultimate.
+      //
+      // So above 82% he stops buying the expensive half of the price list and
+      // lets the bar close. Junk and gas still go out: they cost 3-4 CE, which
+      // is inside the regen, and standing still to save is how you lose.
+      const ceFrac = me.res.maxCE > 0 ? me.res.curCE / me.res.maxCE : 0;
+      // *** AND THE BANK NEEDS A CEILING, WHICH IS THE THIRD SWING OF THIS
+      // DIAL. *** At 0.82 with no time limit he banked the entire round: 66
+      // punches, TWO ultimates and ZERO materialisations in forty-five
+      // seconds — a receipt character who never materialised anything, which is
+      // a worse failure than the one it fixed. The threshold is now 0.88, and
+      // `_bankT` caps the hold at four seconds; if the bar has not closed by
+      // then something is draining it faster than he can save and he goes back
+      // to fighting. The clock resets whenever the bar drops out of the band,
+      // which is what firing the ultimate does.
+      const ceBank = !me.ultReady && ceFrac > 0.90;
+      this._bankT = ceBank ? (this._bankT ?? 0) + dt : 0;
+      const banking = (me.ultReady && stock < wantStock) || (ceBank && this._bankT < 3);
+      const bound = O[me.objectKey];
+      if (bound && !wet && stock >= bound.cost && !(banking && bound.cost > 12)) {
+        const want = bound.key === 'rod' ? dist < bound.range
+          : bound.key === 'vending' ? dist < bound.aimRange
+            : bound.key === 'ladder' ? dist < bound.reach
+              : dist < (bound.travel ?? bound.range ?? 10);
+        if (want && Math.random() < 0.55) {
+          this._lastObject = bound.key;
+          f.ct2 = true; this._edges(f); return f;
+        }
+      }
+      // and the junk throw is gated by the bank too. It costs 3 CE, which is
+      // inside the regen on its own — but he throws it eighteen times a match
+      // and eighteen times three is the whole difference between a bar that
+      // closes and one that stalls four points short forever. Measured with
+      // only the objects banked: `noCE: 6`, and still zero ultimates.
+      const ct1Cost = me.cfg.ct1.stock ?? 0;
+      if (!wet && !banking && stock >= ct1Cost + cheapest * 0.5 && dist > 3 && dist < me.cfg.ct1.range
+        && this.punchT <= 0 && Math.random() < 0.35) {
+        f.ct1 = true; this._edges(f); return f;
+      }
+    }
+
+    // ---- INO: THE SITUATIONAL SWAP ------------------------------------------
+    // The brief's rule, verbatim: "swaps masks situationally — heavy to punish,
+    // swift to escape, ranged against melee-only characters." All three are
+    // implemented and the third one is the interesting one, because it is a
+    // read about the OPPONENT'S CONFIG rather than about the current moment.
+    //
+    // *** THE BUDGET IS THE PROFILE. *** A swap is 14 CE and his cheapest
+    // technique is 16, so a bot that swaps whenever it feels like it never
+    // throws anything. `_beastBudget` below is the same calculation the
+    // Inumaki throat bot makes: only swap if, after swapping, the new beast's
+    // cheaper technique is still affordable. That single line produces the
+    // intended rhythm — commit to a beast, use it, swap when the situation
+    // genuinely changes — without a timer anywhere.
+    if (me.cfg.beasts && !me.busy) {
+      const B = me.cfg.beasts.defs;
+      // THE BAR GOES FIRST, for the same structural reason Reggie's does above
+      // — every branch below returns, so nothing after this block is reachable
+      // for him. His own rule is simpler than Reggie's because the dragon does
+      // not scale: press it in range, with the mask on, and not into a domain.
+      if (me.ultReady && !me.busy && dist < 12 && (me.maskOff ?? 0) <= 0
+        && !this.match.domains.state) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+      const maskOff = (me.maskOff ?? 0) > 0 || (me.maskRefit ?? 0) > 0;
+
+      // MASK OFF. He has nothing. The bot plays it exactly as a human must:
+      // it runs, it blocks, and it does not pretend it has a kit.
+      if (maskOff) {
+        this.plan = 'retreat';
+        this.planT = Math.max(this.planT, me.maskOff + me.maskRefit);
+        if (dist < 3.0) f.block = true;
+        this._edges(f);
+        return f;
+      }
+
+      // WHICH BEAST THE SITUATION WANTS.
+      //   RANGED against a melee-only opponent — the brief's third rule. A
+      //     character is "melee-only" if neither of their techniques reaches
+      //     past 6 m, which is a fact about their config and is therefore a
+      //     read the bot can actually make.
+      //   SWIFT to escape — low health, or being pressured at close range.
+      //   HEAVY to punish — they are in a state they cannot cancel.
+      const foeReach = Math.max(
+        foe.cfg.ct1?.range ?? foe.cfg.ct1?.reach ?? 0,
+        foe.cfg.ct2?.range ?? foe.cfg.ct2?.reach ?? 0
+      );
+      const meleeOnly = foeReach < 6;
+      const committed = ['knockdown', 'getup', 'ct', 'launched', 'stunned'].includes(foe.state);
+      const hurt = me.res.hp < me.maxHP * 0.35;
+      let want = me.stance;
+      if (committed && dist < 4.0) want = 'kirin';
+      else if (hurt || (dist < 2.6 && !committed)) want = 'reiki';
+      else if (meleeOnly && dist > 5) want = 'kaichi';
+      else if (dist > 9) want = 'kaichi';
+
+      // KIRIN IS A COUNTDOWN, not a home. It drains 16 CE/s and 18 stamina/s
+      // on top of everything else, so the bot leaves it the moment the punish
+      // window it entered for has closed — which is the same shape the Panda
+      // bot's Gorilla handling has and is the honest way to play a stance that
+      // is actively costing you.
+      if (me.stance === 'kirin' && !committed && me.res.curCE < 40) want = 'kaichi';
+
+      // THE BUDGET. After the swap, can he still afford the cheaper of the new
+      // beast's two techniques? If not, the swap is not worth making.
+      const cost = me.cfg.special.cost;
+      const cheapestOf = k => Math.min(B[k].ct1.cost, B[k].ct2.cost);
+      const affordable2 = me.res.curCE >= cost + cheapestOf(want);
+      if (want !== me.stance && affordable2 && me.specialCD <= 0 && dist > 2.2) {
+        this._beastSwap = this._beastSwap ?? {
+          idx: me.cfg.beasts.order.indexOf(want), t: 0
+        };
+      }
+      // AND THEN PLAY THE BEAST HE IS IN. Each one wants a different range and
+      // a different button, which is the whole point of him having three.
+      const st = B[me.stance];
+      if (me.stance === 'kaichi') {
+        // the unmissable horn into any commitment; the ordinary one otherwise
+        if (committed && me.res.curCE >= st.ct2.cost && dist < st.ct2.range) {
+          f.ct2 = true; this._edges(f); return f;
+        }
+        if (dist > 5 && dist < st.ct1.range && me.res.curCE >= st.ct1.cost && Math.random() < 0.4) {
+          f.ct1 = true; this._edges(f); return f;
+        }
+      } else if (me.stance === 'reiki') {
+        // the shell when they are about to land something, the glide to close
+        if (dist < 2.4 && foe.state === 'attack' && me.res.curCE >= st.ct2.cost) {
+          f.ct2 = true; this._edges(f); return f;
+        }
+        if (dist > 5 && dist < st.ct1.travel && me.res.curCE >= st.ct1.cost && Math.random() < 0.5) {
+          f.ct1 = true; this._edges(f); return f;
+        }
+      } else if (me.stance === 'kirin') {
+        // he does not retreat in this stance, he trades
+        if (dist < st.ct2.reach + 0.6 && me.res.curCE >= st.ct2.cost && Math.random() < 0.5) {
+          f.ct2 = true; this._edges(f); return f;
+        }
+        if (dist > 3 && dist < st.ct1.travel && me.res.curCE >= st.ct1.cost && Math.random() < 0.45) {
+          f.ct1 = true; this._edges(f); return f;
+        }
+      }
+    }
+
+    // ---- RYU: THE ARTILLERY -------------------------------------------------
+    // The brief's three rules, and the middle one is the whole profile:
+    //   1. HOLD SPACE WITH RAPID BLASTS. Constantly, at any range, because it
+    //      is the only thing he owns that does not commit.
+    //   2. *** CHARGE ONLY WHEN THE OPPONENT IS COMMITTED TO SOMETHING. ***
+    //      Not on a timer and not when they are merely far away — the bot
+    //      reads whether they are in a state they cannot cancel, and picks a
+    //      HOLD LENGTH from how long that state has left. That is the single
+    //      thing that separates a Ryu bot that is threatening from one that is
+    //      free damage, and it is why `_holdFrames` exists.
+    //   3. BRACE WHEN IT HAS A SAFE WINDOW. Far away, low tank, and the
+    //      opponent not closing.
+    if (me.cfg.output) {
+      const sp = me.cfg.special;
+      const cee = me.res.curCE;
+      const ceil = me.ceCeiling;
+
+      // ---- THE HOLD, ACROSS FRAMES ---------------------------------------
+      // `_holdFrames` is set once when the charge starts and counted down
+      // here. While it is running the bot does nothing except keep the button
+      // down — it cannot walk, cannot block and cannot change its mind, which
+      // is exactly the commitment a human Ryu is making and is the only honest
+      // way to have a bot play him.
+      if (me.state === 'outputCharge') {
+        this._holdFrames = (this._holdFrames ?? 0) - 1;
+        // BAIL EARLY IF THEY GOT OUT. A charge aimed at somebody who has
+        // finished their recovery and is now running at him is a charge that
+        // should be dumped at whatever tier it reached — which is precisely
+        // the decision the release-at-any-tier rule exists to allow.
+        const escaped = dist < 4.0 && ['run', 'dash'].includes(foe.state);
+        f.ct2 = this._holdFrames > 0 && !escaped;
+        this._edges(f);
+        return f;
+      }
+
+      if (!me.busy) {
+        // 3. BRACE. Only with real room, only when the tank is worth filling,
+        //    and never while they are coming — the whole point of the move is
+        //    that it is an invitation, and a bot that accepted its own
+        //    invitation would be playing the character wrong.
+        const safe = dist > 11 && !['run', 'dash'].includes(foe.state);
+        if (safe && me.specialCD <= 0 && cee < ceil * 0.55) {
+          f.copy = true;
+          this._edges(f);
+          return f;
+        }
+        // 2. THE CHARGE. `committed` is a state they cannot get out of, and
+        //    the tier the bot reaches for is scaled by how much room it has:
+        //    a knockdown is worth a full charge, a whiffed technique at range
+        //    is worth a middling one, and nothing else is worth one at all.
+        const committed = ['knockdown', 'getup', 'ct', 'launched', 'stunned'].includes(foe.state);
+        const veryFar = dist > 16;
+        if ((committed || veryFar) && cee >= 18 && dist > 4.5) {
+          f.ct2 = true;
+          // hold frames, capped by what the bar can pay for — starting a
+          // charge it cannot afford to release at is the one mistake the tier
+          // table lets a player make and the bot should not make it
+          const want = committed && dist > 9 ? 156 : committed ? 108 : 66;
+          const afford = cee >= 74 ? 156 : cee >= 52 ? 108 : cee >= 34 ? 66 : 30;
+          this._holdFrames = Math.min(want, afford);
+          this._edges(f);
+          return f;
+        }
+        // 1. RAPID BLASTS, constantly. This is what he does when nothing else
+        //    is true, and it should be most of the time.
+        this._rapidT = (this._rapidT ?? 0) - dt;
+        if (this._rapidT <= 0 && dist < (me.cfg.ct1.range ?? 20) - 1 && cee >= me.cfg.ct1.cost + 6) {
+          f.ct1 = true;
+          this._rapidT = rand(0.45, 0.85);
+          this._edges(f);
+          return f;
+        }
+        // the ultimate, with room for the beam to matter
+        if (me.ultReady && dist > 5) { f.ult = true; this._edges(f); return f; }
+      }
+
+      // POSITION. He backs off, at the slowest walk in the game, and he never
+      // chases — chasing with these legs is how the character dies. Inside
+      // 2.5 m he throws the string, because it is the only thing he has that
+      // is faster than being hit.
+      if (!f.ct1 && !f.ct2 && !f.copy) {
+        if (dist < 6.0) f.move.z = 1;
+        else if (dist > 20) f.move.z = -0.5;
+        if (dist < 2.2 && this.punchT <= 0) {
+          f.punch = true;
+          this.punchT = rand(0.34, 0.55);
+        }
+        // ...and he GUARDS when they are on him and he has nothing, which for
+        // him is a real plan: his guard is above average and it is the only
+        // defensive option a man with the worst dash in the game has.
+        if (dist < 3.2 && me.res.curCE < me.cfg.ct1.cost) f.block = true;
+      }
+      this._edges(f);
+      return f;
+    }
+
     if (me.cfg.gluttony) {
       const sys = this.match.swarms;
       const mine = sys.countFor(me);
@@ -836,9 +1718,242 @@ export class CPU {
       f.dash = dist > 2.6 && me.res.stamina > 10;
       if (dist < 2.0 && !me.busy) {
         const r = Math.random();
-        if (r < 0.25 && me.res.curCE >= me.cfg.ct1.cost) f.ct1 = true;      // soul touch: big chunk
-        else if (r < 0.4 && me.res.curCE >= me.cfg.ct2.cost) f.ct2 = true;  // body weapon
+        if (r < 0.25 && me.res.curCE >= me.cfg.ct2.cost) f.ct2 = true;      // soul touch: big chunk
+        else if (r < 0.4 && me.res.curCE >= me.cfg.ct1.cost) f.ct1 = true;  // body weapon
         else f.punch = true;
+      }
+      this._edges(f);
+      return f;
+    }
+
+    // ---- YAGA: MAKE THE SPACE, THEN USE IT ----------------------------------
+    // The profile is FOUR RULES and they are in strict priority order, because
+    // the whole character is a question about time and a bot that answers it in
+    // the wrong order simply dies mid-build:
+    //
+    //   1  DEFEND WHAT IS ALREADY BUILT. If a corpse is out and the opponent is
+    //      hitting it rather than him, he walks in and makes them stop. A bot
+    //      that let its own MASTERWORK get dismantled while it stood at range
+    //      would be throwing away the thing it spent six seconds on.
+    //   2  MAKE SPACE WITH THE HAYMAKER. Not on cooldown and not at range —
+    //      only in its actual reach, and preferentially into a whiff, because
+    //      it is his most punishable button and the whole point of it is that
+    //      it BUYS the seconds rather than spending them.
+    //   3  BUILD, BUT ONLY WITH ROOM. The gate is real distance plus a real
+    //      read that they are not closing, and it RELEASES THE MOMENT THAT
+    //      STOPS BEING TRUE — which is the behaviour the brief asks for.
+    //   4  *** IT NEVER ATTEMPTS A MASTERWORK UNDER PRESSURE. *** The target
+    //      tier is chosen at the start of the hold from how much room it has,
+    //      and the hold ends at that tier rather than at the top of the bar.
+    //      A bot holding for six seconds against a rushdown would be a free
+    //      round, and — more importantly — it would be playing the character
+    //      wrong: STANDARD is the realistic ceiling under pressure and the bot
+    //      should know that.
+    if (me.cfg.special?.key === 'yaga_build') {
+      const sys = this.match.construction;
+      const mine = sys ? sys.aliveFor(me) : [];
+      const tiersOfMe = me.cfg.special.tiers;
+      const closing = foe.state === 'run' || foe.state === 'dash'
+        || (foe.vel && flatDist(me.pos, foe.pos) < (this._yagaLastD ?? 99));
+      this._yagaLastD = dist;
+      const pressured = dist < 5.2 || closing;
+      const p = me.build?.p ?? 0;
+
+      // ---- 3/4 · THE HOLD, and the tier it is holding FOR -----------------
+      if (me.state === 'building') {
+        // ---- WHEN TO LET GO -------------------------------------------------
+        // Three reasons, and the third is the one that makes the bot play the
+        // character properly rather than merely survive it:
+        //   1  the target tier is reached — take it and stop
+        //   2  it has run out of cursed energy — the meter has stalled anyway
+        //   3  *** IT IS ABOUT TO BE HIT AND IT HAS SOMETHING TO BANK. ***
+        //      A held build that gets punched is worth NOTHING; a SCRAP on the
+        //      field is worth a second. Measured over a 90-second bot-vs-bot
+        //      match, the first version of this profile held for the STANDARD
+        //      tier every time, was interrupted every time, and deployed
+        //      nothing at all in the whole match — which is a bot that has
+        //      understood the mechanic and refuses to use it.
+        const target = this._yagaTarget ?? 0.5;
+        // "Closing" is about DISTANCE CHANGING, not about them being busy: a
+        // bot in `attack` or `ct` is in one of those states almost all the
+        // time, and treating that as a threat from eight metres made the
+        // profile bank a SCRAP the instant it had one and never once reach
+        // STANDARD. Measured across three matchups before and after.
+        // ...and a COMMITTED TECHNIQUE inside its own range counts, because
+        // against a ranged character there is no safe distance at all and a
+        // profile that only reacted to footsteps banked nothing whatsoever in
+        // a 90-second match against Takaba. Bounded by distance so a technique
+        // thrown across the map is not a reason to stop working.
+        const closing = foe.state === 'run' || foe.state === 'dash'
+          || (foe.state === 'ct' && dist < 9.0);
+                // The bank threshold is deliberately BRAVE rather than safe: banking a
+        // SCRAP the moment anybody takes a step is a bot that never reaches
+        // STANDARD, which is the tier the character is actually balanced
+        // around. It holds until they are genuinely on top of it.
+        const bank = p >= (tiersOfMe[0]?.at ?? 0.25) && (dist < 4.6 || (closing && dist < 5.8));
+        if (p >= target || bank || me.res.curCE < 6) {
+          f.copy = false;
+          this._yagaTarget = null;
+        } else {
+          f.copy = true;
+          // shuffle backwards while he works — the moveMult makes it almost
+          // nothing, but "almost nothing" away from a closing opponent is the
+          // difference between STANDARD and a demolished bar
+          f.move.z = dist < 8 ? 1 : 0;
+        }
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 1 · DEFEND THE BENCH -------------------------------------------
+      const threatened = mine.find(c => flatDist(c.pos, foe.pos) < 2.4);
+      if (threatened && !me.busy) {
+        f.move.z = -1;
+        f.dash = dist > 4.5 && me.res.stamina > 22;
+        if (dist < 2.2 && this.punchT <= 0) { f.punch = true; this.punchT = rand(0.12, 0.3); }
+        // and it re-orders them onto whoever is doing it — COMMAND is free, so
+        // there is never a reason not to
+        if (me.res.curCE >= 0 && !me.busy && (this._cmdT ?? 0) <= 0) {
+          f.ct1 = true; this._cmdT = rand(3.5, 5.5);
+        }
+        this._cmdT = (this._cmdT ?? 0) - 1 / 60;
+        this._edges(f);
+        return f;
+      }
+      this._cmdT = (this._cmdT ?? 0) - 1 / 60;
+
+      // ---- COMMAND on its own clock when there IS something to command ----
+      if (mine.length && !me.busy && (this._cmdT ?? 0) <= 0 && dist < 14) {
+        f.ct1 = true;
+        this._cmdT = rand(4.0, 6.0);
+        this._edges(f);
+        return f;
+      }
+
+      // ---- THE ULTIMATE ----------------------------------------------------
+      // A full bar buys a MASTERWORK with no risk, which is exactly what a bot
+      // that cannot safely hold for six seconds should be spending it on. It
+      // waits for a moment rather than firing on the frame the gate opens.
+      if (me.ultReady && !me.busy && dist > 3.0 && dist < 14 && Math.random() < 0.05) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 2 · THE HAYMAKER ------------------------------------------------
+      const ct2 = me.cfg.ct2;
+      const whiffing = foe.state === 'attack' || foe.state === 'ct';
+      if (!me.busy && me.res.curCE >= ct2.cost && dist < (ct2.reach ?? 2.3) + 0.5
+        && (whiffing ? Math.random() < 0.5 : Math.random() < 0.10)) {
+        f.ct2 = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 3 · OPEN THE HOLD ----------------------------------------------
+      // The target tier is a function of the room it actually has, and it is
+      // capped BELOW MASTERWORK unless the opponent is on the floor at range —
+      // which is the only situation in which six seconds is a real offer.
+      if (!me.busy && !pressured && dist > 6.8 && sys?.canBuild(me) && me.res.curCE > 22) {
+        const down = foe.state === 'knockdown' || foe.state === 'getup' || foe.state === 'launched';
+        this._yagaTarget = (down && dist > 11 && me.res.curCE > 60) ? 1.0
+          : dist > 11 ? 0.75 : 0.5;
+        f.copy = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- otherwise: a heavyweight, playing heavyweight neutral -----------
+      f.move.z = dist > 2.4 ? -1 : 0.2;
+      f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * 0.22;
+      f.dash = dist > 7.0 && me.res.stamina > 30;
+      if (dist < 1.8 && this.punchT <= 0) { f.punch = true; this.punchT = rand(0.14, 0.3); }
+      if (dist < 2.4 && whiffing && Math.random() < 0.4) { f.block = true; f.punch = false; }
+      this._edges(f);
+      return f;
+    }
+
+    // ---- TAKABA: THROW BITS, AND RIFF WHEN IT IS SAFE -----------------------
+    // THREE RULES:
+    //   1  THROW BITS CONSTANTLY. RB is cheap, fast and his neutral, and a bot
+    //      that hoarded it would be playing a character who does not exist.
+    //   2  RIFF ONLY IN A SAFE WINDOW, and the definition of safe is strict:
+    //      far away, they are on the floor or committed, and the cooldown is
+    //      up. Getting hit during it costs more meter than the whole stance
+    //      earns, so a bot that riffed on a whim would spend the round at OPEN
+    //      MIC — which is not weaker, but is much less fun to watch.
+    //   3  THE GAME SHOW AT A SENSIBLE MOMENT, not the instant the meter fills.
+    //      It waits for the meter to be worth cashing (the difficulty scales
+    //      off it) AND for the opponent to be somewhere it can be started
+    //      safely. See the note on the gate below.
+    if (me.cfg.comedy) {
+      const c1 = me.cfg.ct1, c2 = me.cfg.ct2, sp = me.cfg.special;
+      // ---- HOSTING -----------------------------------------------------------
+      // Inside his own set he deals no damage and takes none, so there is
+      // nothing to win by attacking. He CHASES — a body in the corridor is a
+      // real obstacle, and getting in front of the contestant is the only
+      // pressure he has in there.
+      if (this.match.theset?.running) {
+        // the corridor camera maps stick-up to world +X and stick-right to
+        // world z, so this is "down the corridor, drifting onto their line"
+        f.move.z = -1;
+        f.move.x = Math.max(-1, Math.min(1, (foe.pos.z - me.pos.z) * 0.6));
+        f.dash = dist > 4.0 && me.res.stamina > 20;
+        this._edges(f);
+        return f;
+      }
+      const meterFrac = (me.comedy ?? 0) / me.cfg.comedy.max;
+      const safeWindow = dist > 8.0
+        && (foe.state === 'knockdown' || foe.state === 'getup' || foe.state === 'launched'
+          || (foe.busy && dist > 11));
+
+      // ---- 3 · THE GAME SHOW ------------------------------------------------
+      // GATED ON THE METER, NOT JUST ON THE BAR. A show fired at OPEN MIC is a
+      // full bar spent on the EASIEST version of the challenge, which is the
+      // worst use of it in the game — so the bot holds for WARMING UP at least,
+      // and prefers KILLING. It also will not open one at point-blank range,
+      // because it wants the seconds after the show as much as the show.
+      if (me.ultReady && !me.busy && dist > 2.5 && dist < 16
+        && meterFrac > 0.45 && Math.random() < (meterFrac > 0.82 ? 0.06 : 0.02)) {
+        f.ult = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 2 · THE RIFF -----------------------------------------------------
+      if (!me.busy && me.specialCD <= 0 && safeWindow && meterFrac < 0.9 && Math.random() < 0.08) {
+        f.copy = true;
+        this._edges(f);
+        return f;
+      }
+
+      // ---- 1 · BITS ---------------------------------------------------------
+      this._bitT = (this._bitT ?? 0) - 1 / 60;
+      if (!me.busy && this._bitT <= 0) {
+        // THE BIG ONE when it can afford the commitment — close enough to
+        // connect, and they are not about to punish 27 frames of startup.
+        if (me.res.curCE >= c2.cost && dist < (c2.range ?? 4.2)
+          && (foe.state === 'knockdown' || foe.state === 'getup' || Math.random() < 0.20)) {
+          f.ct2 = true;
+          this._bitT = rand(1.4, 2.4);
+          this._edges(f);
+          return f;
+        }
+        if (me.res.curCE >= c1.cost && dist < (c1.range ?? 6.5)) {
+          f.ct1 = true;
+          this._bitT = rand(0.5, 1.1);
+          this._edges(f);
+          return f;
+        }
+      }
+
+      // ---- otherwise: an ordinary man, at ordinary range --------------------
+      f.move.z = dist > 3.2 ? -1 : dist < 1.4 ? 0.5 : 0;
+      f.move.x = (this.strafeDir ??= Math.random() < 0.5 ? 1 : -1) * 0.32;
+      f.dash = dist > 6.5 && me.res.stamina > 26;
+      if (dist < 1.5 && this.punchT <= 0) { f.punch = true; this.punchT = rand(0.12, 0.26); }
+      if (dist < 2.2 && (foe.state === 'attack' || foe.state === 'ct') && Math.random() < 0.3) {
+        f.block = true; f.punch = false;
       }
       this._edges(f);
       return f;
@@ -852,23 +1967,52 @@ export class CPU {
       const sys = this.match.shikigami;
       const snap = sys.snapshot(me);
       const by = Object.fromEntries(snap.map(s => [s.key, s]));
-      const bind = k => (by[k] && !by[k].lost && by[k].cd <= 0 && by[k].affordable);
+      // `blocked` covers the two states that are new to the roster: the
+      // ritual-only Mahoraga entry, and a fusion whose components have been
+      // destroyed. Without it the CPU would happily bind a slot to a button
+      // that can never fire.
+      const bind = k => (by[k] && !by[k].lost && !by[k].blocked && by[k].cd <= 0 && by[k].affordable);
       const onField = sys.aliveFor(me).length;
       const hurt = me.res.hp < me.cfg.stats.hp * 0.35;
       const pressured = dist < 2.4 && (foe.state === 'attack' || foe.state === 'ct' || foe.state === 'run');
+      const deerOut = sys.aliveFor(me).some(s => s.key === 'roundDeer');
 
       // 1) PANIC — Rabbit Escape when it is being run down on low health
       if (!me.busy && hurt && pressured && bind('rabbits') && !this.wheelT) {
         this._wantBind = { key: 'rabbits', slot: 'ct1' };
       }
-      // 2) PUNISH — Max Elephant into a knockdown, where it cannot be answered
+      // 2) SUSTAIN — Round Deer when it is hurt and NOT being run down. The
+      //    ordering against the panic button matters: the deer is fragile and
+      //    summoning it with somebody in his face just feeds them a kill.
+      else if (!me.busy && hurt && !pressured && !deerOut && bind('roundDeer')) {
+        this._wantBind = { key: 'roundDeer', slot: 'ct1' };
+      }
+      // 3) THE FUSION — Merged Beast Agito. Gated hard, because it costs four
+      //    shikigami: only with a healthy bar, only when the fight is close
+      //    enough to spend it on, and never twice in a row.
+      else if (!me.busy && bind('agito') && me.res.curCE > 60 && dist < 11 && Math.random() < 0.04) {
+        this._wantBind = { key: 'agito', slot: 'ct2' };
+      }
+      // 4) THE RUNWAY — Piercing Ox specifically when there IS runway. Summoned
+      //    in a corridor it is a shove; summoned across an open street it is the
+      //    biggest hit Megumi has, and the CPU should know the difference.
+      else if (!me.busy && dist > 8 && bind('piercingOx') && Math.random() < 0.03) {
+        this._wantBind = { key: 'piercingOx', slot: 'ct2' };
+      }
+      // 5) PUNISH — Max Elephant into a knockdown, where it cannot be answered
       else if (!me.busy && (foe.state === 'knockdown' || foe.state === 'getup')
         && bind('elephant') && dist < 9) {
         this._wantBind = { key: 'elephant', slot: 'ct2' };
       }
-      // 3) CONTROL — Toad + Serpent when the opponent wants to sit at range
+      // 6) CONTROL — Toad + Serpent when the opponent wants to sit at range
       else if (!me.busy && dist > 6 && bind('serpent') && Math.random() < 0.02) {
         this._wantBind = { key: 'serpent', slot: 'ct2' };
+      }
+      // 7) DEFAULT — Tiger Funeral, the all-rounder, when nothing else applies
+      //    and the field is empty. It is the pick with no read behind it, which
+      //    is exactly what a CPU with no read should take.
+      else if (!me.busy && !onField && bind('tigerFuneral') && Math.random() < 0.02) {
+        this._wantBind = { key: 'tigerFuneral', slot: 'ct1' };
       }
 
       // drive the wheel: hold B, steer to the wanted sector, release
@@ -895,8 +2039,8 @@ export class CPU {
         const wantMore = onField < 2 || !!this.match.domains.isShadowGarden(me);
         if (wantMore && this.summonT <= 0) {
           const s1 = by[sys.bindingOf(me, 'ct1')], s2 = by[sys.bindingOf(me, 'ct2')];
-          const ok1 = s1 && !s1.lost && s1.cd <= 0 && s1.affordable;
-          const ok2 = s2 && !s2.lost && s2.cd <= 0 && s2.affordable;
+          const ok1 = s1 && !s1.lost && !s1.blocked && s1.cd <= 0 && s1.affordable;
+          const ok2 = s2 && !s2.lost && !s2.blocked && s2.cd <= 0 && s2.affordable;
           if (ok1 && (!ok2 || Math.random() < 0.55)) { f.ct1 = true; this.summonT = rand(0.7, 1.4); }
           else if (ok2) { f.ct2 = true; this.summonT = rand(0.7, 1.4); }
         }
@@ -961,7 +2105,7 @@ export class CPU {
           }
         }
       } else if (me.state === 'wheel' && this._wantCurse) {
-        const order = me.cfg.curses.specialOrder;
+        const order = me.cfg.curses.wheelOrder ?? me.cfg.curses.specialOrder;
         const want = order.indexOf(this._wantCurse);
         const cur = me.wheel?.sel ?? 0;
         if (want !== cur) {
@@ -1145,6 +2289,125 @@ export class CPU {
       }
     }
 
+    // =======================================================================
+    // INUMAKI — THE COMMANDER
+    // =======================================================================
+    // The only profile in this file whose primary resource is not cursed
+    // energy, and the only one that has to decide WHICH MOVE A BUTTON IS
+    // before it decides whether to press it.
+    //
+    // FIVE RULES, and they are the whole profile:
+    //
+    //  1. KEEP DISTANCE. He is a support-grade sorcerer with 2.6-damage
+    //     normals; the punch string exists to grow MAX_CE and for nothing
+    //     else. The plan set below gives him the zoner's spacing game.
+    //  2. OPEN WITH DON'T MOVE. It is cheap, it is fast, and everything else
+    //     in the kit is a follow-up to it. The bot deliberately does NOT lead
+    //     with a heavy word: an unset-up Blast Away is a 44-frame utterance
+    //     thrown at somebody who is free to walk into it and interrupt.
+    //  3. FOLLOW WITH A HEAVY COMMAND while they are rooted. That is the
+    //     combo, and it is the only sequence the bot actually plays.
+    //  4. RUN AWAY TO ESCAPE PRESSURE, not to open. It is the panic button
+    //     and it is checked before everything else, because by the time the
+    //     bot is deciding what to say it may already be in a string.
+    //  5. MANAGE THE THROAT rather than burning it. `_throatBudget` below is
+    //     the one line that makes the difference between a bot that plays the
+    //     character and a bot that says two words and spends the rest of the
+    //     round silent — it refuses a heavy command that would leave him with
+    //     no cheap one, which is exactly the decision a human is making.
+    if (me.cfg.commands && !me.busy && me.grounded) {
+      const C = me.cfg.commands.defs;
+      const canSay = (k, reserve = 0) => speechAffordable(me, C[k]) && this._throatBudget(me, C[k], reserve);
+      const inRange = k => dist <= C[k].range - 0.6;   // margin: they move
+      const bound = sl => speechBoundKey(me, sl);
+
+      // ---- 4. THE PANIC BUTTON, checked first ---------------------------
+      // Being inside two and a half metres of anybody is a losing position for
+      // him, and RUN AWAY is the answer whether or not it is currently bound —
+      // if it is not, the wheel gets it (see the binding block below).
+      const pressured = dist < 2.8 && (foe.state === 'attack' || foe.state === 'ct'
+        || foe.state === 'run' || foe.state === 'dash');
+      if (pressured && bound('ct1') === 'run_away' && canSay('run_away')
+        && inRange('run_away') && Math.random() < 0.45) {
+        f.ct1 = true;
+        { this._edges(f); return f; }
+      }
+
+      // ---- 3. THE FOLLOW-UP ---------------------------------------------
+      // They are rooted, frozen, knocked down or wading. This is the window
+      // the whole character is built to create, and the bot spends its most
+      // expensive word in it — which is the correct read, because a heavy
+      // utterance is only safe when the opponent cannot reach him.
+      const helpless = ['rooted', 'frozen', 'knockdown', 'launched', 'getup'].includes(foe.state)
+        || foe.sleepT > 0;
+      const heavyKey = bound('ct2');
+      if (helpless && canSay(heavyKey) && inRange(heavyKey) && Math.random() < 0.7) {
+        f.ct2 = true;
+        { this._edges(f); return f; }
+      }
+
+      // ---- 2. THE OPENER -------------------------------------------------
+      // Mid range, they are coming, and nothing is happening yet.
+      const lightKey = bound('ct1');
+      if (!helpless && dist > 3.0 && canSay(lightKey, C[heavyKey].throat) && inRange(lightKey)
+        && Math.random() < 0.20) {
+        f.ct1 = true;
+        { this._edges(f); return f; }
+      }
+
+      // ---- 1b. THE BINDINGS ----------------------------------------------
+      // A TAP of B commits the wheel's default, which is whatever is already
+      // bound — so the bot cannot use a tap to change anything. It holds the
+      // ring instead, and it only does so when it genuinely wants a different
+      // word, which is: it is under pressure and does not have RUN AWAY on
+      // RB, or its heavy slot holds something it can no longer afford.
+      //
+      // `_cmdSwap` runs the hold across several frames the way a human does.
+      if (this._cmdSwap) {
+        this._cmdSwap.t -= dt;
+        f.copy = true;                       // keep the ring open
+        // the stick picks the sector; `_wheelPick` reads it as an angle
+        const n = me.cfg.commands.order.length;
+        const a = (this._cmdSwap.idx / n) * Math.PI * 2;
+        f.move.x = Math.sin(a); f.move.z = -Math.cos(a);
+        if (this._cmdSwap.slot === 'ct1') f.ct1 = true; else f.ct2 = true;
+        if (this._cmdSwap.t <= 0) this._cmdSwap = null;   // release confirms
+        { this._edges(f); return f; }
+      }
+      if (me.specialCD <= 0 && this.thinkT <= 0) {
+        let want = null;
+        const defaults = me.cfg.commands.defaults;
+        if (pressured && bound('ct1') !== 'run_away' && speechAffordable(me, C.run_away)) {
+          want = { key: 'run_away', slot: 'ct1' };
+        } else if (bound('ct2') !== defaults.ct2 && speechAffordable(me, C[defaults.ct2])) {
+          // ...and put the payoff back when it can afford it again.
+          want = { key: defaults.ct2, slot: 'ct2' };
+        } else if (bound('ct1') !== defaults.ct1 && !pressured && speechAffordable(me, C[defaults.ct1])) {
+          want = { key: defaults.ct1, slot: 'ct1' };
+        }
+        // THE BOT DOES NOT DOWNGRADE ITS HEAVY SLOT, and that is a deliberate
+        // deletion rather than an omission. The first version rebound ct2 to
+        // "the most expensive word I can still afford" whenever the real one
+        // went out of reach — which sounds like throat management and is a
+        // trap, because `_openWheel` filters `avail` by affordability and
+        // `_wheelPick` snaps to the nearest AVAILABLE sector. At RAW the only
+        // available sectors are the cheap ones, so the wheel handed it DON'T
+        // MOVE, its heavy slot became its light slot, the reserve calculation
+        // collapsed, and it spammed one word for the rest of the match.
+        // Measured: 24 DON'T MOVEs to 3 GET CRUSHEDs, and 24 of 60 seconds at
+        // RAW. Waiting for the throat is the correct answer and it is free.
+        if (want && Math.random() < 0.5) {
+          this._cmdSwap = {
+            idx: me.cfg.commands.order.indexOf(want.key),
+            slot: want.slot,
+            t: rand(0.30, 0.45)              // comfortably past TAP_MAX
+          };
+          f.copy = true;
+          { this._edges(f); return f; }
+        }
+      }
+    }
+
     // ---- planning -----------------------------------------------------------
     if (this.thinkT <= 0) {
       this.thinkT = rand(0.14, 0.3);
@@ -1168,6 +2431,29 @@ export class CPU {
       // roster because his win condition is not in the fight — it is forty
       // seconds away, and every exchange he ducks is one he did not lose.
       const attorney = me.cfg.special?.key === 'higuruma_judgeman';
+      // INUMAKI: the commander. He gets the ZONER's plan set outright rather
+      // than a near-duplicate — hold range, never chase, leave the instant
+      // anybody closes — because that IS his game, and the difference between
+      // him and Jogo is entirely in the block above rather than in how he
+      // walks. The one thing he does that Jogo does not is go and PUNCH when
+      // his throat is spent, because MAX_CE is the only path back to his
+      // ultimate and his fists are the only thing that grows it.
+      const commander = !!me.cfg.commands;
+      // ---- URO: THE AERIAL ZONER ------------------------------------------
+      // She gets her own flag rather than sharing Jogo's because her plan set
+      // has a vertical axis nobody else's does. The rules, in order:
+      //   1. BE IN THE AIR. If she is grounded and has the stamina, jump.
+      //   2. KEEP DISTANCE. Same instinct as the zoner, executed by drifting.
+      //   3. LAND, ONLY TO RECOVER. Stamina is the leash and the bot respects
+      //      it: below a quarter tank it comes down deliberately and waits
+      //      rather than being dropped out of the sky mid-approach.
+      const flier = !!me.cfg.flight;
+      // ---- DAGON: THE PATIENT ONE -----------------------------------------
+      // The most defensive profile in the game after Higuruma's, and for the
+      // same structural reason: his win condition is not in the exchange, it
+      // is forty seconds away in the domain. He blocks, he soaks, he throws
+      // the volley to keep the bar moving, and he does not chase.
+      const tide = me.cfg.special?.key === 'dagon_summon';
       // ultimate when charged (domain casters look for space first)
       if (me.charged && this.planT <= 0) {
         // ---- GETO: THE ONE ULTIMATE GATE THAT IS NOT ABOUT METER -----------
@@ -1190,7 +2476,20 @@ export class CPU {
         else if (!me.cfg.domain || dist > 2.5) this.plan = 'ultimate';
       } else if (this.planT <= 0) {
         const r = Math.random();
-        if (zoner) {
+        if (commander) {
+          // SILENCED, or close to it: the character is temporarily not the
+          // character. He has a punch string and nothing else, so the bot
+          // stops playing keep-away and goes to earn meter — which is also
+          // the most honest thing it can do, because standing at range doing
+          // nothing while his gauge recovers is not a fight.
+          const mute = me.throatTier >= 2 || me.voiceSpent;
+          if (mute) {
+            this.plan = dist > 3.0 ? 'approach' : r < 0.62 ? 'punch' : 'block';
+          } else if (dist > 8.0) this.plan = r < 0.55 ? 'strafe' : 'approach';
+          else if (dist > 3.2) this.plan = r < 0.45 ? 'strafe' : r < 0.75 ? 'backoff' : 'approach';
+          else this.plan = r < 0.55 ? 'backoff' : r < 0.8 ? 'strafe' : 'punch';
+          this.planT = rand(0.4, 1.0);
+        } else if (zoner) {
           // jogo plays the opposite game: hold range, throw fire, and leave
           // whenever anyone gets close. Punching is his last resort — but his
           // techniques cost real CE, so with an empty tank he has to go earn
@@ -1274,6 +2573,38 @@ export class CPU {
             ? (r < 0.60 ? 'punch' : r < 0.76 ? 'ct' : r < 0.90 ? 'orbit' : 'block')
             : (r < 0.52 ? 'punch' : r < 0.86 ? 'orbit' : 'dashin');
         }
+        else if (flier) {
+          // she wants 5-10 m and altitude. `backoff` and `strafe` do the
+          // drifting; `ct` is Thin Ice Breaker, which is her whole neutral.
+          // ---- INSIDE HER OWN FIRMAMENT ------------------------------------
+          // Everything the neutral profile is built around stops applying: the
+          // hover is free, the techniques are free, and the sure-hit is doing
+          // the damage on its own. So the bot stops managing a stamina bar it
+          // is no longer spending and simply holds altitude and throws — which
+          // is also the correct read, because coming down inside her own
+          // domain is the only way she can lose it.
+          const myDomain = !!this.match.domains?.isMyDomain?.(me);
+          const low = !myDomain && me.res.stamina < me.cfg.stats.stamina * 0.25;
+          if (myDomain) this.plan = r < 0.50 ? 'ct' : r < 0.80 ? 'strafe' : 'backoff';
+          else if (low && !me.grounded) this.plan = 'backoff';  // come down and breathe
+          else if (dist > 9) this.plan = r < 0.55 ? 'ct' : 'strafe';
+          else if (dist > 4.5) this.plan = r < 0.45 ? 'ct' : r < 0.75 ? 'strafe' : 'backoff';
+          else if (dist > 2.4) this.plan = r < 0.30 ? 'ct' : r < 0.72 ? 'backoff' : 'strafe';
+          // point blank is where she loses. The bot leaves rather than trading.
+          else this.plan = r < 0.62 ? 'backoff' : r < 0.84 ? 'strafe' : 'punch';
+        }
+        else if (tide) {
+          // He does not approach and he does not retreat. He holds a slab of
+          // mid range, blocks whatever comes to him, and spends the whole
+          // early game feeding the bar — which for him is landing the volley
+          // and the occasional string, since `ceGainPerPunch` is 8.4.
+          const hurt2 = me.res.hp < me.cfg.stats.hp * 0.4;
+          if (dist > 8) this.plan = r < 0.62 ? 'ct' : 'approach';
+          else if (dist > 3.4) this.plan = r < 0.42 ? 'ct' : r < 0.70 ? 'approach' : 'block';
+          else this.plan = hurt2
+            ? (r < 0.52 ? 'block' : r < 0.80 ? 'punch' : 'backoff')
+            : (r < 0.46 ? 'punch' : r < 0.78 ? 'block' : r < 0.90 ? 'ct' : 'strafe');
+        }
         else if (harasser) {
           // never stops moving in, and up close it is almost entirely the
           // punch string — his normals are the fastest in the game and the
@@ -1297,10 +2628,39 @@ export class CPU {
         else this.plan = r < 0.62 ? 'punch' : r < 0.78 ? 'block' : r < 0.9 ? 'strafe' : 'backoff';
         this.planT = rand(0.4, 1.0);
       }
-      // yuji: Divergent Fist to catch wake-up
+      // yuji: Divergent Bloom to catch wake-up. Read by EFFECT rather than by
+      // slot: RB/RT hold the ranged move and the strong one respectively, and
+      // which is which differs between the characters that share `blackFlash`.
       if (me.cfg.blackFlash && !me.busy) {
-        if (foe.state === 'knockdown' && dist < 1.9 && me.res.curCE >= me.cfg.ct1.cost && Math.random() < 0.4) f.ct1 = true;
+        const near = me.cfg.ct2?.effect === 'yuji_divergent' ? 'ct2' : 'ct1';
+        if (foe.state === 'knockdown' && dist < 1.9 && me.res.curCE >= me.cfg[near].cost
+          && Math.random() < 0.4) f[near] = true;
       }
+      // ---- URO: GET OFF THE GROUND ---------------------------------------
+      // The one thing a bot Uro has to do that no other profile does, and it
+      // is the first thing it does. Sitting on the floor is not playing the
+      // character: her aerial normals are as good as her grounded ones, her
+      // techniques work in the air, and her guard is the worst in the game, so
+      // there is almost never a reason to be down there.
+      //
+      // The two exceptions are both stamina: it will not take off without
+      // enough in the tank to do something with the altitude, and it will not
+      // take off at all under a quarter, which is when it should be standing
+      // still getting the bar back. That produces the right rhythm on its own —
+      // up, pressure, down, breathe — without a single timer.
+      if (me.cfg.flight && !me.busy && me.grounded) {
+        const st = me.res.stamina, max = me.cfg.stats.stamina;
+        const wantAir = st > max * 0.42
+          && (dist < 3.2 || this.plan === 'backoff' || this.plan === 'strafe' || Math.random() < 0.22);
+        if (wantAir) f.jump = true;
+      }
+      // ...and while she IS up, hold jump to climb whenever she is low, so the
+      // bot does not simply sink back to head height and get punished for it.
+      if (me.cfg.flight && !me.grounded && me.hoverT > 0) {
+        const floor = this.match.arena?.bounds?.floorAt(me.pos.x, me.pos.z, me.pos.y + 0.5) ?? 0;
+        if (me.pos.y - floor < 3.4 && me.res.stamina > me.cfg.stats.stamina * 0.3) f.jump = true;
+      }
+
       // ---- specials: each profile leans on its own signature -------------
       const spKey = me.cfg.special?.key;
       if (spKey && me.specialCD <= 0 && !me.busy) {
@@ -1333,8 +2693,39 @@ export class CPU {
         // face is how he dies.
         if (spKey === 'higuruma_judgeman' && !this.match.judgemen?.aliveFor(me)
           && me.res.curCE >= me.cfg.special.cost && dist > 3.0) f.copy = true;
-        // mahito: summon IMMEDIATELY — he never fights alone by choice
-        if (spKey === 'mahito_summon' && !this.match.minions?.aliveFor(me)
+        // ---- URO: REFLECT WHEN THEY COMMIT TO A PROJECTILE ----------------
+        // The bot does not guess. It reads the OPPONENT'S ACTUAL STATE and the
+        // live entity list, and puts the surface up only when something is
+        // genuinely in the air or a ranged technique is genuinely committed —
+        // which is exactly the read a human makes, and which means a bot Uro
+        // is punished for it the same way a human is when the opponent baits
+        // with a whiffed cast.
+        if (spKey === 'uro_reflect' && me.res.curCE >= me.cfg.special.cost) {
+          // something already flying at her, close enough to matter
+          let incoming = false;
+          for (const e of this.match.effects?.entities ?? []) {
+            if (!e.pos || e.caster === me) continue;
+            if (!REFLECTABLE[e.type]) continue;
+            if (flatDist(e.pos, me.pos) < 7) { incoming = true; break; }
+          }
+          // ...or they are mid-cast on a technique that produces one, at a
+          // range where it will reach her
+          const committing = foe.state === 'ct' && dist > 3.5 && dist < 16;
+          if ((incoming || (committing && Math.random() < 0.55)) && Math.random() < 0.7) f.copy = true;
+        }
+        // ---- DAGON: KEEP ONE IN THE WATER ---------------------------------
+        // Same instinct as Mahito's — he never fights alone by choice — but
+        // capped at one outside the domain, so the bot only re-summons when
+        // the field is empty. It does it from RANGE: the cast is 26 frames of
+        // standing still and doing it in someone's face is how he dies before
+        // reaching the thing he is playing for.
+        if (spKey === 'dagon_summon'
+          && (this.match.ocean?.countFor(me) ?? 0) < (me.cfg.special.maxOutside ?? 1)
+          && me.res.curCE >= me.cfg.special.cost && dist > 3.2 && Math.random() < 0.45) f.copy = true;
+        // mahito: summon IMMEDIATELY — he never fights alone by choice, and he
+        // keeps summoning until he is at his cap
+        if (spKey === 'mahito_summon'
+          && (this.match.minions?.countFor(me) ?? 0) < (me.cfg.special.maxMinions ?? 3)
           && me.res.curCE >= me.cfg.special.cost && dist > 1.8 && Math.random() < 0.5) f.copy = true;
       }
       // todo: hunt the command grab on a grounded target in range
@@ -1403,10 +2794,15 @@ export class CPU {
       case 'ct': {
         // The brawler picks by range instead of at random — his techniques are
         // his only Black Flash openers, so throwing one from out of reach
-        // wastes the opening. Divergent Fist is point-blank (reach 1.9), Manji
-        // Kick is the gap-closer; from further out he just keeps walking in.
+        // wastes the opening. Divergent Bloom is point-blank (reach 3.2), the
+        // Manji Slash is the gap-closer; from further out he just keeps
+        // walking in. Both are found by EFFECT, because Yuji holds the Manji
+        // on RB (his furthest) and Nobara — who shares `blackFlash` — does
+        // not have either move at all.
+        const bfNear = me.cfg.ct2?.effect === 'yuji_divergent' ? 'ct2' : 'ct1';
+        const bfFar = bfNear === 'ct2' ? 'ct1' : 'ct2';
         const pick = me.cfg.blackFlash
-          ? (dist < 1.9 ? 'ct1' : dist < 4.5 ? 'ct2' : null)
+          ? (dist < 1.9 ? bfNear : dist < 4.5 ? bfFar : null)
           : me.cfg.ct2?.effect === 'todo_grab'
             ? (dist < 3 ? 'ct1' : null) // the grab is hunted separately, in range
             : me.cfg.ct2?.effect === 'jogo_eruption'

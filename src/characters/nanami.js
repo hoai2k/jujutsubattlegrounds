@@ -20,9 +20,15 @@ export const NANAMI = withDefaults({
   // a Ratio mark (from CT1) makes the next hit a guaranteed crit.
   ratio: { critChance: 0.18, critMult: 2.1 },
   ct1: {
-    name: 'Ratio: Cleave', cost: 15, startup: 18, active: 5, recovery: 24,
-    effect: 'nanami_cleave', dmg: 12, reach: 2.2, arc: 1.8, kb: 3.5, kbY: 0.5,
-    appliesMark: true, clip: 'ct1'
+    // RATIO WAVE — the blunt blade projects its edge: a travelling gold bar
+    // with the white 7:3 line drawn on its face, steered by the stick.
+    // Caught in the band around seventy percent of its range the hit is a
+    // FORCED critical — the technique finding the weak point is not a roll
+    // of the dice, it is the technique. Landing anywhere applies the mark.
+    name: 'Ratio Wave', jpName: '七三の斬撃', cost: 15,
+    startup: 18, active: 5, recovery: 24,
+    effect: 'nanami_cleave', dmg: 12, range: 7.0, speed: 15, width: 2.4,
+    kb: 3.5, kbY: 0.5, appliesMark: true, clip: 'ct1'
   },
   ct2: {
     name: 'Overtime', cost: 40, startup: 24, active: 1, recovery: 30,
