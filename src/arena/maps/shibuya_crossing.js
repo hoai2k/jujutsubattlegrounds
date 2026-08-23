@@ -82,9 +82,24 @@ export function build(quality) {
     const n = Math.max(1, Math.round(len / 1.4));
     for (let i = 0; i < n; i++) {
       const t = (i / (n - 1) - 0.5) * len;
+      const px = cx + Math.cos(ang) * t, pz = cz - Math.sin(ang) * t;
+      // NOT ACROSS THE HOLE. The road is laid around the station mouth and the
+      // paint was not, so the east arm of the scramble ran its stripes out over
+      // the opening: lit road marking hanging in the air with a 3.8 m drop
+      // under it.
+      //
+      // The test is on the bar's DRAWN FOOTPRINT, not on its centre — a stripe
+      // is 0.72 m across the lane and `wide` metres along it, and `rotateY`
+      // swaps those two on the arms that run east-west. Testing the centre
+      // point passed a bar whose centre was a metre clear of the hole and whose
+      // far end reached 1.3 m into it, which is exactly the four cells the
+      // first version of this guard left behind.
+      const hx = Math.abs(Math.cos(ang)) * 0.36 + Math.abs(Math.sin(ang)) * wide / 2;
+      const hz = Math.abs(Math.sin(ang)) * 0.36 + Math.abs(Math.cos(ang)) * wide / 2;
+      if (px + hx > MX0 && px - hx < MX1 && pz + hz > MZ0 && pz - hz < MSZ) continue;
       const g = new THREE.BoxGeometry(0.72, 0.03, wide);
       g.rotateY(ang);
-      g.translate(cx + Math.cos(ang) * t, 0.015, cz - Math.sin(ang) * t);
+      g.translate(px, 0.015, pz);
       b.static_(g, paint);
     }
   };
@@ -308,6 +323,63 @@ export function build(quality) {
   b.car(-34, 0.22, 44, Math.PI / 2, 0x3a3a44);
   b.car(10, 0.22, -44, Math.PI / 2, 0x5a5a64);
   b.car(-8, 0.22, 44, Math.PI / 2, 0x2a5a4a);
+
+  // ---- THE VEIL -----------------------------------------------------------
+  // A curtain is what closes a district off so a fight can happen in the middle
+  // of one of the busiest crossings on earth, and until now not one map in the
+  // set showed the slightest sign of being a jujutsu site. This is the ward
+  // laid over the scramble: a sigil burnt across the diagonals, big enough to
+  // read from the pedestrian deck, and a second smaller one under the gantry.
+  b.sigil(0, 0.05, 0, 26, 0x8f6aff, { rings: 3, spokes: 16, sides: 6, opacity: 0.30, spin: -0.03 });
+  b.sigil(20, GY + 0.05, 42, 5.5, 0xff5a9f, { rings: 2, spokes: 8, sides: 3, opacity: 0.34, spin: 0.14 });
+
+  // ---- OVERHEAD RUN -------------------------------------------------------
+  // Feeder cables strung tower to tower across the crossing. They sit at 26 m,
+  // well over anything anyone can reach, and they exist to give the sky over
+  // the scramble something in it: the map's ceiling used to be one flat gap
+  // between the rooflines.
+  b.cable(v3(-32, 27, -42), v3(28, 25, -42), { sag: 2.4, r: 0.07 });
+  b.cable(v3(-42, 24, 5), v3(-34, 26, 42), { sag: 2.0, r: 0.06 });
+  b.cable(v3(42, 26, -8), v3(32, 25, 42), { sag: 2.2, r: 0.06 });
+  b.cable(v3(-32, 22, -42), v3(42, 20, -8), { sag: 3.4, r: 0.05 });
+
+  // ---- STREET LIFE --------------------------------------------------------
+  // Awnings over the shop fronts, so the building line has something soft on
+  // it, and a lantern run down the west pavement.
+  for (const [ax, az, aw, ary, ac] of [
+    [-16, -41.2, 15, 0, 0xd8324f], [-18, 41.8, 15, Math.PI, 0x2f7fd8],
+    [16, 41.8, 15, Math.PI, 0xd8a52f], [-43.2, -16, 15, Math.PI / 2, 0x6a2fd8],
+    [43.2, 16, 15, -Math.PI / 2, 0x2fd88a]
+  ]) b.banner(ax, 4.9, az, aw, 1.5, ac, { ry: ary, amp: 0.10 });
+  b.lanternString(v3(-52, 6.4, -30), v3(-52, 6.4, -10), { color: 0xffb86a });
+  b.lanternString(v3(-52, 6.4, -10), v3(-52, 6.4, 10), { color: 0xffb86a });
+
+  // ---- ROADWORKS (north-west pavement) ------------------------------------
+  // Cover on a map whose defining feature is having none, deliberately placed
+  // OFF the crossing itself: the open middle is the reason the long-range
+  // characters have a map here at all and nothing is allowed on it. The drums
+  // are the gimmick — break one and the row goes up, and the whole barricade
+  // and the crate stacks behind it stop existing.
+  for (let i = 0; i < 4; i++) b.drum(-46 + i * 1.1, 0.22, -34, { color: 0xc4562c });
+  b.crates(-46, 0.22, -30, { count: 3 });
+  b.crates(-44.2, 0.22, -31.4, { count: 2 });
+  b.crates(46, 0.22, 30, { count: 3 });
+  b.crates(44.2, 0.22, 31.6, { count: 2 });
+  for (let i = 0; i < 3; i++) b.drum(44 + i * 1.1, 0.22, 34, { color: 0xb8483c });
+  b.beacon(-46, 1.6, -36, 0xffa03c, { reach: 4.0 });
+  b.beacon(46, 1.6, 36, 0xffa03c, { reach: 4.0 });
+
+  // ---- THE BROKEN MAIN ----------------------------------------------------
+  // A burst water main pouring off the lip of the station mouth into the plaza
+  // below, with the steam of the district coming up through the road beside it.
+  b.waterfall(MX0 + 5, 0.1, MZ0 + 0.3, 3.0, 3.6, { ry: 0, color: 0x8fc8e0, speed: 2.1 });
+  b.mist(MX0, MZ0, MX1, MZ1, PY, 0x7f96b8, { opacity: 0.30, scale: 14 });
+  b.godRay(30, 0.4, -30, 4.5, 3.8, 0xcfe0ff, { opacity: 0.10, taper: 0.5 });
+  for (const [sx, sz] of [[-12, -30], [8, 26], [-30, 12], [36, -4]]) {
+    b.steamVent(sx, 0.24, sz, { height: 4.2, period: 3.2, opacity: 0.24, color: 0xc8d4e4 });
+  }
+  b.sparker(20, GY + 3.0, 43.4, { color: 0xbfe4ff });
+  b.sparker(-38, 5.6, 30.4, { color: 0xbfe4ff });
 
   // ---- RAIN + NEON HAZE ---------------------------------------------------
   b.particles(1200, { x0: -58, x1: 58, y0: 0, y1: 38, z0: -52, z1: 52 },

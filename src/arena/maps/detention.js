@@ -30,7 +30,7 @@
 // version laid floor only where a room was and dressed the outside with an
 // unwalkable apron, which meant the two destructible steel end walls — the
 // map's only structural shortcut — opened onto nothing at all.
-import { MapBuilder, emissive, glowMaterial } from '../kit.js';
+import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import * as THREE from 'three';
 import { rand, v3 } from '../../core/mathutil.js';
 
@@ -105,14 +105,16 @@ export function build(quality) {
 
   // BROKEN SKYLIGHT — the only real light source, and the shaft it throws
   {
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 9.0, 17, 14, 1, true),
-      glowMaterial(0xa8c8ff, 0.085));
-    shaft.position.set(2, 8.5, -1.5);
-    b.add(shaft);
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(8.6, 26), glowMaterial(0xa8c8ff, 0.09));
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.set(2, 0.2, -1.5);
-    b.add(pool);
+    // THE SHAFT LEANS. It used to be a vertical cylinder dropped straight down
+    // the middle of the room, which is what moonlight does at exactly midnight
+    // and never otherwise — and it put the one bright patch on this map in the
+    // one place nobody has a reason to stand. It now comes in the way the key
+    // light does and lands south-west of the opening, across the floor the
+    // rubble ramp climbs off.
+    b.godRay(2, 16.4, -1.5, 8.0, 16.2, 0xa8c8ff,
+      { opacity: 0.075, taper: 0.42, lean: [-5.5, 4.5], poolGain: 1.1, range: 120 });
+    // and the rain that comes in with it, pouring onto the flooded floor
+    b.waterfall(-1.2, 16.2, 1.6, 2.6, 16.0, { color: 0x8fb0d8, opacity: 0.26, speed: 3.6 });
     // jagged glass teeth around the opening
     for (let i = 0; i < 18; i++) {
       const a = (i / 18) * Math.PI * 2;
@@ -142,7 +144,13 @@ export function build(quality) {
   // short of the walkway it was supposed to reach. It now climbs north into the
   // gap and lands on the north-west section's south edge, which is the only
   // walkway edge on this side of the building.
-  b.stairs(-17.5, 3, -12, -8, 0, WY, 'z', { mat: M.concrete, steps: 11 });
+  // `steps` is left at the kit's own count. Forcing it to 11 gave this flight a
+  // 0.44 m rise per tread, and a tread is drawn from its own top down to the
+  // one below while the ramp collider under it interpolates smoothly — so near
+  // the back of each step the fighter stood the better part of half a metre
+  // inside the stone. The kit picks a count from the rise (0.24 m a tread) and
+  // a rubble slope reads as rubble from its material, not from being coarse.
+  b.stairs(-17.5, 3, -12, -8, 0, WY, 'z', { mat: M.concrete });
   for (let i = 0; i < 14; i++) {
     const s = rand(0.5, 1.4);
     const g = new THREE.BoxGeometry(s, s * 0.7, s);
@@ -243,6 +251,67 @@ export function build(quality) {
   b.car(-30, 0, 20, 0.4, 0x2c2a26);
   b.car(33, 0, 16, Math.PI * 0.6, 0x3a2c26);
 
+  // =========================================================================
+  // DERELICTION
+  // =========================================================================
+  // This is the darkest map in the set and it was also the emptiest-sounding:
+  // three storeys of correct concrete with nothing in the air. Everything below
+  // is about the building having been left — mist off the standing water, dead
+  // wiring arcing, pipework hanging out of the ceilings, and the nest at the
+  // bottom of it.
+
+  // ---- THE NEST -----------------------------------------------------------
+  // A special-grade curse was sealed in this building, and the floor of the
+  // atrium never said so. The sigil under the water is what the mission was
+  // about; the two smaller ones are at the mouths of the cell blocks.
+  b.sigil(0, 0.16, 0, 15, 0xd83c5a, { rings: 3, spokes: 18, sides: 3, opacity: 0.24, spin: -0.05 });
+  b.sigil(-AX + 1.5, 0.15, 0, 3.4, 0xd83c5a, { rings: 2, spokes: 8, sides: 3, opacity: 0.26, spin: 0.12 });
+  b.sigil(AX - 1.5, 0.15, 0, 3.4, 0xd83c5a, { rings: 2, spokes: 8, sides: 3, opacity: 0.26, spin: -0.12 });
+
+  // ---- WATER THAT HAS BEEN THERE A WHILE ---------------------------------
+  b.mist(-AX + 0.5, -AX + 0.5, AX - 0.5, AX - 0.5, 0.16, 0x6a86a8, { opacity: 0.30, scale: 12 });
+  for (const s of [-1, 1]) {
+    b.mist(Math.min(s * BLK_IN, s * BLK_OUT) + 0.5, -4.6,
+      Math.max(s * BLK_IN, s * BLK_OUT) - 0.5, 4.6, 0.14, 0x6a86a8, { opacity: 0.26, scale: 10 });
+  }
+
+  // ---- DEAD SERVICES ------------------------------------------------------
+  // Snapped feeders slung across the atrium at walkway height, arcing where
+  // they have come apart, and the pipework that ran the block.
+  b.cable(v3(-AX, WY + 3.2, -6), v3(AX, WY + 2.4, 4), { sag: 2.6, r: 0.05 });
+  b.cable(v3(-AX, GY + 2.0, 7), v3(AX, GY + 3.0, -9), { sag: 2.2, r: 0.04 });
+  b.cable(v3(-12, 15.4, -12), v3(12, 15.0, 12), { sag: 3.0, r: 0.05 });
+  b.sparker(-6.5, WY + 2.0, -1.2, { color: 0xbfe4ff });
+  b.sparker(9, GY + 1.6, -2.4, { color: 0xbfe4ff });
+  for (const s of [-1, 1]) {
+    const lo = Math.min(s * BLK_IN, s * BLK_OUT), hi = Math.max(s * BLK_IN, s * BLK_OUT);
+    b.pipeRun(lo + 1, 4.6, 2.6, hi - 1, 4.6, 2.6, { zone: 'cells' + s });
+    b.pipeRun(lo + 1, 4.6, -2.6, hi - 1, 4.6, -2.6, { zone: 'cells' + s });
+    b.sparker(s * 30, 4.5, 0, { color: 0xbfe4ff });
+    b.hangingLamp(s * 24, 4.9, 0, 1.0, 0x9fc0e0, { amp: 0.09 });
+    b.hangingLamp(s * 37, 4.9, 0, 1.2, 0x9fc0e0, { amp: 0.11 });
+    // tarpaulin torn off something, still hanging in the corridor mouth
+    b.banner(s * (BLK_IN + 2.5), 4.7, 3.4, 2.6, 2.8, 0x3a4a52, { ry: Math.PI / 2, amp: 0.13 });
+    b.steamVent(s * 33, 0.16, 3.6, { height: 3.4, period: 5.0, opacity: 0.18, color: 0x9fb8cc });
+  }
+  // the one thing in the building still drawing power
+  b.beacon(0, WY + 3.4, -AX + 1.2, 0xd8402c, { reach: 5.0, rate: 0.9 });
+
+  // ---- WHAT WAS LEFT IN THE YARD -----------------------------------------
+  // Stores dumped against the yard wall and a fuel dump on the service road.
+  // Both are clear of the tower stair and of the gate, which are the only two
+  // routes through this side of the map.
+  b.crates(-20, 0, -38, { count: 3 });
+  b.crates(-21.8, 0, -36.4, { count: 2 });
+  b.crates(-18.2, 0, -36.4, { count: 1 });
+  for (let i = 0; i < 4; i++) b.drum(-14 - i * 1.05, 0, -38.4, { color: 0x7a5a2c });
+  b.beacon(-16, 1.6, -35.6, 0xffa03c, { reach: 3.6 });
+  b.crates(-34, 0, 26, { count: 2 });
+  b.crates(-35.8, 0, 27.4, { count: 3 });
+  for (let i = 0; i < 4; i++) b.drum(-26 + i * 1.05, 0, 24.5, { color: 0x7a5a2c });
+  b.crates(37, 0, 20, { count: 3 });
+  for (let i = 0; i < 3; i++) b.drum(29 - i * 1.05, 0, 20, { color: 0x6a4a2c });
+
   // ---- ambient: dripping water, drifting dust, one failing lamp ----------
   b.particles(200, { x0: -44, x1: 44, y0: 0.3, y1: 14, z0: -40, z1: 40 },
     { color: 0x8fa8c8, size: 0.07, opacity: 0.26, vy: [-0.15, 0.04] });
@@ -270,7 +339,19 @@ function cellBlock(b, M, sx) {
   const NC = 4, CW = (hi - lo - 2) / NC;      // cells per side, and their width
   b.zone(zn, { x0: lo - 1, x1: hi + 1, z0: -BLK_Z - 1, z1: BLK_Z + 1, y0: -1, y1: 7 });
 
+  // THE BLOCK'S ROOF IS SOLID. Its ceiling is drawn at 5.35 and the atrium's
+  // opening into this corridor runs from the floor to 17 m — so from the
+  // gallery stair, which passes through exactly that height a metre away, a
+  // fighter could step out over the top of the cell block and drop through it
+  // to the corridor floor. From the grounds outside, the block's own walls top
+  // out at 5.8, so being launched onto the roof did the same thing.
+  //
+  // Capping it makes the two block roofs real ground at 5.35 — under the
+  // walkway ring's own level, off to either flank, with no stair to them and
+  // nothing to do up there but get off again. That is a smaller change to this
+  // map than a fighter falling through its roof is.
   b.ceiling(lo, -BLK_Z, hi, BLK_Z, 5.0, { mat: M.concrete, zone: zn });
+  b.lip(lo, -BLK_Z, hi, BLK_Z, 5.35);
   b.water(lo + 0.4, -4.6, hi - 0.4, 4.6, 0.12,
     { shallow: 0x3f6f8a, deep: 0x0e1e2c, opacity: 0.40, caustic: 0.16 });
 
@@ -300,7 +381,7 @@ function cellBlock(b, M, sx) {
       b.bounds.wall(wx - 1.5, s * BLK_Z - 0.3, wx + 1.5, s * BLK_Z + 0.3, 0, 5.8,
         { id: 'bar' + sx + s + i });
       // the shaft of moonlight it throws across the cell
-      const beam = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 8.5), glowMaterial(0x9fc0ff, 0.11));
+      const beam = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 9.0), haloMaterial(0x9fc0ff, 0.16));
       beam.rotation.set(s > 0 ? Math.PI / 3 : -Math.PI / 3, 0, 0);
       beam.position.set(wx, 2.6, s * (BLK_Z - 3.4));
       b.add(beam);

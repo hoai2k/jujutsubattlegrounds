@@ -38,7 +38,7 @@ import { spotlight as comedySpotlight, confetti as comedyConfetti, craftMotes, c
 import { awakenBurst, massField } from '../fx/newfx.js';
 import { GarudaSystem } from '../combat/garuda.js';
 import { NewShadowSystem } from '../combat/newshadow.js';
-import { ReceiptSystem } from '../combat/receipts.js';
+import { ReceiptSystem, canAfford } from '../combat/receipts.js';
 import { BeastSystem } from '../combat/beasts.js';
 import { FXSystem } from '../fx/fx.js';
 // CURSED SPEECH — the extruded-kanji layer and the title-card overlay. Both
@@ -2040,6 +2040,31 @@ export class Match {
         affordable: f.res.curCE >= f.cfg.special.cost,
         selected: c.key === f.stance
       }));
+    }
+    // REGGIE: THE RECEIPT WHEEL REUSES THE SHIKIGAMI WIDGET too — and this
+    // branch is why it was INVISIBLE. Without it he fell through to
+    // `shikigami.snapshot`, which has no order for a fighter with no
+    // `cfg.shikigami`: the snapshot came back empty, the widget built a ring
+    // with no sectors, `snapshot[wheel.sel] ?? snapshot[0]` was undefined and
+    // it took the defensive clamp straight back out of `on`. The radial opened,
+    // the slow-motion ran, the pick worked — and nothing was ever drawn.
+    //
+    // Same shape as the cores above. `affordable` is the STOCK check rather
+    // than a CE one, because the ring is the price list — see `affordableObjects`
+    // in combat/receipts.js — and `selected` marks the object currently bound.
+    if (f.cfg.objects) {
+      const o = f.cfg.objects;
+      return o.order.map(k => {
+        const def = o.defs[k];
+        return {
+          key: k,
+          def: { short: def.short, jp: def.jp, name: def.name, cost: def.cost, desc: def.desc },
+          lost: false,
+          cd: 0,
+          affordable: canAfford(f, def.cost),
+          selected: k === f.objectKey
+        };
+      });
     }
     return this.shikigami.snapshot(f);
   }

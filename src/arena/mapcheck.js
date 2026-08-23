@@ -50,6 +50,7 @@
 // floor above it — on maps that are three levels deep that is most of the map.
 import * as THREE from 'three';
 import { MAPS, MAP_IDS, DEFAULT_QUALITY, buildMap } from './index.js';
+import { surfaces } from './kit.js';
 import { STEP_UP, LIP_EPS } from './bounds.js';
 
 const STEP = 0.25;          // flood-fill grid, metres
@@ -380,6 +381,18 @@ export function check(id, quality = DEFAULT_QUALITY) {
 
 const fmt = r => `[${r.x0.toFixed(1)},${r.z0.toFixed(1)} → ${r.x1.toFixed(1)},${r.z1.toFixed(1)}]`;
 
+// Reverse the shared material table so a rim can say what it was drawn out of.
+// Built lazily and once: `surfaces()` hands back the same objects every time.
+let _matNames = null;
+function matName(mats, mat) {
+  if (!_matNames) {
+    _matNames = new Map();
+    for (const [name, m] of Object.entries(mats)) if (m?.uuid) _matNames.set(m.uuid, name);
+  }
+  if (Array.isArray(mat)) mat = mat[0];
+  return (mat && _matNames.get(mat.uuid)) || mat?.type || '?';
+}
+
 // ---------------------------------------------------------------------------
 // RIMS — drawn ledges with nothing under them
 // ---------------------------------------------------------------------------
@@ -401,6 +414,7 @@ const fmt = r => `[${r.x0.toFixed(1)},${r.z0.toFixed(1)} → ${r.x1.toFixed(1)},
 //     const c = await import('/src/arena/mapcheck.js'); await c.rims();
 export async function rims(ids = MAP_IDS, { step = 0.5, minCells = 3 } = {}) {
   const out = [];
+  const mats = surfaces();
   for (const id of ids) {
     const map = buildMap(id, {});
     map.group.updateMatrixWorld(true);
@@ -431,14 +445,25 @@ export async function rims(ids = MAP_IDS, { step = 0.5, minCells = 3 } = {}) {
         }
         if (!beside) continue;
         const k = Math.round(drawn * 2) / 2;
-        const g = groups.get(k) || { drawn: +drawn.toFixed(2), n: 0, x0: 1e9, x1: -1e9, z0: 1e9, z1: -1e9 };
+        const g = groups.get(k) || {
+          drawn: +drawn.toFixed(2), n: 0, x0: 1e9, x1: -1e9, z0: 1e9, z1: -1e9, drew: new Set()
+        };
         g.n++;
         g.x0 = Math.min(g.x0, x); g.x1 = Math.max(g.x1, x);
         g.z0 = Math.min(g.z0, z); g.z1 = Math.max(g.z1, z);
+        // WHAT DREW IT. Without this the finding is a height and a bounding box
+        // and the next twenty minutes are spent working out which of four
+        // hundred merged boxes is at that height — every surface a map lays
+        // down goes through `static_` and ends up in one mesh per material, so
+        // the object name alone says almost nothing. The material name does:
+        // it is the one thing that survives the merge, and on these maps it is
+        // usually enough to name the piece outright.
+        g.drew.add((hit.object.name || hit.object.type) + ':' + matName(mats, hit.object.material));
         groups.set(k, g);
       }
     }
-    const found = [...groups.values()].filter(g => g.n >= minCells).sort((a, b) => b.n - a.n);
+    const found = [...groups.values()].filter(g => g.n >= minCells).sort((a, b) => b.n - a.n)
+      .map(g => ({ ...g, drew: [...g.drew] }));
     out.push({ id, rims: found });
     const head = `${id}  —  ${found.length} rim(s)`;
     if (!found.length) console.log('%c✓ ' + head, 'color:#6ad48a');
@@ -447,6 +472,7 @@ export async function rims(ids = MAP_IDS, { step = 0.5, minCells = 3 } = {}) {
       for (const g of found) {
         console.log(`  ${g.n} cell(s) of ledge drawn at y=${g.drawn} with no collider — ` +
           `x[${g.x0.toFixed(1)}..${g.x1.toFixed(1)}] z[${g.z0.toFixed(1)}..${g.z1.toFixed(1)}] ` +
+          `drawn by ${g.drew.join(', ')} ` +
           `(use b.bankFace for the face that draws it)`);
       }
       console.groupEnd();

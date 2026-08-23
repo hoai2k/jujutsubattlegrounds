@@ -34,3 +34,40 @@ Usage:
 PNGs land in `shots/`, which is gitignored. Requires `playwright` (a dev
 dependency that is deliberately NOT in package.json — install it ad hoc with
 `npm i -D playwright --no-save`).
+
+## Map harnesses
+
+Three more, added with the map set-dressing pass. The first two exist because
+`src/arena/mapcheck.js` — the validator that knows every way a map has shipped
+broken here — was written to be driven from the browser console, which means it
+only ever ran when somebody remembered to run it.
+
+    node tools/mapaudit.mjs                 # colliders only, all ten maps (~20s)
+    node tools/mapaudit.mjs --rims          # + the drawn-ledge raycast pass (slow)
+    node tools/mapaudit.mjs shinjuku        # one map
+
+`mapaudit` prints a JSON blob on stdout and a per-map summary on stderr, and
+**exits non-zero if anything is found**, so "no clipping, no backward stairs, no
+soft locks" is a claim that can be re-checked in seconds instead of re-argued.
+It covers UNREACHABLE, RAMP-END, BURIED, SUNK, WALL-LIP, PHANTOM, UNCAPPED and
+SPAWN; `--rims` adds the one check that starts from what a map DRAWS rather than
+from what it registered, and catches a ledge you can see, walk onto and drop
+through.
+
+    node tools/mapshots.mjs                 # beauty shot of every map -> shots/
+    node tools/mapshots.mjs sewer_lair
+
+`mapshots` drives the existing `arena/mapshot.js` contact sheet. `mapaudit`
+proves a map is walkable; this is how anyone checks it is worth walking through.
+
+    node tools/mapperf.mjs                  # boot every map in the real game
+    node tools/mapperf.mjs kyoto_grounds
+
+`mapperf` starts an actual CPU match on each map through the `__skipSelect` dev
+hook, one page per map, and samples real frames after it settles. Absolute frame
+times from a headless software renderer are meaningless; what it is for is
+**pageErrors** (a map that throws on build fails here and nowhere else) and
+relative before/after comparison across a change.
+
+All three need `playwright` — install ad hoc with
+`npm i -D playwright --no-save`, same as the character harnesses above.

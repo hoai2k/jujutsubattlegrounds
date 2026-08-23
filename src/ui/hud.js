@@ -686,9 +686,13 @@ export class HUD {
     // the widget needs to tell them apart: Megumi is choosing WHICH SLOT, Geto
     // is choosing WHICH MONSTER.
     const curseWheel = snapshot.some(s => 'selected' in s);
-    el.querySelector('.sw-center b').textContent = curseWheel
-      ? 'RT · SPECIAL GRADE'
-      : (wheel.slot === 'ct1' ? 'RB · SLOT I' : 'RT · SLOT II');
+    // REGGIE's ring is the same widget again, and it is a PRICE LIST rather
+    // than a stable: the header says what the stock buys, not which grade it is.
+    el.querySelector('.sw-center b').textContent = wheel.objects
+      ? 'RT · RECEIPT — ' + Math.round(fighter.stock ?? 0) + ' STOCK'
+      : curseWheel
+        ? 'RT · SPECIAL GRADE'
+        : (wheel.slot === 'ct1' ? 'RB · SLOT I' : 'RT · SLOT II');
     // ---- THE FUSION READOUT -------------------------------------------------
     // "HUD must make the tradeoff legible: show which components are alive and
     // what fusing will cost, BEFORE the player commits." The centre of the
