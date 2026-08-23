@@ -24,7 +24,7 @@
 //   y = 6.40  UPPER TERRACE a stone platform above the west steps.
 //   FLANKS               the forest paths behind the halls and along the
 //                        west treeline.
-import { MapBuilder, emissive, glowMaterial } from '../kit.js';
+import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import { NATURAL } from '../terrain.js';
 import * as THREE from 'three';
 import { rand, v3 } from '../../core/mathutil.js';
@@ -140,7 +140,7 @@ export function build(quality) {
     const l = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.62, 10), emissive(0xffd08a));
     l.position.set(x, 3.3, (HZ0 + HZ1) / 2);
     b.add(l);
-    const halo = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), glowMaterial(0xffb45e, 0.22));
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 3.4), haloMaterial(0xffb45e, 0.26));
     halo.position.copy(l.position);
     halo.userData.billboard = true;
     b.add(halo);
@@ -257,6 +257,97 @@ export function build(quality) {
   const far = treeSpots.slice(18).map(([x, z]) => ({ x, y: 0, z, s: rand(1.2, 2.2), ry: rand(0, 6.3) }));
   b.repeat(new THREE.CylinderGeometry(0.2, 0.34, 4.2, 6), M.trunk, far.map(f => ({ ...f, y: 2.1 * f.s, sy: f.s, s: f.s })));
   b.repeat(new THREE.SphereGeometry(1.9, 8, 6), M.foliage, far.map(f => ({ ...f, y: 5.4 * f.s, s: f.s })));
+
+  // =========================================================================
+  // THE CAMPUS AS A JUJUTSU SITE
+  // =========================================================================
+  // This is the warm-daylight map and the only one with a forest on it, and it
+  // was lit like a lawn: one key light, one rim, and eighty cedars casting
+  // nothing between them. Everything below is about the light coming DOWN
+  // through that canopy, and about the fact that a school of sorcerers would
+  // have wards on its own ground.
+
+  // ---- THE VEIL ON THE COURTYARD -----------------------------------------
+  // The school's own barrier, drawn on the flagstones under the torii axis,
+  // with anchor glyphs at the two hall thresholds.
+  b.sigil(0, 0.08, 0, 19, 0x7fd0ff, { rings: 3, spokes: 20, sides: 8, opacity: 0.20, spin: 0.018 });
+  b.sigil(0, 0.07, -22.4, 4.2, 0x7fd0ff, { rings: 2, spokes: 6, sides: 4, opacity: 0.26, spin: -0.09 });
+  b.sigil(26.5, 0.07, -7, 3.6, 0x7fd0ff, { rings: 2, spokes: 6, sides: 4, opacity: 0.26, spin: 0.09 });
+  b.sigil(0, 0.07, 30.8, 5.0, 0xffb45e, { rings: 2, spokes: 12, sides: 3, opacity: 0.24, spin: -0.05 });
+
+  // ---- LIGHT THROUGH THE CEDARS ------------------------------------------
+  // Shafts standing in the forest ring, leaning the way the key light does
+  // (from +x/+y), and a broader one down the torii approach so the walk into
+  // the courtyard has a direction.
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 + 0.4;
+    const r = 30 + (i % 3) * 7;
+    const x = Math.sin(a) * r, z = Math.cos(a) * r;
+    if (Math.abs(x) < 6 && z > 18) continue;              // the torii axis stays clear
+    b.godRay(x, 15, z, 2.6, 15, 0xfff0c0, { opacity: 0.07, taper: 0.3, lean: [-3.2, 1.6], range: 80 });
+  }
+  b.godRay(0, 17, 34, 5.0, 17, 0xfff4d0, { opacity: 0.06, taper: 0.45, lean: [-3.4, 1.8], range: 110 });
+  b.godRay(-42, 15, 0, 4.0, 8.6, 0xfff0c0, { opacity: 0.07, taper: 0.4, lean: [-1.6, 0.8] });
+  // haze along the treeline, so the forest has depth rather than a hard edge
+  for (const [mx0, mz0, mx1, mz1] of [
+    [-54, 33, 54, 49], [-54, -49, 54, -42], [-54, -42, -40, 33], [40, -42, 54, 33]
+  ]) b.mist(mx0, mz0, mx1, mz1, 0, 0xcfe0d8, { opacity: 0.13, scale: 17 });
+
+  // ---- THE SPRING UNDER THE TERRACE --------------------------------------
+  // Two falls off the retaining face, either side of the steps, into stone
+  // basins on the lawn. A mountain campus with a 6.4 m rock face on it and no
+  // water coming off it anywhere was the one thing the west side was missing.
+  // Purely visual — a fighter walks through the fall and through the basin, and
+  // nothing here registers a collider that could hold anyone still.
+  for (const wz of [-12.6, 12.6]) {
+    b.waterfall(-33.4, TY - 0.2, wz, 2.2, 6.4, { color: 0x9fd8ea, opacity: 0.55, speed: 2.4 });
+    b.water(-34.4, wz - 2.6, -28.5, wz + 2.6, 0.11, {
+      shallow: 0x6fc0d8, deep: 0x1e5a72, opacity: 0.7, caustic: 0.3
+    });
+    b.rock(-30.2, 0, wz - 3.4, 0.55);
+    b.rock(-29.4, 0, wz + 3.6, 0.45);
+    b.steamVent(-32.6, 0.2, wz, { height: 2.4, period: 3.8, opacity: 0.22, color: 0xdfeef4 });
+  }
+
+  // ---- THE APPROACH -------------------------------------------------------
+  // Lanterns strung down the torii path and noren hanging in both hall
+  // thresholds. The approach was a paved strip between two rows of trees.
+  for (let i = 0; i < 4; i++) {
+    const z0 = 22 + i * 6, z1 = z0 + 6;
+    b.lanternString(v3(-3.6, 4.4, z0), v3(-3.6, 4.4, z1), { color: 0xffb45e, sag: 0.7 });
+    b.lanternString(v3(3.6, 4.4, z0), v3(3.6, 4.4, z1), { color: 0xffb45e, sag: 0.7 });
+  }
+  for (let i = 0; i < 5; i++) {
+    for (const s of [-1, 1]) {
+      const post = new THREE.BoxGeometry(0.18, 4.6, 0.18);
+      post.translate(s * 3.6, 2.3, 22 + i * 6);
+      b.static_(post, M.trunk);
+    }
+  }
+  // noren over the hall's south face and the dojo's west face
+  for (let i = 0; i < 5; i++) {
+    b.banner(HX0 + 4 + i * 8.5, 4.05, HZ1 + 1.9, 3.2, 1.5, 0x24486e, { ry: 0, amp: 0.09 });
+  }
+  for (let i = 0; i < 3; i++) {
+    b.banner(DX0 - 1.9, 3.35, DZ0 + 3.5 + i * 5.2, 3.0, 1.4, 0x6a2434, { ry: Math.PI / 2, amp: 0.09 });
+  }
+  b.hangingLamp(DX0 + 5, 3.4, -7, 0.9, 0xffd08a);
+  b.hangingLamp(DX0 + 14, 3.4, -7, 0.9, 0xffd08a);
+
+  // ---- THE STOREHOUSE -----------------------------------------------------
+  // Crates and sealed vessels behind the dojo, off the north-east corner. The
+  // vessels are the map's gimmick, and they are drums under the paint: a warded
+  // jar full of something a jujutsu school seals rather than throws away goes
+  // off exactly as hard as a fuel drum and takes its neighbours with it. Set
+  // well behind the building so nothing on a route is narrowed by them.
+  b.crates(DX1 + 4, 0, DZ0 - 6, { count: 3 });
+  b.crates(DX1 + 5.8, 0, DZ0 - 7.4, { count: 2 });
+  b.crates(DX1 + 2.4, 0, DZ0 - 7.6, { count: 1 });
+  for (let i = 0; i < 4; i++) {
+    b.drum(DX1 - 1 - i * 1.05, 0, DZ0 - 6.4, { color: 0x6a5a44, markColor: 0xff5ad8 });
+  }
+  b.crates(-46, TY, -11, { count: 2 });
+  b.crates(-48, TY, -12.4, { count: 1 });
 
   // ---- ambient life: leaves, pollen, warm haze ----------------------------
   b.particles(280, { x0: -52, x1: 52, y0: 0.4, y1: 18, z0: -47, z1: 47 },

@@ -184,6 +184,44 @@ export function glowMaterial(color, opacity = 1) {
     color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false
   });
 }
+
+// ---------------------------------------------------------------------------
+// SOFT GLOW — a radial falloff instead of a hard edge.
+// ---------------------------------------------------------------------------
+// `glowMaterial` above is an UNTEXTURED additive quad, and that is right for
+// what it was written for: a wet-asphalt sheen, a pool of light on a floor, a
+// sheet laid flat over a surface it is the same shape as. It is exactly wrong
+// for anything meant to read as a POINT of light — a bulb's halo, a puff of
+// steam, a spark — because a flat quad with a hard edge is a visible square,
+// and a lamp in a dark room drawn that way is a glowing box hanging in the air.
+// It is the single most visible thing in a beauty shot of the sewer, which is
+// where it was found.
+//
+// Same additive blend, same no-depth-write; the only difference is that the
+// alpha falls off to nothing at the rim, which is what a glow is.
+let _softTex = null;
+function softGlowTexture() {
+  if (_softTex) return _softTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 1, 64, 64, 63);
+  grd.addColorStop(0.00, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.22, 'rgba(255,255,255,0.62)');
+  grd.addColorStop(0.55, 'rgba(255,255,255,0.16)');
+  grd.addColorStop(1.00, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  _softTex = new THREE.CanvasTexture(c);
+  return _softTex;
+}
+export function haloMaterial(color, opacity = 1, additive = true) {
+  return new THREE.MeshBasicMaterial({
+    map: softGlowTexture(), color, transparent: true, opacity,
+    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    depthWrite: false, fog: false, toneMapped: false
+  });
+}
 // Lit signage, train windows, strip lights, painted road markings. Cut like
 // everything else — a lit sign is as solid a block on the shot as a wall.
 const _emissiveCache = new Map();
@@ -194,6 +232,18 @@ export function emissive(color) {
     _emissiveCache.set(color, m);
   }
   return m;
+}
+
+// A ticker that fires once, `delay` seconds from now, and then does nothing.
+// Used by the showpiece section to push a consequence onto a later frame rather
+// than recursing into the system that is currently running (see `drum`).
+function oneShot(delay, fn) {
+  let t = 0, done = false;
+  return dt => {
+    if (done) return;
+    t += dt;
+    if (t >= delay) { done = true; fn(); }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1175,6 +1225,757 @@ export class MapBuilder {
       a.needsUpdate = true;
     });
     return pts;
+  }
+
+  // =========================================================================
+  // SHOWPIECE — the layer that makes a map read as a PLACE rather than as a
+  // correct piece of level geometry.
+  // =========================================================================
+  // Everything above this line is structure: floors, walls, stairs, the things
+  // a fighter stands on and the things that break. The maps were all correct
+  // and all a bit inert, because the only atmosphere vocabulary they had was
+  // `stripLight`, `neon` and a particle box — so every one of them reached for
+  // the same three and they all ended up looking like the same place lit
+  // differently.
+  //
+  // These are the additions. Two rules hold across the whole section and they
+  // are the reason it can be used freely:
+  //
+  //   1. A SHOWPIECE EITHER CARRIES NO COLLISION AT ALL, OR IT CARRIES THE
+  //      EXACT PATTERN THE VALIDATOR ASKS FOR. Anything purely visual (a light
+  //      shaft, a banner, a cable, drifting mist) registers nothing: it cannot
+  //      trap a fighter because there is nothing there. Anything solid enough
+  //      to stand on (`crate`, `barrel`, `catwalk`) registers a blocker that
+  //      stops 0.12 m UNDER a walkable top at the height it is drawn, which is
+  //      the pattern `kit.car` and `kit.rock` already use and the one that
+  //      keeps UNCAPPED, WALL-LIP and PHANTOM out of `mapcheck.report()`.
+  //   2. ANIMATION IS FREE WHEN IT IS OFF SCREEN. Every ticker here bails on an
+  //      invisible object, and the heavier pieces register themselves with the
+  //      distance-culling list so they switch off entirely at range.
+  //
+  // See `docs/mapkit.md` for what each one is for.
+
+  // Register a prop with the per-frame distance cull. `dist` is the range in
+  // metres past which it stops drawing — set it from how big the thing is, not
+  // from how much you like it.
+  _detail(obj, pos, dist = 48) {
+    this.detail.push({ obj, pos: pos.clone ? pos.clone() : v3(pos.x, pos.y, pos.z), dist });
+    return obj;
+  }
+
+  // ---- LIGHT SHAFT --------------------------------------------------------
+  // A cone of daylight or lamplight standing in the air. The single biggest
+  // change to how an interior reads for the least geometry: a corridor with one
+  // of these has a ceiling, a source and a volume, and the same corridor
+  // without one is a box with a light-coloured strip in it.
+  //
+  // Drawn as a double-sided open cone with additive blending and no depth
+  // write, so it never occludes anything and never needs the x-ray cut.
+  // `lean` is the HORIZONTAL OFFSET of the pool from the source, as [dx, dz] in
+  // metres. A shaft coming through a high window is not vertical, and the two
+  // rotations it takes to aim a mesh do not compose the way you expect — so the
+  // caller says where the light STARTS and where it LANDS, and the aiming is
+  // done here once with a quaternion.
+  godRay(x, yTop, z, radius, height, color = 0xdfeaff, opts = {}) {
+    const [dx, dz] = opts.lean || [0, 0];
+    const axis = v3(dx, -height, dz);
+    const len = axis.length();
+    const geo = new THREE.CylinderGeometry(radius * (opts.taper ?? 0.22), radius, len, 20, 1, true);
+    // A CONE OF ADDITIVE GEOMETRY HAS A HARD EDGE, and a hard-edged shaft of
+    // light is a cone-shaped object rather than light. The fix is the standard
+    // fake-volume one and it costs four lines of shader: fade the alpha by how
+    // FACE-ON the surface is, so the silhouette — where you are looking along
+    // the cone's skin and through almost no volume — goes to nothing, and the
+    // middle — where you are looking through the whole width of it — stays.
+    // Fade the two ends as well, or the shaft stops dead in a bright ring at
+    // the ceiling and a bright ring on the floor.
+    const mat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide, fog: false, toneMapped: false,
+      uniforms: {
+        uColor: { value: new THREE.Color(color) },
+        uOpacity: { value: opts.opacity ?? 0.13 }
+      },
+      vertexShader: /* glsl */`
+        varying vec3 vN; varying vec3 vV; varying float vT;
+        void main(){
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vN = normalize(mat3(modelMatrix) * normal);
+          vV = normalize(cameraPosition - wp.xyz);
+          vT = uv.y;                        // 0 at the wide end, 1 at the source
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: /* glsl */`
+        uniform vec3 uColor; uniform float uOpacity;
+        varying vec3 vN; varying vec3 vV; varying float vT;
+        void main(){
+          float face = pow(clamp(abs(dot(normalize(vN), normalize(vV))), 0.0, 1.0), 0.85);
+          float ends = smoothstep(0.0, 0.22, vT) * smoothstep(0.0, 0.14, 1.0 - vT);
+          // THE 2.1 IS THE FADE'S OWN COMPENSATION, not a taste knob. The two
+          // fades together remove roughly half the brightness a
+          // flat additive cone used to put on the screen, so a shaft authored
+          // to look right before this change reads as nothing after it. Doing
+          // it here keeps every map's authored opacity meaning the same thing
+          // it meant, instead of re-tuning ten of them around a shader.
+          gl_FragColor = vec4(uColor, uOpacity * face * ends * 2.1);
+        }`
+    });
+    // the breathing ticker below writes `mat.opacity`, so give it one
+    Object.defineProperty(mat, 'opacity', {
+      get() { return this.uniforms.uOpacity.value; },
+      set(v) { this.uniforms.uOpacity.value = v; }
+    });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x + dx / 2, yTop - height / 2, z + dz / 2);
+    m.quaternion.setFromUnitVectors(v3(0, -1, 0), axis.clone().normalize());
+    this.add(m);
+    // the pool of light it lands in, so the shaft has somewhere to arrive
+    if (opts.pool !== false) {
+      const pool = new THREE.Mesh(new THREE.CircleGeometry(radius * 1.6, 20),
+        haloMaterial(color, (opts.opacity ?? 0.13) * (opts.poolGain ?? 1.1)));
+      pool.rotation.x = -Math.PI / 2;
+      pool.position.set(x + dx, yTop - height + 0.04, z + dz);
+      pool.scale.set(1, len / height, 1);       // a slanted shaft lands as an ellipse
+      this.add(pool);
+    }
+    const base = mat.opacity;
+    let t = rand(0, 6);
+    this.tickers.push(dt => {
+      if (!m.visible) return;
+      t += dt;
+      // dust turning over in the beam, not a pulsing lamp — small and slow
+      mat.opacity = base * (0.86 + Math.sin(t * 0.55) * 0.1 + Math.sin(t * 1.31) * 0.04);
+    });
+    this._detail(m, m.position, opts.range ?? 70);
+    return m;
+  }
+
+  // ---- GROUND MIST --------------------------------------------------------
+  // A drifting sheet of low fog over a rect. Scene fog gives depth to the
+  // horizon; this gives depth to the FLOOR, which is where the fight is. Two
+  // counter-scrolling layers of a soft noise texture, so it never reads as a
+  // texture sliding across the ground.
+  mist(x0, z0, x1, z1, y, color = 0x9fb0d0, opts = {}) {
+    const t = tex('mistnoise', 256, (g, S) => {
+      g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 150; i++) {
+        const r = rand(18, 64), cx = rand(0, S), cy = rand(0, S);
+        const grd = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grd.addColorStop(0, `rgba(255,255,255,${rand(0.12, 0.34)})`);
+        grd.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = grd;
+        g.beginPath(); g.arc(cx, cy, r, 0, 6.3); g.fill();
+      }
+    }, [1, 1]);
+    const grp = new THREE.Group();
+    const w = Math.abs(x1 - x0), d = Math.abs(z1 - z0);
+    const layers = [];
+    for (let i = 0; i < 2; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        map: t.clone(), color, transparent: true, opacity: (opts.opacity ?? 0.26) * (i ? 0.7 : 1),
+        depthWrite: false, blending: THREE.NormalBlending, fog: false
+      });
+      mat.map.wrapS = mat.map.wrapT = THREE.RepeatWrapping;
+      mat.map.repeat.set(Math.max(1, w / (opts.scale ?? 26)), Math.max(1, d / (opts.scale ?? 26)));
+      mat.map.needsUpdate = true;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set((x0 + x1) / 2, y + 0.06 + i * 0.30, (z0 + z1) / 2);
+      m.renderOrder = 2;
+      grp.add(m);
+      layers.push({ mat, sx: (i ? -1 : 1) * rand(0.004, 0.010), sy: (i ? 1 : -1) * rand(0.003, 0.008) });
+    }
+    this.add(grp);
+    this.tickers.push(dt => {
+      if (!grp.visible) return;
+      for (const l of layers) {
+        l.mat.map.offset.x += l.sx * dt;
+        l.mat.map.offset.y += l.sy * dt;
+      }
+    });
+    return grp;
+  }
+
+  // ---- CABLE --------------------------------------------------------------
+  // A hanging line between two points, sagging under its own weight: overhead
+  // power, a snapped feeder swinging off a gantry, the chain a lamp hangs on.
+  // Cheap, and it does more for a skyline than another tower does.
+  cable(from, to, opts = {}) {
+    const a = from.clone ? from.clone() : v3(from[0], from[1], from[2]);
+    const b = to.clone ? to.clone() : v3(to[0], to[1], to[2]);
+    const sag = opts.sag ?? Math.max(0.4, a.distanceTo(b) * 0.09);
+    const pts = [];
+    const n = opts.segs ?? 10;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const p = a.clone().lerp(b, t);
+      p.y -= Math.sin(t * Math.PI) * sag;
+      pts.push(p);
+    }
+    const m = new THREE.Mesh(
+      new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), n, opts.r ?? 0.045, 5, false),
+      opts.mat || this.mats.darkMetal);
+    this.add(m);
+    return m;
+  }
+
+  // ---- BANNER -------------------------------------------------------------
+  // Hanging cloth that moves: a shop awning, a festival banner down a shrine
+  // approach, a torn tarpaulin in a service tunnel. A vertical plane with
+  // segments, waved on the CPU — the whole point is that something in the
+  // frame is alive while both fighters are standing still.
+  banner(x, y, z, w, h, color, opts = {}) {
+    const geo = new THREE.PlaneGeometry(w, h, 6, 5);
+    const mat = toonMaterial({
+      vertexColors: false, color, steps: [70, 150, 255], rim: 0.2,
+      side: THREE.DoubleSide, ...(opts.mat || {})
+    });
+    const m = new THREE.Mesh(geo, xrayable(mat));
+    m.position.set(x, y - h / 2, z);
+    m.rotation.y = opts.ry ?? 0;
+    this.add(m);
+    const home = geo.attributes.position.array.slice();
+    const amp = opts.amp ?? 0.14;
+    let t = rand(0, 6);
+    this.tickers.push(dt => {
+      if (!m.visible) return;
+      t += dt;
+      const p = geo.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const px = home[i * 3], py = home[i * 3 + 1];
+        // pinned along the top edge, freest at the bottom
+        const hang = (h / 2 - py) / h;
+        p.array[i * 3 + 2] = Math.sin(px * 1.9 + t * 2.3) * amp * hang
+          + Math.sin(py * 2.6 - t * 1.5) * amp * 0.45 * hang;
+      }
+      p.needsUpdate = true;
+    });
+    this._detail(m, m.position, opts.range ?? 46);
+    return m;
+  }
+
+  // ---- STEAM VENT ---------------------------------------------------------
+  // A grating that breathes. Puffs on a cycle rather than streaming, because a
+  // continuous jet reads as a particle emitter and a puff reads as a building.
+  steamVent(x, y, z, opts = {}) {
+    const color = opts.color ?? 0xc8d4e4;
+    const h = opts.height ?? 3.2;
+    const n = opts.puffs ?? 5;
+    const grp = new THREE.Group();
+    const puffs = [];
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), haloMaterial(color, 0.2, false));
+      m.userData.billboard = true;    // aimed per eye in core/stage.js
+      m.position.set(x, y, z);
+      m.visible = false;
+      grp.add(m);
+      puffs.push({ m, t: -i * (opts.period ?? 2.4) / n });
+    }
+    this.add(grp);
+    const period = opts.period ?? 2.4;
+    this.tickers.push(dt => {
+      if (!grp.visible) return;
+      for (const p of puffs) {
+        p.t += dt;
+        if (p.t < 0) { p.m.visible = false; continue; }
+        if (p.t > period) { p.t -= period; }
+        const k = p.t / period;                       // 0..1 through the puff
+        p.m.visible = true;
+        const s = 0.5 + k * (opts.spread ?? 2.4);
+        p.m.scale.set(s, s, 1);
+        p.m.position.set(x + Math.sin(k * 3.1) * 0.3, y + k * h, z);
+        p.m.material.opacity = (opts.opacity ?? 0.34) * Math.sin(k * Math.PI) * 0.9;
+      }
+    });
+    this._detail(grp, v3(x, y, z), opts.range ?? 44);
+    return grp;
+  }
+
+  // ---- SPARKING CABLE -----------------------------------------------------
+  // A dead feeder that arcs every few seconds. Belongs anywhere the level has
+  // been broken open — the sewer, the detention block, the station undercroft.
+  // Silent by design: the fx layer owns sound, and a map that made noise on a
+  // timer would be doing it under the round's audio mix.
+  sparker(x, y, z, opts = {}) {
+    const color = opts.color ?? 0xbfe4ff;
+    const grp = new THREE.Group();
+    const flash = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4), haloMaterial(color, 0));
+    flash.userData.billboard = true;
+    flash.position.set(x, y, z);
+    grp.add(flash);
+    const bits = [];
+    for (let i = 0; i < 7; i++) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), haloMaterial(color, 0));
+      m.userData.billboard = true;
+      m.position.set(x, y, z);
+      grp.add(m);
+      bits.push({ m, v: v3(), t: 0 });
+    }
+    this.add(grp);
+    let wait = rand(0.4, 3.0);
+    this.tickers.push(dt => {
+      if (!grp.visible) return;
+      wait -= dt;
+      if (wait <= 0) {
+        wait = rand(1.6, 4.6);
+        flash.material.opacity = 0.95;
+        for (const b of bits) {
+          b.t = rand(0.25, 0.6);
+          b.v.set(rand(-2.6, 2.6), rand(0.4, 3.2), rand(-2.6, 2.6));
+          b.m.position.set(x, y, z);
+          b.m.material.opacity = 1;
+        }
+      }
+      flash.material.opacity = Math.max(0, flash.material.opacity - dt * 6);
+      for (const b of bits) {
+        if (b.t <= 0) { b.m.material.opacity = 0; continue; }
+        b.t -= dt;
+        b.v.y -= 22 * dt;
+        b.m.position.addScaledVector(b.v, dt);
+        b.m.material.opacity = Math.max(0, b.t * 2.4);
+      }
+    });
+    this._detail(grp, v3(x, y, z), opts.range ?? 38);
+    return grp;
+  }
+
+  // ---- WATERFALL / SPILL --------------------------------------------------
+  // A falling sheet with a scrolling surface and a mist ball where it lands.
+  // No collision: you fall through a waterfall, which is what a waterfall is.
+  waterfall(x, yTop, z, w, h, opts = {}) {
+    // THE TEXTURE CARRIES ITS OWN ALPHA, and that is the whole difference
+    // between a waterfall and a pane of frosted glass. A fully opaque canvas
+    // behind a `transparent: true` material is a flat translucent rectangle
+    // however fast you scroll it — every strand has the same coverage, so there
+    // is no water-shaped edge anywhere in it. Drawn as bright strands over a
+    // CLEARED canvas, the gaps between them are genuinely see-through and the
+    // sheet reads as falling water from the first frame.
+    const t = tex('fallwater', 128, (g, S) => {
+      g.clearRect(0, 0, S, S);
+      for (let i = 0; i < 26; i++) {      // the body of the sheet: broad, soft
+        g.fillStyle = `rgba(210,238,248,${rand(0.16, 0.34)})`;
+        g.fillRect(rand(0, S), rand(-40, S), rand(6, 18), rand(50, 150));
+      }
+      for (let i = 0; i < 120; i++) {     // strands
+        g.fillStyle = `rgba(255,255,255,${rand(0.35, 0.95)})`;
+        g.fillRect(rand(0, S), rand(-30, S), rand(1, 3), rand(14, 70));
+      }
+      for (let i = 0; i < 70; i++) {      // the shadowed side of each strand
+        g.fillStyle = `rgba(120,170,200,${rand(0.2, 0.55)})`;
+        g.fillRect(rand(0, S), rand(-30, S), rand(2, 5), rand(20, 90));
+      }
+    }, [1, 1]);
+    const map = t.clone();
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(Math.max(1, w / 2.4), Math.max(1, h / 3.0));
+    map.needsUpdate = true;
+    const mat = new THREE.MeshBasicMaterial({
+      map, color: opts.color ?? 0xa8d8ea, transparent: true,
+      opacity: opts.opacity ?? 0.62, depthWrite: false, side: THREE.DoubleSide, fog: false
+    });
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    m.position.set(x, yTop - h / 2, z);
+    m.rotation.y = opts.ry ?? 0;
+    this.add(m);
+    // the boil at the bottom
+    const foam = new THREE.Mesh(new THREE.PlaneGeometry(w * 1.6, 2.2), haloMaterial(opts.color ?? 0xcfeaf6, 0.22));
+    foam.userData.billboard = true;
+    foam.position.set(x, yTop - h + 0.5, z);
+    this.add(foam);
+    const speed = opts.speed ?? 1.5;
+    let ft = rand(0, 6);
+    this.tickers.push(dt => {
+      if (!m.visible) return;
+      map.offset.y -= speed * dt;
+      ft += dt;
+      foam.material.opacity = 0.18 + Math.sin(ft * 3.1) * 0.06;
+    });
+    this._detail(m, m.position, opts.range ?? 80);
+    return m;
+  }
+
+  // ---- CURSED SIGIL -------------------------------------------------------
+  // A glyph burnt into the floor that breathes. This is the one piece of set
+  // dressing in the section that is about the SETTING rather than about the
+  // architecture — a jujutsu site has veiling and wards on it, and until now no
+  // map showed one anywhere.
+  sigil(x, y, z, r, color = 0x9f7fff, opts = {}) {
+    const t = tex('sigil' + (opts.rings ?? 3) + (opts.spokes ?? 12), 256, (g, S) => {
+      g.clearRect(0, 0, S, S);
+      const c = S / 2;
+      g.strokeStyle = '#fff'; g.lineCap = 'round';
+      const rings = opts.rings ?? 3;
+      for (let i = 0; i < rings; i++) {
+        g.lineWidth = i === 0 ? 7 : 3.5;
+        g.beginPath(); g.arc(c, c, c * (0.94 - i * 0.19), 0, 6.283); g.stroke();
+      }
+      const spokes = opts.spokes ?? 12;
+      g.lineWidth = 2.5;
+      for (let i = 0; i < spokes; i++) {
+        const a = (i / spokes) * 6.283;
+        g.beginPath();
+        g.moveTo(c + Math.cos(a) * c * 0.38, c + Math.sin(a) * c * 0.38);
+        g.lineTo(c + Math.cos(a) * c * 0.94, c + Math.sin(a) * c * 0.94);
+        g.stroke();
+      }
+      // an inscribed polygon, because a wheel of spokes alone reads as a wheel
+      const k = opts.sides ?? 5;
+      g.lineWidth = 4;
+      g.beginPath();
+      for (let i = 0; i <= k; i++) {
+        const a = (i / k) * 6.283 - Math.PI / 2;
+        const px = c + Math.cos(a) * c * 0.56, py = c + Math.sin(a) * c * 0.56;
+        i ? g.lineTo(px, py) : g.moveTo(px, py);
+      }
+      g.stroke();
+    }, [1, 1]);
+    const mat = new THREE.MeshBasicMaterial({
+      map: t, color, transparent: true, opacity: opts.opacity ?? 0.42,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false
+    });
+    const m = new THREE.Mesh(new THREE.CircleGeometry(r, 32), mat);
+    m.rotation.x = -Math.PI / 2;
+    m.rotation.z = opts.rz ?? 0;
+    m.position.set(x, y + 0.03, z);
+    this.add(m);
+    const base = mat.opacity;
+    const spin = opts.spin ?? 0.06;
+    let st = rand(0, 6);
+    this.tickers.push(dt => {
+      if (!m.visible) return;
+      st += dt;
+      m.rotation.z += spin * dt;
+      mat.opacity = base * (0.72 + Math.sin(st * 1.15) * 0.28);
+    });
+    this._detail(m, m.position, opts.range ?? 60);
+    return m;
+  }
+
+  // ---- BEACON -------------------------------------------------------------
+  // A rotating warning light with a sweeping wedge. One of these turns a
+  // service space into a service space that is IN USE.
+  beacon(x, y, z, color = 0xff6a4a, opts = {}) {
+    const grp = new THREE.Group();
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), emissive(color));
+    bulb.position.set(x, y, z);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 2.0), haloMaterial(color, 0.5));
+    halo.userData.billboard = true;
+    halo.position.set(x, y, z);
+    // the sweep: an open cone lying on its side, spun about Y
+    // The beam is laid out IN GEOMETRY SPACE — apex at the origin, opening out
+    // along +X, flattened vertically — so the pivot it hangs off is a plain
+    // spin about Y and nothing depends on the order two mesh rotations are
+    // applied in. Composing this out of mesh transforms was tried first and
+    // put the beam on its side.
+    const reach = opts.reach ?? 3.2;
+    const cone = new THREE.ConeGeometry(reach * 0.3, reach, 12, 1, true);
+    cone.rotateZ(Math.PI / 2);     // apex from +Y round to -X
+    cone.translate(reach / 2, 0, 0);
+    cone.scale(1, 0.42, 1);        // a beam, not a floodlight
+    const wedge = new THREE.Mesh(cone, new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false
+    }));
+    const pivot = new THREE.Group();
+    pivot.position.set(x, y, z);
+    pivot.add(wedge);
+    grp.add(bulb, halo, pivot);
+    this.add(grp);
+    const rate = opts.rate ?? 1.7;
+    let bt = rand(0, 6);
+    this.tickers.push(dt => {
+      if (!grp.visible) return;
+      bt += dt;
+      pivot.rotation.y += rate * dt;
+      halo.material.opacity = 0.32 + Math.abs(Math.sin(bt * rate)) * 0.34;
+    });
+    this._detail(grp, v3(x, y, z), opts.range ?? 42);
+    return grp;
+  }
+
+  // ---- HANGING LAMP -------------------------------------------------------
+  // A bulb on a flex that swings. Registers nothing — it hangs at head height
+  // and a collider there is a soft lock waiting to happen in a corridor.
+  hangingLamp(x, yCeil, z, drop = 1.4, color = 0xffd9a0, opts = {}) {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, yCeil, z);
+    const flex = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, drop, 5), this.mats.darkMetal);
+    flex.position.y = -drop / 2;
+    const shade = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.26, 10, 1, true), this.mats.darkMetal);
+    shade.position.y = -drop;
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), emissive(color));
+    bulb.position.y = -drop - 0.1;
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), haloMaterial(color, 0.34));
+    halo.userData.billboard = true;
+    halo.position.y = -drop - 0.1;
+    pivot.add(flex, shade, bulb, halo);
+    this.add(pivot);
+    const amp = opts.amp ?? 0.05;
+    let t = rand(0, 6);
+    const rate = rand(0.5, 0.8);
+    this.tickers.push(dt => {
+      if (!pivot.visible) return;
+      t += dt;
+      pivot.rotation.z = Math.sin(t * rate) * amp;
+      pivot.rotation.x = Math.cos(t * rate * 0.77) * amp * 0.6;
+    });
+    this._detail(pivot, v3(x, yCeil - drop, z), opts.range ?? 34);
+    return pivot;
+  }
+
+  // ---- LANTERN STRING -----------------------------------------------------
+  // Festival lanterns strung along a sagging cable between two posts. The
+  // outdoor counterpart to `hangingLamp`, and the cheapest way to give an
+  // approach a direction to walk along.
+  lanternString(from, to, opts = {}) {
+    const a = from.clone ? from.clone() : v3(from[0], from[1], from[2]);
+    const b = to.clone ? to.clone() : v3(to[0], to[1], to[2]);
+    this.cable(a, b, { sag: opts.sag ?? 0.9, r: 0.03 });
+    const n = opts.count ?? Math.max(2, Math.round(a.distanceTo(b) / 2.2));
+    const color = opts.color ?? 0xffb86a;
+    const grp = new THREE.Group();
+    const bulbs = [];
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n;
+      const p = a.clone().lerp(b, t);
+      p.y -= Math.sin(t * Math.PI) * (opts.sag ?? 0.9) + 0.22;
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.3, 9), emissive(color));
+      body.position.copy(p);
+      const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6), haloMaterial(color, 0.34));
+      halo.userData.billboard = true;
+      halo.position.copy(p);
+      grp.add(body, halo);
+      bulbs.push({ halo, ph: rand(0, 6.3) });
+    }
+    this.add(grp);
+    let t = 0;
+    this.tickers.push(dt => {
+      if (!grp.visible) return;
+      t += dt;
+      for (const bl of bulbs) bl.halo.material.opacity = 0.26 + Math.sin(t * 1.6 + bl.ph) * 0.1;
+    });
+    this._detail(grp, a.clone().lerp(b, 0.5), opts.range ?? 56);
+    return grp;
+  }
+
+  // ---- PIPE RUN -----------------------------------------------------------
+  // Decorative service pipes along a wall or ceiling. `collide` defaults to
+  // FALSE and should stay false: a pipe at chest height with a collider on it
+  // is a snag in a corridor, and the whole class of "I got stuck on nothing"
+  // starts with props like this one being made solid because they look solid.
+  pipeRun(x0, y0, z0, x1, y1, z1, opts = {}) {
+    const a = v3(x0, y0, z0), b = v3(x1, y1, z1);
+    const grp = new THREE.Group();
+    const rs = opts.radii ?? [0.11, 0.07, 0.09];
+    const dir = b.clone().sub(a);
+    const len = dir.length();
+    // an offset frame across the run, so the pipes sit side by side
+    const up = Math.abs(dir.clone().normalize().y) > 0.9 ? v3(1, 0, 0) : v3(0, 1, 0);
+    const side = dir.clone().normalize().cross(up).normalize();
+    rs.forEach((r, i) => {
+      const off = side.clone().multiplyScalar((i - (rs.length - 1) / 2) * 0.26);
+      const p0 = a.clone().add(off), p1 = b.clone().add(off);
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 8), opts.mat || this.mats.rust);
+      m.position.copy(p0).lerp(p1, 0.5);
+      m.quaternion.setFromUnitVectors(v3(0, 1, 0), dir.clone().normalize());
+      grp.add(m);
+      // collars, so it reads as pipework rather than as rods
+      const nc = Math.max(1, Math.round(len / 5));
+      for (let c = 1; c <= nc; c++) {
+        const col = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.5, r * 1.5, 0.16, 8), this.mats.darkMetal);
+        col.position.copy(p0).lerp(p1, c / (nc + 1));
+        col.quaternion.copy(m.quaternion);
+        grp.add(col);
+      }
+    });
+    this.add(grp);
+    if (opts.zone) this._zoneAdd(opts.zone, grp);
+    return grp;
+  }
+
+  // =========================================================================
+  // SOLID SHOWPIECES — these carry collision, so they follow the pattern
+  // =========================================================================
+
+  // ---- CRATE STACK --------------------------------------------------------
+  // Cover you can break, climb and fight around. Each crate is a blocker that
+  // stops 0.12 m under a walkable top registered at the height the lid is
+  // DRAWN, so landing on the stack lands you on the stack. Both surfaces carry
+  // the same id, so breaking it takes the ledge away with the cover — a route
+  // that only exists while the crates do.
+  crates(x, y, z, opts = {}) {
+    const n = opts.count ?? 3;
+    const s = opts.size ?? 1.05;
+    const id = opts.id || ('crate' + Math.round(x * 10) + '_' + Math.round(z * 10));
+    const g = new THREE.Group();
+    const mat = opts.mat || this.mats.wood;
+    // A COLUMN, not a heap. The top has to be one flat height or the platform
+    // registered for it is a lie somewhere, and a lie about where the floor is
+    // is exactly the fault this whole section is written around.
+    let top = y;
+    for (let i = 0; i < n; i++) {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(s * 0.98, s * 0.98, s * 0.98), mat);
+      box.position.set(x + rand(-0.05, 0.05), y + s * (i + 0.5), z + rand(-0.05, 0.05));
+      box.rotation.y = rand(-0.09, 0.09);
+      g.add(box);
+      // banding
+      for (const ax of [0, 1]) {
+        const band = new THREE.Mesh(
+          ax ? new THREE.BoxGeometry(s * 1.0, 0.07, 0.07) : new THREE.BoxGeometry(0.07, 0.07, s * 1.0),
+          this.mats.darkMetal);
+        band.position.copy(box.position);
+        band.position.y += s * 0.26;
+        band.rotation.y = box.rotation.y;
+        g.add(band);
+      }
+      top = y + s * (i + 1);
+    }
+    this.add(g);
+    if (opts.zone) this._zoneAdd(opts.zone, g);
+    const h = s * 0.52;
+    this.bounds.wall(x - h, z - h, x + h, z + h, y, top - 0.12, { id });
+    this.bounds.platform(x - h, z - h, x + h, z + h, top, { id, prop: true });
+    return this.breakable(g, {
+      hp: opts.hp ?? 34 * n, kind: 'wood', center: v3(x, y + (top - y) / 2, z),
+      radius: s * 0.75, height: top - y, baseY: y, colliderIds: [id]
+    });
+  }
+
+  // ---- EXPLOSIVE DRUM -----------------------------------------------------
+  // THE GIMMICK. A fuel drum that goes up when it breaks, throws a fireball and
+  // a shockwave, shakes the camera — and CHAINS, so a row of them clears a wall
+  // that no single hit would have.
+  //
+  // WHAT IT DELIBERATELY DOES NOT DO: it does not touch a fighter. Environment
+  // damage from a prop would be a balance change smuggled in as set dressing —
+  // a character who happens to spawn beside one would take chip damage from the
+  // map — so the blast only feeds `damageAt`, which by construction only ever
+  // reaches other destructibles. It changes the SHAPE of the fight, which is
+  // what a map is allowed to do, and never the numbers.
+  //
+  // The chain runs on the destruction system's own pending queue via a short
+  // ticker delay rather than recursing, so a row of ten cannot blow the stack
+  // and the chain visibly travels.
+  drum(x, y, z, opts = {}) {
+    const id = opts.id || ('drum' + Math.round(x * 10) + '_' + Math.round(z * 10));
+    const color = opts.color ?? 0xc4562c;
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.92, 12),
+      toonMaterial({ vertexColors: false, color, steps: [64, 140, 255], rim: 0.34 }));
+    body.position.y = 0.46;
+    g.add(body);
+    for (const ry of [0.30, 0.62]) {
+      const rib = new THREE.Mesh(new THREE.TorusGeometry(0.365, 0.035, 5, 14), this.mats.darkMetal);
+      rib.rotation.x = Math.PI / 2;
+      rib.position.y = ry;
+      g.add(rib);
+    }
+    const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.06, 12), this.mats.darkMetal);
+    lid.position.y = 0.93;
+    // the hazard mark, so it reads as "this one goes off" before it does
+    const mark = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), emissive(opts.markColor ?? 0xffd24a));
+    mark.position.set(0, 0.5, 0.365);
+    g.add(lid, mark);
+    g.position.set(x, y, z);
+    g.rotation.y = opts.ry ?? rand(0, 6.3);
+    this.add(g);
+    if (opts.zone) this._zoneAdd(opts.zone, g);
+    this.bounds.wall(x - 0.38, z - 0.38, x + 0.38, z + 0.38, y, y + 0.84, { id });
+    this.bounds.platform(x - 0.34, z - 0.34, x + 0.34, z + 0.34, y + 0.96, { id, prop: true });
+    const at = v3(x, y + 0.55, z);
+    const power = opts.power ?? 170;
+    const radius = opts.radius ?? 5.0;
+    return this.breakable(g, {
+      hp: opts.hp ?? 26, kind: 'metal', center: at.clone(), radius: 0.7, height: 0.96,
+      baseY: y, colliderIds: [id], debrisScale: 1.2,
+      onDestroyed: (D) => {
+        const fx = D.ctx?.fx;
+        D.ctx?.cam?.shake(0.65);
+        D.ctx?.sfx?.rubble?.();
+        if (fx) {
+          fx._ring?.(at.clone().setY(y + 0.15), 0xffa23c, { size: 0.7, growRate: 18, life: 0.45 });
+          fx._spawn?.(at.clone(), { color: 0xffd27a, size: 1.5, life: 0.34, vel: v3(), grow: 11 });
+          for (let i = 0; i < 26; i++) {
+            const a = rand(0, Math.PI * 2), r = rand(0, 1.4);
+            fx._spawn?.(at.clone().add(v3(Math.cos(a) * r, rand(-0.2, 1.0), Math.sin(a) * r)), {
+              color: i % 3 ? 0xff7a3c : 0xffe0a0, size: rand(0.3, 1.0),
+              life: rand(0.3, 0.8), grow: rand(1.5, 4),
+              vel: v3(Math.cos(a) * rand(1, 6), rand(1.5, 6.5), Math.sin(a) * rand(1, 6))
+            });
+          }
+          for (let i = 0; i < 14; i++) {
+            fx._spawn?.(at.clone(), {
+              color: 0x50525a, size: rand(0.6, 1.6), life: rand(0.7, 1.5), opacity: 0.4, grow: 2,
+              vel: v3(rand(-3, 3), rand(0.6, 3.4), rand(-3, 3))
+            });
+          }
+        }
+        // THE CHAIN, one tick later. Recursing straight into `damageAt` from
+        // inside `_destroy` would blow the stack on a long row and would land
+        // the whole chain on a single frame; a queued blast travels.
+        this.tickers.push(oneShot(0.09, () => D.damageAt(at, radius, power, { kind: 'heat' })));
+      }
+    });
+  }
+
+  // ---- CATWALK ------------------------------------------------------------
+  // A raised walkway with railings, an underside and hangers. It exists so a
+  // map never has to hand-build one again: the three faults a hand-built
+  // catwalk shipped with every time — a drawn deck edge with no lip under it, a
+  // railing whose collider tops out level with the deck, and nothing at all
+  // holding it up — are all handled here.
+  //
+  // `ends` says which of the two short ends are OPEN (a stair or a landing
+  // arrives there); the rest get a railing. Default is both closed, because a
+  // walkway with two open ends and nothing at either is a 6 m drop.
+  catwalk(x0, z0, x1, z1, y, opts = {}) {
+    const X0 = Math.min(x0, x1), X1 = Math.max(x0, x1);
+    const Z0 = Math.min(z0, z1), Z1 = Math.max(z0, z1);
+    const alongX = (X1 - X0) >= (Z1 - Z0);
+    const mat = opts.mat || this.mats.darkMetal;
+    const id = opts.id;
+    this.floor(X0, Z0, X1, Z1, y, { mat, id, zone: opts.zone, thick: opts.thick ?? 0.18 });
+    // hangers up to whatever carries it, purely visual
+    if (opts.hangTo != null) {
+      const n = Math.max(2, Math.round((alongX ? X1 - X0 : Z1 - Z0) / 5));
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        for (const s of [0, 1]) {
+          const px = alongX ? X0 + (X1 - X0) * t : (s ? X1 : X0) - 0.1 + s * 0.2;
+          const pz = alongX ? (s ? Z1 : Z0) - 0.1 + s * 0.2 : Z0 + (Z1 - Z0) * t;
+          const g = new THREE.BoxGeometry(0.09, opts.hangTo - y, 0.09);
+          g.translate(px, (y + opts.hangTo) / 2, pz);
+          this.static_(g, this.mats.metal, opts.zone);
+        }
+      }
+    }
+    const open = new Set(opts.ends || []);
+    const rail = (a, b, c, d) => this.railing(a, b, c, d, y, { mat, zone: opts.zone });
+    // the long sides always
+    if (alongX) {
+      rail(X0, Z0, X1, Z0);
+      rail(X0, Z1, X1, Z1);
+      if (!open.has('-')) rail(X0, Z0, X0, Z1);
+      if (!open.has('+')) rail(X1, Z0, X1, Z1);
+    } else {
+      rail(X0, Z0, X0, Z1);
+      rail(X1, Z0, X1, Z1);
+      if (!open.has('-')) rail(X0, Z0, X1, Z0);
+      if (!open.has('+')) rail(X0, Z1, X1, Z1);
+    }
+    // strip lighting under the deck, which is the only part of a catwalk the
+    // fighter below ever sees
+    if (opts.underlight !== false) {
+      const n = Math.max(1, Math.round((alongX ? X1 - X0 : Z1 - Z0) / 6));
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        this.stripLight(
+          alongX ? X0 + (X1 - X0) * t : (X0 + X1) / 2,
+          y - (opts.thick ?? 0.18) - 0.12,
+          alongX ? (Z0 + Z1) / 2 : Z0 + (Z1 - Z0) * t,
+          3.2, alongX ? 'x' : 'z', opts.lightColor ?? 0xbfd4e8);
+      }
+    }
   }
 
   _regMesh(id, mesh) {

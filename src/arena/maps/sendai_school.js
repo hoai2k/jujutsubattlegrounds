@@ -23,7 +23,7 @@
 //                          field.
 //   VERTICAL               stairwell (2 flights + a real landing), gym catwalk
 //                          flights, and the hole you make in the gym floor.
-import { MapBuilder, emissive, glowMaterial } from '../kit.js';
+import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import { NATURAL } from '../terrain.js';
 import * as THREE from 'three';
 import { rand, v3 } from '../../core/mathutil.js';
@@ -241,7 +241,7 @@ export function build(quality) {
   b.railing(WELL.x0, WELL.z0, WELL.x0, WELL.z1, 0, { zone: GZ, collide: false });
   for (let i = 0; i < 5; i++) b.stripLight(-21 + i * 5, -0.5, i % 2 ? -13 : 13, 3.4, 'x', 0xcfe8f4, i === 1 ? 0.5 : 0);
   // caustics thrown on the deck
-  const caustic = new THREE.Mesh(new THREE.PlaneGeometry(17, 24), glowMaterial(0x5fb4d8, 0.16));
+  const caustic = new THREE.Mesh(new THREE.PlaneGeometry(20, 28), haloMaterial(0x5fb4d8, 0.22));
   caustic.rotation.x = -Math.PI / 2;
   caustic.position.set(-12.5, PY + 0.03, 0);
   b.add(caustic);
@@ -398,6 +398,81 @@ export function build(quality) {
     }
     b.slope(4, -25, 2, -19, 0, SHY, 'x', { mat: M.rust, depth: 0.4, segs: 12 });
   }
+
+  // =========================================================================
+  // WHAT THE LIGHT DOES HERE
+  // =========================================================================
+  // This map has a band of high windows down the gym's south face, a sunken
+  // pool hall with a water surface in it and a sports field under an open sky,
+  // and until now none of the three cast anything. A gymnasium is one of the
+  // most recognisable lighting situations there is — hard shafts coming in
+  // high and landing long across the boards — and the room was lit like a
+  // corridor.
+  //
+  // The shafts LEAN, from the glass at y = 9.4 on the south wall out across the
+  // court. They land where a fight stands rather than under the window nobody
+  // goes near.
+  for (let i = 0; i < 6; i++) {
+    const x = -17 + i * 6.8;
+    b.godRay(x, 9.4, WALLZ - 0.6, 2.3, 9.4, 0xfff4dc,
+      { opacity: 0.055, taper: 0.42, lean: [1.2, -13], range: 90 });
+  }
+  // and the same light again through the doorway at each end of the hall
+  b.godRay(0, 4.2, WALLZ - 0.3, 2.0, 4.2, 0xfff0d0, { opacity: 0.06, lean: [0, -4.0] });
+  b.godRay(0, 4.2, -WALLZ + 0.3, 2.0, 4.2, 0xdfeaff, { opacity: 0.06, lean: [0, 4.0] });
+  // dust hanging in the hall, so the shafts have something to be visible in
+  b.particles(220, { x0: -GX, x1: GX, y0: 0.4, y1: 10, z0: -GZ_, z1: GZ_ },
+    { color: 0xfff4dc, size: 0.05, opacity: 0.30, vy: [-0.05, 0.05] });
+
+  // ---- THE POOL HALL, WHICH IS A DIFFERENT BUILDING ----------------------
+  // Sunk under the gym's west half with no daylight of its own. What it gets
+  // instead is a broken feed pouring into the deep end, mist coming off the
+  // water, and the pipework the room was always meant to have.
+  b.waterfall(-19.5, PY - 0.2, 8.6, 1.6, 1.7, { color: 0x8fd8ea, opacity: 0.5, speed: 2.6 });
+  b.pipeRun(-24, PY + 3.0, -14, -24, PY + 3.0, 14, { zone: PZ });
+  b.pipeRun(-24, PY + 3.0, 12, -2, PY + 3.0, 12, { zone: PZ });
+  b.mist(-20, -11, -5, 11, PY - 1.6, 0x9fd0e0, { opacity: 0.24, scale: 10 });
+  b.hangingLamp(-16, -0.6, -13, 1.3, 0xcfe8f4);
+  b.hangingLamp(-8, -0.6, 13, 1.3, 0xcfe8f4);
+  b.sparker(-23.4, PY + 3.2, 3, { color: 0xbfe4ff });
+  b.steamVent(-22.6, PY, 6, { height: 2.6, period: 4.4, opacity: 0.22, color: 0xdfeef4 });
+  // the hole in the gym floor is the way in, so light it from below
+  b.godRay(-17.8, -0.2, 9.8, 2.4, 4.0, 0xdfeef4, { opacity: 0.11, taper: 0.6, pool: false });
+
+  // ---- THE COLONY BARRIER -------------------------------------------------
+  // Sendai is a Culling Game colony, which means the whole site is inside a
+  // barrier somebody drew. The ward is on the field where there is room to see
+  // it, with the two smaller anchor glyphs at the goal ends — the first thing
+  // on any of these maps that says what KIND of place this is.
+  b.sigil(0, 0.04, -30, 20, 0x6ad8a8, { rings: 3, spokes: 18, sides: 4, opacity: 0.26, spin: 0.02 });
+  b.sigil(-30, 0.04, -30, 4.5, 0x6ad8a8, { rings: 2, spokes: 6, sides: 3, opacity: 0.30, spin: -0.11 });
+  b.sigil(30, 0.04, -30, 4.5, 0x6ad8a8, { rings: 2, spokes: 6, sides: 3, opacity: 0.30, spin: 0.11 });
+  // morning off the field, which is what makes the grass read as ground rather
+  // than as a green floor
+  b.mist(-48, -40, 48, -WALLZ, 0, 0xb4c4c8, { opacity: 0.20, scale: 34 });
+
+  // ---- THE SCHOOL IS ABANDONED -------------------------------------------
+  // Banners still up in the gym from whatever the last event was, the corridor
+  // lights failing, and the groundskeeping yard behind the bike shelter left
+  // exactly where it was — which is where the drums are.
+  for (const [bx, bc] of [[-14, 0xd8425a], [-4, 0xdfe4ea], [6, 0x3a72c8], [16, 0xe8b04a]]) {
+    b.banner(bx, 11.6, -GZ_ + 0.5, 2.4, 4.6, bc, { ry: 0, amp: 0.08 });
+  }
+  b.banner(-21.4, 11.6, 0, 2.6, 5.4, 0x2f8f6a, { ry: Math.PI / 2, amp: 0.07 });
+  b.banner(21.4, 11.6, 0, 2.6, 5.4, 0x2f8f6a, { ry: -Math.PI / 2, amp: 0.07 });
+  b.sparker(-20, 3.7, 21, { color: 0xdfeaff });
+  b.sparker(28, 3.7, 21, { color: 0xdfeaff });
+  b.hangingLamp(8, 3.9, 21, 1.1, 0xeaf2ff);
+
+  // The yard: cover on the field's east side, well clear of the shelter's
+  // ramp and of the doors out of the gym.
+  b.crates(26, 0, -22, { count: 3 });
+  b.crates(27.6, 0, -23.6, { count: 2 });
+  b.crates(24.4, 0, -23.6, { count: 1 });
+  for (let i = 0; i < 4; i++) b.drum(31 + i * 1.05, 0, -22, { color: 0x4a7a3c });
+  b.crates(-30, 0, -14, { count: 2 });
+  b.crates(-31.8, 0, -15.4, { count: 3 });
+  for (let i = 0; i < 3; i++) b.drum(-35 - i * 1.05, 0, -14, { color: 0x4a7a3c });
 
   // ambient: dust in the gym light, chlorine haze over the water
   b.particles(160, { x0: -GX, x1: GX, y0: 0.5, y1: 11, z0: -GZ_, z1: GZ_ },

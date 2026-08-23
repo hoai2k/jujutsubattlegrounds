@@ -317,6 +317,85 @@ export function build(quality) {
     }
   }
 
+  // ---- THE CATENARY -------------------------------------------------------
+  // Overhead line down both trenches, with the droppers off it. A railway
+  // without wire over the track is a trench with sleepers in it, and this is
+  // the single cheapest thing that says "trains run here" — it also fills the
+  // volume between the ballast and the canopy, which was empty air.
+  for (const s of [-1, 1]) {
+    const ZC = s * 13;
+    for (let i = 0; i < 5; i++) {
+      const x0 = -EX + 2 + i * 18, x1 = Math.min(EX - 2, x0 + 18);
+      if (x1 - x0 < 2) continue;
+      b.cable(v3(x0, 4.5, ZC), v3(x1, 4.5, ZC), { sag: 0.5, r: 0.05, mat: M.darkMetal });
+      b.cable(v3(x0, 3.7, ZC), v3(x1, 3.7, ZC), { sag: 0.34, r: 0.035, mat: M.darkMetal });
+    }
+    // the masts, off the outer wall
+    for (let i = 0; i < 9; i++) {
+      const x = -EX + 4 + i * 10.5;
+      const mast = new THREE.BoxGeometry(0.2, 6.2, 0.2);
+      mast.translate(x, 1.9, s * (TZ - 0.6));
+      b.static_(mast, M.rust, Z);
+      const arm = new THREE.BoxGeometry(0.14, 0.14, Math.abs(s * (TZ - 0.6) - ZC));
+      arm.translate(x, 4.9, (s * (TZ - 0.6) + ZC) / 2);
+      b.static_(arm, M.rust, Z);
+    }
+  }
+
+  // ---- WHAT COMES THROUGH THE SLOT ---------------------------------------
+  // The canopy has a slot down the centreline and until now the only thing that
+  // came through it was rain. These are the shafts of it — the crossing's neon
+  // and the platform lights arriving as volume rather than as a lit strip on a
+  // ceiling 10 m up.
+  for (let i = 0; i < 7; i++) {
+    b.godRay(-30 + i * 10, RY - 0.2, 0, 3.0, RY, 0xcfe0ff,
+      { opacity: 0.075, taper: 0.35, lean: [(i % 2 ? 1 : -1) * 0.7, 0], range: 90 });
+  }
+  b.godRay(-13, CY - 0.1, -10.8, 2.6, CY + 1.1, 0xffd8a0, { opacity: 0.09, taper: 0.4 });
+  b.godRay(13, CY - 0.1, 10.8, 2.6, CY + 1.1, 0xffd8a0, { opacity: 0.09, taper: 0.4 });
+
+  // ---- THE TRENCHES ARE A DIFFERENT PLACE ---------------------------------
+  // Mist on the ballast, steam off the pits, and a broken feeder arcing where
+  // the wire has come down. The trenches were correct, walkable and completely
+  // undifferentiated from the platform above them.
+  for (const s of [-1, 1]) {
+    b.mist(-EX + 1, s * (PZ + 0.3), EX - 1, s * (TZ - 0.3), -1.10, 0x8296b4,
+      { opacity: 0.26, scale: 16 });
+  }
+  b.steamVent(6, -1.05, -16, { height: 4.6, period: 3.6, opacity: 0.26 });
+  b.steamVent(-8, -1.05, 16, { height: 4.6, period: 4.1, opacity: 0.26 });
+  b.steamVent(38, -1.05, -10, { height: 3.4, period: 2.8, opacity: 0.22 });
+  b.sparker(24, 4.4, -13, { color: 0xbfe4ff });
+  b.sparker(-26, 4.4, 13, { color: 0xbfe4ff });
+  b.sparker(-13, RY - 0.6, 3.4, { color: 0xdfeaff });
+
+  // ---- ENGINEERING POSSESSION --------------------------------------------
+  // Both trenches have a blocked half and an open half (see `train`), and the
+  // open halves were bare ballast. They are now the works site: cover to fight
+  // round, a stack to climb, and a row of drums that takes the lot with it.
+  // Placed clear of the standing rakes so neither route is narrowed.
+  b.crates(20, -1.10, -13, { count: 3 });
+  b.crates(22.4, -1.10, -12.2, { count: 2 });
+  for (let i = 0; i < 4; i++) b.drum(28 + i * 1.05, -1.10, -13.4, { color: 0xc4562c });
+  b.beacon(26, 0.5, -14.6, 0xffa03c, { reach: 4.2 });
+  b.crates(-20, -1.10, 13, { count: 3 });
+  b.crates(-22.4, -1.10, 12.2, { count: 2 });
+  for (let i = 0; i < 4; i++) b.drum(-28 - i * 1.05, -1.10, 13.4, { color: 0xb8483c });
+  b.beacon(-26, 0.5, 14.6, 0xffa03c, { reach: 4.2 });
+
+  // ---- SIGNAGE AND THE WARD ----------------------------------------------
+  // Hanging cloth under the canopy, and the veil laid over the platform: the
+  // same ward as the crossing below, seen from inside it.
+  b.sigil(0, 0.06, 0, 11, 0x8f6aff, { rings: 3, spokes: 14, sides: 6, opacity: 0.24, spin: -0.04 });
+  for (const [bx, bc] of [[-30, 0xd8324f], [-10, 0x2f7fd8], [10, 0xd8a52f], [30, 0x2fd88a]]) {
+    b.banner(bx, RY - 0.4, -6.6, 2.2, 3.4, bc, { ry: 0, amp: 0.09 });
+    b.banner(bx, RY - 0.4, 6.6, 2.2, 3.4, bc, { ry: Math.PI, amp: 0.09 });
+  }
+  // rain coming off the lip of the canopy, both sides of the slot
+  b.waterfall(-18, RY - 0.1, -2.5, 2.4, RY - 0.4, { color: 0x9fc0e8, opacity: 0.30, speed: 3.2 });
+  b.waterfall(18, RY - 0.1, 2.5, 2.4, RY - 0.4, { color: 0x9fc0e8, opacity: 0.30, speed: 3.2 });
+  b.beacon(EX - 3, SY + 1.4, 0, 0xff4a5a, { reach: 5.0, rate: 1.1 });
+
   // ---- RAIN + HAZE --------------------------------------------------------
   // Falls through the slot in the canopy, so the platform reads as open.
   b.particles(700, { x0: -44, x1: 44, y0: 0, y1: 28, z0: -24, z1: 24 },

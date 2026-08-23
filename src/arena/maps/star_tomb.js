@@ -30,7 +30,7 @@
 //   y = 11.10  HALL ROOF    the highest ground, off the terrace's east steps.
 //   VERTICAL                two flights up the climb, the tomb stair down
 //                           through the terrace floor, and the roof steps.
-import { MapBuilder, emissive, glowMaterial } from '../kit.js';
+import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import { NATURAL } from '../terrain.js';
 import * as THREE from 'three';
 import { rand, v3 } from '../../core/mathutil.js';
@@ -192,7 +192,7 @@ export function build(quality) {
       g.add(post, cap, box);
       g.position.set(x, TY, z);
       b.add(g);
-      const halo = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4), glowMaterial(0xff9c4e, 0.2));
+      const halo = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), haloMaterial(0xff9c4e, 0.26));
       halo.position.set(x, TY + 1.9, z);
       b.add(halo);
       b.breakable(g, { hp: 20, kind: 'concrete', center: v3(x, TY + 1.1, z), radius: 0.5, height: 2.4, baseY: TY });
@@ -268,7 +268,7 @@ export function build(quality) {
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(-17, BY + 1.35, -23);
     b.add(ring);
-    const glow = new THREE.Mesh(new THREE.CircleGeometry(3.6, 24), glowMaterial(0x4fd8b8, 0.18));
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(4.4, 24), haloMaterial(0x4fd8b8, 0.24));
     glow.rotation.x = -Math.PI / 2;
     glow.position.set(-17, BY + 1.4, -23);
     b.add(glow);
@@ -291,6 +291,97 @@ export function build(quality) {
     fi.map(f => ({ ...f, y: 2.2 * f.s, s: f.s, sy: f.s })));
   b.repeat(new THREE.SphereGeometry(2.0, 8, 6), M.foliage,
     fi.map(f => ({ ...f, y: 5.8 * f.s, s: f.s })));
+
+  // =========================================================================
+  // MOONLIGHT, LANTERNS, AND WHAT IS SEALED DOWN THERE
+  // =========================================================================
+  // The two halves of this map are an exposed climb under an open night sky and
+  // a sealed stone corridor with no daylight in it at all, and neither of them
+  // was lit like that: the climb had lanterns on the terrace only and the tomb
+  // had six strip lights. What follows is the difference between the two, said
+  // in light.
+
+  // ---- THE CLIMB ----------------------------------------------------------
+  // Moonlight coming down through the cedar either side of the torii corridor,
+  // and lanterns hung under the gates so the corridor has a colour of its own
+  // to be seen against.
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 + 0.7;
+    const r = 20 + (i % 3) * 9;
+    const x = Math.sin(a) * r, z = Math.cos(a) * r;
+    if (Math.abs(x) < 10 && z > -6) continue;               // the corridor stays clear
+    if (x > -TX - 3 && x < TX + 3 && z < TZ1 + 2) continue; // and so does the terrace
+    b.godRay(x, 20, z, 2.8, 20, 0xbcd4ff,
+      { opacity: 0.055, taper: 0.3, lean: [2.2, -3.2], range: 90 });
+  }
+  // and three down the corridor itself. The gates are the one thing on this map
+  // worth backlighting, and the scatter rule above deliberately keeps the axis
+  // clear of geometry — which had left the whole approach unlit as well.
+  b.godRay(-2, 24, 34, 5.5, 24, 0xbcd4ff, { opacity: 0.06, taper: 0.34, lean: [3.0, -5.0], range: 120 });
+  b.godRay(4, 22, 20, 3.6, 22, 0xbcd4ff, { opacity: 0.06, taper: 0.3, lean: [2.0, -3.4], range: 110 });
+  b.godRay(-3, 20, 6, 3.0, 17, 0xbcd4ff, { opacity: 0.06, taper: 0.3, lean: [1.6, -2.6], range: 100 });
+  for (let i = 0; i < 8; i++) {
+    const t = (i + 0.5) / 8;
+    const z = 14 - 6 * t, y = 0.05 + (MY - 0.05) * t;
+    b.lanternString(v3(-2.2, y + 2.7, z), v3(2.2, y + 2.7, z), { color: 0xff9c4e, sag: 0.28, count: 2 });
+  }
+  for (let i = 0; i < 11; i++) {
+    const t = (i + 0.5) / 11;
+    const z = 2 - 10 * t, y = MY + (TY - MY) * t;
+    b.lanternString(v3(-2.2, y + 2.7, z), v3(2.2, y + 2.7, z), { color: 0xff9c4e, sag: 0.28, count: 2 });
+  }
+  // ground mist lying in the forest and pouring down the steps, which is what
+  // a mountain shrine at night actually looks like
+  b.mist(-48, 10, 48, 44, 0, 0x8fa8c8, { opacity: 0.16, scale: 26 });
+  b.mist(-48, -44, -30, 20, 0, 0x8fa8c8, { opacity: 0.16, scale: 26 });
+  b.mist(30, -44, 48, 20, 0, 0x8fa8c8, { opacity: 0.16, scale: 26 });
+  b.mist(-TX, TZ0, TX, TZ1, TY, 0x9fb4d8, { opacity: 0.13, scale: 14 });
+
+  // ---- THE CHŌZUYA RUNS ---------------------------------------------------
+  // A spout with water actually coming out of it. The basin had a flat blue
+  // rectangle laid on it and nothing feeding it.
+  b.waterfall(6.6, MY + 1.75, 5.5, 0.34, 0.85, { color: 0xcfeef8, opacity: 0.6, speed: 3.0 });
+  b.steamVent(6.6, MY + 0.95, 5, { height: 1.4, period: 4.6, opacity: 0.16, color: 0xcfe4f0, spread: 1.2 });
+
+  // ---- THE SHRINE ---------------------------------------------------------
+  // Noren across the hall's shoji face, shide streamers off the terrace
+  // lanterns' line, and the ward drawn on the flagstones.
+  for (let i = 0; i < 3; i++) {
+    b.banner(HX0 + 3.4 + i * 6.4, HY - 0.9, HZ1 + 0.25, 4.6, 1.4, 0x7a1f2c, { ry: 0, amp: 0.08 });
+  }
+  b.sigil(-4, TY + 0.04, -14, 8.5, 0x6fe0c8, { rings: 3, spokes: 16, sides: 6, opacity: 0.22, spin: -0.03 });
+  b.sigil(0, MY + 0.04, 5, 3.2, 0xffb45e, { rings: 2, spokes: 8, sides: 4, opacity: 0.26, spin: 0.12 });
+  b.sigil(0, 0.06, 30, 6.0, 0xffb45e, { rings: 2, spokes: 10, sides: 3, opacity: 0.20, spin: -0.06 });
+
+  // ---- THE TOMB -----------------------------------------------------------
+  // The one shaft of anything that reaches this room comes down its own
+  // stairwell, and it is the only reason the corridor has a far end.
+  b.godRay(20, TY - 0.2, -20, 3.4, TY - BY - 0.2, 0xbcd4ff,
+    { opacity: 0.10, taper: 0.5, lean: [-1.4, -2.0], poolGain: 1.2, range: 60 });
+  for (let i = 0; i < 5; i++) {
+    b.hangingLamp(-18 + i * 8.5, TY - 1.2, -21, 1.6, 0x6fe0c8, { amp: 0.035, range: 44 });
+  }
+  b.mist(-24, TZ0 + 2, 24, TZ1 - 2, BY, 0x3f7f74, { opacity: 0.22, scale: 11 });
+  // the ward around the dais, and the two that hold the corridor shut
+  b.sigil(-17, BY + 1.36, -23, 5.6, 0x4fd8b8, { rings: 3, spokes: 14, sides: 5, opacity: 0.34, spin: 0.07 });
+  b.sigil(6, BY + 0.03, -21, 4.4, 0x4fd8b8, { rings: 2, spokes: 10, sides: 3, opacity: 0.24, spin: -0.10 });
+  b.sigil(22, BY + 0.03, -21, 3.4, 0x4fd8b8, { rings: 2, spokes: 8, sides: 3, opacity: 0.24, spin: 0.10 });
+
+  // ---- WHAT WAS LEFT IN HERE ---------------------------------------------
+  // Sealed vessels down the corridor and crates in the bays. The vessels are
+  // `drum` under the paint — a warded jar in a burial corridor goes off exactly
+  // as hard as a fuel drum does, and this is the tightest room in the set to be
+  // standing in when a row of them does.
+  for (let i = 0; i < 4; i++) b.drum(2 + i * 1.05, BY, -21, { color: 0x4a5a52, markColor: 0x6fe0c8 });
+  for (let i = 0; i < 3; i++) b.drum(-3 - i * 1.05, BY, -31, { color: 0x4a5a52, markColor: 0x6fe0c8 });
+  b.crates(11, BY, -30.5, { count: 2 });
+  b.crates(12.8, BY, -31.8, { count: 1 });
+  b.crates(-21, BY, -12, { count: 3 });
+  b.crates(-19.2, BY, -13.4, { count: 2 });
+  // and the porters' kit at the foot of the climb, off the gravel path
+  b.crates(11, 0, 22, { count: 3 });
+  b.crates(12.8, 0, 20.6, { count: 2 });
+  b.crates(-11, 0, 26, { count: 2 });
 
   // moonlight in the cedar, and cold dust in the tomb
   b.particles(260, { x0: -48, x1: 48, y0: 0.4, y1: 22, z0: -44, z1: 44 },

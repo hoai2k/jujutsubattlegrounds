@@ -149,12 +149,14 @@ export function build(quality) {
   b.floor(-RX, -54, RX, PZ0, 0, { mat: M.grass });
   // the rock head-wall the water comes off
   b.wall(-RX, PZ0, RX, PZ0, SY - 0.5, 3.2, { mat: M.rock, thick: 0.8 });
-  // the fall itself: two translucent sheets and a spray haze
-  for (const [w, op, zo] of [[10.4, 0.42, 0.55], [8.0, 0.30, 0.85]]) {
-    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(w, 2.4), glowMaterial(0xcfeef8, op));
-    sheet.position.set(0, SY + 0.9, PZ0 + zo);
-    b.add(sheet);
-  }
+  // THE FALL ITSELF. It used to be two flat glowing rectangles hanging in front
+  // of the head-wall: from the beauty angle they read as a waterfall and from
+  // anywhere on the map they read as two cyan cards, because nothing in them
+  // moved. `b.waterfall` scrolls its own surface and boils where it lands, and
+  // three sheets at different widths and speeds give the fall a middle.
+  b.waterfall(0, SY + 2.9, PZ0 + 0.55, 10.4, 4.2, { color: 0xcfeef8, opacity: 0.55, speed: 2.6 });
+  b.waterfall(0, SY + 2.9, PZ0 + 0.9, 7.2, 4.2, { color: 0xeaf8ff, opacity: 0.38, speed: 3.4 });
+  b.waterfall(-3.2, SY + 2.9, PZ0 + 1.2, 2.4, 4.2, { color: 0xffffff, opacity: 0.26, speed: 4.2 });
   b.particles(220, { x0: -5.4, x1: 5.4, y0: SY, y1: SY + 2.3, z0: PZ0, z1: PZ0 + 3 },
     { color: 0xdff4ff, size: 0.09, opacity: 0.4, vy: [-5, -2] });
 
@@ -287,20 +289,72 @@ export function build(quality) {
   }
 
   // ---- DAPPLED LIGHT + AMBIENT LIFE --------------------------------------
-  // the map's signature: broken shafts of sun through the canopy
-  for (let i = 0; i < 22; i++) {
+  // THE MAP'S SIGNATURE: broken shafts of sun through the canopy. These were
+  // hand-rolled here — a static cylinder plus a disc, twenty-two times — which
+  // is where `b.godRay` came from. Going through the helper buys three things
+  // the hand-rolled version could not have: the shafts BREATHE (dust turning
+  // over in the beam is the whole reason a shaft is visible at all), they LEAN
+  // the way the key light does instead of standing vertically in a forest at
+  // noon, and they switch off past their range like every other prop.
+  //
+  // The landing height is taken from the terrain: a shaft over the plateau that
+  // pools at y = 0 is a disc of light buried eight metres inside the rock.
+  for (let i = 0; i < 26; i++) {
     const a = rand(0, Math.PI * 2), r = rand(8, 46);
     const x = Math.sin(a) * r, z = Math.cos(a) * r;
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 3.2, 20, 8, 1, true),
-      glowMaterial(0xe8f0b0, 0.055));
-    shaft.position.set(x, 10, z);
-    shaft.rotation.z = rand(-0.14, 0.14);
-    b.add(shaft);
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(rand(2, 3.6), 16), glowMaterial(0xe8f0b0, 0.10));
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.set(x, 0.06, z);
-    b.add(pool);
+    const gy = x < -20 && Math.abs(z) < 20 ? PY
+      : (x > 34 && x < 48 && Math.abs(z) < 9 ? LY
+        : (x > 18 && x < 52 && Math.abs(z) < 28 ? BY : 0));
+    b.godRay(x, gy + 19, z, rand(2.2, 3.6), 19, 0xe8f0b0,
+      { opacity: 0.05, taper: 0.34, lean: [rand(-4, -1.5), rand(0.5, 2.5)], range: 84 });
   }
+  // ---- THE EVENT IS RUNNING ----------------------------------------------
+  // This is a school exchange with two teams in it, and the site had no sign of
+  // one anywhere: no barrier, no markers, no staging. The veil is drawn on the
+  // clearing where the teams meet; the four anchor glyphs are the corners of
+  // the event ground.
+  b.sigil(0, 0.05, 0, 17, 0x8fd8a0, { rings: 3, spokes: 16, sides: 5, opacity: 0.20, spin: 0.02 });
+  b.sigil(-38, PY + 0.03, 0, 4.6, 0x8fd8a0, { rings: 2, spokes: 6, sides: 3, opacity: 0.26, spin: -0.09 });
+  b.sigil(41, LY + 0.03, 0, 4.2, 0x8fd8a0, { rings: 2, spokes: 6, sides: 3, opacity: 0.26, spin: 0.09 });
+  b.sigil(0, FY + 0.03, FZ, 3.4, 0xffd08a, { rings: 2, spokes: 8, sides: 4, opacity: 0.24, spin: 0.13 });
+  // team markers down both approaches to the bridge, which is the map's choke
+  for (let i = 0; i < 3; i++) {
+    b.banner(-BX - 4 - i * 5, 4.0, FZ - 3.4, 1.4, 2.6, 0x2f6ad8, { ry: Math.PI / 2, amp: 0.11 });
+    b.banner(BX + 4 + i * 5, 4.0, FZ + 3.4, 1.4, 2.6, 0xd83c4a, { ry: Math.PI / 2, amp: 0.11 });
+    for (const bx of [-BX - 4 - i * 5, BX + 4 + i * 5]) {
+      const post = new THREE.BoxGeometry(0.14, 4.2, 0.14);
+      post.translate(bx, 2.1, FZ + Math.sign(bx) * 3.4);
+      b.static_(post, M.trunk);
+    }
+  }
+  b.lanternString(v3(-BX - 2, 3.4, FZ), v3(BX + 2, 3.4, FZ), { color: 0xffc87a, sag: 0.8, count: 8 });
+
+  // ---- THE STAGING POINT --------------------------------------------------
+  // The organisers' kit, dumped on the east bench well clear of both slopes
+  // onto it. The drums are the generator's fuel, and they are the gimmick: this
+  // is the one map with no architecture on it, so the only thing that can
+  // change its shape mid-round is what somebody left lying on the grass.
+  b.crates(30, BY, -20, { count: 3 });
+  b.crates(31.8, BY, -21.6, { count: 2 });
+  b.crates(28.2, BY, -21.6, { count: 1 });
+  for (let i = 0; i < 4; i++) b.drum(24 - i * 1.05, BY, -20.4, { color: 0x4a7a3c });
+  b.crates(-38, PY, 14, { count: 2 });
+  for (let i = 0; i < 3; i++) b.drum(-33 - i * 1.05, PY, 14.4, { color: 0x4a7a3c });
+
+  // ---- WATER AND MOUNTAIN AIR --------------------------------------------
+  // River mist along the channel, heavier over the plunge pool, and the hot
+  // vents in the rock beside it — the map is a mountain and the water has to
+  // be coming off one.
+  b.mist(-RX, PZ1, RX, 54, SY + 0.5, 0xcfe8ec, { opacity: 0.13, scale: 12 });
+  b.mist(-RX, PZ0, RX, PZ1, SY + 0.35, 0xdff4ff, { opacity: 0.28, scale: 7 });
+  b.steamVent(-4.6, SY + 0.4, PZ1 + 3, { height: 4.0, period: 3.4, opacity: 0.26, color: 0xdff4ff });
+  b.steamVent(4.6, SY + 0.4, PZ1 + 7, { height: 3.4, period: 4.2, opacity: 0.24, color: 0xdff4ff });
+  b.steamVent(0, SY + 0.4, -20, { height: 2.8, period: 5.0, opacity: 0.18, color: 0xdff4ff });
+  // and the fireflies over it, which is the one thing this map's ambient list
+  // was short of after leaves and pollen: something that holds still and blinks
+  b.particles(90, { x0: -RX, x1: RX, y0: SY + 0.6, y1: SY + 3.0, z0: PZ0, z1: 50 },
+    { color: 0xbfffd8, size: 0.10, opacity: 0.5, vy: [-0.15, 0.15] });
+
   b.particles(340, { x0: -54, x1: 54, y0: 0.3, y1: 20, z0: -52, z1: 52 },
     { color: 0xd8e8a0, size: 0.12, opacity: 0.45, vy: [-0.8, -0.25] });   // falling leaves
   b.particles(200, { x0: -54, x1: 54, y0: 0.5, y1: 12, z0: -52, z1: 52 },

@@ -25,7 +25,7 @@
 //   VERTICAL                an embankment slope at each end (riverbed -> deck),
 //                           a stair at each end of the gantry, and a
 //                           maintenance stair up each portal to the truss.
-import { MapBuilder, emissive, glowMaterial } from '../kit.js';
+import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import { NATURAL } from '../terrain.js';
 import * as THREE from 'three';
 import { rand, v3 } from '../../core/mathutil.js';
@@ -240,7 +240,7 @@ export function build(quality) {
       g.add(pole, head);
       g.position.set(x, DY, z);
       b.add(g);
-      const halo = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), glowMaterial(0xffc87a, 0.09));
+      const halo = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), haloMaterial(0xffc87a, 0.15));
       halo.rotation.x = -Math.PI / 2;
       halo.position.set(x, DY + 0.06, z - s * 1.6);
       b.add(halo);
@@ -274,6 +274,77 @@ export function build(quality) {
     }
     b.repeat(new THREE.BoxGeometry(0.09, 1.6, 0.09), M.foliage, reeds);
   }
+
+  // =========================================================================
+  // NIGHT ON THE RIVER
+  // =========================================================================
+  // Three levels of correct steel with a drizzle over it. What the map was
+  // short of is the thing a bridge at night is entirely made of — light falling
+  // through a lattice onto moving water — plus any evidence at all that
+  // something happened here.
+
+  // ---- WHAT THE LAMPS DO --------------------------------------------------
+  // The deck lamps threw a flat halo disc and stopped. These are the cones they
+  // stand in, and the light that gets past the deck to the gantry and the
+  // riverbed through the gaps between the girders.
+  for (let i = 0; i < 8; i++) {
+    for (const s of [-1, 1]) {
+      const x = -35 + i * 10, z = s * (DW - 0.9);
+      b.godRay(x, DY + 3.5, z - s * 0.6, 2.1, 3.5, 0xffc87a,
+        { opacity: 0.10, taper: 0.16, lean: [0, -s * 1.4], range: 56 });
+    }
+  }
+  // and the moon coming down through the truss, which is the map's own ceiling
+  for (let i = 0; i < 6; i++) {
+    b.godRay(-34 + i * 14, TY + 6, 0, 4.4, TY + 6 - RB, 0xc4d8ff,
+      { opacity: 0.05, taper: 0.4, lean: [4.5, 3.0], range: 130 });
+  }
+
+  // ---- THE WATER ----------------------------------------------------------
+  // Mist lying on the channel and rolling over the gravel bars, and the spill
+  // off the abutment weirs at each end of the span.
+  b.mist(-62, -15, 62, 15, RB + 0.55, 0x8fb0c8, { opacity: 0.24, scale: 20 });
+  for (const s of [-1, 1]) {
+    b.waterfall(s * (SPAN - 0.7), RB + 2.4, -6, 2.6, 2.9,
+      { ry: Math.PI / 2, color: 0x9fc0d8, opacity: 0.42, speed: 2.2 });
+    b.waterfall(s * (SPAN - 0.7), RB + 2.4, 7, 2.2, 2.9,
+      { ry: Math.PI / 2, color: 0x9fc0d8, opacity: 0.42, speed: 2.6 });
+    b.steamVent(s * 34, RB + 0.5, -10, { height: 3.6, period: 4.4, opacity: 0.20, color: 0xbfd4e4 });
+  }
+
+  // ---- THE DEATH PAINTING ------------------------------------------------
+  // A veil went up over this crossing before the fight, and the map never said
+  // so. The great ward runs the length of the span at deck level; the two
+  // anchors are on the riverbed under the piers, which is where anyone who gets
+  // knocked off the deck lands.
+  b.sigil(0, DY + 0.05, 0, 22, 0x9f4ad8, { rings: 3, spokes: 20, sides: 6, opacity: 0.20, spin: -0.02 });
+  b.sigil(-16, RB + 0.04, 0, 6.5, 0xd84a6a, { rings: 2, spokes: 10, sides: 3, opacity: 0.24, spin: 0.09 });
+  b.sigil(16, RB + 0.04, 0, 6.5, 0xd84a6a, { rings: 2, spokes: 10, sides: 3, opacity: 0.24, spin: -0.09 });
+  b.sigil(0, GY + 0.04, 0, 1.8, 0x9f4ad8, { rings: 2, spokes: 6, sides: 3, opacity: 0.30, spin: 0.18 });
+
+  // ---- THE SPAN IS DERELICT ----------------------------------------------
+  // Feeders slung under the truss and arcing where they have parted, a beacon
+  // on each portal, and the works compound at the north end of the deck. The
+  // drums are the gimmick and they are on the DECK, which is the map's choke:
+  // this is the one place in the set where blowing a row of them mid-crossing
+  // is a real thing to do to somebody.
+  for (const s of [-1, 1]) {
+    b.cable(v3(-SPAN, TY - 0.6, s * (DW - 0.3)), v3(0, TY - 2.2, s * (DW - 0.3)), { sag: 1.2, r: 0.05 });
+    b.cable(v3(0, TY - 2.2, s * (DW - 0.3)), v3(SPAN, TY - 0.6, s * (DW - 0.3)), { sag: 1.2, r: 0.05 });
+    b.beacon(s * (SPAN - 1.2), TY + 1.4, 0, 0xff4a5a, { reach: 4.6, rate: 0.9 });
+    b.sparker(s * 22, TY - 2.6, s * (DW - 0.3), { color: 0xbfe4ff });
+  }
+  b.sparker(0, DY - 0.8, 1.9, { color: 0xbfe4ff });
+  b.crates(-33, DY, 5.4, { count: 3 });
+  b.crates(-31.2, DY, 6.6, { count: 2 });
+  for (let i = 0; i < 4; i++) b.drum(-36 + i * 1.05, DY, 5.8, { color: 0xc4562c });
+  b.beacon(-29, DY + 1.4, 6.4, 0xffa03c, { reach: 3.4 });
+  b.crates(34, DY, -5.4, { count: 3 });
+  for (let i = 0; i < 3; i++) b.drum(29 + i * 1.05, DY, -5.8, { color: 0xb8483c });
+  b.beacon(27, DY + 1.4, -6.4, 0xffa03c, { reach: 3.4 });
+  // and a stack on the flats, so the low ground has something to break too
+  b.crates(-42, RB, 20, { count: 2 });
+  b.crates(40, RB, -20, { count: 2 });
 
   // ---- AMBIENT ------------------------------------------------------------
   // river mist along the water, and the drizzle the whole fight happens in

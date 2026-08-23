@@ -248,14 +248,12 @@ export function build(quality) {
   // ---- THE MANHOLE SHAFT --------------------------------------------------
   // The one clean light in the map, and the only thing above the vault.
   {
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 3.0, 10, 12, 1, true),
-      glowMaterial(0xd8f0c0, 0.10));
-    shaft.position.set(-9, 4.0, 12);
-    b.add(shaft);
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(3.1, 22), glowMaterial(0xd8f0c0, 0.13));
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.set(-9, LY + 0.04, 12);
-    b.add(pool);
+    // Through `b.godRay` rather than hand-rolled, so it leans (a vertical shaft
+    // is midday and this map has no midday), breathes, and switches off at
+    // range like every other prop. It is the ONE clean colour in a map lit
+    // entirely in sick green, so it has to earn the frame it is in.
+    b.godRay(-9, 8.9, 12, 3.0, 8.9, 0xd8f0c0,
+      { opacity: 0.11, taper: 0.36, lean: [1.8, -2.4], poolGain: 1.2, range: 60 });
     const ring = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.12, 6, 18), M.darkMetal);
     ring.rotation.x = Math.PI / 2;
     ring.position.set(-9, 8.9, 12);
@@ -308,6 +306,76 @@ export function build(quality) {
   for (const [x, z] of [[-11, -11], [11, -11], [-11, 11], [11, 11], [0, 0]]) {
     b.stripLight(x, 6.6, z, 3.0, 'x', 0x8fe8b8, (x === 0 ? 0.7 : 0));
   }
+
+  // =========================================================================
+  // SOMEBODY LIVES DOWN HERE
+  // =========================================================================
+  // The lowest, tightest, greenest map in the set, and the one where the fact
+  // that it is a HIDEOUT was doing the least work: it read as a well-built
+  // storm sewer that happened to have crates in it. What follows is the
+  // difference between a sewer and Mahito's sewer.
+
+  // ---- HIS MARK -----------------------------------------------------------
+  // Idle Transfiguration leaves a signature and this is where he did the work.
+  // The big one is on the north ledge under the gallery — the most covered
+  // floor on the map, which is where you would do it — and the small ones are
+  // in the sump and at each tunnel mouth.
+  b.sigil(-6, LY + 0.04, -14, 8.0, 0x9f5ad8, { rings: 3, spokes: 12, sides: 3, opacity: 0.26, spin: -0.06 });
+  b.sigil(14, LY + 0.04, 15, 5.0, 0x9f5ad8, { rings: 2, spokes: 8, sides: 3, opacity: 0.24, spin: 0.11 });
+  b.sigil(-17, SUMPY + 0.04, 0, 3.2, 0xd85a9f, { rings: 2, spokes: 6, sides: 3, opacity: 0.32, spin: 0.16 });
+
+  // ---- THE OUTFALLS -------------------------------------------------------
+  // A storm sewer with four tunnels feeding one channel and no water visibly
+  // coming out of any of them was the map's biggest missing sound. Two outfall
+  // pipes high on the chamber walls, pouring into the channel, plus the spill
+  // over the lip into the sump.
+  for (const s of [-1, 1]) {
+    b.pipeRun(s * (CX - 1.4), 3.4, -CX + 2, s * (CX - 1.4), 3.4, CX - 2, { zone: CH });
+    b.waterfall(s * (CX - 0.5), 3.0, s * 2.4, 1.6, 4.2,
+      { ry: Math.PI / 2, color: 0x8fd8b8, opacity: 0.42, speed: 2.4 });
+  }
+  b.waterfall(-10.3, CY + 0.3, 0, 7.4, 2.5, { ry: Math.PI / 2, color: 0x7fc8a8, opacity: 0.46, speed: 2.8 });
+  b.mist(-10, -CHW, CX, CHW, CY + 0.4, 0x6fa890, { opacity: 0.30, scale: 9 });
+  b.mist(-CX + 2, -CHW, -10, CHW, SUMPY + 0.55, 0x5f9880, { opacity: 0.40, scale: 6 });
+  b.steamVent(6, CY + 0.4, 0, { height: 3.2, period: 3.6, opacity: 0.22, color: 0xbfe8cc });
+  b.steamVent(-16, CY + 0.4, 0, { height: 2.8, period: 4.4, opacity: 0.22, color: 0xbfe8cc });
+  b.steamVent(-14, SUMPY + 0.6, 2, { height: 3.4, period: 5.2, opacity: 0.26, color: 0xbfe8cc });
+
+  // ---- DEAD SERVICES ------------------------------------------------------
+  // Cables slung under the vault, lamps hanging off the gallery, and the arcing
+  // where the feed has come apart. The gallery's underside is the only cover
+  // from above on this map and nothing was ever drawn on it.
+  b.cable(v3(-CX, VAULT - 0.9, -14), v3(CX, VAULT - 1.6, 10), { sag: 2.2, r: 0.05 });
+  b.cable(v3(-CX, VAULT - 1.4, 16), v3(CX, VAULT - 0.8, -8), { sag: 2.4, r: 0.04 });
+  b.cable(v3(-8, GY - 0.5, -CX), v3(6, GY - 0.9, CX), { sag: 1.6, r: 0.04 });
+  for (const [hx, hz] of [[-14, -14], [14, -14], [-14, 14], [14, 14]]) {
+    b.hangingLamp(hx, GY - 0.4, hz, 1.1, 0x8fe8b8, { amp: 0.10, range: 40 });
+  }
+  b.sparker(-19, 2.6, -6, { color: 0xbfe4ff });
+  b.sparker(19, 2.6, 6, { color: 0xbfe4ff });
+  b.sparker(-9, GY - 0.6, 12, { color: 0xbfe4ff });
+  b.beacon(-20, SUMPY + 3.0, 0, 0xd8402c, { reach: 3.8, rate: 0.8 });
+  // tarpaulins strung between the gallery brackets, which is what makes it a
+  // camp rather than a walkway
+  b.banner(-CX + 2.6, GY - 0.5, -8, 3.0, 2.4, 0x3a4a3f, { ry: Math.PI / 2, amp: 0.14 });
+  b.banner(CX - 2.6, GY - 0.5, 8, 3.0, 2.4, 0x3a4a3f, { ry: Math.PI / 2, amp: 0.14 });
+  b.banner(-4, GY - 0.5, -CX + 2.6, 3.4, 2.2, 0x4a3f3a, { ry: 0, amp: 0.12 });
+
+  // ---- THE STOCK ----------------------------------------------------------
+  // Drums on both ledges, kept off the two stair runs and off the channel
+  // steps. They are the gimmick here and they are the meanest version of it in
+  // the set: this is the lowest ceiling in the game, so a chain going up
+  // between the ledge and the gallery has nowhere to vent.
+  for (let i = 0; i < 4; i++) b.drum(-9 - i * 1.05, LY, -21, { color: 0x4a6a4c, markColor: 0xd85a9f });
+  for (let i = 0; i < 4; i++) b.drum(9 + i * 1.05, LY, 21, { color: 0x4a6a4c, markColor: 0xd85a9f });
+  for (let i = 0; i < 3; i++) b.drum(-21 + i * 1.05, LY, 20, { color: 0x6a5a3c });
+  for (let i = 0; i < 3; i++) b.drum(21 - i * 1.05, LY, -20, { color: 0x6a5a3c });
+  b.crates(0, LY, -21, { count: 3 });
+  b.crates(1.8, LY, -19.6, { count: 2 });
+  b.crates(0, LY, 21, { count: 3 });
+  b.crates(-1.8, LY, 19.6, { count: 2 });
+  b.crates(-CX + 4, GY, -22, { count: 2 });
+  b.crates(CX - 4, GY, 22, { count: 2 });
 
   // ---- AMBIENT ------------------------------------------------------------
   // drip from the vault, and the haze the green light hangs in

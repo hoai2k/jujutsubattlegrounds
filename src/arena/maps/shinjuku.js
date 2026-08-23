@@ -26,7 +26,7 @@
 //   y = 12.00  PODIUM ROOF  the low tower's roof on the west side
 //   BOUNDS                  towers and hoardings; the street ends where the
 //                           buildings do.
-import { MapBuilder, emissive, glowMaterial } from '../kit.js';
+import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import * as THREE from 'three';
 import { rand, v3 } from '../../core/mathutil.js';
 
@@ -313,7 +313,7 @@ export function build(quality) {
       g.add(pole, arm, lamp);
       g.position.set(x, 0.24, z);
       b.add(g);
-      const halo = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), glowMaterial(0xffc87a, 0.10));
+      const halo = new THREE.Mesh(new THREE.PlaneGeometry(11, 11), haloMaterial(0xffc87a, 0.16));
       halo.rotation.x = -Math.PI / 2;
       halo.position.set(x, 0.3, z - sz * 2.2);
       b.add(halo);
@@ -321,6 +321,75 @@ export function build(quality) {
       b.breakable(g, { hp: 35, kind: 'metal', center: v3(x, 3.8, z), radius: 0.6, height: 7.5, baseY: 0.24, colliderIds: ['lamp' + i + sz] });
     }
   }
+
+  // =========================================================================
+  // THE SHOWDOWN LOOK
+  // =========================================================================
+  // The biggest map in the set and the one with the least in the air: 136 m of
+  // correct street with two lit signs and a haze plane over it. What it wanted
+  // was VOLUME — the light doing something between the towers — and a reason to
+  // believe a fight of this size is happening on it.
+
+  // ---- THE CURTAIN --------------------------------------------------------
+  // The largest ward on any of these maps, because this is the largest street.
+  // It runs the length of the boulevard, with anchors under each end of the
+  // overpass where the columns come down.
+  b.sigil(4, 0.06, 0, 34, 0x8f6aff, { rings: 3, spokes: 24, sides: 6, opacity: 0.20, spin: -0.016 });
+  b.sigil(0, 0.06, -30, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.28, spin: 0.10 });
+  b.sigil(0, 0.06, 30, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.28, spin: -0.10 });
+  b.sigil(-26, SY + 0.04, 0, 7.0, 0x6ad8ff, { rings: 3, spokes: 10, sides: 5, opacity: 0.24, spin: 0.06 });
+
+  // ---- LIGHT BETWEEN THE TOWERS ------------------------------------------
+  // Shafts down the two tower gaps onto the roadway, leaning the way the key
+  // light does, plus the pool the overpass screen throws under itself.
+  for (let i = 0; i < 5; i++) {
+    const x = -55 + i * 22 + 11;
+    b.godRay(x, 34, -41, 6.0, 34, 0xbfd0f0, { opacity: 0.05, taper: 0.28, lean: [-6, 16], range: 150 });
+  }
+  b.godRay(0, OY - 0.2, 0, 5.5, OY, 0xdfeaff, { opacity: 0.07, taper: 0.5, pool: false });
+  b.godRay(-26, 0.1, 0, 7.5, 4.5, 0x9fd8ff, { opacity: 0.08, taper: 0.55, pool: false });
+
+  // ---- OVERHEAD RUN + THE SITE -------------------------------------------
+  // Feeder cables across the boulevard, and the east scaffold given the rest of
+  // the kit a live building site has: sheeting, a beacon, drums and a stack.
+  for (let i = 0; i < 5; i++) {
+    const x = -55 + i * 22;
+    b.cable(v3(x, 22, -41), v3(x + 6, 21, 41), { sag: 5.0, r: 0.07, segs: 14 });
+  }
+  b.cable(v3(-44, 14, -20), v3(44, 13, -20), { sag: 4.0, r: 0.06, segs: 14 });
+  b.cable(v3(-44, 14, 20), v3(44, 13, 20), { sag: 4.0, r: 0.06, segs: 14 });
+  b.beacon(KX1 - 1.5, KY + 3.6, 0, 0xffa03c, { reach: 5.0 });
+  b.beacon(-45.5, RY + 1.6, -13, 0xff4a5a, { reach: 4.4, rate: 1.0 });
+  b.crates(KX0 + 4, KY, KZ0 + 3, { count: 2 });
+  b.crates(KX0 + 5.8, KY, KZ0 + 4.4, { count: 1 });
+  for (let i = 0; i < 3; i++) b.drum(KX1 - 2 - i * 1.05, KY, KZ1 - 2.5, { color: 0xc4562c });
+  b.sparker(KX0 + 10, KY + 2.4, KZ1, { color: 0xbfe4ff });
+  // and the compound at the foot of it, on the pavement out of the traffic lanes
+  b.crates(40, 0.24, -30, { count: 3 });
+  b.crates(41.8, 0.24, -31.6, { count: 2 });
+  for (let i = 0; i < 4; i++) b.drum(46 + i * 1.05, 0.24, -30, { color: 0xc4562c });
+  b.crates(-40, 0.24, 30, { count: 3 });
+  for (let i = 0; i < 3; i++) b.drum(-46 - i * 1.05, 0.24, 30, { color: 0xb8483c });
+
+  // ---- SIGNAGE ------------------------------------------------------------
+  // Vertical shop banners down both arcades, which is what a Shinjuku street
+  // frontage actually looks like from the road.
+  for (let i = 0; i < 6; i++) {
+    const cx = -50 + i * 20;
+    const hue = [0xff4f7f, 0x4fd8ff, 0xffd84f, 0x8f4fff, 0x4fe08a, 0xff8f4f][i];
+    b.banner(cx - 6, 5.4, -27.6, 1.5, 3.6, hue, { ry: 0, amp: 0.07 });
+    b.banner(cx + 6, 5.4, 27.6, 1.5, 3.6, hue, { ry: Math.PI, amp: 0.07 });
+  }
+  b.lanternString(v3(-33, 4.6, -19.6), v3(-9, 4.6, -19.6), { color: 0xffb86a, sag: 1.4, count: 12 });
+  b.lanternString(v3(9, 4.6, 19.6), v3(33, 4.6, 19.6), { color: 0xffb86a, sag: 1.4, count: 12 });
+
+  // ---- STREET-LEVEL AIR ---------------------------------------------------
+  b.mist(SP.x0, SP.z0, SP.x1, SP.z1, SY, 0x7f96b8, { opacity: 0.26, scale: 15 });
+  for (const [sx, sz] of [[-48, -8], [-4, 9], [24, -9], [52, 8], [12, -21], [-14, 21]]) {
+    b.steamVent(sx, 0.02, sz, { height: 4.6, period: 3.4 + (sx % 3) * 0.4, opacity: 0.20 });
+  }
+  b.sparker(0, OY + 2.6, -20, { color: 0xbfe4ff });
+  b.sparker(-52, 8.6, 19.6, { color: 0xbfe4ff });
 
   // ---- ambient ------------------------------------------------------------
   b.particles(260, { x0: -64, x1: 64, y0: 0.4, y1: 26, z0: -54, z1: 54 },
