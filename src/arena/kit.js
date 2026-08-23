@@ -931,7 +931,12 @@ export class MapBuilder {
     const [kx, kz] = aabb(0.86, 1.2);       // cabin
     this.bounds.wall(x - bx, z - bz, x + bx, z + bz, y, y + 1.02, { id: cid });
     this.bounds.platform(x - bx, z - bz, x + bx, z + bz, y + 1.08, { id: cid, prop: true });
-    this.bounds.wall(x - kx, z - kz, x + kx, z + kz, y + 1.08, y + 1.71, { id: cid });
+    // The cabin gets the same treatment as the bonnet, which it never had: as a
+    // bare band from 1.08 to 1.71 a fighter who landed on the ROOF sank into it
+    // and was shoved off sideways, which is the fault the comment above says
+    // this helper fixed and only half did.
+    this.bounds.wall(x - kx, z - kz, x + kx, z + kz, y + 1.08, y + 1.59, { id: cid });
+    this.bounds.platform(x - kx, z - kz, x + kx, z + kz, y + 1.71, { id: cid, prop: true });
     return this.breakable(g, {
       hp: 90, kind: 'metal', center: v3(x, y + 0.8, z), radius: 2.2, height: 1.7, baseY: y,
       colliderIds: [cid], debrisScale: 1.3

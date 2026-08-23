@@ -339,7 +339,19 @@ function cellBlock(b, M, sx) {
   const NC = 4, CW = (hi - lo - 2) / NC;      // cells per side, and their width
   b.zone(zn, { x0: lo - 1, x1: hi + 1, z0: -BLK_Z - 1, z1: BLK_Z + 1, y0: -1, y1: 7 });
 
+  // THE BLOCK'S ROOF IS SOLID. Its ceiling is drawn at 5.35 and the atrium's
+  // opening into this corridor runs from the floor to 17 m — so from the
+  // gallery stair, which passes through exactly that height a metre away, a
+  // fighter could step out over the top of the cell block and drop through it
+  // to the corridor floor. From the grounds outside, the block's own walls top
+  // out at 5.8, so being launched onto the roof did the same thing.
+  //
+  // Capping it makes the two block roofs real ground at 5.35 — under the
+  // walkway ring's own level, off to either flank, with no stair to them and
+  // nothing to do up there but get off again. That is a smaller change to this
+  // map than a fighter falling through its roof is.
   b.ceiling(lo, -BLK_Z, hi, BLK_Z, 5.0, { mat: M.concrete, zone: zn });
+  b.lip(lo, -BLK_Z, hi, BLK_Z, 5.35);
   b.water(lo + 0.4, -4.6, hi - 0.4, 4.6, 0.12,
     { shallow: 0x3f6f8a, deep: 0x0e1e2c, opacity: 0.40, caustic: 0.16 });
 
