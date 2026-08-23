@@ -82,9 +82,24 @@ export function build(quality) {
     const n = Math.max(1, Math.round(len / 1.4));
     for (let i = 0; i < n; i++) {
       const t = (i / (n - 1) - 0.5) * len;
+      const px = cx + Math.cos(ang) * t, pz = cz - Math.sin(ang) * t;
+      // NOT ACROSS THE HOLE. The road is laid around the station mouth and the
+      // paint was not, so the east arm of the scramble ran its stripes out over
+      // the opening: lit road marking hanging in the air with a 3.8 m drop
+      // under it.
+      //
+      // The test is on the bar's DRAWN FOOTPRINT, not on its centre — a stripe
+      // is 0.72 m across the lane and `wide` metres along it, and `rotateY`
+      // swaps those two on the arms that run east-west. Testing the centre
+      // point passed a bar whose centre was a metre clear of the hole and whose
+      // far end reached 1.3 m into it, which is exactly the four cells the
+      // first version of this guard left behind.
+      const hx = Math.abs(Math.cos(ang)) * 0.36 + Math.abs(Math.sin(ang)) * wide / 2;
+      const hz = Math.abs(Math.sin(ang)) * 0.36 + Math.abs(Math.cos(ang)) * wide / 2;
+      if (px + hx > MX0 && px - hx < MX1 && pz + hz > MZ0 && pz - hz < MSZ) continue;
       const g = new THREE.BoxGeometry(0.72, 0.03, wide);
       g.rotateY(ang);
-      g.translate(cx + Math.cos(ang) * t, 0.015, cz - Math.sin(ang) * t);
+      g.translate(px, 0.015, pz);
       b.static_(g, paint);
     }
   };

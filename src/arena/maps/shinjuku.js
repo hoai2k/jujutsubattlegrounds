@@ -17,6 +17,8 @@
 //                           makes Jogo and Megumi's shadow work, and the map
 //                           Todo and Yuji have to fight uphill on.
 //   y =  0.24  ARCADE       covered colonnades either side with storefronts
+//   y =  5.95  ARCADE ROOF  the top of those colonnades, walkable, reached off
+//                           the overpass stairs. A flank at mid height.
 //   y =  7.20  OVERPASS     a pedestrian bridge across the middle of the
 //                           street with stairs at both ends. STRUCTURAL: its
 //                           four columns can be destroyed and the deck drops.
@@ -136,7 +138,21 @@ export function build(quality) {
     const zn = 'arcade' + sz;
     const z0 = sz * 28, z1 = sz * 38;
     b.zone(zn, { x0: -62, x1: 62, z0: Math.min(z0, z1), z1: Math.max(z0, z1), y0: -1, y1: 8 });
+    // ARCADE ROOF — capped, and that is a level-design consequence rather than
+    // a tidy-up. The colonnade's roof is drawn at 5.95 and the overpass stair
+    // climbs past its inner edge at exactly that height, so a fighter walking
+    // down the stair could step sideways onto a roof that was not there and
+    // drop six metres to the pavement: 132 cells of it, the largest rim left in
+    // the set after the eaves were fixed.
+    //
+    // The alternative was a parapet fencing the stair off from it, and that
+    // only fixes the walk — anyone thrown onto the roof still falls through it.
+    // So the roof is real. It sits BELOW the overpass (7.2), the scaffold (9.4)
+    // and the podium (12), it runs the length of the map down both flanks, and
+    // you leave it by walking off the edge — a flanking route on the map that
+    // was built for distance, not a new tier above the ones that already exist.
     b.ceiling(-62, Math.min(z0, z1), 62, Math.max(z0, z1), 5.6, { mat: M.concrete, zone: zn });
+    b.lip(-62, Math.min(z0, z1), 62, Math.max(z0, z1), 5.95, { id: 'arcaderoof' + sz });
     // colonnade
     for (let i = 0; i < 15; i++) {
       b.pillar(-58 + i * 8.4, sz * 28, 0.24, 5.4, 0.45, { square: true, mat: M.concrete, hp: 170, zone: zn });

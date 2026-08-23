@@ -281,8 +281,16 @@ export function build(quality) {
   // stops short of x 36: the stairwell to the upper floor climbs through here
   b.ceiling(-44, 17, 36, 25, 4.0, { mat: M.paint, zone: CZ });
   b.wall(-44, 25.4, 44, 25.4, 0, 4.0, { mat: M.paint, zone: CZ });
-  b.wall(-44.4, 17, -44.4, 36, 0, 9.4, { mat: M.paint });
-  b.wall(44.4, 17, 44.4, 36, 0, 9.4, { mat: M.paint });
+  // The block's two end walls, and the LIP each of them needs. They top out at
+  // 9.4 with the roof deck beside them at 9.2, so the 0.3 m of drawn parapet
+  // outboard of the deck was a strip you could see, step onto and fall nine
+  // metres through. The blocker stops 0.12 m under the lip for the usual
+  // reason: a wall level with the floor beside it collides with anyone
+  // standing there.
+  for (const wx of [-44.4, 44.4]) {
+    b.wall(wx, 17, wx, 36, 0, 9.28, { mat: M.paint });
+    b.lip(wx - 0.15, 17, wx + 0.15, 36, 9.4);
+  }
   for (let i = 0; i < 12; i++) b.stripLight(-40 + i * 7.3, 3.85, 21, 3.4, 'x', 0xeaf2ff, i === 3 || i === 8 ? 0.45 : 0);
 
   // classrooms off the north side of the corridor

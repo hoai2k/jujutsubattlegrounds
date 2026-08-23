@@ -450,6 +450,26 @@ export class MapBuilder {
     this.bounds.platform(cx - hx, cz - hz, cx + hx, cz + hz, top, { id: opts.id, prop: true });
   }
 
+  // ---- LIP -----------------------------------------------------------------
+  // A WALKABLE TOP ON SOMETHING THAT WAS ONLY EVER DRAWN.
+  //
+  // `bankFace` handles the common case — a face drawn proud of the deck it
+  // edges — by drawing it, blocking it and lipping it in one call. This is the
+  // other half of the same idea for everything that is NOT a face: a deep eave
+  // overhanging a roof deck, the stone cheek beside a flight of steps, the
+  // strip of abutment left proud of a bridge bank. Each is a piece of surface
+  // you can see and land on, and each was a piece of surface you fell through,
+  // because nothing about drawing a box registers anything.
+  //
+  // It is a platform and NOTHING else: no blocker, so it cannot narrow the
+  // route beside it, and `prop: true`, so the validator's reachability pass
+  // treats it as a surface rather than as a route somebody forgot to connect.
+  // The whole fix for a rim is that landing on it lands on it.
+  lip(x0, z0, x1, z1, y, opts = {}) {
+    this.bounds.platform(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1),
+      y, { id: opts.id, prop: opts.prop !== false });
+  }
+
   _rubblePile(x, y, z, r, mat) {
     const grp = new THREE.Group();
     for (let i = 0; i < 7; i++) {
@@ -892,9 +912,26 @@ export class MapBuilder {
     // wall under the deck stops 0.06 m short of it for the usual reason — a
     // wall topping out level with a floor collides with anyone standing there.
     const cid = 'car' + x + z;
-    this.bounds.wall(x - 1.1, z - 2.2, x + 1.1, z + 2.2, y, y + 1.02, { id: cid });
-    this.bounds.platform(x - 1.1, z - 2.2, x + 1.1, z + 2.2, y + 1.08, { id: cid, prop: true });
-    this.bounds.wall(x - 0.86, z - 1.2, x + 0.86, z + 0.9, y + 1.08, y + 1.71, { id: cid });
+    // THE COLLIDER TURNS WITH THE CAR. It did not, and `ry` is not a decoration
+    // on this helper — half the cars in the set are parked along a kerb at
+    // ry = PI/2, and at that angle the drawn car is 4.3 m along X by 1.9 along
+    // Z while the box registered for it was 2.2 by 4.4. Both ends of every
+    // sideways-parked car were a metre of visible bodywork with nothing under
+    // it (land on the bonnet, fall through to the road), and both sides were a
+    // metre of solid nothing you walked into.
+    //
+    // `Bounds` is axis-aligned by design — a fighting game wants collision that
+    // is predictable far more than it wants collision that is clever — so this
+    // is the rotated box's AABB rather than a true OBB. At an angle that makes
+    // the collider slightly generous, which is the right way round to be wrong:
+    // the whole drawn top is standable and nothing hangs over an edge.
+    const ca = Math.abs(Math.cos(ry)), sa = Math.abs(Math.sin(ry));
+    const aabb = (hx, hz) => [ca * hx + sa * hz, sa * hx + ca * hz];
+    const [bx, bz] = aabb(1.1, 2.2);        // body
+    const [kx, kz] = aabb(0.86, 1.2);       // cabin
+    this.bounds.wall(x - bx, z - bz, x + bx, z + bz, y, y + 1.02, { id: cid });
+    this.bounds.platform(x - bx, z - bz, x + bx, z + bz, y + 1.08, { id: cid, prop: true });
+    this.bounds.wall(x - kx, z - kz, x + kx, z + kz, y + 1.08, y + 1.71, { id: cid });
     return this.breakable(g, {
       hp: 90, kind: 'metal', center: v3(x, y + 0.8, z), radius: 2.2, height: 1.7, baseY: y,
       colliderIds: [cid], debrisScale: 1.3
@@ -924,12 +961,19 @@ export class MapBuilder {
 
   rock(x, y, z, scale = 1) {
     const g = new THREE.Group();
+    // THE DECK GOES WHERE THE STONE ACTUALLY ENDS. The four blobs are sized and
+    // stacked at random, so the drawn summit is wherever the tallest of them
+    // happens to reach — and the deck used to be pinned to a nominal
+    // 1.5 * scale regardless, which on any boulder that rolled high left a cap
+    // of visible rock standing over its own walkable top. Measured, not assumed.
+    let top = 1.2 * scale;
     for (let i = 0; i < 4; i++) {
       const s = rand(0.6, 1.5) * scale;
       const m = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), this.mats.rock);
       m.position.set(rand(-0.6, 0.6) * scale, s * 0.5 + rand(0, 0.4) * scale, rand(-0.6, 0.6) * scale);
       m.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
       g.add(m);
+      top = Math.max(top, m.position.y + s);
     }
     g.position.set(x, y, z);
     this.add(g);
@@ -937,12 +981,12 @@ export class MapBuilder {
     // deck laid on it, so a fighter standing on the boulder was standing inside
     // the wall band and got shoved off the rock they had just climbed.
     this.bounds.wall(x - 1.1 * scale, z - 1.1 * scale, x + 1.1 * scale, z + 1.1 * scale,
-      y, y + 1.5 * scale - 0.12, { id: 'rock' + x + z });
-    this.bounds.platform(x - 0.9 * scale, z - 0.9 * scale, x + 0.9 * scale, z + 0.9 * scale,
-      y + 1.5 * scale, { id: 'rock' + x + z, prop: true });
+      y, y + top - 0.12, { id: 'rock' + x + z });
+    this.bounds.platform(x - 1.1 * scale, z - 1.1 * scale, x + 1.1 * scale, z + 1.1 * scale,
+      y + top, { id: 'rock' + x + z, prop: true });
     // standing on a boulder is standing on stone, whatever is under it
-    this.bounds.terrain(x - 0.9 * scale, z - 0.9 * scale, x + 0.9 * scale, z + 0.9 * scale,
-      y + 1.5 * scale, NATURAL);
+    this.bounds.terrain(x - 1.1 * scale, z - 1.1 * scale, x + 1.1 * scale, z + 1.1 * scale,
+      y + top, NATURAL);
     return g;
   }
 
@@ -1245,7 +1289,7 @@ export class MapBuilder {
   //      EXACT PATTERN THE VALIDATOR ASKS FOR. Anything purely visual (a light
   //      shaft, a banner, a cable, drifting mist) registers nothing: it cannot
   //      trap a fighter because there is nothing there. Anything solid enough
-  //      to stand on (`crate`, `barrel`, `catwalk`) registers a blocker that
+  //      to stand on (`crates`, `drum`) registers a blocker that
   //      stops 0.12 m UNDER a walkable top at the height it is drawn, which is
   //      the pattern `kit.car` and `kit.rock` already use and the one that
   //      keeps UNCAPPED, WALL-LIP and PHANTOM out of `mapcheck.report()`.
@@ -1916,66 +1960,6 @@ export class MapBuilder {
         this.tickers.push(oneShot(0.09, () => D.damageAt(at, radius, power, { kind: 'heat' })));
       }
     });
-  }
-
-  // ---- CATWALK ------------------------------------------------------------
-  // A raised walkway with railings, an underside and hangers. It exists so a
-  // map never has to hand-build one again: the three faults a hand-built
-  // catwalk shipped with every time — a drawn deck edge with no lip under it, a
-  // railing whose collider tops out level with the deck, and nothing at all
-  // holding it up — are all handled here.
-  //
-  // `ends` says which of the two short ends are OPEN (a stair or a landing
-  // arrives there); the rest get a railing. Default is both closed, because a
-  // walkway with two open ends and nothing at either is a 6 m drop.
-  catwalk(x0, z0, x1, z1, y, opts = {}) {
-    const X0 = Math.min(x0, x1), X1 = Math.max(x0, x1);
-    const Z0 = Math.min(z0, z1), Z1 = Math.max(z0, z1);
-    const alongX = (X1 - X0) >= (Z1 - Z0);
-    const mat = opts.mat || this.mats.darkMetal;
-    const id = opts.id;
-    this.floor(X0, Z0, X1, Z1, y, { mat, id, zone: opts.zone, thick: opts.thick ?? 0.18 });
-    // hangers up to whatever carries it, purely visual
-    if (opts.hangTo != null) {
-      const n = Math.max(2, Math.round((alongX ? X1 - X0 : Z1 - Z0) / 5));
-      for (let i = 0; i <= n; i++) {
-        const t = i / n;
-        for (const s of [0, 1]) {
-          const px = alongX ? X0 + (X1 - X0) * t : (s ? X1 : X0) - 0.1 + s * 0.2;
-          const pz = alongX ? (s ? Z1 : Z0) - 0.1 + s * 0.2 : Z0 + (Z1 - Z0) * t;
-          const g = new THREE.BoxGeometry(0.09, opts.hangTo - y, 0.09);
-          g.translate(px, (y + opts.hangTo) / 2, pz);
-          this.static_(g, this.mats.metal, opts.zone);
-        }
-      }
-    }
-    const open = new Set(opts.ends || []);
-    const rail = (a, b, c, d) => this.railing(a, b, c, d, y, { mat, zone: opts.zone });
-    // the long sides always
-    if (alongX) {
-      rail(X0, Z0, X1, Z0);
-      rail(X0, Z1, X1, Z1);
-      if (!open.has('-')) rail(X0, Z0, X0, Z1);
-      if (!open.has('+')) rail(X1, Z0, X1, Z1);
-    } else {
-      rail(X0, Z0, X0, Z1);
-      rail(X1, Z0, X1, Z1);
-      if (!open.has('-')) rail(X0, Z0, X1, Z0);
-      if (!open.has('+')) rail(X0, Z1, X1, Z1);
-    }
-    // strip lighting under the deck, which is the only part of a catwalk the
-    // fighter below ever sees
-    if (opts.underlight !== false) {
-      const n = Math.max(1, Math.round((alongX ? X1 - X0 : Z1 - Z0) / 6));
-      for (let i = 0; i < n; i++) {
-        const t = (i + 0.5) / n;
-        this.stripLight(
-          alongX ? X0 + (X1 - X0) * t : (X0 + X1) / 2,
-          y - (opts.thick ?? 0.18) - 0.12,
-          alongX ? (Z0 + Z1) / 2 : Z0 + (Z1 - Z0) * t,
-          3.2, alongX ? 'x' : 'z', opts.lightColor ?? 0xbfd4e8);
-      }
-    }
   }
 
   _regMesh(id, mesh) {

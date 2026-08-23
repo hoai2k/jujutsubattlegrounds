@@ -110,6 +110,15 @@ export function build(quality) {
     // height still catches anyone standing on the deck, and this one runs the
     // full width of the map — it would wall the deck off from both banks.
     b.bounds.wall(s * (SPAN - 0.6), -44, s * (SPAN + 0.4), 44, RB, DY - 0.12, { id: 'bankface' + s });
+    // AND A LIP ACROSS ITS DRAWN TOP. The abutment is drawn from x = 39.4 to
+    // 40.4 and the bank floor beside it starts at 40.0, so 0.6 m of it stood
+    // proud of everything: 88 m of visible road-level stone, either side of the
+    // span, with a 6 m drop to the riverbed under it and the bank one step
+    // east. `mapcheck.rims()` found 280 cells of it — the largest single rim in
+    // the set, and the map validated clean the whole time, because every other
+    // check starts from the colliders and here the collider was what was
+    // missing.
+    b.lip(s * (SPAN - 0.6), -44, s * (SPAN + 0.4), 44, DY, { id: 'bankface' + s });
     // and the cheeks of the cutting the ramp runs down. Same 0.12 m: their tops
     // used to sit exactly at bank level, which put an invisible kerb along both
     // sides of every approach ramp.

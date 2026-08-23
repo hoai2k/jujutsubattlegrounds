@@ -97,9 +97,23 @@ export function build(quality) {
   // the landing's own retaining face, so it is cut into the bank rather than
   // hovering over the forest floor. Drawn only — the flights are the way on
   // and off, and a collider here would fence them.
+  // Each is 0.7 m thick and drawn to the landing's own height, so it stands
+  // proud of the deck it retains on three sides — 34 cells of visible stone rim
+  // with a 3 m drop under it. Drawn only, as the comment above says, but a lip
+  // is not a blocker: it puts a floor on what is already drawn without fencing
+  // the flights.
   for (const [x0, z0, x1, z1] of [[-9.4, 2, -9.4, 8], [9.4, 2, 9.4, 8], [-9.4, 8.4, 9.4, 8.4]]) {
     b.wall(x0, z0, x1, z1, 0, MY, { mat: M.rock, thick: 0.7, collide: false });
   }
+  // The lip on those three faces, SPLIT AROUND THE FLIGHT. The south face is
+  // drawn straight across the head of the lower staircase, so a lip laid along
+  // the whole of it wins the `floorAt` query while the fighter is still on the
+  // top treads and the flight surfaces through solid rock — the validator
+  // called it BURIED the moment the first version went in, which is the same
+  // fault the hall roof's eave lip had two hundred lines up and the reason
+  // both are written out rather than looped.
+  for (const sx of [-9.75, 9.05]) b.lip(sx, 1.65, sx + 0.7, 8.75, MY);
+  for (const [a, c] of [[-9.75, -6.5], [6.5, 9.75]]) b.lip(a, 8.05, c, 8.75, MY);
   // THE CHŌZUYA — the water basin every shrine approach has a landing for.
   {
     const bas = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.5), M.rock);
@@ -217,6 +231,12 @@ export function build(quality) {
   b.ceiling(HX0, HZ0, HX1, HZ1, HY - 0.5, { mat: M.wood });
   // HALL ROOF — the highest ground. Flat and walkable, pitch on the perimeter.
   b.floor(HX0 - 1.8, HZ0 - 1.8, HX1 + 1.8, HZ1 + 1.8, HY, { mat: M.rock, id: 'starroof' });
+  // THE EAVES, and the lip they need. Each is drawn 1.8 m oversized so the tiled
+  // edge reads as a deep overhang, which means it stands proud of the roof deck
+  // on every side — 314 cells of visible tile you could see, land on and drop
+  // eleven metres through. The biggest rim on this map and the second biggest
+  // in the set. The eave top is 0.34 m BELOW the deck, so lipping it does not
+  // add high ground; it adds a floor to the fringe that was already drawn.
   for (const [x0, z0, x1, z1] of [
     [HX0 - 1.8, HZ0 - 1.8, HX0 - 0.4, HZ1 + 1.8], [HX1 + 0.4, HZ0 - 1.8, HX1 + 1.8, HZ1 + 1.8],
     [HX0 - 1.8, HZ0 - 1.8, HX1 + 1.8, HZ0 - 0.4], [HX0 - 1.8, HZ1 + 0.4, HX1 + 1.8, HZ1 + 1.8]
@@ -224,6 +244,21 @@ export function build(quality) {
     const g = new THREE.BoxGeometry(x1 - x0 + 1.8, 0.32, z1 - z0 + 1.8);
     g.translate((x0 + x1) / 2, HY - 0.5, (z0 + z1) / 2);
     b.static_(g, M.rock);
+  }
+  // The lip, authored as its own rects rather than inside the loop above, so
+  // the EAST eave can be split around the flight that lands on this roof. The
+  // stair's top tread is at HY and the eave top is 0.34 m under it, so a lip
+  // laid straight across the stair head wins the `floorAt` query while the
+  // fighter is still on the treads — the flight surfaces through solid tile,
+  // which is the exact fault `floorHole` exists for and which the validator
+  // caught the moment the first version of this lip went in.
+  const EX0 = HX0 - 2.7, EX1 = HX1 + 2.7, EZ0 = HZ0 - 2.7, EZ1 = HZ1 + 2.7;
+  const EY = HY - 0.18;
+  b.lip(EX0, EZ0, HX0 - 0.4, EZ1, EY);                    // west eave
+  b.lip(EX0, EZ0, EX1, HZ0 - 0.4, EY);                    // north eave
+  b.lip(EX0, HZ1 + 0.4, EX1, EZ1, EY);                    // south eave
+  for (const [z0, z1] of [[EZ0, -26.2], [-18.8, EZ1]]) {  // east eave, split
+    b.lip(HX1 + 0.4, z0, EX1, z1, EY);
   }
   // steps up the hall's east side, landing on the roof's edge (and clear of
   // the tomb well, which is further east again)
@@ -236,7 +271,19 @@ export function build(quality) {
   b.zone(TOMB, { x0: -TX - 1, x1: TX + 1, z0: TZ0 - 1, z1: TZ1 + 1, y0: -8, y1: 1 });
   b.pit(-TX + 0.4, TZ0 + 0.4, TX - 0.4, TZ1 - 0.4, BY);
   b.floor(-25, TZ0 + 1, 25, TZ1 - 1, BY, { mat: M.tile, zone: TOMB });
-  b.ceiling(-25, TZ0 + 1, 25, TZ1 - 1, TY - 1.0, { mat: M.concreteWall, zone: TOMB });
+  // THE CEILING IS LAID AROUND THE STAIRWELL. As one slab it ran straight
+  // across the well cut in the terrace above it, so the only way into the tomb
+  // was a flight descending through a metre of drawn concrete — and the slab's
+  // cut edge sat inside the opening as a ledge with the whole tomb under it.
+  // Same rule the floors on every map in this set already follow: if there is a
+  // hole, the thing spanning it has the hole in it too.
+  for (const [cx0, cz0, cx1, cz1] of [
+    [-25, TZ0 + 1, TWELL.x0, TZ1 - 1], [TWELL.x1, TZ0 + 1, 25, TZ1 - 1],
+    [TWELL.x0, TZ0 + 1, TWELL.x1, TWELL.z0], [TWELL.x0, TWELL.z1, TWELL.x1, TZ1 - 1]
+  ]) {
+    if (cx1 - cx0 < 0.05 || cz1 - cz0 < 0.05) continue;
+    b.ceiling(cx0, cz0, cx1, cz1, TY - 1.0, { mat: M.concreteWall, zone: TOMB });
+  }
   for (const [x0, z0, x1, z1] of [
     [-25.4, TZ0 + 1, -25.4, TZ1 - 1], [25.4, TZ0 + 1, 25.4, TZ1 - 1],
     [-25, TZ0 + 0.6, 25, TZ0 + 0.6], [-25, TZ1 - 0.6, 25, TZ1 - 0.6]
@@ -402,12 +449,25 @@ function stairCheeks(b, M, x0, z0, x1, z1, yLow, yHigh) {
     for (let i = 0; i < n; i++) {
       const t0 = i / n, t1 = (i + 1) / n;
       const y = yLow + (yHigh - yLow) * (t0 + t1) / 2;
-      const g = new THREE.BoxGeometry(1.2, y + 1.4, Math.abs(z1 - z0) / n);
-      g.translate(
-        (s < 0 ? Math.min(x0, x1) - 0.6 : Math.max(x0, x1) + 0.6),
-        (y + 1.2) / 2 - 0.7,
-        z0 + (z1 - z0) * (t0 + t1) / 2);
+      const cx = s < 0 ? Math.min(x0, x1) - 0.6 : Math.max(x0, x1) + 0.6;
+      const cz = z0 + (z1 - z0) * (t0 + t1) / 2;
+      const len = Math.abs(z1 - z0) / n;
+      const g = new THREE.BoxGeometry(1.2, y + 1.4, len);
+      g.translate(cx, (y + 1.2) / 2 - 0.7, cz);
       b.static_(g, M.rock);
+      // AND A TOP ON IT. Each cheek is a 1.2 m wide stone parapet whose drawn
+      // top sits 0.6 m above the tread beside it — over STEP_UP, so it is not
+      // somewhere you can walk onto, and squarely somewhere you can be thrown
+      // onto. Without this it is 1.2 m of visible masonry running the whole
+      // length of both flights that a fighter lands on and falls straight
+      // through, onto the steps or off the side of the climb. `mapcheck.rims()`
+      // reported it as fourteen separate findings, one per height band, which
+      // is what one continuous fault on a slope looks like from a grid probe.
+      //
+      // A LIP AND NOT A WALL, deliberately: the cheeks carry no blocker on
+      // purpose (a collider on the cheek of a staircase narrows the staircase)
+      // and that has to stay true.
+      b.lip(cx - 0.6, cz - len / 2, cx + 0.6, cz + len / 2, y + 0.6);
     }
   }
 }

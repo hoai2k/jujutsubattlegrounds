@@ -144,7 +144,13 @@ export function build(quality) {
   // short of the walkway it was supposed to reach. It now climbs north into the
   // gap and lands on the north-west section's south edge, which is the only
   // walkway edge on this side of the building.
-  b.stairs(-17.5, 3, -12, -8, 0, WY, 'z', { mat: M.concrete, steps: 11 });
+  // `steps` is left at the kit's own count. Forcing it to 11 gave this flight a
+  // 0.44 m rise per tread, and a tread is drawn from its own top down to the
+  // one below while the ramp collider under it interpolates smoothly — so near
+  // the back of each step the fighter stood the better part of half a metre
+  // inside the stone. The kit picks a count from the rise (0.24 m a tread) and
+  // a rubble slope reads as rubble from its material, not from being coarse.
+  b.stairs(-17.5, 3, -12, -8, 0, WY, 'z', { mat: M.concrete });
   for (let i = 0; i < 14; i++) {
     const s = rand(0.5, 1.4);
     const g = new THREE.BoxGeometry(s, s * 0.7, s);

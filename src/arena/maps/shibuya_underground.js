@@ -26,6 +26,9 @@
 //                              two escalators and two stairs.
 //   y = 10.70  ROOF WALK       the top of the exit stair, above the canopy —
 //                              the highest ground and fully exposed.
+//   y = 10.75  CANOPY PLATE     the roof itself is solid, so a fighter thrown
+//                              onto it lands on it. Railed off from the roof
+//                              walk: somewhere to be put, not a route.
 //   VERTICAL                   2 escalators + 2 stairs + 1 exit stair.
 import { MapBuilder, emissive, glowMaterial } from '../kit.js';
 import * as THREE from 'three';
@@ -244,9 +247,24 @@ export function build(quality) {
     const beam = new THREE.BoxGeometry(0.3, 0.34, 22.5);
     beam.translate(x, RY + 0.15, 0);
     b.static_(beam, M.darkMetal, Z);
+    // The beams bridge the slot between the two canopy halves at 10.72, three
+    // centimetres under the plate either side of them, so with the plate now
+    // solid they read as part of the same roof. Give them a top for the same
+    // reason the plate has one.
+    b.lip(x - 0.15, -11.25, x + 0.15, 11.25, RY + 0.32);
   }
-  b.ceiling(-PX - 3, -TZ, PX + 3, -2.4, RY, { mat: M.darkMetal, zone: Z });
-  b.ceiling(-PX - 3, 2.4, PX + 3, TZ, RY, { mat: M.darkMetal, zone: Z });
+  // AND THE CANOPY HAS A TOP. Its plate is drawn at 10.75 and the roof walk sits
+  // at 10.70 immediately beside it, so anyone thrown up there landed on a roof
+  // that was not there and dropped eleven metres through it onto the platform —
+  // the largest fall-through on this map and invisible to every check that
+  // starts from the colliders. It is deliberately NOT a route: the roof walk's
+  // rails still fence it off, so the only way onto the canopy is to be put
+  // there, and it is the same height as the high ground that already exists
+  // rather than a new tier above it.
+  for (const [cz0, cz1] of [[-TZ, -2.4], [2.4, TZ]]) {
+    b.ceiling(-PX - 3, cz0, PX + 3, cz1, RY, { mat: M.darkMetal, zone: Z });
+    b.lip(-PX - 3, cz0, PX + 3, cz1, RY + 0.35);
+  }
   for (let i = 0; i < 11; i++) {
     b.stripLight(-PX + 2 + i * 6.3, RY - 0.35, -6.0, 4.6, 'x', 0xdfeaff, i === 7 ? 0.35 : 0);
     b.stripLight(-PX + 2 + i * 6.3, RY - 0.35, 6.0, 4.6, 'x', 0xdfeaff, 0);

@@ -371,16 +371,26 @@ export function build(quality) {
 // registered as a wall AND as a platform on top of it.
 function tiledRoof(b, M, x0, z0, x1, z1, y, ridgeId) {
   const cz = (z0 + z1) / 2;
+  // EVERY PIECE AN EAVE DRAWS GETS A TOP. Both tiers of this roof edge stand
+  // proud of the deck they trim — the upper course by 0.37 m and the skirt
+  // 1.4 m outboard of the building line — so between them they put a ring of
+  // visible tile round both halls that a fighter could see, land on and drop
+  // straight through onto the courtyard. `mapcheck.rims()` reported 36 cells of
+  // it across the two roofs. The lip is a platform and nothing else, so neither
+  // tier becomes something you walk into.
   const eave = (a, c, e, f, drop) => {
     const g = new THREE.BoxGeometry(Math.abs(e - a), 0.34, Math.abs(f - c));
     g.translate((a + e) / 2, y + 0.2, (c + f) / 2);
     b.static_(g, M.rock);
-    const s = new THREE.Mesh(new THREE.BoxGeometry(
-      Math.abs(e - a) + (drop === 'x' ? 0 : 3.0), 0.3, Math.abs(f - c) + (drop === 'z' ? 0 : 3.0)), M.rock);
-    s.position.set((a + e) / 2 + (drop === 'x' ? Math.sign((a + e) / 2 || 1) * 1.4 : 0),
-      y - 0.55,
-      (c + f) / 2 + (drop === 'z' ? Math.sign((c + f) / 2 - cz || 1) * 1.4 : 0));
+    b.lip(a, c, e, f, y + 0.37);
+    const sw = Math.abs(e - a) + (drop === 'x' ? 0 : 3.0);
+    const sd = Math.abs(f - c) + (drop === 'z' ? 0 : 3.0);
+    const sx = (a + e) / 2 + (drop === 'x' ? Math.sign((a + e) / 2 || 1) * 1.4 : 0);
+    const sz = (c + f) / 2 + (drop === 'z' ? Math.sign((c + f) / 2 - cz || 1) * 1.4 : 0);
+    const s = new THREE.Mesh(new THREE.BoxGeometry(sw, 0.3, sd), M.rock);
+    s.position.set(sx, y - 0.55, sz);
     b.add(s);
+    b.lip(sx - sw / 2, sz - sd / 2, sx + sw / 2, sz + sd / 2, y - 0.40);
   };
   eave(x0, z0, x0 + 1.2, z1, 'x');
   eave(x1 - 1.2, z0, x1, z1, 'x');

@@ -17,14 +17,15 @@ const args = process.argv.slice(2);
 const wantRims = args.includes('--rims');
 const only = args.filter(a => !a.startsWith('--'));
 
-const server = await createServer({ server: { port: 5197, strictPort: true, hmr: false }, logLevel: 'error' });
+const PORT = +(process.env.MAPAUDIT_PORT || 5197);
+const server = await createServer({ server: { port: PORT, strictPort: true, hmr: false }, logLevel: 'error' });
 await server.listen();
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
 const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
 page.on('pageerror', e => console.error('[pageerror]', e.message));
 const warns = [];
 page.on('console', m => { if (m.type() === 'warning') warns.push(m.text()); });
-await page.goto('http://localhost:5197/', { waitUntil: 'domcontentloaded' });
+await page.goto('http://localhost:' + PORT + '/', { waitUntil: 'domcontentloaded' });
 
 const res = await page.evaluate(async ({ wantRims, only }) => {
   const mc = await import('/src/arena/mapcheck.js');
