@@ -76,6 +76,9 @@ import { AnimPlayer } from '../art/anim/player.js';
 import { FIGHT_HUMAN, FIGHT_GIANT } from '../finishers/fight.js';
 import { SIGNATURE_CLIPS } from '../finishers/moves.js';
 import { installClips, FIN_PREFIX } from '../finishers/retarget.js';
+// ?render3d works on the bench too — the fastest way to check how an imported
+// humanoid takes the clip library is to page through it here.
+import { maybeAttachRender3D } from '../art/rig3d/render3d.js';
 
 const BUILDERS = { gojo: buildGojo, yuta: buildYuta, megumi: buildMegumi, nanami: buildNanami, yuji: buildYuji, todo: buildTodo, jogo: buildJogo, mahito: buildMahito, mahoraga: buildMahoraga, higuruma: buildHiguruma, hakari: buildHakari, sukuna: buildSukuna, toji: buildToji,
   hanami: buildHanami, kurourushi: buildKurourushi, choso: buildChoso, nobara: buildNobara,
@@ -420,6 +423,7 @@ export function startViewer() {
     }
     clipBar.style.display = '';
     model = BUILDERS[id]();
+    maybeAttachRender3D(model, id);
     holder.add(model.group);
     // a variant shares its base character's clip set — 'yuji:modulo' is still
     // Yuji as far as animation is concerned, which is the whole point of
