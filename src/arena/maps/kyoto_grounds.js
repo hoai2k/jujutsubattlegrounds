@@ -243,10 +243,12 @@ export function build(quality) {
     const x = Math.sin(a) * r, z = Math.cos(a) * r;
     if (Math.abs(x) < CW) continue;
     if (Math.hypot(x - CRAG.x, z - CRAG.z) < CRAG.rOut + 2) continue;
-    // seated 5 cm into the bench: a boulder whose top lands exactly on the
-    // terrace above it is a wall tying with a floor, and the engine forgives
-    // that tie only until the next edit
-    b.rock(x, benchY(x, z) - 0.05, z, rand(0.8, 1.9));
+    // seated a random few centimetres into the bench. The scatter is random and
+    // the terraces are 0.5 m apart, so a boulder now and then came out with its
+    // top exactly level with the bench above it — a wall tying with a floor,
+    // which the engine forgives only until the next edit. A fixed offset just
+    // moves which scales tie; a jittered one makes the tie a measure-zero event.
+    b.rock(x, benchY(x, z) - rand(0.06, 0.26), z, rand(0.8, 1.9));
   }
   // and the boulders in the water, which is where a river actually puts them
   for (let i = 0; i < 7; i++) b.rock(rand(-3.4, 3.4), SY, rand(RZ0 + 6, 50), rand(0.5, 1.0));
