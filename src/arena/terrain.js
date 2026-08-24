@@ -86,6 +86,14 @@ export const MAT_TERRAIN = {
 // rather than by the caller remembering to pass a name.
 let _byMat = null;
 export function classifyMaterial(mats, mat) {
+  // A TINTED VARIANT STILL KNOWS WHAT IT IS. `kit.tintedSurface` stamps the
+  // recipe's name onto the material, so a map that recolours its grass for its
+  // own palette keeps classifying as grass. Without this the lookup below —
+  // which is by object identity — would miss it and fall through to ARTIFICIAL,
+  // and a repaint would quietly delete Hanami's best ground.
+  if (mat && mat.userData && mat.userData.surface) {
+    return MAT_TERRAIN[mat.userData.surface] ?? ARTIFICIAL;
+  }
   if (!_byMat) {
     _byMat = new Map();
     for (const [name, m] of Object.entries(mats)) {

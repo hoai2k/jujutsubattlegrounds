@@ -1,35 +1,35 @@
 // TOMBS OF THE STAR CORRIDOR — the mountain shrine where Gojo lost, and then
-// did not. The Hidden Inventory job: escort the Star Plasma Vessel to Tengen,
-// which means the long torii-lined climb, the shrine at the head of it, and the
-// stone burial corridor underneath that the whole site exists to protect.
+// did not. The Hidden Inventory job: escort the Star Plasma Vessel to Tengen.
 //
-// REFERENCE NOTE (researched): a night-time mountain shrine reached by a
-// straight flight of stone steps under a corridor of vermilion torii, cedar
-// forest crowding both sides, a stone-flagged shrine terrace at the top with
-// lanterns and a small hall — and beneath it, cut into the rock, a low vaulted
-// passage of dressed stone leading to a chamber. Cold moonlight above, no
-// daylight at all below. A real approach of this length is broken by a landing
-// partway up with a chōzuya on it, which is where the middle terrace comes
-// from.
+// REFERENCE NOTE (researched): the KOFUN — a burial mound. A stepped earthwork
+// of concentric terraces rising to a shrine on its summit, a torii-lined
+// processional stair climbing one face of it, and the thing the whole mound
+// exists to cover buried underneath: a round stone chamber under a corbelled
+// dome, ringed with pillars, reached by one shaft cut down through the summit.
 //
-// WHY THIS MAP EXISTS IN THE SET: it is the only one whose two halves are a
-// wide-open exposed climb and a genuinely CLAUSTROPHOBIC interior stacked
-// directly on top of each other, and the only stone-and-cedar map that is shot
-// at night. It reads as neither Jujutsu High nor the detention centre.
+// WHY THIS SHAPE. The previous version was a straight flight between two
+// rectangular retaining walls up to a rectangular terrace with a rectangular
+// hall on it, over a rectangular corridor — four boxes stacked, which is what
+// most of this set was. A mound is the opposite idea: you go UP by going
+// AROUND, every terrace is a ring you can be chased along, the summit is small
+// and exposed because it is the top of a hill rather than the end of a
+// corridor, and the tomb underneath is one round room with a dome on it.
 //
-// LAYOUT (100 x 92 m):
-//   y = -6.20  TOMB         the burial corridor and the vessel chamber, one
-//                           level down under the whole shrine terrace. Reached
-//                           by the stair in the terrace's own floor.
-//   y =  0.00  APPROACH     the forest floor and the foot of the steps — open
-//                           ground, the widest part of the map.
-//   y =  3.00  MID LANDING  the halfway platform, with the water basin on it.
-//                           It splits a 20 m staircase into two fights.
-//   y =  7.20  TERRACE      the shrine platform at the head of the climb:
-//                           flagstone, lanterns, and the hall on its axis.
-//   y = 11.10  HALL ROOF    the highest ground, off the terrace's east steps.
-//   VERTICAL                two flights up the climb, the tomb stair down
-//                           through the terrace floor, and the roof steps.
+// The map's identity survives it: it is still a torii climb by moonlight with a
+// buried stone chamber under it, and it is still the only map here whose two
+// halves are an exposed climb and a sealed interior stacked on each other.
+//
+// LAYOUT (108 x 100 m):
+//   y = -7.20  THE CHAMBER   a round stone room under a corbelled dome, ringed
+//                            with pillars, with the vessel's dais in the middle.
+//   y =  0.00  APPROACH      forest floor round the foot of the mound.
+//   y =  2.40  FIRST TERRACE the mound's lowest ring.
+//   y =  4.80  SECOND TERRACE
+//   y =  7.20  THE SUMMIT    the shrine platform: an octagonal hall, the
+//                            lantern ring, and the shaft down into the chamber.
+//   VERTICAL                 the torii stair up the south face, one flight
+//                            between each terrace on a different bearing, and
+//                            the helical shaft down to the tomb.
 import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import { NATURAL } from '../terrain.js';
 import * as THREE from 'three';
@@ -39,435 +39,315 @@ export const DEF = {
   id: 'star_tomb',
   name: 'TOMBS OF THE STAR',
   jp: '星漿体の廟',
-  desc: 'A torii climb by moonlight, and the stone corridor buried under it.',
-  extent: { minX: -50, maxX: 50, minZ: -46, maxZ: 46 },
-  // Mountain shrine grounds: forest floor, cut stone, bedrock. Natural by
-  // default, and the flagstone terrace and the dressed tomb are the exceptions
-  // — so this is a strong map for Hanami on the approach and a poor one for him
-  // in the tomb, which is the split the layout is built around anyway.
+  desc: 'A stepped burial mound by moonlight, and the domed chamber under it.',
+  extent: { minX: -54, maxX: 54, minZ: -50, maxZ: 50 },
+  // Mound and forest: earth, turf and cut stone. Natural by default, and the
+  // summit's flagstones and the dressed tomb are the exceptions — so this is a
+  // strong map for Hanami on the climb and a poor one for him underneath it.
   terrain: NATURAL,
   background: 0x0b1020,
-  fog: { color: 0x121a2e, near: 44, far: 170 },
-  grade: { vignette: 0.58, tint: [0.92, 0.98, 1.16], lift: 0.004, sat: 0.84 },
+  fog: { color: 0x121a2e, near: 46, far: 180 },
+  grade: { vignette: 0.56, tint: [0.92, 0.98, 1.16], lift: 0.006, sat: 0.86 },
   lights: {
-    key: { color: 0xbcd4ff, intensity: 1.25, pos: [-6, 24, 12] },
-    rim: { color: 0xd8703c, intensity: 0.62, pos: [10, 7, -12] },   // lantern warmth
-    hemi: { sky: 0x36497a, ground: 0x1c2018, intensity: 0.5 }
+    key: { color: 0xbcd4ff, intensity: 1.05, pos: [-6, 24, 12] },
+    rim: { color: 0xd8703c, intensity: 0.68, pos: [10, 7, -12] },   // lantern warmth
+    hemi: { sky: 0x3a4f82, ground: 0x2c2a1e, intensity: 0.62 }
   },
-  // straight up the torii corridor: the scatter keeps the axis clear
-  previewCam: { pos: [0, 8.0, 38], look: [0, 6.0, -18] },
+  // straight up the torii stair, which is the one bearing the scatter keeps clear
+  previewCam: { pos: [0, 12.5, 48], look: [0, 6.5, -4] },
   shadowScale: 1.05,
-  shrineScale: 0.95,      // long and narrow: plenty of room to run, only one way
-  size: '100 × 92 m · torii climb, shrine terrace, buried corridor'
+  shrineScale: 0.95,
+  size: '108 × 100 m · stepped mound, octagonal shrine, domed burial chamber'
 };
 
-const MY = 3.0;                     // mid landing
-const TY = 7.2;                     // shrine terrace
-const BY = -6.2;                    // tomb floor
-const TX = 26, TZ0 = -34, TZ1 = -8; // terrace footprint
+const T1 = 2.4, T2 = 4.8, SUM = 7.2;     // the three terraces
+const BY = -7.2;                          // the chamber floor
+// THE TERRACES TILE THE MOUND, each a RING that starts where the next one up
+// ends. Built as solid discs they paved over everything under them — the T2
+// disc alone was a lid at 4.8 across the whole shaft and the whole burial
+// chamber, so the way down led to the inside of a terrace and the room the map
+// exists for was sealed.
+const R_MOUND = 32;                       // foot of the mound, and T1's outer edge
+const R_T1 = 32, R_T2 = 24, R_SUM = 17;   // outer edge of each terrace
+const R_CH = 15;                          // the chamber
+const SHAFT = { x: 8.5, z: -8.5, r: 3.6 };  // the way down, off the summit's axis
+const STAIRW = 3.4;                       // half-width of the processional stair
 
 export function build(quality) {
   const b = new MapBuilder(DEF);
   const M = b.mats;
   const TOMB = 'tomb';
 
+  // ---- THIS SITE'S OWN STONE ---------------------------------------------
+  const turf = b.tint('grass', 0x2c4530, { rim: 0.12 });
+  const revet = b.tint('rock', 0x5b5545, { rim: 0.2 });      // the terrace facing
+  const flag = b.tint('concrete', 0x7d7a6e);                 // summit flagstone
+  const dressed = b.tint('tile', 0x9a9484, { rim: 0.22 });   // the tomb's ashlar
+  const dressedIn = b.tint('tile', 0x8e8878, { rim: 0.22, side: 2 });
+  const timber = b.tint('wood', 0x4a3524, { rim: 0.2 });
+  const vermilion = new THREE.MeshBasicMaterial({ color: 0x9c2f33 });
+
   b.sky(0x060a16, 0x0d1730, 0x243050, 360);
   b.groundPlane(0x141c14, 300);
   b.skyline(18, 200, { color: 0x141f28, shape: 'ridge', minW: 80, maxW: 170, minH: 46, maxH: 110 });
 
-  // ---- APPROACH -----------------------------------------------------------
-  // Laid with the shrine's footprint cut out of it. The forest floor is a
-  // single slab over the whole map, and a single slab at y = 0 sits directly
-  // between the terrace above and the tomb below — `floorAt` takes the highest
-  // surface, so the tomb stair descended to y = 0 and stopped there, in mid-air
-  // inside the hill. Under the terrace there is no ground: there is a tomb.
-  b.floorHole(-50, -46, 50, 46, 0, { x0: -TX, z0: TZ0, x1: TX, z1: TZ1 }, { mat: M.grass });
-  // the gravel path running up the axis to the foot of the steps
-  b.floor(-5.5, 14, 5.5, 44, 0.05, { mat: M.concrete });
+  // ---- THE APPROACH ------------------------------------------------------
+  // Laid AROUND the mound. A single slab at y = 0 across the whole map sits
+  // directly between the summit above and the chamber below, and `floorAt`
+  // takes the highest surface — so the tomb had a lawn over the top of it.
+  b.floorHole(-54, -50, 54, 50, 0, { x0: -R_MOUND, z0: -R_MOUND, x1: R_MOUND, z1: R_MOUND },
+    { mat: turf });
+  // and the ring that fills the corners the square cut left behind
+  b.roundDeck(0, 0, 47, 0, { rIn: R_MOUND - 0.4, mat: turf, thick: 0.4 });
+  // the gravel forecourt at the foot of the stair
+  b.floor(-9, R_MOUND, 9, 48, 0.05, { mat: flag });
 
-  // ---- THE CLIMB: two flights and a landing -------------------------------
-  // Authored bottom-first — (x0,z0) is the end at yLow — so each flight climbs
-  // north as you walk it. A single 20 m staircase was one long committed run
-  // with nothing to fight over; the landing gives the climb a middle.
-  b.stairs(-6, 14, 6, 8, 0.05, MY, 'z', { mat: M.concrete });
-  b.floor(-9, 2, 9, 8, MY, { mat: M.concrete, id: 'landing' });
-  b.stairs(-6, 2, 6, -8, MY, TY, 'z', { mat: M.concrete });
-  stairCheeks(b, M, -6, 14, 6, 8, 0.05, MY);
-  stairCheeks(b, M, -6, 2, 6, -8, MY, TY);
-  // the landing's own retaining face, so it is cut into the bank rather than
-  // hovering over the forest floor. Drawn only — the flights are the way on
-  // and off, and a collider here would fence them.
-  // Each is 0.7 m thick and drawn to the landing's own height, so it stands
-  // proud of the deck it retains on three sides — 34 cells of visible stone rim
-  // with a 3 m drop under it. Drawn only, as the comment above says, but a lip
-  // is not a blocker: it puts a floor on what is already drawn without fencing
-  // the flights.
-  for (const [x0, z0, x1, z1] of [[-9.4, 2, -9.4, 8], [9.4, 2, 9.4, 8], [-9.4, 8.4, 9.4, 8.4]]) {
-    b.wall(x0, z0, x1, z1, 0, MY, { mat: M.rock, thick: 0.7, collide: false });
-  }
-  // The lip on those three faces, SPLIT AROUND THE FLIGHT. The south face is
-  // drawn straight across the head of the lower staircase, so a lip laid along
-  // the whole of it wins the `floorAt` query while the fighter is still on the
-  // top treads and the flight surfaces through solid rock — the validator
-  // called it BURIED the moment the first version went in, which is the same
-  // fault the hall roof's eave lip had two hundred lines up and the reason
-  // both are written out rather than looped.
-  for (const sx of [-9.75, 9.05]) b.lip(sx, 1.65, sx + 0.7, 8.75, MY);
-  for (const [a, c] of [[-9.75, -6.5], [6.5, 9.75]]) b.lip(a, 8.05, c, 8.75, MY);
-  // THE CHŌZUYA — the water basin every shrine approach has a landing for.
-  {
-    const bas = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.5), M.rock);
-    bas.position.set(6.6, MY + 0.45, 5);
-    b.add(bas);
-    const w = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.2), glowMaterial(0x7fc8e0, 0.4));
-    w.rotation.x = -Math.PI / 2;
-    w.position.set(6.6, MY + 0.92, 5);
-    b.add(w);
-    b.bounds.wall(5.4, 4.25, 7.8, 5.75, MY, MY + 0.9, { id: 'basin' });
-    b.bounds.platform(5.4, 4.25, 7.8, 5.75, MY + 0.9);
-    for (let i = 0; i < 4; i++) {
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 2.4, 6), M.wood);
-      p.position.set(5.6 + (i % 2) * 2.0, MY + 1.2, 4.4 + ((i / 2) | 0) * 1.2);
-      b.add(p);
+  // ---- THE MOUND ---------------------------------------------------------
+  // Three concentric terraces, each a walkable ring with a revetted face under
+  // it. The face is drawn PROUD of the deck it edges, so every one of them gets
+  // its lip carried out to the drawn edge — the fault that put a strip of
+  // visible ground with nothing under it round every raised deck in this set.
+  const terrace = (rOut, y, rIn, id) => {
+    b.roundDeck(0, 0, rOut, y, { rIn, mat: turf, thick: 0.5, id });
+    for (const [a0, a1] of stairGaps(id)) {
+      b.arcWall(0, 0, rOut + 0.35, a0, a1, y - 3.0, y - 0.12,
+        { mat: revet, thick: 0.7, id: id + 'face' });
+      b.arcWall(0, 0, rOut + 0.35, a0, a1, y - 0.12, y,
+        { mat: revet, thick: 0.7, collide: false });
     }
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.24, 2.4), M.rock);
-    roof.position.set(6.6, MY + 2.5, 5);
-    b.add(roof);
+    // the lip on the drawn face, as a RING. `lip` takes a rect, and a rect round
+    // a circle is four corners of walkable air.
+    // WITH THE STAIR HEAD CUT OUT OF IT. A lip ring run the whole way round a
+    // terrace lies across the top of the one flight that climbs to it, and
+    // `floorAt` prefers the lip while the fighter is still on the treads — the
+    // flight surfaces through solid ground. Same rule as `floorHole`.
+    const ga = stairBearing(id);
+    b.roundDeck(0, 0, rOut + 0.75, y, {
+      rIn: rOut - 0.4, draw: false, prop: true, id: id + 'lip',
+      holes: [{ x: Math.sin(ga) * rOut, z: Math.cos(ga) * rOut, r: STAIRW + 1.4 }]
+    });
+  };
+  // Each terrace's face is split around the one flight that climbs it, and each
+  // flight is on a DIFFERENT bearing — so the climb circles the mound instead
+  // of running straight up it, which is what a processional route does and what
+  // makes a ring worth being chased along.
+  const GAP = 0.16;
+  function stairBearing(id) {
+    return id === 'terr1' ? 0 : id === 'terr2' ? Math.PI / 2 : Math.PI;
   }
+  function stairGaps(id) {
+    const a = stairBearing(id);
+    return [[a + GAP, a + Math.PI * 2 - GAP]];
+  }
+  terrace(R_T1, T1, R_T2 - 0.4, 'terr1');
+  terrace(R_T2, T2, R_SUM - 0.4, 'terr2');
+  b.roundDeck(0, 0, R_SUM, SUM, {
+    mat: flag, thick: 0.5, id: 'summit', holes: [{ x: SHAFT.x, z: SHAFT.z, r: SHAFT.r }]
+  });
+  for (const [a0, a1] of [[Math.PI + GAP, Math.PI * 3 - GAP]]) {
+    b.arcWall(0, 0, R_SUM + 0.35, a0, a1, SUM - 3.0, SUM - 0.12,
+      { mat: revet, thick: 0.7, id: 'summitface' });
+  }
+  b.roundDeck(0, 0, R_SUM + 0.75, SUM, {
+    rIn: R_SUM - 0.4, draw: false, prop: true, id: 'summitlip',
+    holes: [{ x: 0, z: -R_SUM, r: STAIRW + 1.4 }, { x: SHAFT.x, z: SHAFT.z, r: SHAFT.r }]
+  });
 
-  // TORII CORRIDOR straddling the climb. Each gate stands on the step under it,
-  // so they march up the flights rather than hanging over them.
+  // THE THREE FLIGHTS, one per face, each on its own bearing.
+  // Ground -> first terrace, on +z: the torii stair.
+  b.stairs(-STAIRW, R_T1 + 6.5, STAIRW, R_T1 - 0.6, 0.05, T1, 'z', { mat: flag });
+  // first -> second, on +x
+  b.stairs(R_T1 - 1.2, -STAIRW, R_T2 - 0.6, STAIRW, T1, T2, 'x', { mat: flag });
+  // second -> summit, on -z
+  b.stairs(-STAIRW, -(R_T2 - 1.2), STAIRW, -(R_SUM - 0.6), T2, SUM, 'z', { mat: flag });
+
+  // ---- THE TORII CORRIDOR ------------------------------------------------
+  // Straddling the long approach and the first flight, standing on whatever is
+  // under each gate rather than hanging over it.
   const gate = (z, y, s = 1) => {
     const g = new THREE.Group();
-    const vermilion = new THREE.MeshBasicMaterial({ color: 0x9c2f33 });
     for (const sx of [-1, 1]) {
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.21, 3.7 * s, 8), vermilion);
-      p.position.set(sx * 2.3, 1.85 * s, 0);
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.23, 4.1 * s, 8), vermilion);
+      p.position.set(sx * 2.6, 2.05 * s, 0);
       g.add(p);
     }
-    const top = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.28, 0.44), vermilion);
-    top.position.y = 3.65 * s;
-    const mid = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.21, 0.32), vermilion);
-    mid.position.y = 3.0 * s;
+    const top = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.3, 0.48), vermilion);
+    top.position.y = 4.05 * s;
+    const mid = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.23, 0.35), vermilion);
+    mid.position.y = 3.3 * s;
     g.add(top, mid);
     g.position.set(0, y, z);
     b.add(g);
-    // Deliberately NOT collidable. Gate legs 4.6 m apart down the only route
-    // between the two halves of the map would make the climb a slalom; they are
-    // dressing on a corridor, and the corridor has to stay one.
+    // Deliberately NOT collidable: gate legs 5 m apart down the only route
+    // between the two halves of the map would make the climb a slalom.
   };
-  for (let i = 0; i < 9; i++) {
-    const t = (i + 0.5) / 9;
-    gate(14 - 6 * t, 0.05 + (MY - 0.05) * t);
+  for (let i = 0; i < 5; i++) gate(43 - i * 2.2, 0.05);
+  for (let i = 0; i < 8; i++) {
+    const t = (i + 0.5) / 8;
+    gate(R_T1 + 6.5 - 7.1 * t, 0.05 + (T1 - 0.05) * t);
   }
-  for (let i = 0; i < 12; i++) {
-    const t = (i + 0.5) / 12;
-    gate(2 - 10 * t, MY + (TY - MY) * t);
+  for (let i = 0; i < 8; i++) {
+    const t = (i + 0.5) / 8;
+    const z = R_T1 - 1.0, y = T1;
+    b.lanternString(v3(-2.6, y + 3.2, z - i * 1.6), v3(2.6, y + 3.2, z - i * 1.6),
+      { color: 0xff9c4e, sag: 0.3, count: 2 });
   }
 
-  // ---- SHRINE TERRACE -----------------------------------------------------
-  // The stair lands on the terrace's south edge, and the terrace is laid with
-  // the tomb stairwell already cut out of it.
-  const TWELL = { x0: 17, z0: -28, x1: 23, z1: -12 };
-  b.floorHole(-TX, TZ0, TX, TZ1, TY, TWELL, { mat: M.concrete, id: 'terrace' });
-  // The terrace's retaining wall, split where the great stair arrives, and
-  // STOPPED 0.12 m BELOW the deck it holds up: `resolveWalls` skips a wall only
-  // when `y > w.y1`, so a retaining wall topping out at exactly the terrace
-  // height shoves anyone standing on that edge back off it.
-  for (const [x0, x1] of [[-TX, -6.6], [6.6, TX]]) {
-    b.wall(x0, TZ1, x1, TZ1, 0, TY, { mat: M.rock, thick: 0.7, collide: false });
-    b.bounds.wall(x0, TZ1 - 0.5, x1, TZ1 + 0.4, 0, TY - 0.12, { id: 'terrwall' + x0 });
-  }
-  for (const s of [-1, 1]) {
-    b.wall(s * TX, TZ0, s * TX, TZ1, 0, TY, { mat: M.rock, thick: 0.7, collide: false });
-    b.bounds.wall(s * TX - 0.4, TZ0, s * TX + 0.4, TZ1, 0, TY - 0.12, { id: 'terrside' + s });
-  }
-  b.wall(-TX, TZ0, TX, TZ0, 0, TY, { mat: M.rock, thick: 0.7, collide: false });
-  b.bounds.wall(-TX, TZ0 - 0.4, TX, TZ0 + 0.4, 0, TY - 0.12, { id: 'terrback' });
-  // rails down the two long sides of the tomb well and its far end only. The
-  // near end is the head of the stair — railing it off is how you build a
-  // staircase nobody can use, and it is the single most common way to do it.
-  b.railing(TWELL.x0, TWELL.z0, TWELL.x0, TWELL.z1, TY);
-  b.railing(TWELL.x1, TWELL.z0, TWELL.x1, TWELL.z1, TY);
-  b.railing(TWELL.x0, TWELL.z1, TWELL.x1, TWELL.z1, TY);
-
-  // stone lanterns down both sides of the terrace
-  for (let i = 0; i < 7; i++) {
-    for (const s of [-1, 1]) {
-      // the east row sits at 14, not 20: 20 is inside the tomb well
-      const x = s > 0 ? 14 : -22, z = -11 - i * 3.2;
-      const g = new THREE.Group();
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 1.7, 6), M.rock);
-      post.position.y = 0.85;
-      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.44, 0.38, 4), M.rock);
-      cap.position.y = 2.2;
-      const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), emissive(0xffb45e));
-      box.position.y = 1.88;
-      g.add(post, cap, box);
-      g.position.set(x, TY, z);
-      b.add(g);
-      const halo = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), haloMaterial(0xff9c4e, 0.26));
-      halo.position.set(x, TY + 1.9, z);
-      b.add(halo);
-      b.breakable(g, { hp: 20, kind: 'concrete', center: v3(x, TY + 1.1, z), radius: 0.5, height: 2.4, baseY: TY });
+  // ---- THE SUMMIT --------------------------------------------------------
+  // An octagonal hall on the mound's axis, a ring of stone lanterns round it,
+  // and the shaft down into the chamber cut through the flagstones.
+  const HALLR = 7.0, HALLY = SUM + 4.6;
+  for (let i = 0; i < 8; i++) {
+    const a0 = (i / 8) * Math.PI * 2, a1 = ((i + 1) / 8) * Math.PI * 2;
+    // one face of the octagon is the doorway, and one is shoji that breaks
+    if (i === 5) continue;
+    if (i === 4) {
+      b.windows(
+        Math.sin(a0) * HALLR, Math.cos(a0) * HALLR,
+        Math.sin(a1) * HALLR, Math.cos(a1) * HALLR, SUM, HALLY - 0.8,
+        { hp: 14, id: 'starshoji', mat: new THREE.MeshBasicMaterial({ color: 0xe8e0cc, transparent: true, opacity: 0.85 }) });
+      continue;
     }
+    b.arcWall(0, 0, HALLR, a0, a1, SUM, HALLY - 0.6,
+      { mat: timber, thick: 0.4, segs: 1, id: 'hall' + i });
+  }
+  b.roundDeck(0, 0, HALLR - 0.5, SUM + 0.08, { mat: timber, thick: 0.2, walk: false });
+  // the roof: eight rafters to a finial, and a walkable deck on top of it
+  b.roundDeck(0, 0, HALLR + 2.2, HALLY, { mat: revet, thick: 0.4, id: 'hallroof' });
+
+  b.roundTower(0, 0, 1.4, HALLY, 2.6, { mat: revet, taper: 0.2, segs: 8, cap: true, id: 'finial' });
+  // the steps up onto the roof, off the summit on the +x face
+  b.stairs(HALLR + 6.5, -1.6, HALLR + 1.8, 1.6, SUM, HALLY, 'x', { mat: revet });
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + 0.31;
+    const lx = Math.sin(a) * 12.2, lz = Math.cos(a) * 12.2;
+    const g = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 1.7, 6), revet);
+    post.position.y = 0.85;
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.48, 0.4, 4), revet);
+    cap.position.y = 2.2;
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.44, 0.44), emissive(0xffb45e));
+    box.position.y = 1.88;
+    g.add(post, cap, box);
+    g.position.set(lx, SUM, lz);
+    b.add(g);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), haloMaterial(0xff9c4e, 0.26));
+    halo.position.set(lx, SUM + 1.9, lz);
+    halo.userData.billboard = true;
+    b.add(halo);
+    b.breakable(g, { hp: 20, kind: 'concrete', center: v3(lx, SUM + 1.1, lz), radius: 0.5, height: 2.4, baseY: SUM });
   }
 
-  // ---- THE HALL, on the terrace's axis ------------------------------------
-  const HY = 11.1;
-  const HX0 = -14, HX1 = 6, HZ0 = -31, HZ1 = -17;
-  b.wall(HX0, HZ0, HX0, HZ1, TY, HY - 0.4, { mat: M.wood });
-  b.wall(HX1, HZ0, HX1, HZ1, TY, HY - 0.4, { mat: M.wood });
-  b.wall(HX0, HZ0, HX1, HZ0, TY, HY - 0.4, { mat: M.wood });
-  // the south face is shoji: it breaks, and the hall opens onto the terrace
-  for (let i = 0; i < 3; i++) {
-    const x0 = HX0 + 0.6 + i * 6.4;
-    b.windows(x0, HZ1, x0 + 5.8, HZ1, TY, HY - 0.6, {
-      hp: 14, id: 'starshoji' + i,
-      mat: new THREE.MeshBasicMaterial({ color: 0xe8e0cc, transparent: true, opacity: 0.85 })
+  // ---- THE CHAMBER -------------------------------------------------------
+  // One round room of dressed stone under a corbelled dome, with a ring of
+  // pillars and the vessel's dais in the middle. The fallback floor has to come
+  // down under all of it or the mound above pages straight over the room.
+  b.zone(TOMB, { x0: -R_CH - 2, x1: R_CH + 2, z0: -R_CH - 2, z1: R_CH + 2, y0: -9, y1: SUM }, false);
+  b.pit(-R_CH, -R_CH, R_CH, R_CH, BY);
+  b.roundDeck(0, 0, R_CH, BY, { mat: dressed, thick: 0.5, zone: TOMB, id: 'chamber' });
+  b.arcWall(0, 0, R_CH + 0.4, 0, Math.PI * 2, BY, SUM - 2.2,
+    { mat: dressed, thick: 1.0, zone: TOMB, id: 'chamberwall' });
+  b.dome(0, 0, SUM - 2.2, R_CH + 0.4, { mat: dressedIn, rise: 3.6, oculus: 0.1, segs: 34, rings: 10 });
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + Math.PI / 10;
+    const px = Math.sin(a) * 10.5, pz = Math.cos(a) * 10.5;
+    if (Math.hypot(px - SHAFT.x, pz - SHAFT.z) < SHAFT.r + 1.4) continue;
+    b.pillar(px, pz, BY, SUM - 2.2 - BY - 0.1, 0.7, {
+      mat: dressed, hp: 240, zone: TOMB, id: 'tp' + i
     });
   }
-  b.floor(HX0, HZ0, HX1, HZ1, TY + 0.1, { mat: M.wood });
-  b.ceiling(HX0, HZ0, HX1, HZ1, HY - 0.5, { mat: M.wood });
-  // HALL ROOF — the highest ground. Flat and walkable, pitch on the perimeter.
-  b.floor(HX0 - 1.8, HZ0 - 1.8, HX1 + 1.8, HZ1 + 1.8, HY, { mat: M.rock, id: 'starroof' });
-  // THE EAVES, and the lip they need. Each is drawn 1.8 m oversized so the tiled
-  // edge reads as a deep overhang, which means it stands proud of the roof deck
-  // on every side — 314 cells of visible tile you could see, land on and drop
-  // eleven metres through. The biggest rim on this map and the second biggest
-  // in the set. The eave top is 0.34 m BELOW the deck, so lipping it does not
-  // add high ground; it adds a floor to the fringe that was already drawn.
-  for (const [x0, z0, x1, z1] of [
-    [HX0 - 1.8, HZ0 - 1.8, HX0 - 0.4, HZ1 + 1.8], [HX1 + 0.4, HZ0 - 1.8, HX1 + 1.8, HZ1 + 1.8],
-    [HX0 - 1.8, HZ0 - 1.8, HX1 + 1.8, HZ0 - 0.4], [HX0 - 1.8, HZ1 + 0.4, HX1 + 1.8, HZ1 + 1.8]
-  ]) {
-    const g = new THREE.BoxGeometry(x1 - x0 + 1.8, 0.32, z1 - z0 + 1.8);
-    g.translate((x0 + x1) / 2, HY - 0.5, (z0 + z1) / 2);
-    b.static_(g, M.rock);
-  }
-  // The lip, authored as its own rects rather than inside the loop above, so
-  // the EAST eave can be split around the flight that lands on this roof. The
-  // stair's top tread is at HY and the eave top is 0.34 m under it, so a lip
-  // laid straight across the stair head wins the `floorAt` query while the
-  // fighter is still on the treads — the flight surfaces through solid tile,
-  // which is the exact fault `floorHole` exists for and which the validator
-  // caught the moment the first version of this lip went in.
-  const EX0 = HX0 - 2.7, EX1 = HX1 + 2.7, EZ0 = HZ0 - 2.7, EZ1 = HZ1 + 2.7;
-  const EY = HY - 0.18;
-  b.lip(EX0, EZ0, HX0 - 0.4, EZ1, EY);                    // west eave
-  b.lip(EX0, EZ0, EX1, HZ0 - 0.4, EY);                    // north eave
-  b.lip(EX0, HZ1 + 0.4, EX1, EZ1, EY);                    // south eave
-  for (const [z0, z1] of [[EZ0, -26.2], [-18.8, EZ1]]) {  // east eave, split
-    b.lip(HX1 + 0.4, z0, EX1, z1, EY);
-  }
-  // steps up the hall's east side, landing on the roof's edge (and clear of
-  // the tomb well, which is further east again)
-  b.stairs(15, -26, HX1 + 1.8, -19, TY, HY, 'x', { mat: M.rock });
-  for (let i = 0; i < 4; i++) b.stripLight(HX0 + 3.5 + i * 4.5, HY - 1.4, (HZ0 + HZ1) / 2, 2.6, 'x', 0xffc98a);
-
-  // ---- THE TOMB, one level down under the terrace -------------------------
-  // Same trap the pool hall fell into: a room below the map's single `groundY`
-  // is unreachable until the fallback floor is lowered over its footprint.
-  b.zone(TOMB, { x0: -TX - 1, x1: TX + 1, z0: TZ0 - 1, z1: TZ1 + 1, y0: -8, y1: 1 });
-  b.pit(-TX + 0.4, TZ0 + 0.4, TX - 0.4, TZ1 - 0.4, BY);
-  b.floor(-25, TZ0 + 1, 25, TZ1 - 1, BY, { mat: M.tile, zone: TOMB });
-  // THE CEILING IS LAID AROUND THE STAIRWELL. As one slab it ran straight
-  // across the well cut in the terrace above it, so the only way into the tomb
-  // was a flight descending through a metre of drawn concrete — and the slab's
-  // cut edge sat inside the opening as a ledge with the whole tomb under it.
-  // Same rule the floors on every map in this set already follow: if there is a
-  // hole, the thing spanning it has the hole in it too.
-  for (const [cx0, cz0, cx1, cz1] of [
-    [-25, TZ0 + 1, TWELL.x0, TZ1 - 1], [TWELL.x1, TZ0 + 1, 25, TZ1 - 1],
-    [TWELL.x0, TZ0 + 1, TWELL.x1, TWELL.z0], [TWELL.x0, TWELL.z1, TWELL.x1, TZ1 - 1]
-  ]) {
-    if (cx1 - cx0 < 0.05 || cz1 - cz0 < 0.05) continue;
-    b.ceiling(cx0, cz0, cx1, cz1, TY - 1.0, { mat: M.concreteWall, zone: TOMB });
-  }
-  for (const [x0, z0, x1, z1] of [
-    [-25.4, TZ0 + 1, -25.4, TZ1 - 1], [25.4, TZ0 + 1, 25.4, TZ1 - 1],
-    [-25, TZ0 + 0.6, 25, TZ0 + 0.6], [-25, TZ1 - 0.6, 25, TZ1 - 0.6]
-  ]) b.wall(x0, z0, x1, z1, BY, TY - 1.0, { mat: M.tileWall, zone: TOMB });
-
-  // THE STAIR DOWN, through the well cut in the terrace. Authored bottom-first.
-  // The top tread meets the terrace's own edge exactly: half a metre of
-  // daylight at the head of a flight is a hole to fall down, not a landing.
-  b.stairs(TWELL.x0 + 0.6, TWELL.z1 - 0.6, TWELL.x1 - 0.6, TWELL.z0, BY, TY, 'z',
-    { mat: M.tile, zone: TOMB });
-
-  // Vaulted bays down the corridor. Kept west of the stairwell so none of them
-  // stands in the only flight — a 1.1 m column in the middle of it would plug
-  // it as surely as a wall.
-  for (let i = 0; i < 6; i++) {
-    const x = -20 + i * 7;
-    for (const z of [TZ0 + 6, TZ1 - 6]) {
-      b.pillar(x, z, BY, TY - 1.0 - BY, 0.55, { square: true, mat: M.tileWall, hp: 240, zone: TOMB });
-    }
-    b.stripLight(x, TY - 1.6, (TZ0 + TZ1) / 2, 3.0, 'x', 0x8fd8c0, i === 2 ? 0.55 : 0);
-  }
-
-  // THE VESSEL CHAMBER at the west end: a raised stone dais, and the one thing
-  // in the tomb worth standing on.
-  b.floor(-22, -28, -12, -18, BY + 1.3, { mat: M.rock, id: 'dais' });
-  b.slope(-8, -26, -12, -20, BY, BY + 1.3, 'x', { mat: M.rock, depth: 0.5, zone: TOMB });
+  // THE DAIS. A raised stone platform in the middle, and the one thing in the
+  // tomb worth standing on.
+  b.roundDeck(0, 0, 4.6, BY + 1.3, { mat: revet, thick: 0.5, zone: TOMB, id: 'dais' });
+  // Drawn INSIDE the deck's own radius so the deck caps it, and split around
+  // the ramp's bearing so the face does not wall off the only way up onto it.
+  b.arcWall(0, 0, 4.35, Math.PI / 2 + 0.5, Math.PI / 2 + Math.PI * 2 - 0.5, BY, BY + 1.18,
+    { mat: revet, thick: 0.5, zone: TOMB, id: 'daisface' });
+  b.slope(6.6, -1.6, 4.4, 1.6, BY, BY + 1.3, 'x', { mat: revet, depth: 0.5, zone: TOMB });
   {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(3.0, 0.1, 6, 32), emissive(0x6fe0c8));
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(-17, BY + 1.35, -23);
+    ring.position.set(0, BY + 1.38, 0);
     b.add(ring);
     const glow = new THREE.Mesh(new THREE.CircleGeometry(4.4, 24), haloMaterial(0x4fd8b8, 0.24));
     glow.rotation.x = -Math.PI / 2;
-    glow.position.set(-17, BY + 1.4, -23);
+    glow.position.set(0, BY + 1.4, 0);
     b.add(glow);
     let t = 0;
-    b.tickers.push(dt => { t += dt; glow.material.opacity = 0.12 + Math.sin(t * 1.3) * 0.07; });
+    b.tickers.push(dt => { t += dt; glow.material.opacity = 0.16 + Math.sin(t * 1.3) * 0.08; });
   }
 
-  // ---- FOREST + AMBIENT ---------------------------------------------------
-  const near = [], far = [];
-  for (let i = 0; i < 150; i++) {
-    const a = rand(0, Math.PI * 2), r = rand(16, 48);
+  // ---- THE SHAFT ---------------------------------------------------------
+  // The way down: a helix cut through the summit's flagstones and the mound
+  // under them, landing on the chamber floor. One turn exactly, so its top
+  // tread comes back to the bearing its landing is laid on.
+  {
+    const a = Math.atan2(SHAFT.x, SHAFT.z);
+    b.spiralStair(SHAFT.x, SHAFT.z, SUM, BY, {
+      rIn: 0.6, rOut: 3.3, rise: 0.24, turns: 2, dir: -1, a0: a,
+      mat: dressed, newelMat: dressed, zone: TOMB, id: 'shaft'
+    });
+    b.arcWall(SHAFT.x, SHAFT.z, SHAFT.r + 0.5, 0, Math.PI * 2, BY, SUM - 0.12,
+      { mat: dressed, thick: 0.7, segs: 18, zone: TOMB, id: 'shaftwall', collide: false });
+    b.godRay(SHAFT.x, SUM, SHAFT.z, 3.0, SUM - BY, 0xbcd4ff,
+      { opacity: 0.10, taper: 0.5, lean: [-1.6, -2.2], poolGain: 1.2, range: 70 });
+  }
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + 0.6;
+    b.hangingLamp(Math.sin(a) * 8, SUM - 2.6, Math.cos(a) * 8, 1.6, 0x6fe0c8, { amp: 0.035, range: 44 });
+  }
+  b.mist(0, 0, 0, 0, BY, 0x3f7f74, { radius: R_CH - 1, opacity: 0.22, scale: 11 });
+  b.sigil(0, BY + 1.36, 0, 4.2, 0x4fd8b8, { rings: 3, spokes: 14, sides: 5, opacity: 0.34, spin: 0.07 });
+  b.sigil(0, SUM + 0.05, 0, 13, 0x6fe0c8, { rings: 3, spokes: 16, sides: 6, opacity: 0.20, spin: -0.03 });
+
+  // ---- MOONLIGHT AND THE FOREST ------------------------------------------
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 + 0.4;
+    const r = 38 + (i % 3) * 6;
     const x = Math.sin(a) * r, z = Math.cos(a) * r;
-    if (Math.abs(x) < 11 && z > -6) continue;             // keep the climb clear
-    if (x > -TX - 3 && x < TX + 3 && z < TZ1 + 2) continue; // keep the terrace clear
-    (r < 28 && near.length < 16 ? near : far).push([x, z]);
+    if (Math.abs(x) < 10 && z > 20) continue;
+    b.godRay(x, 20, z, 2.8, 20, 0xbcd4ff, { opacity: 0.055, taper: 0.3, lean: [2.2, -3.2], range: 90 });
+  }
+  b.godRay(-2, 24, 40, 5.5, 24, 0xbcd4ff, { opacity: 0.06, taper: 0.34, lean: [3.0, -5.0], range: 120 });
+  b.mist(-54, 20, 54, 50, 0, 0x8fa8c8, { opacity: 0.15, scale: 26 });
+  b.mist(-54, -50, -34, 30, 0, 0x8fa8c8, { opacity: 0.15, scale: 26 });
+  b.mist(34, -50, 54, 30, 0, 0x8fa8c8, { opacity: 0.15, scale: 26 });
+
+  const near = [], far = [];
+  for (let i = 0; i < 170; i++) {
+    const a = rand(0, Math.PI * 2), r = rand(R_MOUND + 3, 52);
+    const x = Math.sin(a) * r, z = Math.cos(a) * r;
+    if (Math.abs(x) < 11 && z > 0) continue;               // keep the approach clear
+    (r < R_MOUND + 12 && near.length < 16 ? near : far).push([x, z]);
   }
   for (const [x, z] of near) b.tree(x, 0, z, rand(1.2, 2.0));
   const fi = far.map(([x, z]) => ({ x, y: 0, z, s: rand(1.3, 2.4), ry: rand(0, 6.3) }));
-  b.repeat(new THREE.CylinderGeometry(0.2, 0.36, 4.4, 6), M.trunk,
+  b.repeat(new THREE.CylinderGeometry(0.2, 0.36, 4.4, 6), b.tint('trunk', 0x2b2418),
     fi.map(f => ({ ...f, y: 2.2 * f.s, s: f.s, sy: f.s })));
-  b.repeat(new THREE.SphereGeometry(2.0, 8, 6), M.foliage,
+  b.repeat(new THREE.SphereGeometry(2.0, 8, 6), b.tint('foliage', 0x1f3324),
     fi.map(f => ({ ...f, y: 5.8 * f.s, s: f.s })));
 
-  // =========================================================================
-  // MOONLIGHT, LANTERNS, AND WHAT IS SEALED DOWN THERE
-  // =========================================================================
-  // The two halves of this map are an exposed climb under an open night sky and
-  // a sealed stone corridor with no daylight in it at all, and neither of them
-  // was lit like that: the climb had lanterns on the terrace only and the tomb
-  // had six strip lights. What follows is the difference between the two, said
-  // in light.
+  // the porters' kit at the foot of the climb, and the sealed vessels below
+  b.crates(12, 0, 30, { count: 3 });
+  b.crates(13.8, 0, 28.6, { count: 2 });
+  b.crates(-12, 0, 34, { count: 2 });
+  for (let i = 0; i < 4; i++) b.drum(-7 - i * 1.05, BY, 9, { color: 0x4a5a52, markColor: 0x6fe0c8 });
+  for (let i = 0; i < 3; i++) b.drum(7 + i * 1.05, BY, 9.6, { color: 0x4a5a52, markColor: 0x6fe0c8 });
+  b.crates(-11, BY, -6, { count: 3 });
+  b.crates(-9.2, BY, -7.4, { count: 2 });
 
-  // ---- THE CLIMB ----------------------------------------------------------
-  // Moonlight coming down through the cedar either side of the torii corridor,
-  // and lanterns hung under the gates so the corridor has a colour of its own
-  // to be seen against.
-  for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2 + 0.7;
-    const r = 20 + (i % 3) * 9;
-    const x = Math.sin(a) * r, z = Math.cos(a) * r;
-    if (Math.abs(x) < 10 && z > -6) continue;               // the corridor stays clear
-    if (x > -TX - 3 && x < TX + 3 && z < TZ1 + 2) continue; // and so does the terrace
-    b.godRay(x, 20, z, 2.8, 20, 0xbcd4ff,
-      { opacity: 0.055, taper: 0.3, lean: [2.2, -3.2], range: 90 });
-  }
-  // and three down the corridor itself. The gates are the one thing on this map
-  // worth backlighting, and the scatter rule above deliberately keeps the axis
-  // clear of geometry — which had left the whole approach unlit as well.
-  b.godRay(-2, 24, 34, 5.5, 24, 0xbcd4ff, { opacity: 0.06, taper: 0.34, lean: [3.0, -5.0], range: 120 });
-  b.godRay(4, 22, 20, 3.6, 22, 0xbcd4ff, { opacity: 0.06, taper: 0.3, lean: [2.0, -3.4], range: 110 });
-  b.godRay(-3, 20, 6, 3.0, 17, 0xbcd4ff, { opacity: 0.06, taper: 0.3, lean: [1.6, -2.6], range: 100 });
-  for (let i = 0; i < 8; i++) {
-    const t = (i + 0.5) / 8;
-    const z = 14 - 6 * t, y = 0.05 + (MY - 0.05) * t;
-    b.lanternString(v3(-2.2, y + 2.7, z), v3(2.2, y + 2.7, z), { color: 0xff9c4e, sag: 0.28, count: 2 });
-  }
-  for (let i = 0; i < 11; i++) {
-    const t = (i + 0.5) / 11;
-    const z = 2 - 10 * t, y = MY + (TY - MY) * t;
-    b.lanternString(v3(-2.2, y + 2.7, z), v3(2.2, y + 2.7, z), { color: 0xff9c4e, sag: 0.28, count: 2 });
-  }
-  // ground mist lying in the forest and pouring down the steps, which is what
-  // a mountain shrine at night actually looks like
-  b.mist(-48, 10, 48, 44, 0, 0x8fa8c8, { opacity: 0.16, scale: 26 });
-  b.mist(-48, -44, -30, 20, 0, 0x8fa8c8, { opacity: 0.16, scale: 26 });
-  b.mist(30, -44, 48, 20, 0, 0x8fa8c8, { opacity: 0.16, scale: 26 });
-  b.mist(-TX, TZ0, TX, TZ1, TY, 0x9fb4d8, { opacity: 0.13, scale: 14 });
-
-  // ---- THE CHŌZUYA RUNS ---------------------------------------------------
-  // A spout with water actually coming out of it. The basin had a flat blue
-  // rectangle laid on it and nothing feeding it.
-  b.waterfall(6.6, MY + 1.75, 5.5, 0.34, 0.85, { color: 0xcfeef8, opacity: 0.6, speed: 3.0 });
-  b.steamVent(6.6, MY + 0.95, 5, { height: 1.4, period: 4.6, opacity: 0.16, color: 0xcfe4f0, spread: 1.2 });
-
-  // ---- THE SHRINE ---------------------------------------------------------
-  // Noren across the hall's shoji face, shide streamers off the terrace
-  // lanterns' line, and the ward drawn on the flagstones.
-  for (let i = 0; i < 3; i++) {
-    b.banner(HX0 + 3.4 + i * 6.4, HY - 0.9, HZ1 + 0.25, 4.6, 1.4, 0x7a1f2c, { ry: 0, amp: 0.08 });
-  }
-  b.sigil(-4, TY + 0.04, -14, 8.5, 0x6fe0c8, { rings: 3, spokes: 16, sides: 6, opacity: 0.22, spin: -0.03 });
-  b.sigil(0, MY + 0.04, 5, 3.2, 0xffb45e, { rings: 2, spokes: 8, sides: 4, opacity: 0.26, spin: 0.12 });
-  b.sigil(0, 0.06, 30, 6.0, 0xffb45e, { rings: 2, spokes: 10, sides: 3, opacity: 0.20, spin: -0.06 });
-
-  // ---- THE TOMB -----------------------------------------------------------
-  // The one shaft of anything that reaches this room comes down its own
-  // stairwell, and it is the only reason the corridor has a far end.
-  b.godRay(20, TY - 0.2, -20, 3.4, TY - BY - 0.2, 0xbcd4ff,
-    { opacity: 0.10, taper: 0.5, lean: [-1.4, -2.0], poolGain: 1.2, range: 60 });
-  for (let i = 0; i < 5; i++) {
-    b.hangingLamp(-18 + i * 8.5, TY - 1.2, -21, 1.6, 0x6fe0c8, { amp: 0.035, range: 44 });
-  }
-  b.mist(-24, TZ0 + 2, 24, TZ1 - 2, BY, 0x3f7f74, { opacity: 0.22, scale: 11 });
-  // the ward around the dais, and the two that hold the corridor shut
-  b.sigil(-17, BY + 1.36, -23, 5.6, 0x4fd8b8, { rings: 3, spokes: 14, sides: 5, opacity: 0.34, spin: 0.07 });
-  b.sigil(6, BY + 0.03, -21, 4.4, 0x4fd8b8, { rings: 2, spokes: 10, sides: 3, opacity: 0.24, spin: -0.10 });
-  b.sigil(22, BY + 0.03, -21, 3.4, 0x4fd8b8, { rings: 2, spokes: 8, sides: 3, opacity: 0.24, spin: 0.10 });
-
-  // ---- WHAT WAS LEFT IN HERE ---------------------------------------------
-  // Sealed vessels down the corridor and crates in the bays. The vessels are
-  // `drum` under the paint — a warded jar in a burial corridor goes off exactly
-  // as hard as a fuel drum does, and this is the tightest room in the set to be
-  // standing in when a row of them does.
-  for (let i = 0; i < 4; i++) b.drum(2 + i * 1.05, BY, -21, { color: 0x4a5a52, markColor: 0x6fe0c8 });
-  for (let i = 0; i < 3; i++) b.drum(-3 - i * 1.05, BY, -31, { color: 0x4a5a52, markColor: 0x6fe0c8 });
-  b.crates(11, BY, -30.5, { count: 2 });
-  b.crates(12.8, BY, -31.8, { count: 1 });
-  b.crates(-21, BY, -12, { count: 3 });
-  b.crates(-19.2, BY, -13.4, { count: 2 });
-  // and the porters' kit at the foot of the climb, off the gravel path
-  b.crates(11, 0, 22, { count: 3 });
-  b.crates(12.8, 0, 20.6, { count: 2 });
-  b.crates(-11, 0, 26, { count: 2 });
-
-  // moonlight in the cedar, and cold dust in the tomb
-  b.particles(260, { x0: -48, x1: 48, y0: 0.4, y1: 22, z0: -44, z1: 44 },
+  b.particles(260, { x0: -50, x1: 50, y0: 0.4, y1: 24, z0: -46, z1: 46 },
     { color: 0xbfd0f0, size: 0.07, opacity: 0.26, vy: [-0.5, -0.1] });
-  b.particles(120, { x0: -24, x1: 24, y0: -6, y1: 5, z0: TZ0 + 2, z1: TZ1 - 2 },
+  b.particles(120, { x0: -13, x1: 13, y0: BY, y1: SUM - 3, z0: -13, z1: 13 },
     { color: 0x8fd8c0, size: 0.06, opacity: 0.3, vy: [0.05, 0.35] });
 
-  b.bounds.spawns = [v3(-4, 0.05, 20), v3(4, 0.05, 20), v3(-12, TY, -14), v3(15, TY, -14)];
+  // At the foot of the torii stair, and on the first terrace either side of it.
+  // At the foot of the torii stair, and out on the first terrace either side of
+  // it — clear of the second terrace's revetment, whose face stands proud of
+  // the ring it edges and reaches a good half metre further in than it looks.
+  b.bounds.spawns = [
+    v3(-4.5, 0.05, 38), v3(4.5, 0.05, 38),
+    v3(-13, T1, 26), v3(13, T1, 26)
+  ];
   return b;
-}
-
-// The retaining cheeks either side of a flight, so it reads as cut into a bank
-// rather than sitting on the grass. Drawn only — a collider on the cheek of a
-// staircase narrows the staircase.
-function stairCheeks(b, M, x0, z0, x1, z1, yLow, yHigh) {
-  const n = 16;
-  for (const s of [-1, 1]) {
-    for (let i = 0; i < n; i++) {
-      const t0 = i / n, t1 = (i + 1) / n;
-      const y = yLow + (yHigh - yLow) * (t0 + t1) / 2;
-      const cx = s < 0 ? Math.min(x0, x1) - 0.6 : Math.max(x0, x1) + 0.6;
-      const cz = z0 + (z1 - z0) * (t0 + t1) / 2;
-      const len = Math.abs(z1 - z0) / n;
-      const g = new THREE.BoxGeometry(1.2, y + 1.4, len);
-      g.translate(cx, (y + 1.2) / 2 - 0.7, cz);
-      b.static_(g, M.rock);
-      // AND A TOP ON IT. Each cheek is a 1.2 m wide stone parapet whose drawn
-      // top sits 0.6 m above the tread beside it — over STEP_UP, so it is not
-      // somewhere you can walk onto, and squarely somewhere you can be thrown
-      // onto. Without this it is 1.2 m of visible masonry running the whole
-      // length of both flights that a fighter lands on and falls straight
-      // through, onto the steps or off the side of the climb. `mapcheck.rims()`
-      // reported it as fourteen separate findings, one per height band, which
-      // is what one continuous fault on a slope looks like from a grid probe.
-      //
-      // A LIP AND NOT A WALL, deliberately: the cheeks carry no blocker on
-      // purpose (a collider on the cheek of a staircase narrows the staircase)
-      // and that has to stay true.
-      b.lip(cx - 0.6, cz - len / 2, cx + 0.6, cz + len / 2, y + 0.6);
-    }
-  }
 }

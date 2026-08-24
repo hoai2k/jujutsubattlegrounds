@@ -424,12 +424,22 @@ export async function rims(ids = MAP_IDS, { step = 0.5, minCells = 3 } = {}) {
     const down = new THREE.Vector3(0, -1, 0);
     const from = new THREE.Vector3();
     const groups = new Map();
+    let skipped = 0;
     for (let x = bd.minX + 1; x <= bd.maxX - 1; x += step) {
       for (let z = bd.minZ + 1; z <= bd.maxZ - 1; z += step) {
         rc.set(from.set(x, bd.groundY + 220, z), down);
         // the highest OPAQUE, roughly level surface — glass, glow and haze are
         // not floor, and a wall's own side is not something you stand on
-        const hit = rc.intersectObject(map.group, true).find(h => {
+        // three's raycaster interpolates the hit normal and returns null for a
+        // DEGENERATE triangle, then dots it — and procedural geometry is full
+        // of zero-area triangles (cone tips, ring seams, extruded corners that
+        // clamp onto each other). One of them under one column of the scan
+        // took the whole pass down with a TypeError, on maps whose colliders
+        // are perfect. Skip that column and say how many were skipped.
+        let hits;
+        try { hits = rc.intersectObject(map.group, true); }
+        catch (e) { skipped++; continue; }
+        const hit = hits.find(h => {
           const mt = Array.isArray(h.object.material) ? h.object.material[0] : h.object.material;
           return mt && !mt.transparent && h.object.visible
             && !h.object.userData.billboard && h.normal && h.normal.y > 0.85;
@@ -464,8 +474,8 @@ export async function rims(ids = MAP_IDS, { step = 0.5, minCells = 3 } = {}) {
     }
     const found = [...groups.values()].filter(g => g.n >= minCells).sort((a, b) => b.n - a.n)
       .map(g => ({ ...g, drew: [...g.drew] }));
-    out.push({ id, rims: found });
-    const head = `${id}  —  ${found.length} rim(s)`;
+    out.push({ id, rims: found, skippedColumns: skipped });
+    const head = `${id}  —  ${found.length} rim(s)` + (skipped ? `, ${skipped} column(s) skipped` : '');
     if (!found.length) console.log('%c✓ ' + head, 'color:#6ad48a');
     else {
       console.groupCollapsed('%c✗ ' + head, 'color:#ff8f6a');

@@ -1,33 +1,28 @@
-// SHINJUKU — the Shinjuku Showdown. The biggest map in the set, built for the
-// heaviest fights: a wide boulevard between towers with an overpass cutting
-// across it, a sunken plaza cut into the roadway, and real distance to cover.
+// SHINJUKU — the Shinjuku Showdown, rebuilt as THE INTERCHANGE.
 //
-// REFERENCE NOTE (researched): broad multi-lane streets walled in by
-// skyscrapers, elevated pedestrian overpasses crossing the roadway, dense
-// ground-floor retail, sunken pedestrian plazas cut below street level, and the
-// towers reading as a background layer with genuine presence rather than a
-// painted backdrop.
+// The old map was a straight boulevard with a straight overpass across it:
+// every silhouette on it was a box, and from the stage-select shot it read as
+// the same grey street as three other maps. Nothing about the LOCATION changed
+// here — it is still Shinjuku, still the widest map in the set, still a fight
+// with real distance in it — but the architecture is new from the ground:
+//
+//   * a SWEEPING ELEVATED EXPRESSWAY, a single 9 m arc of viaduct on a 104 m
+//     radius, entering low at both ends and cresting over the middle of the
+//     map at 12 m. It is the map's horizon line and its high ground, and you
+//     can see the whole street under it through the gap it leaves.
+//   * a CIRCULAR SUNKEN PLAZA, 34 m across, cut into the roadway as eight
+//     concentric steps. Every step is climbable from every bearing, so the
+//     plaza is a bowl you fight down into, never a hole you fall into.
+//   * CYLINDRICAL TOWERS instead of the old slab blocks, two of them carrying
+//     annular setback decks at mid height.
 //
 // LAYOUT (136 x 118 m):
-//   y = -4.40  SUNKEN PLAZA a pedestrian level cut into the western half of the
-//                           roadway, open to the sky, with a flight at each
-//                           end. The only below-grade ground on the map and the
-//                           only place on it out of the overpass's sightline.
-//   y =  0.00  BOULEVARD    an enormous central roadway. This is the map that
-//                           makes Jogo and Megumi's shadow work, and the map
-//                           Todo and Yuji have to fight uphill on.
-//   y =  0.24  ARCADE       covered colonnades either side with storefronts
-//   y =  5.95  ARCADE ROOF  the top of those colonnades, walkable, reached off
-//                           the overpass stairs. A flank at mid height.
-//   y =  7.20  OVERPASS     a pedestrian bridge across the middle of the
-//                           street with stairs at both ends. STRUCTURAL: its
-//                           four columns can be destroyed and the deck drops.
-//   y =  9.40  SCAFFOLD     a contractor's deck strapped to the east tower —
-//                           the east side's answer to the podium roof, and the
-//                           one piece of high ground that is not concrete.
-//   y = 12.00  PODIUM ROOF  the low tower's roof on the west side
-//   BOUNDS                  towers and hoardings; the street ends where the
-//                           buildings do.
+//   y = -4.40  PLAZA FLOOR   the bowl, with a lit drum at its centre
+//   y = -3.85..-0.55  the eight step rings, walkable in both directions
+//   y =  0.00  ROADWAY       one continuous disc of asphalt with the plaza
+//                            cut out of it as a true circle
+//   y =  6.00  SETBACK DECKS annular terraces round the two near towers
+//   y = 12.00  EXPRESSWAY    the arc, its two end pads and the crown
 import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import * as THREE from 'three';
 import { rand, v3 } from '../../core/mathutil.js';
@@ -36,7 +31,7 @@ export const DEF = {
   id: 'shinjuku',
   name: 'SHINJUKU',
   jp: '新宿',
-  desc: 'A boulevard between towers, with an overpass you can bring down.',
+  desc: 'A sweeping viaduct over a sunken plaza, ringed by towers.',
   extent: { minX: -68, maxX: 68, minZ: -59, maxZ: 59 },
   background: 0x0e1424,
   fog: { color: 0x141c30, near: 58, far: 230 },
@@ -44,377 +39,270 @@ export const DEF = {
   lights: {
     key: { color: 0xc0d0f0, intensity: 1.0, pos: [14, 26, 10] },
     rim: { color: 0xff9f6f, intensity: 0.65, pos: [-16, 14, -14] },
-    hemi: { sky: 0x4a5c90, ground: 0x1c1a18, intensity: 0.44 }
+    hemi: { sky: 0x4a5c90, ground: 0x241f26, intensity: 0.46 }
   },
-  // stage-select beauty shot: hand-picked so the preview never ends up
-  // inside a wall, above a ceiling or buried in the treeline
-  previewCam: { pos: [-41, 21, 39], look: [8, 1.0, -4] },
-  shadowScale: 1.7,          // the widest map gets the widest shadow
-  shrineScale: 1.33,      // the widest map gets the widest shrine, and still only reaches a fifth of it
-  size: '136 × 118 m · street, sunken plaza, arcades, overpass, roofs'
+  previewCam: { pos: [-33, 23, 50], look: [6, 6.0, -6] },
+  shadowScale: 1.7,
+  shrineScale: 1.33,
+  size: '136 × 118 m · sunken plaza, arc viaduct, tower decks'
 };
 
-// The sunken plaza's footprint, named once. The roadway, the two pavements and
-// the pit all have to cut the SAME rect out of themselves: a slab that forgets
-// leaves the plaza visible, lit and paved over, because `floorAt` returns the
-// highest surface and street level always wins.
-const SP = { x0: -34, z0: -24, x1: -18, z1: 24 };
-const SY = -4.4;
+// ---- the numbers the whole map is cut from -------------------------------
+const SY = -4.4;               // plaza floor
+const R_PLAZA = 17.2;          // the circular cut in the roadway
+const STEPS = 8;               // 8 x 0.55 m: every step under STEP_UP (0.55)
+const STEP_R = 1.05;           // radial tread depth
+
+const VY = 12.0;               // expressway deck
+const VC = -96;                // the arc's centre, far off the south edge
+const VR_IN = 100, VR_OUT = 109;
+const VA = 0.615;              // half the swept bearing
+const VRC = (VR_IN + VR_OUT) / 2;
+const arcX = (a) => Math.sin(a) * VRC;
+const arcZ = (a) => VC + Math.cos(a) * VRC;
+
+const HELIX = { x: 0, z: 20.0, rIn: 2.4, rOut: 5.6 };
 
 export function build(quality) {
   const b = new MapBuilder(DEF);
   const M = b.mats;
+  const road = b.tint('asphalt', 0x2a2c36);
+  const kerb = b.tint('concrete', 0x6c6e78);
+  const deckMat = b.tint('concrete', 0x8a8c94);
+  const towerMat = b.tint('concreteWall', 0x2a3040);
 
   b.sky(0x07101f, 0x142240, 0x3a3050, 420);
   b.groundPlane(0x090c14, 340);
-  b.skyline(36, 240, { color: 0x0a1020, minW: 18, maxW: 46, minH: 60, maxH: 210 });
+  b.skyline(34, 250, { color: 0x0a1020, minW: 18, maxW: 46, minH: 60, maxH: 210 });
 
-  // ---- the boulevard ------------------------------------------------------
-  b.floorHole(-68, -59, 68, 59, 0, SP, { mat: M.asphalt });
-  // lane markings running the length of the street
-  for (const z of [-11, 0, 11]) {
-    for (let i = 0; i < 27; i++) {
-      const x = -64 + i * 5;
-      if (x > SP.x0 - 2 && x < SP.x1 + 2) continue;   // not across the plaza
-      const g = new THREE.BoxGeometry(2.6, 0.03, 0.24);
-      g.translate(x, 0.016, z);
+  // ---- THE ROADWAY --------------------------------------------------------
+  // One disc, not a rectangle, because the hole in it has to be a CIRCLE and
+  // `floorHole` only cuts rects — a square cut round a round plaza leaves four
+  // corners of pit with nothing drawn over them and nothing to stand on.
+  b.roundDeck(0, 0, 96, 0, {
+    mat: road, thick: 0.4, segs: 64, band: 1.1, id: 'road',
+    holes: [{ x: 0, z: 0, r: R_PLAZA }]
+  });
+  // lane markings, laid along the arc of the roadway rather than a grid
+  for (let ring = 0; ring < 3; ring++) {
+    const r = 24 + ring * 11;
+    const n = Math.floor(r * 0.9);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const g = new THREE.BoxGeometry(0.26, 0.03, 2.8);
+      g.rotateY(a);
+      g.translate(Math.sin(a) * r, 0.02, Math.cos(a) * r);
       b.static_(g, emissive(0xdfe4ec));
-    }
-  }
-  // raised pavements either side (the flanking routes), each cut for the plaza
-  b.floorHole(-68, -38, 68, -18, 0.24, { x0: SP.x0, z0: SP.z0, x1: SP.x1, z1: -18 },
-    { mat: M.concrete });
-  b.floorHole(-68, 18, 68, 38, 0.24, { x0: SP.x0, z0: 18, x1: SP.x1, z1: SP.z1 },
-    { mat: M.concrete });
-  for (const z of [-18, 18]) {
-    for (const [a, c] of [[-68, SP.x0], [SP.x1, 68]]) {
-      const g = new THREE.BoxGeometry(c - a, 0.26, 0.4);
-      g.translate((a + c) / 2, 0.13, z);
-      b.static_(g, M.concrete);
     }
   }
 
   // ---- THE SUNKEN PLAZA ---------------------------------------------------
-  // `groundY` is one number for the whole map and it is 0, so a room below it
-  // needs its fallback floor lowered over its own footprint or the fighter
-  // stands on the road surface in mid-air above it.
-  b.pit(SP.x0, SP.z0, SP.x1, SP.z1, SY);
-  b.floor(SP.x0, SP.z0, SP.x1, SP.z1, SY, { mat: M.tile, id: 'sunken' });
-  // The retaining walls stop 0.12 m BELOW street level on purpose, and that is
-  // not the usual wall-lip fix — it is what makes the plaza an open cut rather
-  // than a walled box. Anyone at street level walks over the lip and drops in;
-  // anyone in the plaza is held by it and has to use a flight.
-  for (const [x0, z0, x1, z1] of [
-    [SP.x0, SP.z0, SP.x0, SP.z1], [SP.x1, SP.z0, SP.x1, SP.z1],
-    [SP.x0, SP.z0, SP.x1, SP.z0], [SP.x0, SP.z1, SP.x1, SP.z1]
-  ]) b.wall(x0, z0, x1, z1, SY, -0.12, { mat: M.tileWall, thick: 0.5 });
-  // a flight at each end. Authored low-end-first: the low end is the plaza.
-  b.stairs(SP.x0 + 3, -18, SP.x0 + 12, SP.z0, SY, 0.24, 'z', { mat: M.tile });
-  b.stairs(SP.x0 + 3, 18, SP.x0 + 12, SP.z1, SY, 0.24, 'z', { mat: M.tile });
-  // the lip railing, split where the flights arrive
+  // `groundY` is 0 for the whole map, so the bowl needs its fallback floor
+  // dropped over its own footprint or the fighter stands on the road surface
+  // in mid-air above it. The rect is generous; the road platform is higher
+  // everywhere outside the circle and `floorAt` takes the highest surface.
+  b.pit(-R_PLAZA - 1, -R_PLAZA - 1, R_PLAZA + 1, R_PLAZA + 1, SY);
+  for (let i = 0; i < STEPS; i++) {
+    const rOut = R_PLAZA - i * STEP_R;
+    const y = -0.55 * (i + 1);
+    b.roundDeck(0, 0, rOut, y, {
+      mat: i % 2 ? kerb : b.tint('tile', 0x8f93a4), rIn: rOut - STEP_R,
+      thick: 0.6, segs: 56, band: 0.7, id: 'step' + i
+    });
+  }
+  const R_FLOOR = R_PLAZA - STEPS * STEP_R;
+  b.roundDeck(0, 0, R_FLOOR + 0.1, SY, { mat: b.tint('tile', 0x9aa0b4), thick: 0.5, segs: 48, id: 'plaza' });
+  // the drum at the middle of the bowl: a lit cylinder you can get on top of
+  b.roundTower(0, 0, 3.0, SY, 1.9, { mat: kerb, segs: 24, cap: true, id: 'drumbase' });
+  b.roundDeck(0, 0, 3.0, SY + 1.9, { draw: false, prop: true, rIn: 2.4, id: 'drumlip' });
+  b.sigil(0, SY + 1.96, 0, 2.6, 0x6ad8ff, { rings: 2, spokes: 12, sides: 6, opacity: 0.3, spin: 0.05 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    b.hangingLamp(Math.sin(a) * 12.0, 0.2, Math.cos(a) * 12.0, 4.4, 0x9fd8ff, { range: 30 });
+  }
+  b.mist(-R_FLOOR, -R_FLOOR, R_FLOOR, R_FLOOR, SY, 0x7f96b8, { opacity: 0.22, scale: 12, radius: R_FLOOR });
+
+  // ---- THE EXPRESSWAY -----------------------------------------------------
+  // One sector of a 104 m ring, so the deck curves through the whole map
+  // instead of crossing it in a straight line. The collider is the kit's
+  // conservative cell scan: it can only ever be narrower than the slab.
+  b.arcDeck(0, VC, VR_IN, VR_OUT, -VA, VA, VY, { mat: deckMat, thick: 0.8, band: 0.4, id: 'viaduct' });
+  // parapets down both edges, drawn as arcs of wall on the same centre
+  // Drawn only. A 1.1 m band of solid with no walkable top is a block that
+  // shoves anyone who lands on it sideways off the viaduct; the kerb reads as
+  // an edge without pretending to be a wall.
+  b.arcWall(0, VC, VR_IN - 0.25, -VA, VA, VY, VY + 1.1, { mat: kerb, thick: 0.5, collide: false });
+  b.arcWall(0, VC, VR_OUT + 0.25, -VA, VA, VY, VY + 1.1, { mat: kerb, thick: 0.5, collide: false });
+  // the piers. Two of them are structural: bring one down and the deck it
+  // carries falls into the street.
+  for (let i = 0; i <= 8; i++) {
+    const a = -VA + (2 * VA) * i / 8;
+    const px = arcX(a), pz = arcZ(a);
+    b.pylon(px, pz, 0, VY - 0.8, { mat: kerb, axis: Math.abs(px) > 34 ? 'z' : 'x', spread: 6.0, thick: 1.7 });
+    b.bounds.wall(px - 1.1, pz - 1.1, px + 1.1, pz + 1.1, 0, VY - 0.8, { id: 'pier' + i });
+  }
+  // the end pads: axis-aligned aprons where the arc runs off at an angle, so
+  // an axis-aligned flight has something square to land on
   for (const s of [-1, 1]) {
-    b.railing(SP.x0 + 12, s * 24, SP.x1, s * 24, 0.24, { collide: false });
-  }
-  b.railing(SP.x1, SP.z0, SP.x1, SP.z1, 0.24, { collide: false });
-  for (let i = 0; i < 6; i++) {
-    b.stripLight(SP.x0 + 3 + i * 2.2, SY + 4.0, -8 + (i % 3) * 8, 3.0, 'x', 0xdfeaff, i === 2 ? 0.4 : 0);
-  }
-  // planters down the middle, so a 16 x 48 pit is not a bare box
-  for (let i = 0; i < 5; i++) {
-    const z = -18 + i * 9;
-    const g = new THREE.BoxGeometry(4.0, 0.9, 3.4);
-    g.translate(-24, SY + 0.45, z);
-    b.static_(g, M.concrete);
-    b.bounds.wall(-26, z - 1.7, -22, z + 1.7, SY, SY + 0.9, { id: 'planter' + i });
-    b.bounds.platform(-26, z - 1.7, -22, z + 1.7, SY + 0.9);
-    const t = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 6), M.foliage);
-    t.position.set(-24, SY + 1.9, z);
-    t.scale.set(1, 0.8, 1);
-    b.add(t);
+    b.floor(s * 64 - (s > 0 ? 10 : 0), -17, s * 64 + (s > 0 ? 0 : 10), -6, VY,
+      { mat: deckMat, id: 'pad' + (s > 0 ? 'E' : 'W') });
+    // split around the head of the flight: a rail across the one stair that
+    // reaches a deck is the deck sealed off, and it looks like a handrail
+    b.railing(s * 54, -17, s * 61 - 3.4, -17, VY);
+    b.railing(s * 61 + 3.4, -17, s * 64, -17, VY);
+    b.railing(s * 54, -6, s * 64, -6, VY);
+    b.railing(s * 64, -17, s * 64, -6, VY);
+    // the block under the pad, so it is a ramp head and not a floating slab
+    // recessed 1.5 m from the pad's south face: the flight's top tread lands
+    // on the slab where it cantilevers, not inside the block under it
+    const g = new THREE.BoxGeometry(10, VY, 9.5);
+    g.translate(s * 59, VY / 2, -10.75);
+    b.static_(g, towerMat);
+    b.bounds.wall(s * 59 - 5, -15.5, s * 59 + 5, -6, 0, VY - 0.14, { id: 'padblock' + s });
+    // EVERY TOP TREAD OVERLAPS ITS LANDING by about 0.3 m. A flight that stops
+    // even 0.2 m short leaves a column of grid cells at its head with no floor
+    // in them: the fighter drops through and the deck above is unreachable.
+    b.stairs(s * 61 - 3, -37, s * 61 + 3, -16.7, 0, VY, 'z', { mat: kerb, id: 'padstair' + s });
+    b.beacon(s * 63, VY + 1.6, -7.5, 0xff4a5a, { reach: 4.4, rate: 1.0 });
   }
 
-  // ---- ARCADES: covered colonnades with enterable units ------------------
-  const arcade = (sz) => {
-    const zn = 'arcade' + sz;
-    const z0 = sz * 28, z1 = sz * 38;
-    b.zone(zn, { x0: -62, x1: 62, z0: Math.min(z0, z1), z1: Math.max(z0, z1), y0: -1, y1: 8 });
-    // ARCADE ROOF — capped, and that is a level-design consequence rather than
-    // a tidy-up. The colonnade's roof is drawn at 5.95 and the overpass stair
-    // climbs past its inner edge at exactly that height, so a fighter walking
-    // down the stair could step sideways onto a roof that was not there and
-    // drop six metres to the pavement: 132 cells of it, the largest rim left in
-    // the set after the eaves were fixed.
-    //
-    // The alternative was a parapet fencing the stair off from it, and that
-    // only fixes the walk — anyone thrown onto the roof still falls through it.
-    // So the roof is real. It sits BELOW the overpass (7.2), the scaffold (9.4)
-    // and the podium (12), it runs the length of the map down both flanks, and
-    // you leave it by walking off the edge — a flanking route on the map that
-    // was built for distance, not a new tier above the ones that already exist.
-    b.ceiling(-62, Math.min(z0, z1), 62, Math.max(z0, z1), 5.6, { mat: M.concrete, zone: zn });
-    b.lip(-62, Math.min(z0, z1), 62, Math.max(z0, z1), 5.95, { id: 'arcaderoof' + sz });
-    // colonnade
-    for (let i = 0; i < 15; i++) {
-      b.pillar(-58 + i * 8.4, sz * 28, 0.24, 5.4, 0.45, { square: true, mat: M.concrete, hp: 170, zone: zn });
-    }
-    // The back of the arcade, in one piece. It used to be five units with 2 m
-    // gaps between them, and each of those gaps was a slot you could walk
-    // through to the far side — out under the towers, which have no collider
-    // below 5.8 m, and on to the edge of the world.
-    b.wall(-62, sz * 38.4, 62, sz * 38.4, 0.24, 5.6, { mat: M.paint, zone: zn });
-    // shop units behind
-    for (let i = 0; i < 6; i++) {
-      const cx = -50 + i * 20;
-      b.windows(cx - 8, sz * 34, cx + 8, sz * 34, 0.7, 4.4, { zone: zn, hp: 22, id: 'sjw' + sz + i });
-      b.floor(cx - 9, sz > 0 ? 34 : -38.4, cx + 9, sz > 0 ? 38.4 : -34, 0.24, { mat: M.tile, zone: zn });
-      for (let k = 0; k < 3; k++) b.stripLight(cx - 5 + k * 5, 5.4, sz * 33, 3.4, 'x', 0xfff0d8, (i + k) % 7 === 0 ? 0.4 : 0);
-      b.neon(cx, 5.9, sz * 27.5, 9, 1.3, [0xff4f7f, 0x4fd8ff, 0xffd84f, 0x8f4fff, 0x4fe08a, 0xff8f4f][i], sz > 0 ? Math.PI : 0);
-    }
-    for (let i = 0; i < 7; i++) b.vending(-50 + i * 16, 0.24, sz * 31, sz > 0 ? Math.PI : 0, i % 2 ? 0xd8402c : 0x2c6ad8);
-  };
-  arcade(-1);
-  arcade(1);
+  // ---- THE CROWN HELIX ----------------------------------------------------
+  // The middle of the arc is 60 m from either end pad. Without a way up at the
+  // crown the viaduct is a corridor you commit to; with one it is a loop.
+  b.roundTower(HELIX.x, HELIX.z, HELIX.rOut + 0.3, 0, 0.35, { mat: kerb, segs: 28, cap: false, id: 'helixfoot' });
+  b.spiralStair(HELIX.x, HELIX.z, 0, VY, {
+    rIn: HELIX.rIn, rOut: HELIX.rOut, rise: 0.24, turns: 2, dir: 1, a0: Math.PI,
+    mat: kerb, newelMat: towerMat, id: 'helix'
+  });
+  // the connector from the head of the helix onto the arc: the helix tops out
+  // on its north-west quadrant, the deck's outer edge is at z = 12.9 on the
+  // centreline, and the two overlap by 0.3 m.
+  b.floor(-3.2, 12.6, 3.2, HELIX.z - HELIX.rOut + 1.0, VY, { mat: deckMat, id: 'crownlink' });
+  b.railing(-3.2, 12.6, -3.2, HELIX.z - HELIX.rOut + 1.0, VY);
+  b.railing(3.2, 12.6, 3.2, HELIX.z - HELIX.rOut + 1.0, VY);
+  b.pylon(0, 15.5, 0, VY - 0.8, { mat: kerb, axis: 'x', spread: 4.4, thick: 1.2 });
 
-  // ---- the tower wall (the boundary, and it reads as one) ----------------
-  const tower = (x, z, w, d, h) => {
-    const g = new THREE.BoxGeometry(w, h, d);
-    g.translate(x, h / 2 + 5.8, z);
-    b.static_(g, M.concreteWall);
-    b.bounds.wall(x - w / 2, z - d / 2, x + w / 2, z + d / 2, 5.8, h + 5.8);
+  // ---- THE TOWERS ---------------------------------------------------------
+  // Cylinders, not slabs. Two of them carry an annular setback deck at 6 m
+  // with a flight up to it; the rest are the boundary and read as one.
+  const tower = (x, z, r, h, opts = {}) => {
+    b.roundTower(x, z, r, 0, h, { mat: towerMat, segs: 26, taper: opts.taper ?? 0.06, cap: true, id: opts.id });
     const win = [];
-    for (let iy = 0; iy < Math.floor(h / 3.6); iy++) {
-      for (let ix = 0; ix < Math.floor(w / 3.2); ix++) {
-        if (Math.random() < 0.42) continue;
-        win.push({
-          x: x - w / 2 + 1.6 + ix * 3.2, y: 9 + iy * 3.6,
-          z: z + (z < 0 ? d / 2 + 0.07 : -d / 2 - 0.07), ry: z < 0 ? 0 : Math.PI
-        });
+    const rows = Math.floor(h / 4.2);
+    for (let iy = 0; iy < rows; iy++) {
+      for (let i = 0; i < 16; i++) {
+        if (Math.random() < 0.45) continue;
+        const a = (i / 16) * Math.PI * 2;
+        const rr = r * (1 - (opts.taper ?? 0.06) * (iy * 4.2 + 4) / h) + 0.08;
+        win.push({ x: x + Math.sin(a) * rr, y: 4 + iy * 4.2, z: z + Math.cos(a) * rr, ry: a });
       }
     }
-    b.repeat(new THREE.PlaneGeometry(1.6, 2.1), emissive(Math.random() < 0.5 ? 0xffe0b0 : 0xd0e0ff), win);
+    b.repeat(new THREE.PlaneGeometry(1.5, 2.0), emissive(Math.random() < 0.5 ? 0xffe0b0 : 0xd0e0ff), win);
   };
-  for (let i = 0; i < 6; i++) {
-    tower(-55 + i * 22, -50, 20, 18, 62 + i * 26);
-    tower(-55 + i * 22, 50, 20, 18, 50 + ((i * 37) % 90));
-  }
-  // end walls: hoardings, not invisible planes
+  const setback = (x, z, r, sx) => {
+    b.roundDeck(x, z, r + 6.2, 6.0, { mat: deckMat, rIn: r, thick: 0.5, segs: 40, band: 0.7, id: 'setback' + x });
+    b.roundDeck(x, z, r + 6.2, 6.0, { draw: false, prop: true, rIn: r + 5.6 });
+    // `stairs` pairs its first height with the LOWER coordinate on the axis
+    // whatever order the corners came in, so the approach side decides which
+    // way round the two heights go. Passing them the other way builds a flight
+    // that runs downhill into its own landing.
+    // and it lands on the ring's OUTER rim, never its inner one: the check
+    // that a flight meets its landing probes 0.8 m past the head, and 0.8 m
+    // past the inner edge of an annulus is the hole in the middle of it.
+    const rO = r + 6.2;
+    if (sx > 0) {
+      b.stairs(x + rO - 0.9, z - 2.6, x + rO + 13.5, z + 2.6, 6.0, 0, 'x', { mat: kerb, id: 'setstair' + x });
+    } else {
+      b.stairs(x - rO - 13.5, z - 2.6, x - rO + 0.9, z + 2.6, 0, 6.0, 'x', { mat: kerb, id: 'setstair' + x });
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + 0.6;
+      b.stripLight(x + Math.sin(a) * (r + 3), 6.4, z + Math.cos(a) * (r + 3), 2.6, 'x', 0xffe8c0, i === 2 ? 0.4 : 0);
+    }
+  };
+  tower(-46, 42, 9, 54, { id: 'twNW' });
+  tower(46, -42, 9, 62, { id: 'twSE' });
+  setback(-46, 42, 9, 1);
+  setback(46, -42, 9, -1);
+  tower(46, 42, 10, 78, { id: 'twNE' });
+  tower(-46, -42, 10, 70, { id: 'twSW' });
+  tower(0, 52, 11, 92, { id: 'twN' });
+  tower(0, -52, 11, 84, { id: 'twS' });
+  tower(-64, 8, 8, 46, { id: 'twW' });
+  tower(64, 14, 8, 50, { id: 'twE' });
+
+  // ---- THE EDGE OF THE WORLD ---------------------------------------------
+  // Hoardings, not invisible planes, and they close every gap between towers.
   for (const s of [-1, 1]) {
-    b.wall(s * 67, -42, s * 67, 42, 0, 9, { mat: M.rust });
-    for (let i = 0; i < 10; i++) b.neon(s * 66.6, 4.5, -36 + i * 8, 0.4, 6, 0x4f7fd8, s > 0 ? -Math.PI / 2 : Math.PI / 2);
-  }
-
-  // ---- OVERPASS -----------------------------------------------------------
-  // The centrepiece: an elevated crossing over the street. Its four columns
-  // are structural — bring them down and the deck falls into the road.
-  const OY = 7.2;
-  b.floor(-7, -26, 7, 26, OY, { mat: M.concrete, id: 'overpass' });
-  b.railing(-7, -26, -7, 26, OY);
-  b.railing(7, -26, 7, 26, OY);
-  b.ceiling(-7, -26, 7, 26, OY + 3.2, { mat: M.darkMetal });
-  for (const [x, z] of [[-6, -18], [6, -18], [-6, 18], [6, 18]]) {
-    b.pillar(x, z, 0, OY - 0.3, 0.55, { square: true, mat: M.concrete, hp: 220, drops: ['overpass'] });
-  }
-  b.stairs(-7, -33, 7, -26, 0.24, OY, 'z');
-  b.stairs(-7, 26, 7, 33, OY, 0.24, 'z');
-  for (let i = 0; i < 9; i++) b.stripLight(0, OY + 2.9, -24 + i * 6, 3.4, 'x', 0xdfeaff, i === 4 ? 0.5 : 0);
-  b.bigScreen(0, OY + 5.2, -26.4, 11, 6, 0, 340);
-
-  // ---- PODIUM ROOF (west) ------------------------------------------------
-  const RY = 12;
-  // The building the roof belongs to. Without it the podium is a slab floating
-  // twelve metres over the road with clear air underneath.
-  {
-    // Notched on the east face where the stair arrives: a flush wall stops the
-    // fighter 34 cm short of the top tread, which is 40 cm below the roof, so
-    // the climb dead-ends within touching distance of the deck.
-    for (const [x0, z0, x1, z1] of [
-      [-66, -15, -44, -10.4], [-66, 10.4, -44, 15], [-66, -10.4, -46.5, 10.4]
-    ]) {
-      const g = new THREE.BoxGeometry(x1 - x0, RY, z1 - z0);
-      g.translate((x0 + x1) / 2, RY / 2, (z0 + z1) / 2);
-      b.static_(g, M.concreteWall);
-      b.bounds.wall(x0, z0, x1, z1, 0, RY - 0.12, { id: 'podiumBlock' });
-    }
-    // the recess under the stair head, so the notch is not an open hole
-    const u = new THREE.BoxGeometry(2.5, RY - 6, 20.8);
-    u.translate(-45.25, (RY - 6) / 2, 0);
-    b.static_(u, M.concreteWall);
-    const win = [];
-    for (let iy = 0; iy < 3; iy++) for (let iz = 0; iz < 7; iz++) {
-      win.push({ x: -43.9, y: 2.6 + iy * 3.2, z: -9 + iz * 3, ry: Math.PI / 2 });
-    }
-    b.repeat(new THREE.PlaneGeometry(2.0, 1.9), emissive(0xffe0b0), win);
-  }
-  b.floor(-66, -15, -44, 15, RY, { mat: M.concrete, id: 'podium' });
-  // the east rail is split around the stair head
-  for (const [x0, z0, x1, z1] of [
-    [-66, -15, -44, -15], [-66, 15, -44, 15], [-44, -15, -44, -10.3], [-44, 10.3, -44, 15]
-  ]) b.railing(x0, z0, x1, z1, RY);
-  // THE CLIMB TO THE PODIUM. The podium is at x <= -44, so this has to run west
-  // onto it; it once ran east instead, topping out at 12 m over the middle of
-  // the road. And 6 m of run for 11.8 m of rise was a 63 degree ladder even if
-  // it had been pointed the right way — it gets 18 m now.
-  //
-  // The flight lands OUTSIDE the sunken plaza's cut (which starts at x = -34):
-  // a staircase whose foot is a four-metre drop is not a staircase.
-  b.stairs(-16, -10, -44, 10, 0.24, RY, 'x');
-  b.railing(-16, -10.2, -44, -10.2, RY - 5.8, { collide: false });
-  b.railing(-16, 10.2, -44, 10.2, RY - 5.8, { collide: false });
-  for (let i = 0; i < 5; i++) {
-    const x = -62 + i * 4;
-    const g = new THREE.BoxGeometry(3.0, 1.8, 3.0);
-    g.translate(x, RY + 0.9, 8);
-    b.static_(g, M.rust);
-    b.bounds.wall(x - 1.5, 6.5, x + 1.5, 9.5, RY, RY + 1.8, { id: 'pv' + i });
-    b.bounds.platform(x - 1.5, 6.5, x + 1.5, 9.5, RY + 1.8);
-  }
-
-  // ---- SCAFFOLD DECK (east) ----------------------------------------------
-  // The east half had no high ground at all: the overpass sat on the
-  // centreline and the podium was west of it, so every fight that went vertical
-  // went west. A contractor's scaffold up the east tower fixes that without
-  // building a second podium, and a lattice of poles reads completely
-  // differently from a concrete deck at a glance, which matters more than
-  // symmetry does.
-  const KY = 9.4;
-  const KX0 = 44, KX1 = 64, KZ0 = -13, KZ1 = 13;
-  b.floor(KX0, KZ0, KX1, KZ1, KY, { mat: M.wood, id: 'scaffold' });
-  for (const [x0, z0, x1, z1] of [
-    [KX0, KZ0, KX1, KZ0], [KX0, KZ1, KX1, KZ1], [KX1, KZ0, KX1, KZ1]
-  ]) b.railing(x0, z0, x1, z1, KY);
-  b.railing(KX0, KZ0, KX0, -5.3, KY);
-  b.railing(KX0, 5.3, KX0, KZ1, KY);
-  // the frame: standards, ledgers and diagonal bracing
-  for (let i = 0; i <= 5; i++) {
-    const x = KX0 + i * (KX1 - KX0) / 5;
-    for (const z of [KZ0, KZ1]) {
-      const g = new THREE.BoxGeometry(0.16, KY + 3, 0.16);
-      g.translate(x, (KY + 3) / 2, z);
-      b.static_(g, M.metal);
+    b.wall(s * 67, -57, s * 67, 57, 0, 11, { mat: M.rust });
+    b.wall(-67, s * 57, 67, s * 57, 0, 11, { mat: M.rust });
+    for (let i = 0; i < 12; i++) {
+      b.neon(s * 66.5, 5.0, -50 + i * 9, 0.4, 6, 0x4f7fd8, s > 0 ? -Math.PI / 2 : Math.PI / 2);
+      b.neon(-52 + i * 9.4, 5.6, s * 56.5, 7.4, 1.4, [0xff4f7f, 0x4fd8ff, 0xffd84f, 0x8f4fff][i % 4], s > 0 ? Math.PI : 0);
     }
   }
-  for (const y of [3.2, 6.3, KY, KY + 2.8]) {
-    for (const z of [KZ0, KZ1]) {
-      const g = new THREE.BoxGeometry(KX1 - KX0, 0.13, 0.13);
-      g.translate((KX0 + KX1) / 2, y, z);
-      b.static_(g, M.metal);
-    }
-  }
-  // the sheeting that makes it read as a building site rather than a jungle gym
-  for (const z of [KZ0 - 0.12, KZ1 + 0.12]) {
-    const s = new THREE.Mesh(new THREE.PlaneGeometry(KX1 - KX0, KY + 2.6),
-      glowMaterial(0x6f8faf, 0.13));
-    s.position.set((KX0 + KX1) / 2, (KY + 2.6) / 2, z);
-    b.add(s);
-  }
-  // the ladder run up to it, off the east pavement, authored bottom-first
-  b.stairs(38, -5, KX0, 5, 0.24, KY, 'x', { mat: M.metal });
-  for (let i = 0; i < 3; i++) b.stripLight(KX0 + 4 + i * 6, KY + 2.6, 0, 3.0, 'x', 0xffe8c0, i === 1 ? 0.5 : 0);
 
-  // ---- traffic + street furniture ----------------------------------------
-  const cars = [[-52, -6, 0], [-8, 6, Math.PI], [18, -6, 0], [40, 6, Math.PI], [56, -6, 0], [6, -13, 0], [30, 13, Math.PI]];
+  // ---- STREET LEVEL -------------------------------------------------------
+  const cars = [[-34, -26, 0.5], [28, -30, 2.2], [40, 20, 0.9], [-30, 26, 3.6], [8, -34, 1.4], [-14, 36, 2.8], [52, -6, 0.2]];
   const carCols = [0x2a3a6a, 0x6a2a2a, 0x24343c, 0x3a3a44, 0x5a5a64, 0x2a5a4a, 0x50304a];
   cars.forEach(([x, z, ry], i) => b.car(x, 0, z, ry, carCols[i % carCols.length]));
-  for (let i = 0; i < 10; i++) {
-    for (const sz of [-1, 1]) {
-      const x = -56 + i * 12.6, z = sz * 19.6;
-      if (x > SP.x0 - 2 && x < SP.x1 + 2) continue;      // not standing in the plaza cut
-      const g = new THREE.Group();
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 7.5, 8), M.darkMetal);
-      pole.position.y = 3.75;
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 2.4), M.darkMetal);
-      arm.position.set(0, 7.4, -sz * 1.2);
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 1.1), emissive(0xffe0a8));
-      lamp.position.set(0, 7.24, -sz * 2.2);
-      g.add(pole, arm, lamp);
-      g.position.set(x, 0.24, z);
-      b.add(g);
-      const halo = new THREE.Mesh(new THREE.PlaneGeometry(11, 11), haloMaterial(0xffc87a, 0.16));
-      halo.rotation.x = -Math.PI / 2;
-      halo.position.set(x, 0.3, z - sz * 2.2);
-      b.add(halo);
-      b.bounds.wall(x - 0.22, z - 0.22, x + 0.22, z + 0.22, 0, 7.5, { id: 'lamp' + i + sz });
-      b.breakable(g, { hp: 35, kind: 'metal', center: v3(x, 3.8, z), radius: 0.6, height: 7.5, baseY: 0.24, colliderIds: ['lamp' + i + sz] });
-    }
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 + 0.22;
+    const r = 26 + (i % 3) * 6;
+    const x = Math.sin(a) * r, z = Math.cos(a) * r;
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 7.5, 8), M.darkMetal);
+    pole.position.y = 3.75;
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 1.1), emissive(0xffe0a8));
+    lamp.position.set(0, 7.3, 0);
+    g.add(pole, lamp);
+    g.position.set(x, 0, z);
+    b.add(g);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(11, 11), haloMaterial(0xffc87a, 0.15));
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.set(x, 0.06, z);
+    b.add(halo);
+    b.bounds.wall(x - 0.22, z - 0.22, x + 0.22, z + 0.22, 0, 7.5, { id: 'lamp' + i });
+    b.breakable(g, { hp: 35, kind: 'metal', center: v3(x, 3.8, z), radius: 0.6, height: 7.5, baseY: 0, colliderIds: ['lamp' + i] });
   }
+  // a contractor's compound under the west end of the arc
+  b.crates(-40, 0, -34, { count: 3 });
+  b.crates(-38.2, 0, -35.6, { count: 2 });
+  for (let i = 0; i < 4; i++) b.drum(-46 - i * 1.05, 0, -34, { color: 0xc4562c });
+  b.crates(34, 0, 34, { count: 3 });
+  for (let i = 0; i < 3; i++) b.drum(40 + i * 1.05, 0, 34, { color: 0xb8483c });
+  b.sparker(-42, 1.4, -33, { color: 0xbfe4ff });
 
   // =========================================================================
   // THE SHOWDOWN LOOK
   // =========================================================================
-  // The biggest map in the set and the one with the least in the air: 136 m of
-  // correct street with two lit signs and a haze plane over it. What it wanted
-  // was VOLUME — the light doing something between the towers — and a reason to
-  // believe a fight of this size is happening on it.
+  b.sigil(0, 0.06, -30, 9.0, 0x8f6aff, { rings: 3, spokes: 24, sides: 6, opacity: 0.20, spin: -0.02 });
+  b.sigil(-34, 0.06, 22, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.26, spin: 0.10 });
+  b.sigil(34, 0.06, 22, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.26, spin: -0.10 });
 
-  // ---- THE CURTAIN --------------------------------------------------------
-  // The largest ward on any of these maps, because this is the largest street.
-  // It runs the length of the boulevard, with anchors under each end of the
-  // overpass where the columns come down.
-  b.sigil(4, 0.06, 0, 34, 0x8f6aff, { rings: 3, spokes: 24, sides: 6, opacity: 0.20, spin: -0.016 });
-  b.sigil(0, 0.06, -30, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.28, spin: 0.10 });
-  b.sigil(0, 0.06, 30, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.28, spin: -0.10 });
-  b.sigil(-26, SY + 0.04, 0, 7.0, 0x6ad8ff, { rings: 3, spokes: 10, sides: 5, opacity: 0.24, spin: 0.06 });
-
-  // ---- LIGHT BETWEEN THE TOWERS ------------------------------------------
-  // Shafts down the two tower gaps onto the roadway, leaning the way the key
-  // light does, plus the pool the overpass screen throws under itself.
-  for (let i = 0; i < 5; i++) {
-    const x = -55 + i * 22 + 11;
-    b.godRay(x, 34, -41, 6.0, 34, 0xbfd0f0, { opacity: 0.05, taper: 0.28, lean: [-6, 16], range: 150 });
+  // light coming down the gaps between the towers, and the shaft the plaza
+  // makes of the hole in the roadway
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    b.godRay(Math.sin(a) * 40, 40, Math.cos(a) * 40, 7.0, 40, 0xbfd0f0,
+      { opacity: 0.05, taper: 0.3, lean: [-Math.sin(a) * 8, -Math.cos(a) * 8], range: 170 });
   }
-  b.godRay(0, OY - 0.2, 0, 5.5, OY, 0xdfeaff, { opacity: 0.07, taper: 0.5, pool: false });
-  b.godRay(-26, 0.1, 0, 7.5, 4.5, 0x9fd8ff, { opacity: 0.08, taper: 0.55, pool: false });
+  b.godRay(0, VY - 0.4, 8.4, 6.0, VY - SY - 0.4, 0x9fd8ff, { opacity: 0.07, taper: 0.5, pool: false });
 
-  // ---- OVERHEAD RUN + THE SITE -------------------------------------------
-  // Feeder cables across the boulevard, and the east scaffold given the rest of
-  // the kit a live building site has: sheeting, a beacon, drums and a stack.
-  for (let i = 0; i < 5; i++) {
-    const x = -55 + i * 22;
-    b.cable(v3(x, 22, -41), v3(x + 6, 21, 41), { sag: 5.0, r: 0.07, segs: 14 });
-  }
-  b.cable(v3(-44, 14, -20), v3(44, 13, -20), { sag: 4.0, r: 0.06, segs: 14 });
-  b.cable(v3(-44, 14, 20), v3(44, 13, 20), { sag: 4.0, r: 0.06, segs: 14 });
-  b.beacon(KX1 - 1.5, KY + 3.6, 0, 0xffa03c, { reach: 5.0 });
-  b.beacon(-45.5, RY + 1.6, -13, 0xff4a5a, { reach: 4.4, rate: 1.0 });
-  b.crates(KX0 + 4, KY, KZ0 + 3, { count: 2 });
-  b.crates(KX0 + 5.8, KY, KZ0 + 4.4, { count: 1 });
-  for (let i = 0; i < 3; i++) b.drum(KX1 - 2 - i * 1.05, KY, KZ1 - 2.5, { color: 0xc4562c });
-  b.sparker(KX0 + 10, KY + 2.4, KZ1, { color: 0xbfe4ff });
-  // and the compound at the foot of it, on the pavement out of the traffic lanes
-  b.crates(40, 0.24, -30, { count: 3 });
-  b.crates(41.8, 0.24, -31.6, { count: 2 });
-  for (let i = 0; i < 4; i++) b.drum(46 + i * 1.05, 0.24, -30, { color: 0xc4562c });
-  b.crates(-40, 0.24, 30, { count: 3 });
-  for (let i = 0; i < 3; i++) b.drum(-46 - i * 1.05, 0.24, 30, { color: 0xb8483c });
-
-  // ---- SIGNAGE ------------------------------------------------------------
-  // Vertical shop banners down both arcades, which is what a Shinjuku street
-  // frontage actually looks like from the road.
-  for (let i = 0; i < 6; i++) {
-    const cx = -50 + i * 20;
-    const hue = [0xff4f7f, 0x4fd8ff, 0xffd84f, 0x8f4fff, 0x4fe08a, 0xff8f4f][i];
-    b.banner(cx - 6, 5.4, -27.6, 1.5, 3.6, hue, { ry: 0, amp: 0.07 });
-    b.banner(cx + 6, 5.4, 27.6, 1.5, 3.6, hue, { ry: Math.PI, amp: 0.07 });
-  }
-  b.lanternString(v3(-33, 4.6, -19.6), v3(-9, 4.6, -19.6), { color: 0xffb86a, sag: 1.4, count: 12 });
-  b.lanternString(v3(9, 4.6, 19.6), v3(33, 4.6, 19.6), { color: 0xffb86a, sag: 1.4, count: 12 });
-
-  // ---- STREET-LEVEL AIR ---------------------------------------------------
-  b.mist(SP.x0, SP.z0, SP.x1, SP.z1, SY, 0x7f96b8, { opacity: 0.26, scale: 15 });
-  for (const [sx, sz] of [[-48, -8], [-4, 9], [24, -9], [52, 8], [12, -21], [-14, 21]]) {
+  // feeder cables strung between the towers, over the top of the arc
+  b.cable(v3(-46, 30, 42), v3(46, 32, -42), { sag: 8.0, r: 0.07, segs: 20 });
+  b.cable(v3(46, 30, 42), v3(-46, 32, -42), { sag: 8.0, r: 0.07, segs: 20 });
+  b.cable(v3(-64, 22, 8), v3(64, 22, 14), { sag: 6.0, r: 0.06, segs: 18 });
+  b.lanternString(v3(-14, 1.4, 24), v3(14, 1.4, 24), { color: 0xffb86a, sag: 1.4, count: 12 });
+  b.lanternString(v3(-14, 1.4, -24), v3(14, 1.4, -24), { color: 0xffb86a, sag: 1.4, count: 12 });
+  for (const [sx, sz] of [[-24, -14], [22, -16], [-20, 24], [26, 18], [-40, 4], [42, 2]]) {
     b.steamVent(sx, 0.02, sz, { height: 4.6, period: 3.4 + (sx % 3) * 0.4, opacity: 0.20 });
   }
-  b.sparker(0, OY + 2.6, -20, { color: 0xbfe4ff });
-  b.sparker(-52, 8.6, 19.6, { color: 0xbfe4ff });
+  b.bigScreen(0, 19.0, 26.0, 13, 7, Math.PI, 340);
 
-  // ---- ambient ------------------------------------------------------------
-  b.particles(260, { x0: -64, x1: 64, y0: 0.4, y1: 26, z0: -54, z1: 54 },
+  b.particles(280, { x0: -64, x1: 64, y0: 0.4, y1: 28, z0: -54, z1: 54 },
     { color: 0xa8c0e8, size: 0.08, opacity: 0.24, vy: [-0.2, 0.1] });
-  const sheen = new THREE.Mesh(new THREE.PlaneGeometry(136, 36), glowMaterial(0x4f6fa8, 0.07));
-  sheen.rotation.x = -Math.PI / 2;
-  sheen.position.y = 0.03;
-  b.add(sheen);
 
-  b.bounds.spawns = [v3(-10, 0, 0), v3(16, 0, 0), v3(2, 0, -10), v3(2, 0, 10)];
+  b.bounds.spawns = [v3(30, 0, 0), v3(-30, 0, 0), v3(0, 0, -30), v3(0, 0, 33)];
   return b;
 }
