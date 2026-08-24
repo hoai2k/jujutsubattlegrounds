@@ -116,7 +116,7 @@ for (const [pick, raw] of entries) {
   model.group.add(wrapper);
 
   const stats = meshStats(scene);
-  check(`under the ${TRI_BUDGET / 1000}k triangle budget`, stats.tris <= TRI_BUDGET,
+  check(`not un-decimated (under ${TRI_BUDGET / 1000}k triangles)`, stats.tris <= TRI_BUDGET,
     `${(stats.tris / 1000).toFixed(0)}k tris, ${(bytes / 1048576).toFixed(1)} MB, ` +
     `${moved} bone${moved === 1 ? '' : 's'} reparented`);
 

@@ -90,14 +90,15 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 
 ## What ships today
 
-Three models are committed and mapped, all of them the same shape of export —
-a Rigify `DEF-` rig, 33 bones, 19 of them canonical, ~120k triangles, 3–4 MB:
+Four models are committed and mapped, all of them the same shape of export —
+a Rigify `DEF-` rig, 33 bones, 19 of them canonical:
 
-| Character | File | Rest pose | Entry |
-| --- | --- | --- | --- |
-| Yuji | `yuji.glb` | as authored (neither T nor A) | plain URL |
-| Nobara | `nobara.glb` | A-pose | plain URL |
-| Jogo | `jogo.glb` | T-pose | `scale: 1.06` |
+| Character | File | Rest pose | Triangles | Entry |
+| --- | --- | --- | --- | --- |
+| Yuji | `yuji.glb` | as authored (neither T nor A) | 120k | `weights` bleed |
+| Nobara | `nobara.glb` | A-pose | 120k | `weights`, `keepProps: false` |
+| Jogo | `jogo.glb` | T-pose | 120k | `weights` bleed |
+| Mahito | `mahito.glb` | as authored | 300k | `weights` bleed |
 
 None of them needed a `pose` calibration, a `boneMap` override or a pivot
 fix: bind alignment absorbs the rest-pose difference (that is what it is for,
@@ -105,14 +106,8 @@ and it is why Yuji's un-posed export maps as cleanly as Jogo's T-pose), and
 `rerigHierarchy` reparents the eight limbs Rigify exports flat under the
 armature root.
 
-Jogo's `scale` is the one deliberate trim, and it is a *proportion* fix
-rather than a fit one. His procedural body is built around a volcano head
-roughly a third of his height, and the crater emitter that vents his smoke
-and embers is parented to the drive rig's `Head` bone at an offset derived
-from that geometry. An imported Jogo is humanly proportioned, so his head
-stops ~12 cm short of where the plume starts and the flame reads as floating.
-Six percent of extra height closes it. Anything else procedural that anchors
-off model-specific geometry will want the same kind of trim.
+Models arrive already decimated and are taken as supplied — the sizes above
+are simply what they cost, and there is no budget they are held to.
 
 Verify a model before it lands:
 
@@ -300,9 +295,11 @@ is stored as a fraction of body height in the model's own axes (so it
 survives a re-export at a different scale or origin), and every automatic
 pass is re-derived at load from the skeleton. The tool diffs the two skeletons and says so explicitly.
 
-Anything over ~150k triangles warns at load and in the bench status:
-expect frame drops with several fighters on screen, and decimate the source
-(`gltfpack -si`, or Blender's Decimate) before shipping it.
+The supplied characters arrive already decimated, in the 120k–300k range,
+and that is simply what they cost — there is no budget to hold them to. The
+threshold that warns at load and in the bench status sits at 500k, well clear
+of that, so it only fires on a model that was never optimised at all (the
+first Yuji arrived at 2.0M):
 
 `test/render3d.mjs` covers the mapping math headlessly: it drives a synthetic
 Mixamo-named T-pose skeleton from a real roster model and asserts limb

@@ -1080,7 +1080,7 @@ export function buildLoaderUI(session, { prefs, save, onLoaded, onReference }) {
       const t = session.stats?.tris ?? 0;
       status.className = 'mb-status' + (t > TRI_BUDGET ? ' warn' : '');
       status.textContent = `${session.sourceLabel} — ${report}, ${(t / 1000).toFixed(0)}k tris` +
-        (t > TRI_BUDGET ? ` (over the ~${TRI_BUDGET / 1000}k a fighter should cost — decimate before shipping)` : '');
+        (t > TRI_BUDGET ? ` — past ${TRI_BUDGET / 1000}k, this looks un-decimated` : '');
       onLoaded?.();
     } catch (e) {
       status.textContent = 'Failed: ' + (e?.message ?? e);
