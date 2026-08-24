@@ -69,6 +69,24 @@ times from a headless software renderer are meaningless; what it is for is
 **pageErrors** (a map that throws on build fails here and nowhere else) and
 relative before/after comparison across a change.
 
+    node tools/openness.mjs                 # all ten maps
+    node tools/openness.mjs --detail shinjuku
+
+`openness` answers the question `mapaudit` cannot: not "can you get there" but
+"is it worth standing there". It walks the same flood fill, buckets the visited
+cells by height, and for each floor reports the largest connected area, the
+largest open rectangle in it, and — the number that actually matters — **the
+largest circle that fits**.
+
+Use the circle. The largest *rectangle* rewards corridors: a 15 m lane 108 m
+long scores higher than a 30 m open green, and a corridor is usually the thing
+being diagnosed. Every map in the set once measured under 30 m across on that
+circle and three of them under 10; the cause was the same on all of them, a
+large round building parked in the middle of the one flat space.
+
+`--detail` prints the per-floor breakdown, which is how you tell an arena from
+the ring of balconies around it.
+
 ## Camera harness
 
     node tools/camaudit.mjs                 # all ten maps (~3 min)
