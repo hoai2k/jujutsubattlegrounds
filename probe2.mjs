@@ -10,26 +10,29 @@ console.log(JSON.stringify(await page.evaluate(async () => {
   const THREE = await import('/node_modules/three/build/three.module.js');
   const mc = await import('/src/arena/mapcheck.js');
   const { STEP_UP } = await import('/src/arena/bounds.js');
-  const bd = mc.boundsFor('detention');
+  const bd = mc.boundsFor('star_tomb');
   const R = mc.reachable(bd);
-  // what heights did the fill actually reach near the tower?
-  const near = [];
-  for (const k of R.seen) {
-    const [i, j, hb] = k.split(',').map(Number);
-    const x = i * 0.25, z = j * 0.25;
-    if (Math.hypot(x + 30, z + 26) < 7) near.push(+(hb * 0.25).toFixed(2));
-  }
-  near.sort((a, b) => b - a);
-  // and what does the collision say the helix treads are?
-  const treads = bd.platforms.filter(p => p.id === 'towerstair')
-    .map(p => ({ y: +p.y.toFixed(2), x: +((p.x0 + p.x1) / 2).toFixed(2), z: +((p.z0 + p.z1) / 2).toFixed(2) }))
-    .sort((a, b) => a.y - b.y);
-  const probe = treads.slice(0, 6).map(t => {
-    const p = new THREE.Vector3(t.x, bd.floorAt(t.x, t.z, t.y + STEP_UP), t.z);
-    const before = p.clone();
-    bd.resolveWalls(p, 0.36);
-    return { want: t.y, floorAt: +p.y.toFixed(2), pushed: +before.distanceTo(p).toFixed(3) };
-  });
-  return { maxHeightNearTower: near.slice(0, 6), treadCount: treads.length, probe };
+  const at = (x, z) => {
+    const i = Math.round(x / 0.25), j = Math.round(z / 0.25);
+    const hs = [];
+    for (const k of R.seen) {
+      const [a, b, hb] = k.split(',').map(Number);
+      if (a === i && b === j) hs.push(+(hb * 0.25).toFixed(2));
+    }
+    return hs.sort((p, q) => q - p);
+  };
+  return {
+    summitCentre: at(0, 0),
+    summitNearShaft: at(11.5, -11.5),
+    inShaftHole: at(8.5, -8.5),
+    chamberUnderShaft: at(8.5, -8.5),
+    chamberMid: at(6.5, 0),
+    daisTop: at(0, 0),
+    shaftTopTread: at(9.9, -9.9),
+    floorAtHole: +bd.floorAt(8.5, -8.5, 99).toFixed(2),
+    floorAtChamberMid: +bd.floorAt(6.5, 0, 0).toFixed(2),
+    floorAtDais: +bd.floorAt(0, 0, 0).toFixed(2),
+    summitDeckAt: +bd.floorAt(11.5, -11.5, 99).toFixed(2)
+  };
 }), null, 1));
 await browser.close(); await server.close();

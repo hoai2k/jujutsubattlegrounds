@@ -2122,14 +2122,21 @@ export class MapBuilder {
       p.absarc(h.x - cx, -(h.z - cz), h.r, 0, Math.PI * 2, true);
       shape.holes.push(p);
     }
-    const g = new THREE.ExtrudeGeometry(shape, {
-      depth: thick, bevelEnabled: false, curveSegments: opts.segs ?? 40
-    });
-    // the shape is authored in XY and extruded along +Z; this stands it up so
-    // the extrusion runs in +Y and the slab's TOP lands exactly at `y`
-    g.rotateX(-Math.PI / 2);
-    g.translate(cx, y - thick, cz);
-    this.static_(g, mat, opts.zone);
+    // `draw: false` registers the surface without drawing one — the round
+    // counterpart to `lip`, for carrying a deck out over the face that edges it.
+    // The square `lip` is wrong here and quietly so: a rect round a circular
+    // terrace puts walkable floor in the four CORNERS, metres out past the
+    // drawn edge and several metres above whatever is actually under them.
+    if (opts.draw !== false) {
+      const g = new THREE.ExtrudeGeometry(shape, {
+        depth: thick, bevelEnabled: false, curveSegments: opts.segs ?? 40
+      });
+      // the shape is authored in XY and extruded along +Z; this stands it up so
+      // the extrusion runs in +Y and the slab's TOP lands exactly at `y`
+      g.rotateX(-Math.PI / 2);
+      g.translate(cx, y - thick, cz);
+      this.static_(g, mat, opts.zone);
+    }
     for (const [a, b, c, d] of this._bands(cx, cz, rOut, rIn, opts.band)) {
       // Subtract each hole from this band's x-run. The hole is taken at its
       // WIDEST within the band, so the collider's hole is never smaller than
@@ -2152,7 +2159,7 @@ export class MapBuilder {
       for (const [r0, r1] of runs) {
         if (r1 - r0 < 0.05) continue;
         this._terrainFor(r0, b, r1, d, y, mat, opts);
-        if (opts.walk !== false) this.bounds.platform(r0, b, r1, d, y, { id: opts.id });
+        if (opts.walk !== false) this.bounds.platform(r0, b, r1, d, y, { id: opts.id, prop: opts.prop });
       }
     }
     return null;
@@ -2268,10 +2275,15 @@ export class MapBuilder {
     }
     // the newel it winds around, which is also what stops you cutting the
     // corner straight up the middle of it
+    // A DESCENDING HELIX HAS A NEWEL TOO. Sized off `y1 - y0`, a stair that goes
+    // DOWN gets a negative height: a cylinder three.js draws inside out and a
+    // collider whose y0 is above its y1, which `resolveWalls` can never match.
+    // Every shaft cut down into a map had an imaginary post in it.
     if (opts.newel !== false) {
-      this.roundTower(cx, cz, rIn * 0.9, y0, (y1 - y0) + 0.2, {
-        mat: opts.newelMat || this.mats.darkMetal, segs: 10, zone: opts.zone
-      });
+      this.roundTower(cx, cz, rIn * 0.9, Math.min(y0, y1) - 0.1,
+        Math.abs(y1 - y0) + 0.3, {
+          mat: opts.newelMat || this.mats.darkMetal, segs: 10, zone: opts.zone
+        });
     }
   }
 
