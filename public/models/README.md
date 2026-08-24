@@ -11,11 +11,10 @@ is loaded with the `?render3d` URL parameter.
 - `/?render3d#viewer` — same, on the model-viewer bench (the place to check a
   model against the whole clip library)
 
-Committed today: `yuji.glb`, `nobara.glb`, `jogo.glb` — all three the same
-kind of export (a Rigify `DEF-` rig, 33 bones, ~120k triangles) and all three
-mapping 19/19 canonical bones with no hand-written overrides. Jogo carries a
-`scale` trim; `docs/render3d.md` says why. Check a model before it lands with
-`node tools/modelcheck.mjs`.
+Committed: `yuji.glb`, `nobara.glb`, `jogo.glb`, `mahito.glb` — all the same
+kind of export (a Rigify `DEF-` rig, 33 bones) and all mapping 19/19
+canonical bones with no hand-written overrides. Models are taken as supplied,
+already decimated. Check one before it lands with `node tools/modelcheck.mjs`.
 
 `manifest.json` maps a character id (`"yuji"`), a variant pick
 (`"gojo:shinjuku"`), or `"*"` (every fighter) to a URL string or an entry:

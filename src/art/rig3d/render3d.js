@@ -171,11 +171,14 @@ export function applyRestPose(root, pose) {
 }
 const _e2 = new THREE.Euler();
 
-// Triangle budget. A model authored for a render is routinely two orders of
-// magnitude heavier than one authored for a game, and the symptom — a frame
-// rate that collapses the moment a second fighter spawns — looks like a bug
-// in the renderer rather than a fact about the file. So it is counted and
-// said out loud, once, at load.
+// Triangle count, reported at load. This is a SANITY CHECK, not a standard to
+// hold models to: the supplied characters arrive already decimated, in the
+// 120k–300k range, and that is simply what they cost. The number worth
+// hearing about is the one that says a model was never optimised at all — the
+// first Yuji arrived at 2.0M — because the symptom, a frame rate that
+// collapses the moment a second fighter spawns, otherwise looks like a bug in
+// the renderer rather than a fact about the file. The threshold is set well
+// clear of the normal range so it only fires on that case.
 export function meshStats(root) {
   let tris = 0, verts = 0, meshes = 0;
   root.traverse(o => {
@@ -189,7 +192,7 @@ export function meshStats(root) {
   });
   return { tris: Math.round(tris), verts, meshes };
 }
-export const TRI_BUDGET = 150000;
+export const TRI_BUDGET = 500000;
 
 // measure the model in its own space — geometry bounds plus every node
 // origin, so even a mesh-light export still measures its skeleton
@@ -263,9 +266,9 @@ function attach(model, srcRest, scene, src, pick) {
   console.info(`[render3d] ${pick}: ${src.url.split('/').pop()} — ${report}, ` +
     `${(stats.tris / 1000).toFixed(0)}k tris`);
   if (stats.tris > TRI_BUDGET) {
-    console.warn(`[render3d] ${pick}: ${(stats.tris / 1000).toFixed(0)}k triangles is far over the ` +
-      `~${TRI_BUDGET / 1000}k a fighter should cost — expect frame drops with several on screen. ` +
-      `Decimate the source (gltfpack -si, or Blender's Decimate) before shipping it.`);
+    console.warn(`[render3d] ${pick}: ${(stats.tris / 1000).toFixed(0)}k triangles — well past the ` +
+      `${TRI_BUDGET / 1000}k where a model looks un-decimated. Expect frame drops with several on ` +
+      `screen; tools/decimate.mjs shrinks it without touching the skeleton.`);
   }
 
   // ORDER MATTERS. Hiding first, adopting second: hideProcedural decides what
