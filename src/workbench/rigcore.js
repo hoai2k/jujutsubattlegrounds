@@ -12,7 +12,13 @@
 import * as THREE from 'three';
 import { guessBoneMap, collectBoneNodes } from '../art/rig3d/bonemap.js';
 import { Retargeter, captureSourceRest, rerigHierarchy } from '../art/rig3d/retarget.js';
-import { loadScene, applyRestPose, fitInto, modelsUrl } from '../art/rig3d/render3d.js';
+import {
+  loadScene, applyRestPose, fitInto, modelsUrl, meshStats, TRI_BUDGET
+} from '../art/rig3d/render3d.js';
+import {
+  analyzeJoints, applyJointEdits, collectSkeletons, moveBonePivot, worldToLocalPos, mirrorPairs
+} from '../art/rig3d/joints.js';
+import { stylizeToon, TOON_DEFAULTS } from '../art/rig3d/stylize.js';
 import { makeCharacter } from '../characters/index.js';
 import { AnimPlayer } from '../art/anim/player.js';
 import { DEG } from '../core/mathutil.js';
@@ -114,11 +120,51 @@ export function createStage(canvasHost) {
   return stage;
 }
 
+// ------------------------------------------------------------ stress poses --
+// THE RIG-VERIFICATION SET. Clips show whether a rig ANIMATES; these show
+// whether it is BUILT right, because each one drives a single joint group to
+// the extreme where a misplaced pivot stops being subtle:
+//
+//   arms out / up   a shoulder pivot that sits low shears the deltoid and
+//                   the sleeve collapses into the chest — invisible at rest,
+//                   unmissable overhead
+//   arms forward    finds a shoulder placed too far back or front
+//   elbows          a forearm pivot off the elbow pinches the sleeve
+//   squat           hip and knee pivots, the two the trousers hide
+//   twist / head    spine and neck pivots, where a low chest bone folds the
+//                   torso at the stomach instead of the ribcage
+export const STRESS_POSES = {
+  'arms out': { UpArmL: [0, 0, 78], UpArmR: [0, 0, -78], LoArmL: [0, 0, 0], LoArmR: [0, 0, 0] },
+  'arms up': { UpArmL: [0, 0, 155], UpArmR: [0, 0, -155], LoArmL: [0, 0, 0], LoArmR: [0, 0, 0] },
+  'arms fwd': { UpArmL: [-88, 0, 12], UpArmR: [-88, 0, -12], LoArmL: [0, 0, 0], LoArmR: [0, 0, 0] },
+  elbows: { UpArmL: [0, 0, 78], LoArmL: [-100, 0, 0], UpArmR: [0, 0, -78], LoArmR: [-100, 0, 0] },
+  squat: {
+    ThighL: [-95, -4, 0], ShinL: [110, 0, 0], FootL: [-20, -8, 0],
+    ThighR: [-95, 4, 0], ShinR: [110, 0, 0], FootR: [-20, 8, 0],
+    Spine: [18, 0, 0], _hips: [0, -0.38, 0]
+  },
+  twist: { Spine: [0, 38, 0], Chest: [0, 38, 0], Neck: [0, -20, 0], Head: [0, -25, 0] },
+  'head turn': { Neck: [0, 52, 0], Head: [-12, 26, 0] }
+};
+
 // -------------------------------------------------------------- session ----
-// One loaded model + one reference character + everything both benches do to
-// the pair. The session owns three exclusive display states: EDIT (the bench
-// pose, hand-adjustable), PREVIEW (the retargeter is driving), and whatever
-// weight/wireframe overlays are stacked on top of either.
+// One loaded model + one reference character, and every operation the two
+// benches perform on the pair.
+//
+// EDITS ARE DATA, NOT STATE. Nothing mutates the model in place and hopes:
+// the loaded model is snapshotted as a BASELINE, and every change the user
+// makes is recorded in one of two plain maps — `jointEdits` (pivot positions)
+// and `poseEdits` (local rotations). Any change replays the whole stack from
+// the baseline in the SAME ORDER render3d.js uses at load:
+//
+//     baseline -> joints -> pose -> fit
+//
+// which is what guarantees an exported manifest entry reproduces exactly what
+// the bench showed. It is also why previewing can no longer leave residue:
+// the retargeter writes hips POSITIONS as well as rotations, and the old
+// snapshot only carried rotations, so every preview left the hips a little
+// lower than it found them and the model sank into the floor a step at a
+// time. Restoring from the baseline cannot drift.
 export class RigSession {
   constructor(stage) {
     this.stage = stage;
@@ -126,23 +172,31 @@ export class RigSession {
     this.model3d = null;       // the loaded scene
     this.nodes = [];           // candidate bone nodes
     this.byName = new Map();
+    this.skeletons = [];
     this.map = {};             // canonical -> node
     this.mapReport = '';
     this.overrides = {};       // canonical -> nodeName|null (user picks)
-    this.rotOffset = {};       // canonical -> [x,y,z] degrees
+    this.rotOffset = {};       // canonical -> [x,y,z] degrees (retarget trim)
+    this.jointEdits = {};      // nodeName -> [x,y,z] local pivot position
+    this.poseEdits = {};       // nodeName -> [x,y,z] local euler degrees
     this.fit = { scale: 1, yOffset: 0, faceYaw: 0 };
-    this.loadedPose = null;    // Map node -> quaternion as the file shipped
+    this.baseline = null;      // {trs: Map, inverses: Map}
     this.sourceUrl = '';
     this.sourceLabel = '';
+    this.fitReport = '';
 
     this.ref = null;           // {model, clips, player, rest, pick}
     this.retargeter = null;
     this.preview = false;
-    this.editPose = null;      // Map node -> quaternion while previewing
+    this.stress = null;
+
+    this.toon = null;          // stylize handle
+    this.toonOpts = { ...TOON_DEFAULTS };
+    this.toonOn = true;
 
     this.skeletonHelper = null;
-    this.markers = null;       // joint marker spheres for pick/highlight
-    this.selected = null;      // canonical name under edit
+    this.markers = null;
+    this.selected = null;
     this.weightsOn = false;
     this._origMats = new Map();
     this._raycaster = new THREE.Raycaster();
@@ -161,8 +215,8 @@ export class RigSession {
     this.ref = { model, clips, player, rest, pick };
     this.setGhost(this.ghostOn ?? true);
     player.play('idle', { fade: 0, restart: true });
-    if (this.model3d) this.refit();       // a new reference means a new height
-    this._rebuildRetarget();
+    if (this.model3d) this.rebuild();
+    else this._rebuildRetarget();
     return [...clips.keys()];
   }
 
@@ -179,18 +233,30 @@ export class RigSession {
     this.sourceLabel = label || url.split('/').pop();
     this.model3d = scene;
     scene.traverse(o => { if (o.isMesh || o.isSkinnedMesh) o.frustumCulled = false; });
-    this.nodes = collectBoneNodes(scene);
     this.byName = new Map();
     scene.traverse(o => { if (o.name && !this.byName.has(o.name)) this.byName.set(o.name, o); });
-    // normalize the hierarchy off the auto-map before anything snapshots or
-    // measures — the same order ?render3d runs, so bench poses replay exactly
+    // normalize the hierarchy off the auto-map BEFORE the baseline is taken —
+    // the same first step ?render3d runs, so bench edits replay exactly
     rerigHierarchy(scene, guessBoneMap(scene, this.overrides).map);
-    this.loadedPose = this._snapshot();
+    this.nodes = collectBoneNodes(scene);
+    this.skeletons = collectSkeletons(scene);
+    this.baseline = {
+      trs: new Map(),
+      inverses: this.skeletons.map(sk => sk.boneInverses.map(m => m.clone()))
+    };
+    scene.traverse(o => this.baseline.trs.set(o, {
+      p: o.position.clone(), q: o.quaternion.clone(), s: o.scale.clone()
+    }));
     this.wrapper = new THREE.Group();
     this.wrapper.name = 'render3d-bench';
-    this.refit();
+    this.wrapper.add(scene);
     this.stage.scene.add(this.wrapper);
     this.remap();
+    // model-space rest position of every joint, for the symmetry pass
+    const toModel = new THREE.Matrix4().copy(scene.matrixWorld).invert();
+    this.baseModelPos = new Map(this.nodes.map(n =>
+      [n, new THREE.Vector3().setFromMatrixPosition(n.matrixWorld).applyMatrix4(toModel)]));
+    this.setToon(this.toonOn);
     this.setSkeleton(true);
     return this.mapReport;
   }
@@ -199,16 +265,45 @@ export class RigSession {
     this.stopPreview();
     this.showWeights(false);
     this.setSkeleton(false);
+    this.toon?.restore();
+    this.toon = null;
     if (this.wrapper) this.stage.scene.remove(this.wrapper);
-    this.wrapper = this.model3d = null;
+    this.wrapper = this.model3d = this.baseline = null;
     this.map = {}; this.overrides = {}; this.rotOffset = {};
+    this.jointEdits = {}; this.poseEdits = {};
     this.selected = null;
     this.retargeter = null;
+    this.suggestions = null;
+  }
+
+  // ---- the edit stack -----------------------------------------------------
+  _restoreBaseline() {
+    if (!this.baseline) return;
+    for (const [o, t] of this.baseline.trs) {
+      o.position.copy(t.p); o.quaternion.copy(t.q); o.scale.copy(t.s);
+    }
+    this.skeletons.forEach((sk, i) => {
+      sk.boneInverses.forEach((m, j) => m.copy(this.baseline.inverses[i][j]));
+      sk.needsUpdate = true;
+    });
+    this.model3d.updateMatrixWorld(true);
+  }
+
+  // baseline -> joints -> pose -> fit, exactly as render3d.js loads it
+  rebuild() {
+    if (!this.model3d) return;
+    this._restoreBaseline();
+    applyJointEdits(this.model3d, this.jointEdits, this.skeletons);
+    applyRestPose(this.model3d, this.poseEdits);
+    this.refit();
+    this._rebuildRetarget();
+    if (this.weightsOn) this.showWeights(true);
   }
 
   refit() {
     if (!this.model3d) return;
-    fitInto(this.wrapper, this.model3d, this.ref?.model.H ?? 1.8, this.fit);
+    const s = fitInto(this.wrapper, this.model3d, this.ref?.model.H ?? 1.8, this.fit);
+    this.fitReport = `×${s.toExponential(2)} → ${(this.ref?.model.H ?? 1.8).toFixed(2)} m`;
     this._refreshMarkers();
   }
 
@@ -218,8 +313,7 @@ export class RigSession {
     const r = guessBoneMap(this.model3d, this.overrides);
     this.map = r.map;
     this.mapReport = r.report;
-    this._rebuildRetarget();
-    this._refreshMarkers();
+    this.rebuild();
     return r;
   }
 
@@ -229,47 +323,49 @@ export class RigSession {
   }
 
   // ---- pose ---------------------------------------------------------------
-  _snapshot() {
-    const m = new Map();
-    this.model3d?.traverse(o => m.set(o, o.quaternion.clone()));
-    return m;
-  }
-  _restore(snap) {
-    if (!snap) return;
-    for (const [o, q] of snap) o.quaternion.copy(q);
-  }
+  restoreLoadedPose() { this.poseEdits = {}; this.rebuild(); }
 
-  restoreLoadedPose() { this._restore(this.loadedPose); this.refit(); }
-
-  applyPoseJson(pose) { applyRestPose(this.model3d, pose); this.refit(); }
+  getNodeEuler(node) {
+    const e = new THREE.Euler().setFromQuaternion(node.quaternion, 'XYZ');
+    return [e.x / DEG, e.y / DEG, e.z / DEG];
+  }
+  setNodeEuler(node, deg) {
+    this.poseEdits[node.name] = deg.map(v => Math.round(v * 100) / 100);
+    this.rebuild();
+  }
 
   // Auto-pose: rotate each mapped bone so its (bone -> canonical child)
-  // direction matches a target direction set, top-down so parents settle
-  // before children aim. 'T' is the classic T-pose; 'A' is the game's own
-  // bind, read live off the reference character's rest joints — the pose the
-  // retargeter aligns cleanest from.
+  // direction matches a target set, top-down so parents settle before
+  // children aim. 'T' is the classic T-pose; 'A' is the game's own bind, read
+  // live off the reference character — the pose the retargeter aligns
+  // cleanest from. The result is harvested into `poseEdits` so it replays.
   autoPose(kind) {
     if (!this.model3d) return;
+    this.stopPreview();
+    this.poseEdits = {};
+    this.rebuild();
     const dirs = kind === 'T' ? tPoseDirs() : this._gameBindDirs();
     if (!dirs) return;
     const wq = new THREE.Quaternion(), pq = new THREE.Quaternion();
-    const cur = new THREE.Vector3(), want = new THREE.Vector3();
+    const cur = new THREE.Vector3(), from = new THREE.Vector3();
     for (const name of CANONICAL) {
       const node = this.map[name], childName = REF_CHILD[name];
       const child = childName && this.map[childName];
       const d = dirs[name];
       if (!node || !child || !d) continue;
       this.wrapper.updateMatrixWorld(true);
-      cur.setFromMatrixPosition(child.matrixWorld)
-        .sub(new THREE.Vector3().setFromMatrixPosition(node.matrixWorld));
-      if (cur.lengthSq() < 1e-10) continue;
-      want.copy(d);
-      const arc = new THREE.Quaternion().setFromUnitVectors(cur.normalize(), want.normalize());
+      cur.setFromMatrixPosition(child.matrixWorld);
+      from.setFromMatrixPosition(node.matrixWorld);
+      cur.sub(from);
+      if (cur.lengthSq() < 1e-12) continue;
+      const arc = new THREE.Quaternion().setFromUnitVectors(cur.normalize(), d.clone().normalize());
       node.getWorldQuaternion(wq);
       node.parent.getWorldQuaternion(pq);
       node.quaternion.copy(pq.invert().multiply(arc.multiply(wq)));
+      node.updateWorldMatrix(false, true);
+      this.poseEdits[node.name] = this.getNodeEuler(node).map(v => Math.round(v * 100) / 100);
     }
-    this.refit();
+    this.rebuild();
   }
 
   _gameBindDirs() {
@@ -282,29 +378,96 @@ export class RigSession {
     return out;
   }
 
-  // per-node local euler (degrees) for the panel sliders
-  getNodeEuler(node) {
-    const e = new THREE.Euler().setFromQuaternion(node.quaternion, 'XYZ');
-    return [e.x / DEG, e.y / DEG, e.z / DEG];
-  }
-  setNodeEuler(node, deg) {
-    node.quaternion.setFromEuler(new THREE.Euler(deg[0] * DEG, deg[1] * DEG, deg[2] * DEG, 'XYZ'));
+  // ---- joint pivots -------------------------------------------------------
+  // What the skin says, versus what the bones say. See art/rig3d/joints.js.
+  analyze() {
+    if (!this.model3d) return null;
+    this.stopPreview();
+    this.rebuild();
+    const r = analyzeJoints(this.model3d, this.map);
+    this.suggestions = new Map(r.rows.filter(x => x.want).map(x => [x.canon, x]));
+    this.analysis = r;
+    return r;
   }
 
-  // every node whose rotation differs from the file's — this IS the manifest
-  // `pose` field
-  poseDiff() {
-    const out = {};
-    if (!this.model3d || !this.loadedPose) return out;
-    this.model3d.traverse(o => {
-      const was = this.loadedPose.get(o);
-      if (!was || !o.name) return;
-      if (Math.abs(1 - Math.abs(was.dot(o.quaternion))) < 1e-7) return;
-      const e = this.getNodeEuler(o);
-      out[o.name] = e.map(v => Math.round(v * 100) / 100);
-    });
-    return out;
+  // Move a pivot toward the weight-derived joint. `strength` 0..1 — the
+  // estimate is a measurement of a costume as much as of a body, so it is
+  // offered as a pull rather than a jump.
+  snapJoint(canonical, strength = 1) {
+    const s = this.suggestions?.get(canonical);
+    const node = this.map[canonical];
+    if (!s || !node) return false;
+    const world = new THREE.Vector3().fromArray(s.at)
+      .addScaledVector(new THREE.Vector3().fromArray(s.delta), strength);
+    this._setJointWorld(canonical, world);
+    return true;
   }
+
+  _setJointWorld(canonical, world) {
+    const node = this.map[canonical];
+    if (!node) return;
+    this.jointEdits[node.name] = worldToLocalPos(node, world).toArray()
+      .map(v => Math.round(v * 1e6) / 1e6);
+    this.rebuild();
+  }
+
+  // Nudge in WORLD metres — what a slider in the panel means.
+  nudgeJoint(canonical, deltaWorld) {
+    const node = this.map[canonical];
+    if (!node || !this.wrapper) return;
+    this.wrapper.updateMatrixWorld(true);
+    // the wrapper scales the model to the character's height, so a metre of
+    // slider has to come back through that scale to be a metre on screen
+    const k = 1 / (this.wrapper.scale.x || 1);
+    const world = new THREE.Vector3().setFromMatrixPosition(node.matrixWorld)
+      .add(new THREE.Vector3().fromArray(deltaWorld).multiplyScalar(k));
+    this._setJointWorld(canonical, world);
+  }
+
+  jointOffsetOf(canonical) {
+    const node = this.map[canonical];
+    if (!node || !this.baseline) return [0, 0, 0];
+    const base = this.baseline.trs.get(node);
+    const cur = this.jointEdits[node.name];
+    if (!base || !cur) return [0, 0, 0];
+    const k = this.wrapper?.scale.x ?? 1;
+    return [(cur[0] - base.p.x) * k, (cur[1] - base.p.y) * k, (cur[2] - base.p.z) * k];
+  }
+
+  // SYMMETRY, APPLIED TO THE CORRECTIONS RATHER THAN TO THE BONES.
+  //
+  // The obvious version — mirror each pivot's absolute position about the
+  // mid-plane — is wrong for any model whose bind pose is not itself
+  // symmetric, and Yuji's is not: he ships mid-stride with one leg forward,
+  // so forcing his hips and knees to mirror each other tears the stance
+  // apart. What SHOULD be symmetric is the fix: if the left shoulder needs
+  // lifting 4 cm, so does the right. So the left and right OFFSETS from the
+  // model's own rest are averaged (with x negated across the pair) and
+  // applied back to both, leaving the asymmetric bind exactly as authored.
+  mirrorJoints() {
+    if (!this.model3d || !this.baseModelPos) return 0;
+    this.wrapper.updateMatrixWorld(true);
+    const toModel = new THREE.Matrix4().copy(this.model3d.matrixWorld).invert();
+    const modelPos = n => new THREE.Vector3().setFromMatrixPosition(n.matrixWorld).applyMatrix4(toModel);
+    const toWorld = v => v.clone().applyMatrix4(this.model3d.matrixWorld);
+    let n = 0;
+    for (const [l, r] of mirrorPairs(this.map)) {
+      const nl = this.map[l], nr = this.map[r];
+      const bl = this.baseModelPos.get(nl), br = this.baseModelPos.get(nr);
+      if (!bl || !br) continue;
+      const ol = modelPos(nl).sub(bl), or = modelPos(nr).sub(br);
+      const avg = new THREE.Vector3((ol.x - or.x) / 2, (ol.y + or.y) / 2, (ol.z + or.z) / 2);
+      if (avg.lengthSq() < 1e-12) continue;
+      this.jointEdits[nl.name] = worldToLocalPos(nl, toWorld(bl.clone().add(avg))).toArray();
+      this.jointEdits[nr.name] = worldToLocalPos(nr,
+        toWorld(br.clone().add(new THREE.Vector3(-avg.x, avg.y, avg.z)))).toArray();
+      n++;
+    }
+    this.rebuild();
+    return n;
+  }
+
+  resetJoints() { this.jointEdits = {}; this.rebuild(); }
 
   // ---- retarget preview ---------------------------------------------------
   _rebuildRetarget() {
@@ -319,47 +482,86 @@ export class RigSession {
 
   startPreview(clip) {
     if (!this.model3d || !this.ref) return false;
-    if (!this.preview) this.editPose = this._snapshot();
-    // the retargeter treats the CURRENT bench pose as the model's rest, so it
-    // must be built from the edit pose, not from a half-driven one
-    this._restore(this.editPose);
-    this._rebuildRetarget();
+    this.stress = null;
+    this.rebuild();                    // always drive from a clean rest
     if (!this.retargeter) { this.preview = false; return false; }
     this.preview = true;
     if (clip) this.ref.player.play(clip, { fade: 0.12, restart: true });
     return true;
   }
 
+  // A stress pose is the same path with the clip player switched off and the
+  // reference skeleton posed by hand.
+  startStress(name) {
+    const pose = STRESS_POSES[name];
+    if (!pose || !this.model3d || !this.ref) return false;
+    this.rebuild();
+    if (!this.retargeter) return false;
+    const { player, model } = this.ref;
+    player.play('idle', { fade: 0, restart: true });
+    player.update(0.001);
+    player.current = null;             // stop the clip driving the rig
+    for (const [bone, e] of Object.entries(pose)) {
+      if (bone === '_hips') continue;
+      const b = model.bones.get(bone);
+      if (b) b.quaternion.setFromEuler(new THREE.Euler(e[0] * DEG, e[1] * DEG, e[2] * DEG, 'XYZ'));
+    }
+    const hips = model.bones.get('Hips');
+    if (hips && pose._hips) {
+      const bind = this.ref.rest.get('Hips').localPos;
+      hips.position.set(bind.x + pose._hips[0], bind.y + pose._hips[1], bind.z + pose._hips[2]);
+    }
+    this.preview = true;
+    this.stress = name;
+    this.retargeter.apply();
+    return true;
+  }
+
   stopPreview() {
     if (!this.preview) return;
     this.preview = false;
-    this._restore(this.editPose);
-    this.editPose = null;
+    this.stress = null;
     this.ref?.player.play('idle', { fade: 0, restart: true });
-    this.refit();
+    this.rebuild();
   }
 
   setRotOffset(canonical, deg) {
     if (deg && deg.some(v => Math.abs(v) > 0.01)) this.rotOffset[canonical] = deg;
     else delete this.rotOffset[canonical];
-    if (this.preview) { this._restore(this.editPose); this._rebuildRetarget(); }
+    const was = this.preview, st = this.stress;
+    this._rebuildRetarget();
+    if (was && st) this.startStress(st);
   }
 
   _tick(dt) {
     if (this.preview && this.ref && this.retargeter) {
-      this.ref.player.update(dt);
-      this.ref.model.update(dt);
+      if (!this.stress) {
+        this.ref.player.update(dt);
+        this.ref.model.update(dt);
+      }
       this.retargeter.apply();
     }
     this._tickMarkers();
   }
 
-  // ---- display: skeleton, markers, weights, wireframe ---------------------
+  // ---- display ------------------------------------------------------------
+  setToon(on, opts) {
+    this.toonOn = on;
+    if (opts) Object.assign(this.toonOpts, opts);
+    if (!this.model3d) return;
+    if (this.toon && opts && on) { this.toon.set(this.toonOpts); return; }
+    this.toon?.restore();
+    this.toon = null;
+    if (on) this.toon = stylizeToon(this.model3d, this.toonOpts);
+    if (this.weightsOn) this.showWeights(true);
+  }
+
   setSkeleton(on) {
     if (this.skeletonHelper) { this.stage.scene.remove(this.skeletonHelper); this.skeletonHelper = null; }
     if (this.markers) { this.stage.scene.remove(this.markers); this.markers = null; }
     if (!on || !this.wrapper) return;
     this.skeletonHelper = new THREE.SkeletonHelper(this.wrapper);
+    this.skeletonHelper.material.depthTest = false;
     this.stage.scene.add(this.skeletonHelper);
     this.markers = new THREE.Group();
     this.markers.renderOrder = 10;
@@ -375,12 +577,13 @@ export class RigSession {
 
   _refreshMarkers() {
     if (!this.markers) return;
-    const mapped = new Map();          // node -> canonical
+    const mapped = new Map();
     for (const [c, n] of Object.entries(this.map)) mapped.set(n, c);
     for (const m of this.markers.children) {
       const c = mapped.get(m.userData.node);
       const sel = c && c === this.selected;
-      m.material.color.set(sel ? 0xffd86b : c ? 0x7fd0a0 : 0x3a4260);
+      const moved = this.jointEdits[m.userData.node.name];
+      m.material.color.set(sel ? 0xffd86b : moved ? 0x7fb0ff : c ? 0x7fd0a0 : 0x3a4260);
       m.material.opacity = sel ? 1 : c ? 0.9 : 0.45;
       m.scale.setScalar(sel ? 2.2 : c ? 1.3 : 1);
     }
@@ -400,7 +603,6 @@ export class RigSession {
     if (this.weightsOn) this.showWeights(true);
   }
 
-  // click in the 3D view -> nearest joint marker, for "this is the elbow"
   pickAt(event) {
     if (!this.markers) return null;
     const r = this.stage.canvas.getBoundingClientRect();
@@ -408,7 +610,6 @@ export class RigSession {
       ((event.clientX - r.left) / r.width) * 2 - 1,
       -((event.clientY - r.top) / r.height) * 2 + 1);
     this._raycaster.setFromCamera(p, this.stage.camera);
-    this._raycaster.params.Points = {};
     const hits = this._raycaster.intersectObjects(this.markers.children, false);
     return hits[0]?.object.userData.node ?? null;
   }
@@ -421,13 +622,12 @@ export class RigSession {
 
   // Skin-weight heatmap for the selected canonical bone: every SkinnedMesh is
   // recoloured by how much the bone owns each vertex (black -> red -> yellow).
-  // The single most direct way to catch a thigh painted onto a coat, which no
-  // amount of pose-watching reveals as fast.
+  // The most direct way to catch a thigh painted onto a coat hem.
   showWeights(on) {
     this.weightsOn = on;
     const node = on && this.selected ? this.map[this.selected] : null;
     this.model3d?.traverse(o => {
-      if (!o.isSkinnedMesh) return;
+      if (!o.isSkinnedMesh || o.name.endsWith('_outline')) return;
       if (!on) {
         const orig = this._origMats.get(o);
         if (orig) { o.material = orig; this._origMats.delete(o); }
@@ -449,7 +649,6 @@ export class RigSession {
         if (idx >= 0 && si && sw) {
           for (let k = 0; k < 4; k++) if (si.getComponent(i, k) === idx) w += sw.getComponent(i, k);
         }
-        // heat ramp: charcoal -> red -> yellow
         colors.setXYZ(i, 0.09 + 0.91 * Math.min(1, w * 1.6),
           0.09 + 0.91 * Math.max(0, w - 0.5) * 2, 0.11);
       }
@@ -459,10 +658,7 @@ export class RigSession {
   }
 
   // ---- export -------------------------------------------------------------
-  // The whole point of the rig bench: everything the user changed, as one
-  // manifest-entry-shaped JSON they can hand back.
   exportJson(bench, notes) {
-    const pose = this.poseDiff();
     const boneMap = {};
     for (const [c, n] of Object.entries(this.overrides)) boneMap[c] = n;
     const entry = {
@@ -471,6 +667,9 @@ export class RigSession {
         reference: this.ref?.pick ?? null,
         mapping: this.mapReport,
         map: Object.fromEntries(Object.entries(this.map).map(([c, n]) => [c, n.name])),
+        jointOffsetsCm: Object.fromEntries([...CANONICAL]
+          .filter(c => this.map[c] && this.jointEdits[this.map[c].name])
+          .map(c => [c, this.jointOffsetOf(c).map(v => Math.round(v * 1000) / 10)])),
         notes: notes || ''
       },
       url: './' + this.sourceLabel
@@ -479,10 +678,19 @@ export class RigSession {
     if (this.fit.yOffset) entry.yOffset = this.fit.yOffset;
     if (this.fit.faceYaw) entry.faceYaw = this.fit.faceYaw;
     if (Object.keys(boneMap).length) entry.boneMap = boneMap;
-    if (Object.keys(pose).length) entry.pose = pose;
+    if (Object.keys(this.jointEdits).length) entry.joints = this.jointEdits;
+    if (Object.keys(this.poseEdits).length) entry.pose = this.poseEdits;
     if (Object.keys(this.rotOffset).length) {
       entry.rotOffset = Object.fromEntries(
         Object.entries(this.rotOffset).map(([k, v]) => [k, v.map(x => Math.round(x * 100) / 100)]));
+    }
+    if (!this.toonOn) entry.toon = false;
+    else {
+      const diff = {};
+      for (const [k, v] of Object.entries(this.toonOpts)) {
+        if (JSON.stringify(v) !== JSON.stringify(TOON_DEFAULTS[k])) diff[k] = v;
+      }
+      if (Object.keys(diff).length) entry.toon = diff;
     }
     return entry;
   }
@@ -539,11 +747,14 @@ export function buildLoaderUI(session, { prefs, save, onLoaded }) {
     status.classList.remove('err');
     try {
       const report = await session.load(url, label);
-      status.textContent = `${session.sourceLabel} — ${report}`;
+      const t = session.stats?.tris ?? 0;
+      status.className = 'mb-status' + (t > TRI_BUDGET ? ' warn' : '');
+      status.textContent = `${session.sourceLabel} — ${report}, ${(t / 1000).toFixed(0)}k tris` +
+        (t > TRI_BUDGET ? ` (over the ~${TRI_BUDGET / 1000}k a fighter should cost — decimate before shipping)` : '');
       onLoaded?.();
     } catch (e) {
       status.textContent = 'Failed: ' + (e?.message ?? e);
-      status.classList.add('err');
+      status.className = 'mb-status err';
     }
   }
   fileBtn.onclick = () => fileInput.click();

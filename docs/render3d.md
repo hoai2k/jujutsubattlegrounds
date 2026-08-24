@@ -44,7 +44,13 @@ skeleton. Three ideas make the transfer natural rather than mechanical:
    at — hands, feet, head — inherit their parent's alignment and keep their
    natural rest attitude relative to it, which is what keeps wrists and
    ankles looking owned instead of reset.
-3. **Height-scaled root motion.** The `Hips_pos` positional track (crouch,
+3. **Twist resolution.** Matching a bone's direction alone leaves its
+   rotation *about* that direction undetermined, and the leftover twist makes
+   elbows and knees bend out of plane the moment a clip flexes them. Each
+   bone therefore names a second reference — a limb uses its own bend plane
+   (the elbow for the upper arm, the knee for the thigh), the torso uses the
+   shoulder axis — and the alignment becomes a full frame match.
+4. **Height-scaled root motion.** The `Hips_pos` positional track (crouch,
    knockdown, jump squash) transfers as a world offset scaled by the ratio of
    the two rigs' hip heights, so a short model crouches proportionally and a
    knockdown still puts the body on the floor.
@@ -71,6 +77,8 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `yOffset` | `0` | metres up/down after grounding |
 | `faceYaw` | `0` | degrees, for models that don't face `+Z` |
 | `boneMap` | `{}` | `{canonical: nodeName}` overrides; `null` drops a bone |
+| `joints` | `{}` | `{nodeName: [x,y,z]}` corrected pivot positions — moves where a bone *rotates* without moving the mesh (inverse-binds are rebuilt). The fix for a shoulder that sits too low |
+| `toon` | `true` | re-shade with the game's cel material + outline. `false` keeps the file's PBR materials; an object overrides the grade (`saturation`, `brightness`, `contrast`, `steps`, `rim`, `outline`) |
 | `rotOffset` | `{}` | `{canonical: [x°,y°,z°]}` world-space trim per bone |
 | `keepProps` | `true` | procedural weapons stay in hand (they follow the drive rig's hands, which track the imported hands) |
 | `hideSprings` | `true` | procedural hair/coat spring meshes hidden |
@@ -88,6 +96,53 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 - Characters whose body plan exceeds the humanoid contract degrade
   gracefully: Sukuna's second arm pair has no counterpart on a stock
   humanoid, so those clips' extra-arm tracks simply don't transfer.
+
+## The workbenches
+
+Two pages at `/workbench/` do the model-preparation work, both built on the
+shipped pipeline rather than a parallel implementation — the same
+`guessBoneMap`, `rerigHierarchy`, `Retargeter` and `fitInto` the game runs.
+Models load from the manifest, from a URL, or by dropping a file on the page,
+so nothing has to be committed to be inspected.
+
+**`?edit=models` — integration.** Stand a model into a bind (auto T-pose or
+auto game-bind, then per-bone adjustment), check skinning with the per-bone
+weight heatmap, and preview any character's real clips beside the procedural
+body it replaces.
+
+**`?edit=rig` — the questions only eyes can answer.** Walk the mapping bone
+by bone with the guessed joint lit in the view (click the right joint in 3D
+to reassign); run the **stress poses** — arms overhead, deep squat, spine
+twist — which is where a misplaced pivot stops being subtle; **measure** the
+skin weights to see where each joint actually is versus where the bone sits;
+and correct pivots and retarget trims with live dials.
+
+Both export one manifest-entry JSON carrying every correction — mapping
+picks, pivot fixes, rest-pose calibration, trims, fit numbers, look dials and
+free-text notes.
+
+### Where a joint actually is
+
+Between two adjacent bones the skin weights hand over across a band, and the
+centroid of that band **is** the joint — so the difference against the bone's
+position is a measurement rather than an opinion. MEASURE reports it per
+bone; the fix moves the pivot and rebuilds the inverse-bind so the rest mesh
+is bit-identical and only the rotation centre changes. `Mirror fixes L↔R`
+averages the left and right *corrections* (not the absolute pivots, which
+would tear apart a model whose bind pose is legitimately asymmetric).
+
+## Budget
+
+A model authored for rendering is routinely far heavier than one authored for
+a game. `tools/decimate.mjs` shrinks one safely — see tools/README.md — and
+**a decimation that preserves the skeleton preserves every manifest fix**,
+because `boneMap`, `joints`, `pose` and `rotOffset` are all keyed to bone
+names and bone-local frames, and every automatic pass is re-derived at load
+from the skeleton. The tool diffs the two skeletons and says so explicitly.
+
+Anything over ~150k triangles warns at load and in the bench status:
+expect frame drops with several fighters on screen, and decimate the source
+(`gltfpack -si`, or Blender's Decimate) before shipping it.
 
 `test/render3d.mjs` covers the mapping math headlessly: it drives a synthetic
 Mixamo-named T-pose skeleton from a real roster model and asserts limb

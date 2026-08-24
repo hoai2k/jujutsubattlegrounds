@@ -43,6 +43,48 @@ const REF_CHILD = {
   ThighL: 'ShinL', ShinL: 'FootL',
   ThighR: 'ShinR', ShinR: 'FootR'
 };
+// THE ROLL REFERENCE — the second vector that resolves a bone's TWIST.
+//
+// Matching a bone's direction alone (the shortest arc from the model's rest
+// limb onto the game's) leaves the rotation ABOUT that limb undetermined, and
+// the leftover twist is arbitrary. It does not show at rest — the arm points
+// the right way either way — but the moment a clip bends the elbow, the
+// forearm swings out of plane: the arm reaches overhead and the elbow flicks
+// sideways instead of staying under the hand. Every limb in the game bends,
+// so every limb showed it.
+//
+// So each bone also names a SECOND pair of joints whose direction pins the
+// roll, and the alignment becomes a full frame match rather than an arc:
+//   · a limb uses the next segment down, i.e. its own bend plane — the elbow
+//     for the upper arm, the knee for the thigh
+//   · the torso uses the SHOULDER AXIS, which is the one line across a body
+//     that cannot be mistaken (and which catches a spine bone that ships
+//     rolled 180°, as Rigify's DEF-spine does)
+// Where the two references are parallel (a rest pose with a dead-straight
+// arm) the frame is degenerate and the arc is used instead — it is exactly
+// the case where the twist does not matter yet.
+const ROLL_REF = {
+  Hips: ['ThighR', 'ThighL'],
+  Spine: ['UpArmR', 'UpArmL'], Chest: ['UpArmR', 'UpArmL'],
+  Neck: ['UpArmR', 'UpArmL'], Head: ['UpArmR', 'UpArmL'],
+  ClavL: ['UpArmL', 'LoArmL'], UpArmL: ['LoArmL', 'HandL'], LoArmL: ['UpArmL', 'LoArmL'],
+  ClavR: ['UpArmR', 'LoArmR'], UpArmR: ['LoArmR', 'HandR'], LoArmR: ['UpArmR', 'LoArmR'],
+  ThighL: ['ShinL', 'FootL'], ShinL: ['ThighL', 'ShinL'],
+  ThighR: ['ShinR', 'FootR'], ShinR: ['ThighR', 'ShinR']
+};
+
+// orthonormal frame from a primary axis and a roll hint; null if degenerate
+const _fx = new THREE.Vector3(), _fy = new THREE.Vector3(), _fz = new THREE.Vector3();
+const _fm = new THREE.Matrix4();
+function frameQ(primary, roll) {
+  _fx.copy(primary).normalize();
+  _fy.copy(roll).addScaledVector(_fx, -roll.dot(_fx));
+  if (_fy.lengthSq() < 2e-3) return null;      // roll ∥ bone — no twist to read
+  _fy.normalize();
+  _fz.crossVectors(_fx, _fy);
+  return new THREE.Quaternion().setFromRotationMatrix(_fm.makeBasis(_fx, _fy, _fz));
+}
+
 // canonical parent, for inheriting R when there is nothing to aim at
 const REF_PARENT = {
   Spine: 'Hips', Chest: 'Spine', Neck: 'Chest', Head: 'Neck',
@@ -185,7 +227,16 @@ export class Retargeter {
         const dstDir = restWorldPos(map[child]).sub(restWorldPos(node));
         const srcDir = srcRest.get(child).worldPos.clone().sub(srcRest.get(name).worldPos);
         if (dstDir.lengthSq() > 1e-10 && srcDir.lengthSq() > 1e-10) {
-          r = new THREE.Quaternion().setFromUnitVectors(dstDir.normalize(), srcDir.normalize());
+          dstDir.normalize(); srcDir.normalize();
+          // full frame match where a roll reference exists, arc where it does not
+          const rr = ROLL_REF[name];
+          let framed = null;
+          if (rr && map[rr[0]] && map[rr[1]] && srcRest.get(rr[0]) && srcRest.get(rr[1])) {
+            const qd = frameQ(dstDir, restWorldPos(map[rr[1]]).sub(restWorldPos(map[rr[0]])));
+            const qs = frameQ(srcDir, srcRest.get(rr[1]).worldPos.clone().sub(srcRest.get(rr[0]).worldPos));
+            if (qd && qs) framed = qs.multiply(qd.invert());
+          }
+          r = framed || new THREE.Quaternion().setFromUnitVectors(dstDir, srcDir);
         }
       } else if (REF_PARENT[name]) {
         r = resolveR(REF_PARENT[name]).clone();
