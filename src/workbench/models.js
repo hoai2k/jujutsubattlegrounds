@@ -43,7 +43,17 @@ export function mountModelBench(root) {
   const sModel = sec(panel, 'MODEL');
   const { box: loaderBox, status } = buildLoaderUI(session, {
     prefs, save,
-    onLoaded: () => { session.select(null); syncBones(); syncFit(); }
+    onLoaded: () => { session.select(null); syncBones(); syncFit(); },
+    // a manifest chip names the character it stands in for — follow it, so
+    // the model is benched against the fighter it will actually replace
+    onReference: pick => {
+      const base = pick.split(':')[0];
+      if (!ROSTER_IDS.includes(base)) return;
+      refSel.value = base;
+      prefs.char = base; save(prefs);
+      clipNames = session.setReference(pick);
+      syncClips();
+    }
   });
   sModel.append(loaderBox);
 
