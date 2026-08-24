@@ -58,6 +58,7 @@ const res = await page.evaluate(async (only) => {
       }
     }
     let best = 0, rect = 0, rectDims = [0, 0], rectY = 0;
+    const floors = [];
     for (const [yb, set] of byY) {
       if (!set.size) continue;
       // connected components inside this floor
@@ -77,6 +78,7 @@ const res = await page.evaluate(async (only) => {
           }
         }
         if (region.length > best) best = region.length;
+        floors.push({ y: yb * 0.5, area: Math.round(region.length * STEP * STEP), rect: 0, dims: [0, 0] });
         // largest all-ones rectangle in this component
         const rs = new Set(region);
         let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity;
@@ -97,6 +99,8 @@ const res = await page.evaluate(async (only) => {
             while (stack2.length && stack2[stack2.length - 1][1] >= h) {
               const [si, sh] = stack2.pop();
               const a = sh * (i - si) * STEP * STEP;
+              const f = floors[floors.length - 1];
+              if (f && a > f.rect) { f.rect = Math.round(a); f.dims = [(i - si) * STEP, sh * STEP]; }
               if (a > rect) { rect = a; rectDims = [(i - si) * STEP, sh * STEP]; rectY = yb * 0.5; }
               startI = si;
             }
@@ -114,7 +118,8 @@ const res = await page.evaluate(async (only) => {
       openRect: [Math.round(rectDims[0]), Math.round(rectDims[1])],
       openRectY: rectY,
       wallsInPlay: inPlay,
-      platforms: bd.platforms.length
+      platforms: bd.platforms.length,
+      floors: floors.filter(f => f.area > 120).sort((a, b) => b.rect - a.rect).slice(0, 5)
     });
   }
   return out;
@@ -129,6 +134,12 @@ for (const r of res) {
     ('walls ' + r.wallsInPlay).padEnd(11),
     'pieces ' + r.platforms
   );
+  if (process.argv.includes('--detail')) {
+    for (const f of r.floors) {
+      console.log('    y=' + String(f.y).padStart(6), ('area ' + f.area + ' m²').padEnd(13),
+        'best box ' + Math.round(f.dims[0]) + '×' + Math.round(f.dims[1]) + ' m');
+    }
+  }
 }
 await browser.close();
 await server.close();

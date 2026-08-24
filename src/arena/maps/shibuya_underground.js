@@ -39,7 +39,7 @@ export const DEF = {
   name: 'SHIBUYA STATION',
   jp: '渋谷駅 高架ホーム',
   desc: 'A vaulted train shed with a domed rotunda hung over the middle of it.',
-  extent: { minX: -46, maxX: 46, minZ: -18, maxZ: 18, groundY: -1.10 },
+  extent: { minX: -46, maxX: 46, minZ: -20, maxZ: 20, groundY: -1.10 },
   background: 0x0a0e1c,
   fog: { color: 0x141c30, near: 44, far: 150 },
   grade: { vignette: 0.54, tint: [1.00, 0.98, 1.12], lift: 0.004, sat: 1.06 },
@@ -55,22 +55,31 @@ export const DEF = {
 };
 
 const PX = 33;          // platform half-length
-const PZ = 9;           // platform half-width (the trench lip)
-const TZ = 17;          // outer edge of the track pits
+// THE PLATFORM IS THE ARENA. At 18 m wide with two escalators and two flights
+// laid down the middle of it, the widest clear box on this map was the six
+// metres of ballast between a rail and a trench wall — on the map whose whole
+// pitch is "66 m of clear run under the vault". It is 28 m wide now, both
+// escalators are tucked against the trench lips, and the flights that used to
+// cross the middle are gone: the escalators are the way up.
+const PZ = 14;          // platform half-width (the trench lip)
+const TZ = 19.5;        // outer edge of the track pits
+const TRACK = (14 + 19.5) / 2;   // the rail centreline — DERIVED from the trench,
+                                 // not a number typed once and left behind when the
+                                 // platform grew, which parked both trains on it
 const EX = 45;          // outer edge of everything
 const CY = 5.2;         // rotunda floor, and the vault's springing
 const PARA = 10.4;      // the parapet walk round the dome
-const R_ROT = 15;       // the rotunda drum
-const R_OC = 6;         // the oculus through its floor
+const R_ROT = 18;       // the rotunda drum
+const R_OC = 7;         // the oculus through its floor
 // The two escalator wells, PULLED IN off the drum's outer edge. At 10.5 out,
 // an escalator long enough to clear the well surfaced past the annulus
 // altogether — there was no ring of floor left between the hole and the wall to
 // land on.
 const WELL = [
-  { x: -8.5, z: -5.5, r: 3.1 },
-  { x: 8.5, z: 5.5, r: 3.1 }
+  { x: -8.5, z: -12.3, r: 3.1 },
+  { x: 8.5, z: 12.3, r: 3.1 }
 ];
-const HELIX = { x: 0, z: -11.6 };
+const HELIX = { x: 0, z: -14.6 };   // out at the drum wall, so its landing reaches the parapet ring
 
 export function build(quality) {
   const b = new MapBuilder(DEF);
@@ -92,7 +101,7 @@ export function build(quality) {
   b.skyline(30, 150, { color: 0x0b0f1e, minW: 14, maxW: 34, minH: 34, maxH: 120 });
 
   // ---- PLATFORM LEVEL -----------------------------------------------------
-  b.floor(-PX, -PZ, PX, PZ, 0, { mat: plat });
+  b.floor(-PX, -PZ, PX, PZ, 0, { mat: plat, id: 'platform' });
   for (const z of [-PZ, PZ]) {
     const g = new THREE.BoxGeometry(PX * 2, 0.04, 0.7);
     g.translate(0, 0.02, z + (z < 0 ? 0.35 : -0.35));
@@ -101,8 +110,8 @@ export function build(quality) {
 
   // TRACK PITS either side, and the outer walls that carry everything above.
   for (const s of [-1, 1]) {
-    const ZC = s * 13;
-    b.floor(-EX, Math.min(s * PZ, s * TZ), EX, Math.max(s * PZ, s * TZ), -1.10, { mat: stone });
+    const ZC = s * TRACK;
+    b.floor(-EX, Math.min(s * PZ, s * TZ), EX, Math.max(s * PZ, s * TZ), -1.10, { mat: stone, id: 'trench' + s });
     b.wall(-EX, s * PZ, EX, s * PZ, -1.10, 0, { mat: brick, thick: 0.4, collide: false });
     const bal = new THREE.BoxGeometry(EX * 2 - 2, 0.12, 4.0);
     bal.translate(0, -1.04, ZC);
@@ -161,16 +170,26 @@ export function build(quality) {
     rIn: R_OC, mat: stone, thick: 0.45, zone: Z, id: 'rotunda',
     holes: WELL.map(w => ({ x: w.x, z: w.z, r: w.r }))
   });
-  // the columns that carry it: on the platform where they can, on the trench
-  // walls where the drum oversails the tracks
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2 + Math.PI / 12;
-    const px = Math.sin(a) * (R_ROT - 1.6), pz = Math.cos(a) * (R_ROT - 1.6);
-    const base = Math.abs(pz) > PZ ? -1.10 : 0;
-    if (WELL.some(w => Math.hypot(w.x - px, w.z - pz) < w.r + 1.2)) continue;
-    b.pillar(px, pz, base, CY - base - 0.12, 0.6, {
-      mat: stone, hp: 260, zone: Z, id: 'rotcol' + i
-    });
+  // TWO ROWS OF COLUMNS ALONG THE TRENCH LIPS, not a ring through the middle.
+  // A ring of twelve at r = 16.4 puts eight of them out on the open platform,
+  // and a colonnade across an arena is an arena with no clear box in it: it
+  // held the platform's best rectangle down to 31 x 22 on a floor 66 x 28.
+  // Carried on the lips the drum reads the same from underneath and the run
+  // between them is unbroken end to end.
+  for (const sz of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      const px = -16 + i * 8, pz = sz * (PZ - 0.7);
+      b.pillar(px, pz, 0, CY - 0.12, 0.6, { mat: stone, hp: 260, zone: Z, id: 'rotcol' + sz + i });
+    }
+    // the longitudinal beam they carry, and the transverse ribs off it
+    const beam = new THREE.BoxGeometry(38, 0.9, 1.0);
+    beam.translate(0, CY - 0.55, sz * (PZ - 0.7));
+    b.static_(beam, stone, Z);
+  }
+  for (let i = 0; i < 5; i++) {
+    const rib = new THREE.BoxGeometry(0.8, 0.7, (PZ - 0.7) * 2);
+    rib.translate(-16 + i * 8, CY - 0.7, 0);
+    b.static_(rib, stone, Z);
   }
   // the drum wall, with four wide openings so the rotunda is not a box
   for (let q = 0; q < 4; q++) {
@@ -206,20 +225,28 @@ export function build(quality) {
       rIn: 0.6, rOut: 3.0, rise: 0.24, turns: 1, dir: 1, a0: a,
       mat: iron, newelMat: iron, zone: Z, id: 'parahelix'
     });
-    const lx = HELIX.x + Math.sin(a) * 2.9, lz = HELIX.z + Math.cos(a) * 2.9;
-    b.floor(lx - 1.5, lz - 1.5, lx + 1.5, lz + 1.5, PARA, { mat: stone, zone: Z, id: 'paraland' });
+    // The landing reaches ACROSS the parapet ring rather than just touching its
+    // inner edge: a ring collider is conservative on the inside, so a landing
+    // that stops where the ring nominally starts lands on nothing.
+    const lx = HELIX.x + Math.sin(a) * 3.6, lz = HELIX.z + Math.cos(a) * 3.6;
+    b.floor(lx - 2.2, lz - 2.2, lx + 2.2, lz + 2.2, PARA, { mat: stone, zone: Z, id: 'paraland' });
   }
-  // The two platform stairs climb to the annulus's OUTER edge, through the
-  // openings in the drum wall. Aimed at its inner edge they ran the last eight
-  // metres underneath the floor they were climbing to and surfaced through it.
+  // RAMPS OUT OF THE TRACK PITS, one at each end of each trench. The lip is a
+  // 1.1 m step and STEP_UP is 0.55: anyone thrown down there — and the trains
+  // are the reason to go down there — was in a 90 m trough with no way back up
+  // that the audit could not see, because an unnamed floor is not checked for
+  // reachability. It is named now, and it has four ways out.
   for (const s of [-1, 1]) {
-    b.stairs(s * 23, -2.0, s * (R_ROT + 0.4), 2.0, 0, CY, 'x', { mat: plat, zone: Z });
+    for (const sx of [-1, 1]) {
+      b.slope(sx * 34, s > 0 ? PZ : -PZ - 3.6, sx * 28, s > 0 ? PZ + 3.6 : -PZ,
+        s > 0 ? 0 : -1.10, s > 0 ? -1.10 : 0, 'z', { mat: plat, depth: 0.6, zone: Z });
+    }
   }
 
   // ---- STANDING TRAINS ----------------------------------------------------
   const CARL = 9.0;
   const train = (s, xStart, cars, band, open = -1) => {
-    const ZC = s * 13;
+    const ZC = s * TRACK;
     const shell = b.tint('metal', 0x7d8894, { rim: 0.5, gloss: 0.55 });
     for (let c = 0; c < cars; c++) {
       const cx = xStart + c * (CARL + 0.5) + CARL / 2;
@@ -259,7 +286,7 @@ export function build(quality) {
 
   // ---- THE CATENARY -------------------------------------------------------
   for (const s of [-1, 1]) {
-    const ZC = s * 13;
+    const ZC = s * TRACK;
     for (let i = 0; i < 5; i++) {
       const x0 = -EX + 2 + i * 18, x1 = Math.min(EX - 2, x0 + 18);
       if (x1 - x0 < 2) continue;
@@ -318,7 +345,7 @@ export function build(quality) {
   b.beacon(-29, 0.5, 14.6, 0xffa03c, { reach: 4.2 });
   for (const s of [-1, 1]) {
     b.mist(-EX + 1, s * (PZ + 0.3), EX - 1, s * (TZ - 0.3), -1.10, 0x8296b4, { opacity: 0.24, scale: 16 });
-    b.sparker(s * 21, 4.2, s * 13, { color: 0xbfe4ff });
+    b.sparker(s * 21, 4.2, s * TRACK, { color: 0xbfe4ff });
     b.steamVent(s * 8, -1.05, s * 16, { height: 4.6, period: 3.6, opacity: 0.26 });
   }
 
