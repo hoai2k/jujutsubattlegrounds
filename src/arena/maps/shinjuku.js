@@ -49,19 +49,27 @@ export const DEF = {
 
 // ---- the numbers the whole map is cut from -------------------------------
 const SY = -4.4;               // plaza floor
-const R_PLAZA = 17.2;          // the circular cut in the roadway
+const R_PLAZA = 15.0;          // the circular cut in the roadway
+// THE MIDDLE OF THE MAP IS NOT A PLACE TO PUT THINGS. The plaza used to sit on
+// the centreline, the viaduct crossed over the top of it and its piers came
+// down either side, and between them they cut the largest map in the set into
+// 7 m strips: 12,800 m2 of walkable roadway whose biggest clear box was a
+// corridor. It is a fighting game — the floor IS the map. So the plaza is in
+// the south-west quarter now, the viaduct crosses the north, and the middle is
+// forty metres of nothing in every direction.
+const PC = { x: -34, z: -28 };
 const STEPS = 8;               // 8 x 0.55 m: every step under STEP_UP (0.55)
 const STEP_R = 1.05;           // radial tread depth
 
 const VY = 12.0;               // expressway deck
-const VC = -96;                // the arc's centre, far off the south edge
+const VC = -78;                // the arc's centre, far off the south edge
 const VR_IN = 100, VR_OUT = 109;
 const VA = 0.615;              // half the swept bearing
 const VRC = (VR_IN + VR_OUT) / 2;
 const arcX = (a) => Math.sin(a) * VRC;
 const arcZ = (a) => VC + Math.cos(a) * VRC;
 
-const HELIX = { x: 0, z: 20.0, rIn: 2.4, rOut: 5.6 };
+const HELIX = { x: 0, z: 38.0, rIn: 2.4, rOut: 5.6 };
 
 export function build(quality) {
   const b = new MapBuilder(DEF);
@@ -81,7 +89,7 @@ export function build(quality) {
   // corners of pit with nothing drawn over them and nothing to stand on.
   b.roundDeck(0, 0, 96, 0, {
     mat: road, thick: 0.4, segs: 64, band: 1.1, id: 'road',
-    holes: [{ x: 0, z: 0, r: R_PLAZA }]
+    holes: [{ x: PC.x, z: PC.z, r: R_PLAZA }]
   });
   // lane markings, laid along the arc of the roadway rather than a grid
   for (let ring = 0; ring < 3; ring++) {
@@ -101,26 +109,26 @@ export function build(quality) {
   // dropped over its own footprint or the fighter stands on the road surface
   // in mid-air above it. The rect is generous; the road platform is higher
   // everywhere outside the circle and `floorAt` takes the highest surface.
-  b.pit(-R_PLAZA - 1, -R_PLAZA - 1, R_PLAZA + 1, R_PLAZA + 1, SY);
+  b.pit(PC.x - R_PLAZA - 1, PC.z - R_PLAZA - 1, PC.x + R_PLAZA + 1, PC.z + R_PLAZA + 1, SY);
   for (let i = 0; i < STEPS; i++) {
     const rOut = R_PLAZA - i * STEP_R;
     const y = -0.55 * (i + 1);
-    b.roundDeck(0, 0, rOut, y, {
+    b.roundDeck(PC.x, PC.z, rOut, y, {
       mat: i % 2 ? kerb : b.tint('tile', 0x8f93a4), rIn: rOut - STEP_R,
       thick: 0.6, segs: 56, band: 0.7, id: 'step' + i
     });
   }
   const R_FLOOR = R_PLAZA - STEPS * STEP_R;
-  b.roundDeck(0, 0, R_FLOOR + 0.1, SY, { mat: b.tint('tile', 0x9aa0b4), thick: 0.5, segs: 48, id: 'plaza' });
+  b.roundDeck(PC.x, PC.z, R_FLOOR + 0.1, SY, { mat: b.tint('tile', 0x9aa0b4), thick: 0.5, segs: 48, id: 'plaza' });
   // the drum at the middle of the bowl: a lit cylinder you can get on top of
-  b.roundTower(0, 0, 3.0, SY, 1.9, { mat: kerb, segs: 24, cap: true, id: 'drumbase' });
-  b.roundDeck(0, 0, 3.0, SY + 1.9, { draw: false, prop: true, rIn: 2.4, id: 'drumlip' });
-  b.sigil(0, SY + 1.96, 0, 2.6, 0x6ad8ff, { rings: 2, spokes: 12, sides: 6, opacity: 0.3, spin: 0.05 });
+  b.roundTower(PC.x, PC.z, 3.0, SY, 1.9, { mat: kerb, segs: 24, cap: true, id: 'drumbase' });
+  b.roundDeck(PC.x, PC.z, 3.0, SY + 1.9, { draw: false, prop: true, rIn: 2.4, id: 'drumlip' });
+  b.sigil(PC.x, SY + 1.96, PC.z, 2.6, 0x6ad8ff, { rings: 2, spokes: 12, sides: 6, opacity: 0.3, spin: 0.05 });
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
-    b.hangingLamp(Math.sin(a) * 12.0, 0.2, Math.cos(a) * 12.0, 4.4, 0x9fd8ff, { range: 30 });
+    b.hangingLamp(PC.x + Math.sin(a) * 11.0, 0.2, PC.z + Math.cos(a) * 11.0, 4.4, 0x9fd8ff, { range: 30 });
   }
-  b.mist(-R_FLOOR, -R_FLOOR, R_FLOOR, R_FLOOR, SY, 0x7f96b8, { opacity: 0.22, scale: 12, radius: R_FLOOR });
+  b.mist(PC.x - R_FLOOR, PC.z - R_FLOOR, PC.x + R_FLOOR, PC.z + R_FLOOR, SY, 0x7f96b8, { opacity: 0.22, scale: 12, radius: R_FLOOR });
 
   // ---- THE EXPRESSWAY -----------------------------------------------------
   // One sector of a 104 m ring, so the deck curves through the whole map
@@ -144,26 +152,26 @@ export function build(quality) {
   // the end pads: axis-aligned aprons where the arc runs off at an angle, so
   // an axis-aligned flight has something square to land on
   for (const s of [-1, 1]) {
-    b.floor(s * 64 - (s > 0 ? 10 : 0), -17, s * 64 + (s > 0 ? 0 : 10), -6, VY,
+    b.floor(s * 64 - (s > 0 ? 10 : 0), 2, s * 64 + (s > 0 ? 0 : 10), 14, VY,
       { mat: deckMat, id: 'pad' + (s > 0 ? 'E' : 'W') });
     // split around the head of the flight: a rail across the one stair that
     // reaches a deck is the deck sealed off, and it looks like a handrail
-    b.railing(s * 54, -17, s * 61 - 3.4, -17, VY);
-    b.railing(s * 61 + 3.4, -17, s * 64, -17, VY);
-    b.railing(s * 54, -6, s * 64, -6, VY);
-    b.railing(s * 64, -17, s * 64, -6, VY);
+    b.railing(s * 54, 2, s * 61 - 3.4, 2, VY);
+    b.railing(s * 61 + 3.4, 2, s * 64, 2, VY);
+    b.railing(s * 54, 14, s * 64, 14, VY);
+    b.railing(s * 64, 2, s * 64, 14, VY);
     // the block under the pad, so it is a ramp head and not a floating slab
     // recessed 1.5 m from the pad's south face: the flight's top tread lands
     // on the slab where it cantilevers, not inside the block under it
-    const g = new THREE.BoxGeometry(10, VY, 9.5);
-    g.translate(s * 59, VY / 2, -10.75);
+    const g = new THREE.BoxGeometry(10, VY, 10.5);
+    g.translate(s * 59, VY / 2, 8.75);
     b.static_(g, towerMat);
-    b.bounds.wall(s * 59 - 5, -15.5, s * 59 + 5, -6, 0, VY - 0.14, { id: 'padblock' + s });
+    b.bounds.wall(s * 59 - 5, 3.5, s * 59 + 5, 14, 0, VY - 0.14, { id: 'padblock' + s });
     // EVERY TOP TREAD OVERLAPS ITS LANDING by about 0.3 m. A flight that stops
     // even 0.2 m short leaves a column of grid cells at its head with no floor
     // in them: the fighter drops through and the deck above is unreachable.
-    b.stairs(s * 61 - 3, -37, s * 61 + 3, -16.7, 0, VY, 'z', { mat: kerb, id: 'padstair' + s });
-    b.beacon(s * 63, VY + 1.6, -7.5, 0xff4a5a, { reach: 4.4, rate: 1.0 });
+    b.stairs(s * 61 - 3, -18, s * 61 + 3, 2.3, 0, VY, 'z', { mat: kerb, id: 'padstair' + s });
+    b.beacon(s * 63, VY + 1.6, 12.5, 0xff4a5a, { reach: 4.4, rate: 1.0 });
   }
 
   // ---- THE CROWN HELIX ----------------------------------------------------
@@ -177,10 +185,10 @@ export function build(quality) {
   // the connector from the head of the helix onto the arc: the helix tops out
   // on its north-west quadrant, the deck's outer edge is at z = 12.9 on the
   // centreline, and the two overlap by 0.3 m.
-  b.floor(-3.2, 12.6, 3.2, HELIX.z - HELIX.rOut + 1.0, VY, { mat: deckMat, id: 'crownlink' });
-  b.railing(-3.2, 12.6, -3.2, HELIX.z - HELIX.rOut + 1.0, VY);
-  b.railing(3.2, 12.6, 3.2, HELIX.z - HELIX.rOut + 1.0, VY);
-  b.pylon(0, 15.5, 0, VY - 0.8, { mat: kerb, axis: 'x', spread: 4.4, thick: 1.2 });
+  b.floor(-3.2, 29.6, 3.2, HELIX.z - HELIX.rOut + 1.0, VY, { mat: deckMat, id: 'crownlink' });
+  b.railing(-3.2, 29.6, -3.2, HELIX.z - HELIX.rOut + 1.0, VY);
+  b.railing(3.2, 29.6, 3.2, HELIX.z - HELIX.rOut + 1.0, VY);
+  b.pylon(0, 33.5, 0, VY - 0.8, { mat: kerb, axis: 'x', spread: 4.4, thick: 1.2 });
 
   // ---- THE TOWERS ---------------------------------------------------------
   // Cylinders, not slabs. Two of them carry an annular setback deck at 6 m
@@ -243,13 +251,19 @@ export function build(quality) {
   }
 
   // ---- STREET LEVEL -------------------------------------------------------
-  const cars = [[-34, -26, 0.5], [28, -30, 2.2], [40, 20, 0.9], [-30, 26, 3.6], [8, -34, 1.4], [-14, 36, 2.8], [52, -6, 0.2]];
+  const cars = [[-46, -48, 0.1], [-18, -50, 0], [16, -50, 0], [44, -48, 0.1], [-20, 50, Math.PI], [22, 50, Math.PI], [56, 24, Math.PI / 2]];
   const carCols = [0x2a3a6a, 0x6a2a2a, 0x24343c, 0x3a3a44, 0x5a5a64, 0x2a5a4a, 0x50304a];
   cars.forEach(([x, z, ry], i) => b.car(x, 0, z, ry, carCols[i % carCols.length]));
-  for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2 + 0.22;
-    const r = 26 + (i % 3) * 6;
-    const x = Math.sin(a) * r, z = Math.cos(a) * r;
+  // Lamp posts are 7.5 m of solid collider each, and fourteen of them scattered
+  // across the middle of the roadway is fourteen things to catch on in the one
+  // place the map needs to be empty. They line the EDGES now.
+  const lampSpots = [];
+  for (let i = 0; i < 5; i++) {
+    lampSpots.push([-52 + i * 26, -46], [-52 + i * 26, 46]);
+  }
+  for (let i = 0; i < 3; i++) lampSpots.push([-58, -26 + i * 26], [58, -26 + i * 26]);
+  for (let i = 0; i < lampSpots.length; i++) {
+    const [x, z] = lampSpots[i];
     const g = new THREE.Group();
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 7.5, 8), M.darkMetal);
     pole.position.y = 3.75;
@@ -266,19 +280,19 @@ export function build(quality) {
     b.breakable(g, { hp: 35, kind: 'metal', center: v3(x, 3.8, z), radius: 0.6, height: 7.5, baseY: 0, colliderIds: ['lamp' + i] });
   }
   // a contractor's compound under the west end of the arc
-  b.crates(-40, 0, -34, { count: 3 });
-  b.crates(-38.2, 0, -35.6, { count: 2 });
-  for (let i = 0; i < 4; i++) b.drum(-46 - i * 1.05, 0, -34, { color: 0xc4562c });
-  b.crates(34, 0, 34, { count: 3 });
-  for (let i = 0; i < 3; i++) b.drum(40 + i * 1.05, 0, 34, { color: 0xb8483c });
-  b.sparker(-42, 1.4, -33, { color: 0xbfe4ff });
+  b.crates(-56, 0, -44, { count: 3 });
+  b.crates(-54.2, 0, -45.6, { count: 2 });
+  for (let i = 0; i < 4; i++) b.drum(-50 - i * 1.05, 0, -46, { color: 0xc4562c });
+  b.crates(52, 0, 44, { count: 3 });
+  for (let i = 0; i < 3; i++) b.drum(56 + i * 1.05, 0, 42, { color: 0xb8483c });
+  b.sparker(-52, 1.4, -43, { color: 0xbfe4ff });
 
   // =========================================================================
   // THE SHOWDOWN LOOK
   // =========================================================================
-  b.sigil(0, 0.06, -30, 9.0, 0x8f6aff, { rings: 3, spokes: 24, sides: 6, opacity: 0.20, spin: -0.02 });
-  b.sigil(-34, 0.06, 22, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.26, spin: 0.10 });
-  b.sigil(34, 0.06, 22, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.26, spin: -0.10 });
+  b.sigil(6, 0.06, -6, 11.0, 0x8f6aff, { rings: 3, spokes: 24, sides: 6, opacity: 0.20, spin: -0.02 });
+  b.sigil(-40, 0.06, 30, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.26, spin: 0.10 });
+  b.sigil(40, 0.06, 30, 6.5, 0xff5a6a, { rings: 2, spokes: 8, sides: 3, opacity: 0.26, spin: -0.10 });
 
   // light coming down the gaps between the towers, and the shaft the plaza
   // makes of the hole in the roadway
@@ -287,22 +301,22 @@ export function build(quality) {
     b.godRay(Math.sin(a) * 40, 40, Math.cos(a) * 40, 7.0, 40, 0xbfd0f0,
       { opacity: 0.05, taper: 0.3, lean: [-Math.sin(a) * 8, -Math.cos(a) * 8], range: 170 });
   }
-  b.godRay(0, VY - 0.4, 8.4, 6.0, VY - SY - 0.4, 0x9fd8ff, { opacity: 0.07, taper: 0.5, pool: false });
+  b.godRay(PC.x, VY - 0.4, PC.z, 7.0, VY - SY - 0.4, 0x9fd8ff, { opacity: 0.07, taper: 0.5, pool: false });
 
   // feeder cables strung between the towers, over the top of the arc
   b.cable(v3(-46, 30, 42), v3(46, 32, -42), { sag: 8.0, r: 0.07, segs: 20 });
   b.cable(v3(46, 30, 42), v3(-46, 32, -42), { sag: 8.0, r: 0.07, segs: 20 });
   b.cable(v3(-64, 22, 8), v3(64, 22, 14), { sag: 6.0, r: 0.06, segs: 18 });
-  b.lanternString(v3(-14, 1.4, 24), v3(14, 1.4, 24), { color: 0xffb86a, sag: 1.4, count: 12 });
-  b.lanternString(v3(-14, 1.4, -24), v3(14, 1.4, -24), { color: 0xffb86a, sag: 1.4, count: 12 });
-  for (const [sx, sz] of [[-24, -14], [22, -16], [-20, 24], [26, 18], [-40, 4], [42, 2]]) {
+  b.lanternString(v3(-14, 5.4, 47), v3(14, 5.4, 47), { color: 0xffb86a, sag: 1.4, count: 12 });
+  b.lanternString(v3(-14, 5.4, -47), v3(14, 5.4, -47), { color: 0xffb86a, sag: 1.4, count: 12 });
+  for (const [sx, sz] of [[-50, -12], [50, -16], [-46, 24], [50, 18], [-30, -46], [30, 46]]) {
     b.steamVent(sx, 0.02, sz, { height: 4.6, period: 3.4 + (sx % 3) * 0.4, opacity: 0.20 });
   }
-  b.bigScreen(0, 19.0, 26.0, 13, 7, Math.PI, 340);
+  b.bigScreen(0, 19.0, 44.0, 13, 7, Math.PI, 340);
 
   b.particles(280, { x0: -64, x1: 64, y0: 0.4, y1: 28, z0: -54, z1: 54 },
     { color: 0xa8c0e8, size: 0.08, opacity: 0.24, vy: [-0.2, 0.1] });
 
-  b.bounds.spawns = [v3(30, 0, 0), v3(-30, 0, 0), v3(0, 0, -30), v3(0, 0, 33)];
+  b.bounds.spawns = [v3(24, 0, -8), v3(-8, 0, 8), v3(28, 0, 16), v3(-4, 0, -20)];
   return b;
 }

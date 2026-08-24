@@ -56,10 +56,15 @@ export const DEF = {
 };
 
 const R_DRUM = 4.4;        // the watch post
-const R_VOID = 17;         // gallery inner edge — the balcony lip
-const R_CELL0 = 20;        // cell fronts
-const R_CELL1 = 30;        // cell backs
-const R_SHELL = 30.8;      // outer face of the drum
+// THE ROTUNDA IS THE ARENA, so it is sized like one. It used to be a 17 m void
+// with a solid 4.4 m post planted in the middle of it and two helices standing
+// in the floor: the largest clear box anywhere on this map was six metres wide.
+// The rings have all moved out, the post stands on legs from the first gallery
+// up, and the ground floor is one open disc nearly fifty metres across.
+const R_VOID = 21;         // gallery inner edge — the balcony lip
+const R_CELL0 = 24.5;      // cell fronts
+const R_CELL1 = 33;        // cell backs
+const R_SHELL = 33.8;      // outer face of the drum
 const G = 0, W = 4.8, U = 9.6;
 const CAB = 13.4;          // top of the watch post's cabin
 const ROOF = 14.6;         // the cell ring's roof
@@ -81,7 +86,7 @@ const HELIX = [{ a: 0, dir: 1 }, { a: Math.PI, dir: -1 }];
 // building's structure and every platform at the second level, bridges and
 // watch post included, was unreachable. At 15.5 the whole helix lives over the
 // rotunda void and only its arrival needs a well cut for it.
-const HELIX_R = 15.5, HELIX_ROUT = 3.0, HELIX_WELL = 3.3;
+const HELIX_R = 19.0, HELIX_ROUT = 3.0, HELIX_WELL = 3.3;
 
 export function build(quality) {
   const b = new MapBuilder(DEF);
@@ -108,7 +113,7 @@ export function build(quality) {
   // ---- THE GROUND --------------------------------------------------------
   // One slab under the whole lot: inside the drum it is the rotunda floor,
   // outside it is the yard. Break a cell's back wall and you are out on it.
-  b.floor(-50, -47, 50, 47, G, { mat: soot, id: 'ground' });
+  b.floor(-48.6, -45.6, 48.6, 45.6, G, { mat: soot, id: 'ground' });
   b.roundDeck(0, 0, R_SHELL, G, { mat: wet, thick: 0.35, zone: AZ, id: 'drumfloor' });
 
   // standing water across the whole rotunda, ankle deep and reacting
@@ -119,7 +124,26 @@ export function build(quality) {
   // ---- THE WATCH POST ----------------------------------------------------
   // A solid drum up to the second gallery with a glazed cabin on top of it.
   // Everything else on this map is arranged round it.
-  b.roundTower(0, 0, R_DRUM, G, U, { mat: lime, segs: 22, cap: true, id: 'post' });
+  b.roundTower(0, 0, R_DRUM, W, U - W, { mat: lime, segs: 22, cap: true, id: 'post' });
+  // IT IS CARRIED FROM THE RIM. Four legs under the drum itself are four things
+  // in the exact middle of the arena, and a floor with anything in the middle
+  // of it has no big rectangle in it at all — that is what an arena is. So the
+  // legs stand at the balcony lip on the diagonals, and four raking struts run
+  // from their heads up to the underside of the drum, over everyone's heads.
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2 + Math.PI / 4;
+    const lx = Math.sin(a) * (R_VOID - 0.8), lz = Math.cos(a) * (R_VOID - 0.8);
+    b.roundTower(lx, lz, 0.55, G, W - 0.12, { mat: lime, segs: 10, id: 'postleg' + i });
+    const dx = Math.sin(a) * R_DRUM - lx, dz = Math.cos(a) * R_DRUM - lz, dy = W - 0.2;
+    const len = Math.hypot(dx, dz, dy);
+    const strut = new THREE.BoxGeometry(0.5, len, 0.5);
+    strut.translate(0, len / 2, 0);
+    const m = new THREE.Mesh(strut, lime);
+    m.position.set(lx, W - 0.2, lz);
+    m.lookAt(Math.sin(a) * R_DRUM, W * 2 - 0.4, Math.cos(a) * R_DRUM);
+    m.rotateX(Math.PI / 2);
+    b.add(m);
+  }
   // the cabin: an iron ring with four wide windows, one down each bridge
   for (let q = 0; q < 4; q++) {
     b.arcWall(0, 0, R_DRUM - 0.1, q * Math.PI / 2 + 0.32, (q + 1) * Math.PI / 2 - 0.32,
@@ -217,10 +241,14 @@ export function build(quality) {
   // Straight flights on the x axis to the first gallery, helices on the z axis
   // to the second. Nothing shares a bearing with anything else, so no route is
   // a shortcut past another.
+  // Both flights hug the balcony lip. Run out to eleven metres from the middle
+  // — which is what a comfortable 1-in-2 climb wants — and the two of them cut
+  // the rotunda into three pieces and there is no arena left. Steep and against
+  // the wall beats gentle and through the middle of the fight.
   for (const s of [-1, 1]) {
-    b.stairs(s * 11.5, -1.7, s * R_VOID, 1.7, G, W, 'x', { mat: lime, zone: AZ });
-    b.railing(s * 11.5, -1.9, s * R_VOID, -1.9, W - 2.4, { zone: AZ, collide: false });
-    b.railing(s * 11.5, 1.9, s * R_VOID, 1.9, W - 2.4, { zone: AZ, collide: false });
+    b.stairs(s * 14.6, -1.7, s * R_VOID, 1.7, G, W, 'x', { mat: lime, zone: AZ });
+    b.railing(s * 14.6, -1.9, s * R_VOID, -1.9, W - 2.4, { zone: AZ, collide: false });
+    b.railing(s * 14.6, 1.9, s * R_VOID, 1.9, W - 2.4, { zone: AZ, collide: false });
   }
   HELIX.forEach((h, i) => {
     const hx = Math.sin(h.a) * HELIX_R, hz = Math.cos(h.a) * HELIX_R;
@@ -304,38 +332,47 @@ export function build(quality) {
   // ---- THE YARD ----------------------------------------------------------
   // A wall round the lot, a gate on the south side, and a watchtower in the
   // corner. The drum sits in the middle of it.
-  b.arcWall(0, 0, 44, 0.30, Math.PI * 2 - 0.30, G, 7.5,
-    { mat: soot, thick: 0.9, id: 'perim' });
-  for (let i = 0; i < 46; i++) {
-    const a = 0.30 + (Math.PI * 2 - 0.60) * (i / 45);
-    const g = new THREE.TorusGeometry(0.35, 0.03, 4, 8);
-    g.rotateY(Math.PI / 2 - a);
-    g.translate(Math.sin(a) * 44, 7.9, Math.cos(a) * 44);
-    b.static_(g, rustIron);
+  // A RECTANGLE ON THE PROPERTY LINE, not a circle inside it. The round wall
+  // stood at r = 44 on a 100 x 94 m lot, so it left a six-metre ring of yard
+  // OUTSIDE itself that went all the way round the map — reachable, pointless,
+  // and the largest clear box on the map.
+  for (const sx of [-1, 1]) b.wall(sx * 48, -45, sx * 48, 45, G, 7.5, { mat: soot, thick: 1.0, id: 'perim' });
+  b.wall(-48, -45, 48, -45, G, 7.5, { mat: soot, thick: 1.0, id: 'perim' });
+  for (const [x0, x1] of [[-48, -4.6], [4.6, 48]]) {
+    b.wall(x0, 45, x1, 45, G, 7.5, { mat: soot, thick: 1.0, id: 'perim' });
+  }
+  for (let i = 0; i < 40; i++) {
+    const t = i / 39;
+    for (const [px, pz] of [[-48 + 96 * t, -45], [-48 + 96 * t, 45], [-48, -45 + 90 * t], [48, -45 + 90 * t]]) {
+      const g = new THREE.TorusGeometry(0.35, 0.03, 4, 8);
+      g.rotateY(Math.abs(pz) === 45 ? 0 : Math.PI / 2);
+      g.translate(px, 7.9, pz);
+      b.static_(g, rustIron);
+    }
   }
   // the gate, in the gap the wall leaves
-  b.wall(-4.6, 43.4, 4.6, 43.4, G, 7, { mat: rustIron, destructible: true, hp: 110, id: 'gate' });
-  for (const s of [-1, 1]) b.roundTower(s * 5.4, 43.4, 1.0, G, 8.4, { mat: soot, segs: 12 });
+  b.wall(-4.6, 45, 4.6, 45, G, 7, { mat: rustIron, destructible: true, hp: 110, id: 'gate' });
+  for (const s of [-1, 1]) b.roundTower(s * 5.4, 45, 1.0, G, 8.4, { mat: soot, segs: 12 });
   // the watchtower over the yard
   {
     const TY = 7.2;
-    b.roundDeck(-26, -22, 4.4, TY, { mat: rustIron, thick: 0.3, id: 'tower' });
-    b.roundTower(-26, -22, 1.1, G, TY - 0.12, { mat: soot, segs: 14, id: 'towerleg' });
-    b.spiralStair(-26, -22, G, TY, {
+    b.roundDeck(-40, -36, 4.4, TY, { mat: rustIron, thick: 0.3, id: 'tower' });
+    b.roundTower(-40, -36, 1.1, G, TY - 0.12, { mat: soot, segs: 14, id: 'towerleg' });
+    b.spiralStair(-40, -36, G, TY, {
       rIn: 1.6, rOut: 4.2, rise: 0.24, turns: 1, dir: 1, a0: Math.PI * 0.75,
       mat: rustIron, newel: false, id: 'towerstair'
     });
     // SPLIT AROUND THE STAIR HEAD. A rail run the whole way round a deck whose
     // only way up arrives through it is how you build a platform nobody can
     // stand on, and the reachability pass said exactly that.
-    b.arcWall(-26, -22, 4.5, Math.PI * 0.75 + 0.55, Math.PI * 0.75 + Math.PI * 2 - 0.55,
+    b.arcWall(-40, -36, 4.5, Math.PI * 0.75 + 0.55, Math.PI * 0.75 + Math.PI * 2 - 0.55,
       TY + 0.5, TY + 1.1, { mat: rustIron, thick: 0.1, segs: 16, id: 'towerrail' });
-    b.roundDeck(-26, -22, 5.2, TY + 3.0, { mat: rustIron, thick: 0.25, walk: false });
-    b.lip(-31.2, -27.2, -20.8, -16.8, TY + 3.0);
+    b.roundDeck(-40, -36, 5.2, TY + 3.0, { mat: rustIron, thick: 0.25, walk: false });
+    b.lip(-45.2, -41.2, -34.8, -30.8, TY + 3.0);
     for (let i = 0; i < 4; i++) {
       const a = i * Math.PI / 2;
       const g = new THREE.BoxGeometry(0.16, 3.0, 0.16);
-      g.translate(-26 + Math.sin(a) * 3.6, TY + 1.5, -22 + Math.cos(a) * 3.6);
+      g.translate(-40 + Math.sin(a) * 3.6, TY + 1.5, -36 + Math.cos(a) * 3.6);
       b.static_(g, rustIron);
     }
     b.beacon(-26, TY + 2.4, -22, 0xffa03c, { reach: 5.2, rate: 1.0 });
