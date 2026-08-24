@@ -33,6 +33,7 @@
 // Everything here is allocation-free per frame.
 import * as THREE from 'three';
 import { DEG } from '../../core/mathutil.js';
+import { collectBoneNodes } from './bonemap.js';
 
 // canonical child each bone aims at when computing its rest direction
 const REF_CHILD = {
@@ -50,6 +51,69 @@ const REF_PARENT = {
   ThighL: 'Hips', ShinL: 'ThighL', FootL: 'ShinL',
   ThighR: 'Hips', ShinR: 'ThighR', FootR: 'ShinR'
 };
+
+// -------------------------------------------------------- hierarchy fix ----
+// Some exports ship the skeleton FLAT: Rigify DEF-bone rigs parent the
+// thighs, shoulders and arms directly under the armature root instead of
+// under the spine. Rotation transfer alone would leave those limbs pinned at
+// their bind positions while the torso moves — a crouch would stand the legs
+// still and drop the body through them. Skinning only reads world matrices,
+// so the fix is to physically reparent each mapped bone under its canonical
+// parent (world transform preserved exactly), after which position inherits
+// the way every clip assumes. Unmapped root-level helpers (Rigify's
+// DEF-pelvis butt bones and the like) get parented under the hips so they
+// ride the body instead of hanging in the air.
+//
+// Deterministic: the game and the workbench both run this right after the
+// bone map is decided, so a pose calibrated on the bench replays identically
+// in the game.
+const RERIG_ORDER = [
+  'Spine', 'Chest', 'Neck', 'Head',
+  'ClavL', 'UpArmL', 'LoArmL', 'HandL', 'ClavR', 'UpArmR', 'LoArmR', 'HandR',
+  'ThighL', 'ShinL', 'FootL', 'ThighR', 'ShinR', 'FootR'
+];
+
+export function rerigHierarchy(root, map) {
+  root.updateMatrixWorld(true);
+  const _m = new THREE.Matrix4();
+  const isAncestor = (a, n) => {
+    for (let x = n.parent; x; x = x.parent) if (x === a) return true;
+    return false;
+  };
+  // world transform preserved: new local = parent⁻¹ ∘ world. Cached
+  // matrixWorld values stay valid across moves because every move preserves
+  // every world transform.
+  const reparent = (n, p) => {
+    if (!n || !p || n === p || isAncestor(p, n) || isAncestor(n, p)) return false;
+    _m.copy(p.matrixWorld).invert().multiply(n.matrixWorld);
+    p.add(n);
+    _m.decompose(n.position, n.quaternion, n.scale);
+    n.updateMatrix();
+    return true;
+  };
+  let moved = 0;
+  for (const c of RERIG_ORDER) {
+    const n = map[c];
+    if (!n) continue;
+    let pc = REF_PARENT[c];
+    while (pc && !map[pc]) pc = REF_PARENT[pc];
+    if (pc && reparent(n, map[pc])) moved++;
+  }
+  if (map.Hips) {
+    const mapped = new Set(Object.values(map));
+    for (const j of collectBoneNodes(root)) {
+      if (mapped.has(j)) continue;
+      let underMapped = false;
+      for (let a = j.parent; a; a = a.parent) if (mapped.has(a)) { underMapped = true; break; }
+      if (!underMapped && reparent(j, map.Hips)) moved++;
+    }
+  }
+  if (moved) {
+    root.updateMatrixWorld(true);
+    console.info(`[render3d] hierarchy normalized — ${moved} bones reparented`);
+  }
+  return moved;
+}
 
 // Rest capture must happen while the drive rig is still in bind pose — i.e.
 // synchronously at model build, before any AnimPlayer touches it. Rotations

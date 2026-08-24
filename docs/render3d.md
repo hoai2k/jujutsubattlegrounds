@@ -82,9 +82,9 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 
 - Hitboxes, movement, combat timing — all read the drive rig; the swap is
   presentation only, so netplay and balance are untouched.
-- The asset policy: the game's own art remains procedural, nothing in
-  `public/models/` is imported into the bundle, and no model files are
-  committed to the repo. The folder + manifest are the runtime drop point.
+- The asset policy: the game's own art remains procedural and nothing in
+  `public/models/` is imported into the bundle — model `.glb`s live in that
+  folder as committed, runtime-fetched files, opt-in behind the URL param.
 - Characters whose body plan exceeds the humanoid contract degrade
   gracefully: Sukuna's second arm pair has no counterpart on a stock
   humanoid, so those clips' extra-arm tracks simply don't transfer.

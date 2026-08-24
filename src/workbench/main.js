@@ -4,8 +4,9 @@
 // isolation. Which piece is chosen by a query parameter:
 //
 //   /workbench/?edit=finishers     the finisher cutscenes
-//   /workbench/                    the same thing — `finishers` is the default
-//                                  while it is the only bench there is
+//   /workbench/?edit=models        imported 3D models: pose, skinning, clips
+//   /workbench/?edit=rig           rig review: mapping + pose feedback export
+//   /workbench/                    finishers — the default
 //
 // It is a SEPARATE HTML entry rather than a route inside the game (the way
 // #viewer is) because the game's entry boots straight into character select,
@@ -20,9 +21,13 @@
 import '../ui/style.css';
 import './bench.css';
 import { mountFinisherBench } from './finishers.js';
+import { mountModelBench } from './models.js';
+import { mountRigBench } from './rig.js';
 
 const BENCHES = {
-  finishers: { label: 'Finishers', mount: mountFinisherBench }
+  finishers: { label: 'Finishers', mount: mountFinisherBench },
+  models: { label: 'Models', mount: mountModelBench },
+  rig: { label: 'Rig', mount: mountRigBench }
 };
 const DEFAULT_BENCH = 'finishers';
 

@@ -22,6 +22,8 @@ import { makeClips } from '../src/art/anim/index.js';
 import { AnimPlayer } from '../src/art/anim/player.js';
 import { guessBoneMap } from '../src/art/rig3d/bonemap.js';
 import { Retargeter, captureSourceRest } from '../src/art/rig3d/retarget.js';
+import { applyRestPose } from '../src/art/rig3d/render3d.js';
+import { rerigHierarchy } from '../src/art/rig3d/retarget.js';
 
 let failures = 0;
 const check = (label, ok, detail = '') => {
@@ -143,6 +145,93 @@ rt.apply();
 const downY = worldPos(model.group, map.Hips).y;
 check('knockdown drops the imported hips to the floor',
   downY < standY * 0.35, `${standY.toFixed(2)} -> ${downY.toFixed(2)}`);
+
+// ---- 4b: rest-pose calibration ---------------------------------------------
+// Models rarely ship in T-pose. Scramble the rig into an arbitrary pose (the
+// state a real file arrives in), then apply a manifest `pose` that stands it
+// back up, rebuild the retargeter from the calibrated rest, and the bind
+// alignment must hold exactly as it did from the clean T-pose.
+{
+  const t2 = makeMixamoRig();
+  // ship it broken: arms dropped and elbows bent, spine slumped
+  const scramble = {
+    'mixamorig:LeftArm': [0, 0, -70], 'mixamorig:RightArm': [0, 0, 70],
+    'mixamorig:LeftForeArm': [0, -40, 0], 'mixamorig:RightForeArm': [0, 40, 0],
+    'mixamorig:Spine': [18, 0, 0]
+  };
+  applyRestPose(t2, scramble);
+  // the calibration the bench would export: back to the T (identity locals)
+  applyRestPose(t2, Object.fromEntries(Object.keys(scramble).map(k => [k, [0, 0, 0]])));
+  const m2 = guessBoneMap(t2).map;
+  const w2 = new THREE.Group();
+  w2.scale.setScalar(s);
+  w2.add(t2);
+  t2.position.y -= box.min.y;
+  model.group.add(w2);
+  const rt2 = new Retargeter(model, srcRest, w2, m2);
+  player.play('idle', { fade: 0, restart: true });
+  player.update(0.01);
+  rt2.apply();
+  const d2 = dir(worldPos(model.group, m2.UpArmL), worldPos(model.group, m2.LoArmL));
+  const sd2 = dir(srcJointWorld('UpArmL'), srcJointWorld('LoArmL'));
+  check('calibrated rest retargets like a clean bind', sd2.dot(d2) > 0.995,
+    `dot=${sd2.dot(d2).toFixed(4)}`);
+  model.group.remove(w2);
+}
+
+// ---- 4c: Rigify DEF rigs — the shape the first real model shipped in --------
+// A numbered spine chain that is really pelvis→head, sided pelvis helper
+// bones, twist segments, and limbs parented FLAT under the armature root.
+// The mapper must read the convention and the rerig must give the flat limbs
+// a real hierarchy, or a crouch leaves the legs standing at bind height.
+{
+  const B = (name, x, y, z, parent) => {
+    const b = new THREE.Bone();
+    b.name = name; b.position.set(x, y, z);
+    if (parent) parent.add(b);
+    return b;
+  };
+  const arm = new THREE.Group(); arm.name = 'Yuji_Rig';
+  const sp = [B('DEF-spine', 0, 0.95, 0)];
+  for (let i = 1; i <= 6; i++) sp.push(B(`DEF-spine.00${i}`, 0, 0.08, 0, sp[i - 1]));
+  arm.add(sp[0]);
+  for (const s of ['L', 'R']) {
+    const m = s === 'L' ? 1 : -1;
+    B(`DEF-pelvis.${s}`, m * 0.06, 0.9, 0, arm);                       // butt helper, root-level
+    const sh = B(`DEF-shoulder.${s}`, m * 0.03, 1.35, 0, arm);         // flat!
+    arm.add(sh);
+    const ua = B(`DEF-upper_arm.${s}`, m * 0.12, 1.35, 0, arm);        // flat!
+    const uat = B(`DEF-upper_arm.${s}.001`, m * 0.12, 0, 0, ua);       // twist
+    const fa = B(`DEF-forearm.${s}`, m * 0.12, 0, 0, uat);
+    B(`DEF-hand.${s}`, m * 0.22, 0, 0, fa);
+    const th = B(`DEF-thigh.${s}`, m * 0.08, 0.9, 0, arm);             // flat!
+    const sh2 = B(`DEF-shin.${s}`, 0, -0.4, 0, th);
+    B(`DEF-foot.${s}`, 0, -0.4, 0, sh2);
+  }
+  const { map: rm, missing: rmiss } = guessBoneMap(arm);
+  check('Rigify spine chain reads as pelvis→head',
+    rm.Hips?.name === 'DEF-spine' && rm.Head?.name === 'DEF-spine.006' &&
+    rm.Neck?.name === 'DEF-spine.004' && rm.Chest?.name === 'DEF-spine.003');
+  check('sided pelvis helpers are not the pelvis; twists lose to real bones',
+    rm.UpArmL?.name === 'DEF-upper_arm.L' && !rmiss.length,
+    rmiss.join(' '));
+  const moved = rerigHierarchy(arm, rm);
+  const chain = (n, out = []) => { for (let a = n.parent; a; a = a.parent) out.push(a.name); return out; };
+  check('rerig gives flat limbs a real hierarchy (world preserved)',
+    moved >= 8 &&
+    chain(rm.ThighL).includes('DEF-spine') &&
+    chain(rm.UpArmL).includes('DEF-shoulder.L') &&
+    chain(rm.UpArmL).includes('DEF-spine.003'),
+    `moved=${moved}`);
+  arm.updateMatrixWorld(true);
+  const hipY0 = new THREE.Vector3().setFromMatrixPosition(rm.ThighL.matrixWorld).y;
+  check('rerig kept world positions intact', Math.abs(hipY0 - 0.9) < 1e-6, `y=${hipY0}`);
+  // the payoff: dropping the hips now drops the legs with them
+  rm.Hips.position.y -= 0.5;
+  arm.updateMatrixWorld(true);
+  const hipY1 = new THREE.Vector3().setFromMatrixPosition(rm.ThighL.matrixWorld).y;
+  check('a crouch carries the flat-rigged legs down', Math.abs(hipY1 - 0.4) < 1e-6, `y=${hipY1}`);
+}
 
 // ---- 5: numerical health across the whole base clip set --------------------
 let nanIn = null;

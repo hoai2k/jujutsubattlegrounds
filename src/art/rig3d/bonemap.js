@@ -85,6 +85,7 @@ export function guessBoneMap(root, overrides = {}) {
   const byName = new Map(nodes.map(n => [n.name, n]));
 
   const found = {};     // canonical -> node
+  const foundIdx = {};  // canonical -> numeric suffix of the winning name
   const spines = [];    // {node, index} for the spine chain decision
   const toes = {};
 
@@ -100,19 +101,37 @@ export function guessBoneMap(root, overrides = {}) {
       continue;
     }
     if (part === 'Toe') { if (!toes[side]) toes[side] = node; continue; }
+    // a SIDED pelvis (Rigify's DEF-pelvis.L/R) is a butt-deform helper, not
+    // the pelvis — mapping Hips onto one puts the whole body on one buttock
+    if (part === 'Hips' && side) continue;
     const sided = ['Hips', 'Neck', 'Head'].includes(part) ? part : part + side;
     // sided limb parts without a detected side are ambiguous — skip them
     if (!['Hips', 'Neck', 'Head'].includes(part) && !side) continue;
-    // keep the shallowest match (Neck over Neck2, Head over HeadTop)
-    if (!found[sided]) found[sided] = node;
+    // keep the LOWEST numeric suffix: `upper_arm.L` wins over its twist
+    // segment `upper_arm.L.001` regardless of traversal order
+    if (!(sided in found) || index < foundIdx[sided]) {
+      found[sided] = node;
+      foundIdx[sided] = index;
+    }
   }
 
-  // spine chain: shallowest -> Spine, deepest -> Chest. A single spine bone
-  // maps to Chest (the source Chest world rotation already contains Spine's,
-  // so one target bone carries the sum of both).
   spines.sort((a, b) => a.order - b.order);
-  if (spines.length === 1) found.Chest = spines[0].node;
-  else if (spines.length >= 2) {
+  if (!found.Hips && !found.Neck && !found.Head && spines.length >= 6) {
+    // RIGIFY DEF CONVENTION: the whole axis is one numbered chain — DEF-spine
+    // is the pelvis, .001–.003 the spine, .004/.005 the neck, .006 the head.
+    // The tell is a long spine chain with no hips/neck/head names anywhere.
+    const last = spines.length - 1;
+    found.Hips = spines[0].node;
+    found.Spine = spines[1].node;
+    found.Chest = spines[Math.max(2, last - 3)].node;
+    found.Neck = spines[Math.max(3, last - 2)].node;
+    found.Head = spines[last].node;
+  } else if (spines.length === 1) {
+    // a single spine bone maps to Chest (the source Chest world rotation
+    // already contains Spine's, so one target bone carries the sum of both)
+    found.Chest = spines[0].node;
+  } else if (spines.length >= 2) {
+    // shallowest -> Spine, deepest -> Chest
     found.Spine = spines[0].node;
     found.Chest = spines[spines.length - 1].node;
   }
