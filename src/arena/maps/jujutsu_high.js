@@ -1,29 +1,31 @@
 // TOKYO JUJUTSU HIGH. The calm counterpoint to Shibuya — the only map in the
-// set shot in warm daylight, and the only one where the architecture is timber
-// rather than concrete.
+// set shot in warm daylight, and the only one whose architecture is timber.
 //
-// REFERENCE NOTE (researched): a mountain campus of traditional single-storey
-// timber halls with deep tiled eaves and shoji walls, connected by stone paths
-// and long flights of stone steps, set in dense cedar forest. The courtyard is
-// gravel and flagstone; a torii marks the approach. It is a CAMPUS — several
-// halls scattered across a hillside — which is why the east side now carries a
-// second building instead of a strip of lawn.
+// REFERENCE NOTE (researched): the mountain temple precinct. A tiered circular
+// platform of dressed stone with the ground stepping up to it in concentric
+// rings, an OCTAGONAL hall on its axis (the yumedono plan — eight faces, a
+// pyramidal roof, a finial), a covered colonnade ringing the precinct, a
+// smaller octagon off to one side, and the whole thing cut into a hillside with
+// a torii approach climbing to it through cedar.
+//
+// WHY THIS SHAPE. The previous version was a rectangular courtyard with a
+// rectangular hall on one side, a rectangular dojo on another and a rectangular
+// terrace on a third — the same box arrangement as most of this set, in timber.
+// A precinct is CENTRED. The tiered platform means the middle of the map is the
+// high ground and you climb toward your opponent from every direction; the
+// colonnade is a covered ring you can circle the whole fight in without ever
+// being in the open; and an octagon has no corner to be backed into and eight
+// faces to be knocked out through.
 //
 // LAYOUT (108 x 98 m):
-//   y = 0.00  COURTYARD    the central engagement space: a big flagstone
-//                          square with the torii on its axis.
-//   y = 0.45  MAIN HALL    an enterable timber building on the north side —
-//                          real interior, tatami floor, shoji walls that break.
-//   y = 0.45  THE DOJO     a second, smaller enterable hall on the east side,
-//                          open on two faces. Tighter than the main hall and
-//                          the only place on the map with a blind corner.
-//   y = 4.60  HALL ROOF    the hall's roof deck, reached by the stone steps at
-//                          its east end. Walkable, with a ridge for cover.
-//   y = 3.90  DOJO ROOF    the same trick one storey lower, and the two roofs
-//                          are close enough to make the gap a real decision.
-//   y = 6.40  UPPER TERRACE a stone platform above the west steps.
-//   FLANKS               the forest paths behind the halls and along the
-//                        west treeline.
+//   y = 0.00  THE GROUNDS   gravel and moss under the cedars.
+//   y = 0.50  FIRST TIER  \  two concentric rings of dressed stone, each one
+//   y = 1.00  SECOND TIER /  a stride, so the precinct is climbable anywhere.
+//   y = 1.50  THE PRECINCT  the platform itself, with the great hall on it.
+//   y = 2.40  THE COLONNADE a covered ring round the precinct, on posts.
+//   y = 6.20  COLONNADE ROOF walkable, and a complete circuit.
+//   y = 8.60  HALL ROOF     the octagon's roof deck. Highest ground.
+//   y = 6.40  WEST TERRACE  a curved shelf cut into the hillside.
 import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import { NATURAL } from '../terrain.js';
 import * as THREE from 'three';
@@ -33,372 +35,287 @@ export const DEF = {
   id: 'jujutsu_high',
   name: 'TOKYO JUJUTSU HIGH',
   jp: '東京呪術高専',
-  desc: 'Timber halls, stone steps and cedar forest. Warm daylight.',
+  desc: 'A tiered stone precinct with an octagonal hall. Warm daylight, cedar.',
   extent: { minX: -54, maxX: 54, minZ: -49, maxZ: 49 },
-  // TERRAIN: cedar grounds. The lawn is natural, and the paved courtyard, the
-  // paths, the halls' floorboards and the roofs are not — so the map has an
-  // internal argument about where the fight happens, which is exactly the
-  // shape Hanami wants a map to have.
   terrain: NATURAL,
   background: 0x8fb0d8,
   fog: { color: 0x9fb4c8, near: 78, far: 240 },
   grade: { vignette: 0.38, tint: [1.08, 1.04, 0.94], lift: 0.01, sat: 1.06 },
   lights: {
-    key: { color: 0xfff0d0, intensity: 1.55, pos: [12, 20, 8] },
+    key: { color: 0xfff0d0, intensity: 1.4, pos: [12, 20, 8] },
     rim: { color: 0x9fd8a8, intensity: 0.75, pos: [-10, 10, -10] },
-    hemi: { sky: 0xa8d0f0, ground: 0x4a5a34, intensity: 0.58 }
+    hemi: { sky: 0xa8d0f0, ground: 0x5a6440, intensity: 0.62 }
   },
-  // stage-select beauty shot: hand-picked so the preview never ends up
-  // inside a wall, above a ceiling or buried in the treeline.
-  // On the torii axis, which the forest scatter keeps clear on purpose.
-  previewCam: { pos: [0, 18, 62], look: [0, 2.5, -18] },
+  previewCam: { pos: [0, 13.5, 46], look: [0, 4.0, -6] },
   shadowScale: 1.1,
-  shrineScale: 1.00,      // the reference number: an open courtyard with halls to break into
-  size: '108 × 98 m · courtyard, two hall interiors, roofs + terrace'
+  shrineScale: 1.00,
+  size: '108 × 98 m · tiered precinct, octagonal hall, colonnade ring, terrace'
 };
+
+// HALF A METRE A TIER, not 0.6. STEP_UP is 0.55, so at 0.6 each ring was one
+// centimetre too tall to walk up — the whole precinct, the hall, both its
+// flights and its roof were unreachable, and every one of them looked perfect.
+// This is the reason the tiers exist at all: the middle of the map has to be
+// climbable from any bearing.
+const T1 = 0.5, T2 = 1.0, PREC = 1.5;
+const R_PREC = 17, R_T2 = 21, R_T1 = 25;
+const COL_R = 27.5, COL_Y = 2.4, COL_ROOF = 6.2;   // the colonnade
+const HALL_R = 8.5, HALL_EAVE = 6.4, HALL_ROOF = 8.6;
+// Pushed out past the colonnade's outer edge: at 36 the ring ran between the
+// precinct and the dojo, so the dojo's own stair started on the colonnade roof
+// instead of on the ground.
+const DOJO = { x: 42, z: -16, r: 6.0 };
+// The shelf, moved to the WEST bearing and pushed out clear of the colonnade.
+// On -z at rIn = 30 its own deck lay over the helix that climbs to it.
+const TERR = { y: 6.4, rIn: 36, rOut: 48, a0: Math.PI * 1.34, a1: Math.PI * 1.66 };
+const TERR_HELIX = { r: 33, a: Math.PI * 1.5 };
 
 export function build(quality) {
   const b = new MapBuilder(DEF);
   const M = b.mats;
 
+  // ---- THIS PRECINCT'S OWN MATERIALS -------------------------------------
+  const moss = b.tint('grass', 0x3f5a38, { rim: 0.1 });
+  const gravel = b.tint('concrete', 0x9a9382);
+  const dressed = b.tint('rock', 0x8c8474, { rim: 0.18 });
+  const timber = b.tint('wood', 0x6b4426, { rim: 0.22 });
+  const timberIn = b.tint('wood', 0x7a5030, { rim: 0.22, side: 2 });
+  const tileRoof = b.tint('rock', 0x3f4650, { rim: 0.24 });
+  const vermilion = new THREE.MeshBasicMaterial({ color: 0x8a2c34 });
+
   b.sky(0x3f6fc0, 0x86aede, 0xd8e0e8, 360);
   b.groundPlane(0x2a3f2c, 300);
   b.skyline(20, 200, { color: 0x2c4a3c, shape: 'ridge', minW: 70, maxW: 150, minH: 34, maxH: 88 });
 
-  // ---- ground -------------------------------------------------------------
-  b.floor(-54, -49, 54, 49, 0, { mat: M.grass });
-  // flagstone courtyard
-  b.floor(-24, -21, 24, 21, 0.06, { mat: M.concrete });
-  // stone paths running out of it on all four axes
-  b.floor(-3.2, 21, 3.2, 46, 0.05, { mat: M.concrete });
-  b.floor(-3.2, -46, 3.2, -21, 0.05, { mat: M.concrete });
-  b.floor(-50, -3.2, -24, 3.2, 0.05, { mat: M.concrete });
-  b.floor(24, -3.2, 50, 3.2, 0.05, { mat: M.concrete });
+  // ---- THE GROUNDS AND THE TIERS -----------------------------------------
+  b.floor(-54, -49, 54, 49, 0, { mat: moss });
+  b.floor(-4.5, R_T1, 4.5, 48, 0.05, { mat: gravel });      // the approach
+  b.roundDeck(0, 0, R_T1, T1, { rIn: R_T2 - 0.4, mat: dressed, thick: 0.72, id: 'tier1' });
+  b.roundDeck(0, 0, R_T2, T2, { rIn: R_PREC - 0.4, mat: dressed, thick: 0.72, id: 'tier2' });
+  b.roundDeck(0, 0, R_PREC, PREC, { mat: gravel, thick: 0.72, id: 'precinct' });
+  // Each tier is 0.6 m — one stride — so the precinct is climbable from ANY
+  // bearing. That is the whole idea: the high ground is the middle of the map
+  // and there is no staircase to hold.
 
-  // ---- TORII on the south axis -------------------------------------------
-  {
+  // ---- THE GREAT HALL: an octagon ----------------------------------------
+  // Eight faces, no corner to be backed into, and one of them is shoji that
+  // breaks — so the hall opens onto the precinct wherever it is hit.
+  for (let i = 0; i < 8; i++) {
+    const a0 = (i / 8) * Math.PI * 2, a1 = ((i + 1) / 8) * Math.PI * 2;
+    if (i === 0) continue;                       // the doorway, on the approach axis
+    if (i === 3 || i === 5) {
+      const p0 = v3(Math.sin(a0) * HALL_R, 0, Math.cos(a0) * HALL_R);
+      const p1 = v3(Math.sin(a1) * HALL_R, 0, Math.cos(a1) * HALL_R);
+      b.windows(p0.x, p0.z, p1.x, p1.z, PREC, HALL_EAVE - 0.8, {
+        hp: 14, id: 'shoji' + i,
+        mat: new THREE.MeshBasicMaterial({ color: 0xe8e0cc, transparent: true, opacity: 0.85 })
+      });
+      continue;
+    }
+    b.arcWall(0, 0, HALL_R, a0, a1, PREC, HALL_EAVE - 0.6,
+      { mat: timber, thick: 0.45, segs: 1, id: 'hall' + i });
+  }
+  // the eight posts at the corners, and the beam ring they carry
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    b.roundTower(Math.sin(a) * HALL_R, Math.cos(a) * HALL_R, 0.34, PREC, HALL_EAVE - PREC - 0.12,
+      { mat: timber, segs: 8, id: 'hallpost' + i });
+  }
+  b.roundDeck(0, 0, HALL_R - 0.6, PREC + 0.08, { mat: timber, thick: 0.2, walk: false });
+  // the roof: a deep octagonal eave, then the deck, then the finial
+  b.roundDeck(0, 0, HALL_R + 3.2, HALL_EAVE, { mat: tileRoof, thick: 0.5, segs: 8, id: 'halleave' });
+  b.roundDeck(0, 0, HALL_R - 1.0, HALL_ROOF, { mat: tileRoof, thick: 0.5, segs: 8, id: 'hallroof' });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const g = new THREE.BoxGeometry(0.5, 0.5, 4.6);
+    g.rotateY(a);
+    g.translate(Math.sin(a) * (HALL_R + 0.6), (HALL_EAVE + HALL_ROOF) / 2, Math.cos(a) * (HALL_R + 0.6));
+    b.static_(g, tileRoof);
+  }
+  b.roundTower(0, 0, 1.1, HALL_ROOF, 2.4, { mat: tileRoof, taper: 0.2, segs: 8, cap: true, id: 'finial' });
+  // the flight up onto the eave, and on to the roof, both on +x where the
+  // radius runs along an axis and an axis-aligned stair fits
+  // EVERY TOP TREAD OVERLAPS ITS LANDING by about 0.3 m. Stopped just outside
+  // the slab — even 0.2 m outside — there is a column of grid cells at the head
+  // of the flight where neither the treads nor the deck exist, the fighter
+  // drops through it, and the deck above is unreachable. It cost four platforms
+  // on this map. The overlap is small enough that the BURIED probe at t = 0.1
+  // still lands clear of the slab.
+  b.stairs(HALL_R + 7.0, -1.8, HALL_R + 2.9, 1.8, PREC, HALL_EAVE, 'x', { mat: dressed, id: 'eavestair' });
+  // On the opposite bearing from eavestair: two flights sharing +x at the same z
+  // band means the low end of the upper one probes onto the treads of the lower.
+  b.stairs(-(HALL_R + 1.8), -1.8, -(HALL_R - 1.3), 1.8, HALL_EAVE, HALL_ROOF, 'x', { mat: tileRoof, id: 'roofstair' });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.4;
+    b.hangingLamp(Math.sin(a) * 5.4, HALL_EAVE - 1.4, Math.cos(a) * 5.4, 1.0, 0xffd08a, { range: 44 });
+  }
+
+  // ---- THE COLONNADE -----------------------------------------------------
+  // A covered ring round the precinct: a raised timber walk on posts, with a
+  // roof you can also walk. Circle the whole fight without being in the open.
+  b.roundDeck(0, 0, COL_R + 2.6, COL_Y, { rIn: COL_R - 2.6, mat: timber, thick: 0.4, id: 'colonnade' });
+  for (let i = 0; i < 28; i++) {
+    const a = (i / 28) * Math.PI * 2;
+    for (const rr of [COL_R - 2.2, COL_R + 2.2]) {
+      b.roundTower(Math.sin(a) * rr, Math.cos(a) * rr, 0.26, COL_Y, COL_ROOF - COL_Y - 0.14,
+        { mat: timber, segs: 6, id: 'colpost' + i + rr });
+    }
+  }
+  // WITH A WELL FOR ITS OWN FLIGHT. The roof is an annulus and the stair up to
+  // it is radial, so the flight is inside the roof's band for its whole length:
+  // there is no way to land on this slab from underneath it without a hole.
+  b.roundDeck(0, 0, COL_R + 4.0, COL_ROOF, {
+    rIn: COL_R - 4.0, mat: tileRoof, thick: 0.5, id: 'colroof',
+    holes: [{ x: 0, z: COL_R - 1.0, r: 3.0 }]
+  });
+  // one flight from the tier up onto the walk, and one from the walk to its
+  // roof, on opposite bearings so the circuit has two ways into it
+  b.stairs(21.6, -2.2, COL_R - 2.4, 2.2, T1, COL_Y, 'x', { mat: timber, id: 'colstair0' });
+  b.stairs(-21.6, -2.2, -(COL_R - 2.4), 2.2, T1, COL_Y, 'x', { mat: timber, id: 'colstair1' });
+  b.stairs(-2.2, COL_R - 1.3, 2.2, COL_R + 2.3, COL_Y, COL_ROOF, 'z', { mat: tileRoof, id: 'colroofstair' });
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 + 0.22;
+    b.lanternString(v3(Math.sin(a) * (COL_R - 2.0), COL_ROOF - 0.9, Math.cos(a) * (COL_R - 2.0)),
+      v3(Math.sin(a) * (COL_R + 2.0), COL_ROOF - 0.9, Math.cos(a) * (COL_R + 2.0)),
+      { color: 0xffb45e, sag: 0.24, count: 2 });
+  }
+
+  // ---- THE TORII APPROACH ------------------------------------------------
+  for (let i = 0; i < 8; i++) {
+    const z = 46 - i * 2.6;
     const g = new THREE.Group();
-    const mat = new THREE.MeshBasicMaterial({ color: 0x8a2c34 });
-    // The group is moved down the axis at the end of this block, so the
-    // colliders have to be authored THERE too. They were once registered at
-    // z = 0 — twenty-four metres up the courtyard from the posts they belong
-    // to, which put two invisible pillars in the middle of the open ground and
-    // left the torii itself something you walk straight through.
-    const TZ = 31;
-    for (const s of [-1, 1]) {
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.44, 8.4, 10), mat);
-      p.position.set(s * 4.0, 4.2, 0);
+    for (const sx of [-1, 1]) {
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 5.4, 8), vermilion);
+      p.position.set(sx * 3.1, 2.7, 0);
       g.add(p);
-      b.bounds.wall(s * 4.0 - 0.48, TZ - 0.48, s * 4.0 + 0.48, TZ + 0.48, 0, 8.4, { id: 'torii' + s });
     }
-    const top = new THREE.Mesh(new THREE.BoxGeometry(11.4, 0.64, 0.9), mat);
-    top.position.y = 8.2;
-    const top2 = new THREE.Mesh(new THREE.BoxGeometry(12.4, 0.44, 0.7), mat);
-    top2.position.y = 8.85;
-    const mid = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.46, 0.64), mat);
-    mid.position.y = 6.5;
-    g.add(top, top2, mid);
-    g.position.set(0, 0, TZ);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.4, 0.6), vermilion);
+    top.position.y = 5.3;
+    const mid = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.3, 0.44), vermilion);
+    mid.position.y = 4.4;
+    g.add(top, mid);
+    g.position.set(0, 0.05, z);
     b.add(g);
-    b.breakable(g, {
-      hp: 190, kind: 'wood', center: v3(0, 4.4, TZ), radius: 6.2, height: 8.9, baseY: 0,
-      colliderIds: ['torii-1', 'torii1'], debrisScale: 1.6
-    });
+  }
+  b.lanternString(v3(-3.1, 4.0, 46), v3(-3.1, 4.0, 28), { color: 0xffb45e, sag: 0.8, count: 8 });
+  b.lanternString(v3(3.1, 4.0, 46), v3(3.1, 4.0, 28), { color: 0xffb45e, sag: 0.8, count: 8 });
+
+  // ---- THE DOJO ----------------------------------------------------------
+  // A second, smaller octagon off the precinct's east side — the only place on
+  // this map with a blind corner in it, and a roof of its own.
+  {
+    const D = DOJO;
+    for (let i = 0; i < 8; i++) {
+      const a0 = (i / 8) * Math.PI * 2, a1 = ((i + 1) / 8) * Math.PI * 2;
+      if (i === 4) continue;                       // open toward the precinct
+      b.arcWall(D.x, D.z, D.r, a0, a1, 0, 4.2, { mat: timber, thick: 0.4, segs: 1, id: 'dojo' + i });
+    }
+    b.roundDeck(D.x, D.z, D.r - 0.5, 0.12, { mat: timber, thick: 0.24, id: 'dojofloor' });
+    b.roundDeck(D.x, D.z, D.r + 2.4, 4.6, { mat: tileRoof, thick: 0.5, segs: 8, id: 'dojoroof' });
+    b.roundTower(D.x, D.z, 0.9, 4.6, 1.8, { mat: tileRoof, taper: 0.2, segs: 8, cap: true });
+    // ALONG Z, and from the ground. Along x it had 0.4 m of run for 4.6 m of
+    // rise and its top tread was inside the roof it climbed to.
+    b.stairs(D.x - 1.8, D.z - 14, D.x + 1.8, D.z - D.r - 1.9, 0, 4.6, 'z', { mat: dressed, id: 'dojostair' });
+    b.hangingLamp(D.x, 4.0, D.z, 0.9, 0xffd08a, { range: 40 });
   }
 
-  // ---- MAIN HALL (north) — a real interior --------------------------------
-  const HZ = 'hall';
-  const HX0 = -21, HX1 = 21, HZ0 = -40, HZ1 = -23;
-  b.zone(HZ, { x0: HX0 - 3, x1: HX1 + 3, z0: HZ0 - 3, z1: HZ1 + 3, y0: -1, y1: 9 });
-  b.floor(HX0, HZ0, HX1, HZ1, 0.45, { mat: M.wood, zone: HZ });
-  b.ceiling(HX0, HZ0, HX1, HZ1, 4.2, { mat: M.wood, zone: HZ });
-  // the engawa (veranda) wrapping the south face — a raised flanking ledge
-  b.floor(HX0 - 2, HZ1, HX1 + 2, HZ1 + 2, 0.45, { mat: M.wood });
-  // structure: timber posts, and they hold the roof up
-  for (let i = 0; i <= 8; i++) {
-    const x = HX0 + (HX1 - HX0) * (i / 8);
-    for (const z of [HZ0 + 0.4, HZ1 - 0.4]) {
-      b.pillar(x, z, 0.45, 3.75, 0.22, { mat: M.wood, hp: 120, zone: HZ, drops: i === 4 ? ['hallroof'] : [] });
+  // ---- THE WEST TERRACE --------------------------------------------------
+  // A curved shelf cut into the hillside, reached by a helix off the colonnade
+  // roof — the one place up here that is not a ring.
+  {
+    const T = TERR;
+    for (let k = 0; k < 20; k++) {
+      const a0 = T.a0 + (T.a1 - T.a0) * (k / 20), a1 = T.a0 + (T.a1 - T.a0) * ((k + 1) / 20);
+      const am = (a0 + a1) / 2;
+      const rc = (T.rIn + T.rOut) / 2, depth = T.rOut - T.rIn;
+      const chord = 2 * rc * Math.sin((T.a1 - T.a0) / 40) * 1.3;
+      const px = Math.sin(am) * rc, pz = Math.cos(am) * rc;
+      const g = new THREE.BoxGeometry(chord, 0.6, depth);
+      g.rotateY(am);
+      g.translate(px, T.y - 0.3, pz);
+      b.static_(g, dressed);
+      const ca = Math.abs(Math.cos(am)), sa = Math.abs(Math.sin(am));
+      const hx = (ca * chord + sa * depth) / 2, hz = (sa * chord + ca * depth) / 2;
+      b.bounds.platform(px - hx, pz - hz, px + hx, pz + hz, T.y, { id: 'terrace' });
+      b.bounds.terrain(px - hx, pz - hz, px + hx, pz + hz, T.y, NATURAL);
+    }
+    // the rock face it is cut into, through the helper that knows how to bound
+    // an arc rather than by hand
+    b.arcWall(0, 0, T.rIn, T.a0, T.a1, 0, T.y - 0.12,
+      { mat: b.tint('rock', 0x6a6656), thick: 1.4, id: 'terrface' });
+    // THE HELIX UP TO IT, standing in the gap between the colonnade's roof and
+    // the terrace's face — the only band of open ground on that bearing.
+    const hx = Math.sin(TERR_HELIX.a) * TERR_HELIX.r, hz = Math.cos(TERR_HELIX.a) * TERR_HELIX.r;
+    b.spiralStair(hx, hz, 0, T.y, {
+      rIn: 0.7, rOut: 2.0, rise: 0.24, turns: 2, dir: 1, a0: TERR_HELIX.a,
+      mat: dressed, newelMat: timber, id: 'terrhelix'
+    });
+    const lx = hx + Math.sin(TERR_HELIX.a) * 2.4, lz = hz + Math.cos(TERR_HELIX.a) * 2.4;
+    b.floor(lx - 1.8, lz - 1.8, lx + 1.8, lz + 1.8, T.y, { mat: dressed, id: 'terrland' });
+    for (let i = 0; i < 5; i++) {
+      const a = T.a0 + (T.a1 - T.a0) * ((i + 0.5) / 5);
+      const g = new THREE.Group();
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 1.9, 6), dressed);
+      post.position.y = 0.95;
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.44, 0.4, 4), dressed);
+      cap.position.y = 2.4;
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.44, 0.44), emissive(0xffc36a));
+      box.position.y = 2.05;
+      g.add(post, cap, box);
+      g.position.set(Math.sin(a) * (T.rOut - 3), T.y, Math.cos(a) * (T.rOut - 3));
+      b.add(g);
+      b.breakable(g, { hp: 22, kind: 'concrete', center: v3(g.position.x, T.y + 1.2, g.position.z), radius: 0.5, height: 2.5, baseY: T.y });
     }
   }
-  // shoji walls — paper panels that break to open the hall on every side
-  for (let i = 0; i < 6; i++) {
-    const x0 = HX0 + 0.9 + i * 6.7;
-    b.windows(x0, HZ1, x0 + 5.8, HZ1, 0.45, 3.9, {
-      zone: HZ, hp: 14, id: 'shoji' + i,
-      mat: new THREE.MeshBasicMaterial({ color: 0xe8e0cc, transparent: true, opacity: 0.85 })
-    });
-  }
-  b.wall(HX0 - 0.3, HZ0, HX0 - 0.3, HZ1, 0.45, 4.2, { mat: M.wood, zone: HZ });
-  b.wall(HX1 + 0.3, HZ0, HX1 + 0.3, HZ1, 0.45, 4.2, { mat: M.wood, zone: HZ });
-  b.wall(HX0, HZ0 - 0.3, HX1, HZ0 - 0.3, 0.45, 4.2, { mat: M.wood, zone: HZ });
-  // interior furniture
-  for (let i = 0; i < 4; i++) b.bench(HX0 + 5 + i * 10, 0.45, HZ0 + 4.5, 0, 3.0);
-  // hanging paper lanterns
-  for (let i = 0; i < 6; i++) {
-    const x = HX0 + 3.5 + i * 6.8;
-    const l = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.62, 10), emissive(0xffd08a));
-    l.position.set(x, 3.3, (HZ0 + HZ1) / 2);
-    b.add(l);
-    const halo = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 3.4), haloMaterial(0xffb45e, 0.26));
-    halo.position.copy(l.position);
-    halo.userData.billboard = true;
-    b.add(halo);
-  }
 
-  // HALL ROOF — deep tiled eaves, and it is walkable
-  const RY = 4.6;
-  b.floor(HX0 - 2.5, HZ0 - 2.5, HX1 + 2.5, HZ1 + 2.5, RY, { mat: M.concrete, id: 'hallroof' });
-  tiledRoof(b, M, HX0 - 2.5, HZ0 - 2.5, HX1 + 2.5, HZ1 + 2.5, RY, 'ridgeH');
-  // STONE STEPS up to the roof at the east end. They used to run east AWAY from
-  // the building, climbing to roof height over open grass 8 m past the eaves.
-  // Authored ground-end first, they now climb west onto the roof's edge.
-  b.stairs(HX1 + 11, HZ1 - 7, HX1 + 2.5, HZ1 + 1, 0.06, RY, 'x', { mat: M.concrete });
-
-  // ---- THE DOJO (east) — the second interior ------------------------------
-  // A smaller hall, open on its west and south faces, standing between the
-  // courtyard and the east treeline. The east half of this campus was a lawn
-  // with four trees on it, which on a map whose whole idea is "buildings you
-  // fight through" was the weakest ground in the set.
-  const DZ = 'dojo';
-  const DX0 = 28, DX1 = 48, DZ0 = -16, DZ1 = 2;
-  const DRY = 3.9;
-  b.zone(DZ, { x0: DX0 - 3, x1: DX1 + 3, z0: DZ0 - 3, z1: DZ1 + 3, y0: -1, y1: 8 });
-  b.floor(DX0, DZ0, DX1, DZ1, 0.45, { mat: M.wood, zone: DZ });
-  b.ceiling(DX0, DZ0, DX1, DZ1, 3.5, { mat: M.wood, zone: DZ });
-  b.floor(DX0 - 2, DZ0, DX0, DZ1, 0.45, { mat: M.wood });          // west engawa
-  b.wall(DX1 + 0.3, DZ0, DX1 + 0.3, DZ1, 0.45, 3.5, { mat: M.wood, zone: DZ });
-  b.wall(DX0, DZ0 - 0.3, DX1, DZ0 - 0.3, 0.45, 3.5, { mat: M.wood, zone: DZ });
-  for (let i = 0; i < 3; i++) {
-    b.windows(DX0 + 0.8 + i * 6.5, DZ1, DX0 + 6.0 + i * 6.5, DZ1, 0.45, 3.2, {
-      zone: DZ, hp: 14, id: 'dshoji' + i,
-      mat: new THREE.MeshBasicMaterial({ color: 0xe8e0cc, transparent: true, opacity: 0.85 })
-    });
-  }
-  for (let i = 0; i <= 4; i++) {
-    const x = DX0 + (DX1 - DX0) * (i / 4);
-    for (const z of [DZ0 + 0.4, DZ1 - 0.4]) {
-      b.pillar(x, z, 0.45, DRY - 0.57, 0.2, { mat: M.wood, hp: 100, zone: DZ, drops: i === 2 ? ['dojoroof'] : [] });
-    }
-  }
-  for (let i = 0; i < 4; i++) {
-    const l = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.56, 10), emissive(0xffd08a));
-    l.position.set(DX0 + 3 + i * 4.8, 2.8, (DZ0 + DZ1) / 2);
-    b.add(l);
-  }
-  b.floor(DX0 - 2.2, DZ0 - 2.2, DX1 + 2.2, DZ1 + 2.2, DRY, { mat: M.concrete, id: 'dojoroof' });
-  tiledRoof(b, M, DX0 - 2.2, DZ0 - 2.2, DX1 + 2.2, DZ1 + 2.2, DRY, 'ridgeD');
-  // its own flight, off the south end, so both roofs have their own way up.
-  // Authored with a real WIDTH across the climb: a flight whose two x values
-  // are equal draws treads with a zero-length side and registers a ramp with
-  // zero area — the kit warns about it now, but it shipped twice before it did.
-  // It climbs along X and STOPS ON the deck's own x range rather than at its
-  // corner: a flight that meets a slab only at the diagonal is a flight you
-  // step off sideways if you are lucky and fall off if you are not.
-  b.stairs(DX0 - 8, -4, DX0 - 2.2, 1, 0.06, DRY, 'x', { mat: M.concrete });
-
-  // ---- UPPER TERRACE (west) ----------------------------------------------
-  const TY = 6.4;
-  // The flight was once authored wholly inside the terrace it climbs to: six
-  // metres of stone steps under a stone slab. It starts out on the courtyard
-  // side and lands on the terrace's edge.
-  b.stairs(-23, -10, -34, 10, 0.05, TY, 'x', { mat: M.concrete });
-  b.floor(-54, -15, -34, 15, TY, { mat: M.concrete, id: 'terrace' });
-  // The retaining face the terrace stands on, so it is a plateau and not a slab
-  // hovering over the lawn. `bankFace`, because the face is drawn 0.25 m proud
-  // of the deck it edges and on its own that overhang was a strip of terrace
-  // you could see and stand on with nothing under it — walk to the north or
-  // south edge and you drop 6.4 m through the rim. It carries the deck out to
-  // the drawn edge, and it is solid: the terrace is rock, not a curtain.
-  for (const [x0, z0, x1, z1] of [[-54, -15, -34, -15], [-54, 15, -34, 15]])
-    b.bankFace(x0, z0, x1, z1, TY, 0, { mat: M.rock, thick: 0.5 });
-  // STOPPED SHORT OF THE DECK IT HOLDS UP, and carrying that deck across its
-  // own top. `bankFace` does both: the blocker still tops out 0.12 m under the
-  // terrace (a wall level with the floor beside it collides with anyone
-  // standing there), and the 0.6 m of rim it draws above the lawn is walkable
-  // instead of being a strip of terrace you drop through — which is where the
-  // stairs land, so it is a strip everybody walks over.
-  for (const [z0, z1] of [[-15, -10.4], [10.4, 15]])
-    b.bankFace(-33.7, z0, -33.7, z1, TY, 0, { mat: M.rock, thick: 0.6 });
-  // split around the steps: a rail run along the whole edge walls off the only
-  // way up onto the terrace
-  b.railing(-34, -15, -34, -10.3, TY);
-  b.railing(-34, 10.3, -34, 15, TY);
-  for (let i = 0; i < 5; i++) {
-    // stone lanterns along the terrace edge
-    const x = -50 + i * 4.5, z = 13;
-    const g = new THREE.Group();
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.18, 1.9, 6), M.rock);
-    post.position.y = 0.95;
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.42, 0.4, 4), M.rock);
-    cap.position.y = 2.4;
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), emissive(0xffc36a));
-    box.position.y = 2.05;
-    g.add(post, cap, box);
-    g.position.set(x, TY, z);
-    b.add(g);
-    b.breakable(g, { hp: 22, kind: 'concrete', center: v3(x, TY + 1.2, z), radius: 0.5, height: 2.5, baseY: TY });
-  }
-
-  // ---- FOREST -------------------------------------------------------------
-  // dense cedar around the whole edge, thinning into the courtyard
-  const treeSpots = [];
-  for (let i = 0; i < 80; i++) {
-    const a = rand(0, Math.PI * 2), r = rand(28, 52);
-    const x = Math.sin(a) * r, z = Math.cos(a) * r;
-    if (Math.abs(x) < 5 && z > 18) continue;                 // keep the torii axis clear
-    if (x > HX0 - 5 && x < HX1 + 14 && z > HZ0 - 7 && z < HZ1 + 5) continue;
-    if (x > DX0 - 8 && x < DX1 + 5 && z > DZ0 - 5 && z < DZ1 + 11) continue;
-    if (x < -32 && Math.abs(z) < 16) continue;               // keep the terrace clear
-    treeSpots.push([x, z]);
-  }
-  // the near ones are breakable; the far ring is instanced scenery
-  treeSpots.slice(0, 18).forEach(([x, z]) => b.tree(x, 0, z, rand(1.0, 1.7)));
-  const far = treeSpots.slice(18).map(([x, z]) => ({ x, y: 0, z, s: rand(1.2, 2.2), ry: rand(0, 6.3) }));
-  b.repeat(new THREE.CylinderGeometry(0.2, 0.34, 4.2, 6), M.trunk, far.map(f => ({ ...f, y: 2.1 * f.s, sy: f.s, s: f.s })));
-  b.repeat(new THREE.SphereGeometry(1.9, 8, 6), M.foliage, far.map(f => ({ ...f, y: 5.4 * f.s, s: f.s })));
-
-  // =========================================================================
-  // THE CAMPUS AS A JUJUTSU SITE
-  // =========================================================================
-  // This is the warm-daylight map and the only one with a forest on it, and it
-  // was lit like a lawn: one key light, one rim, and eighty cedars casting
-  // nothing between them. Everything below is about the light coming DOWN
-  // through that canopy, and about the fact that a school of sorcerers would
-  // have wards on its own ground.
-
-  // ---- THE VEIL ON THE COURTYARD -----------------------------------------
-  // The school's own barrier, drawn on the flagstones under the torii axis,
-  // with anchor glyphs at the two hall thresholds.
-  b.sigil(0, 0.08, 0, 19, 0x7fd0ff, { rings: 3, spokes: 20, sides: 8, opacity: 0.20, spin: 0.018 });
-  b.sigil(0, 0.07, -22.4, 4.2, 0x7fd0ff, { rings: 2, spokes: 6, sides: 4, opacity: 0.26, spin: -0.09 });
-  b.sigil(26.5, 0.07, -7, 3.6, 0x7fd0ff, { rings: 2, spokes: 6, sides: 4, opacity: 0.26, spin: 0.09 });
-  b.sigil(0, 0.07, 30.8, 5.0, 0xffb45e, { rings: 2, spokes: 12, sides: 3, opacity: 0.24, spin: -0.05 });
-
-  // ---- LIGHT THROUGH THE CEDARS ------------------------------------------
-  // Shafts standing in the forest ring, leaning the way the key light does
-  // (from +x/+y), and a broader one down the torii approach so the walk into
-  // the courtyard has a direction.
+  // ---- THE WARD, THE LIGHT AND THE FOREST --------------------------------
+  b.sigil(0, PREC + 0.06, 0, HALL_R + 6, 0x7fd0ff, { rings: 3, spokes: 20, sides: 8, opacity: 0.22, spin: 0.018 });
+  b.sigil(0, 0.07, 30, 5.0, 0xffb45e, { rings: 2, spokes: 12, sides: 3, opacity: 0.24, spin: -0.05 });
+  b.sigil(DOJO.x, 0.2, DOJO.z, 4.2, 0x7fd0ff, { rings: 2, spokes: 6, sides: 4, opacity: 0.26, spin: 0.09 });
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2 + 0.4;
-    const r = 30 + (i % 3) * 7;
+    const r = 34 + (i % 3) * 7;
     const x = Math.sin(a) * r, z = Math.cos(a) * r;
-    if (Math.abs(x) < 6 && z > 18) continue;              // the torii axis stays clear
-    b.godRay(x, 15, z, 2.6, 15, 0xfff0c0, { opacity: 0.07, taper: 0.3, lean: [-3.2, 1.6], range: 80 });
+    if (Math.abs(x) < 7 && z > 18) continue;
+    b.godRay(x, 16, z, 2.6, 16, 0xfff0c0, { opacity: 0.07, taper: 0.3, lean: [-3.2, 1.6], range: 80 });
   }
-  b.godRay(0, 17, 34, 5.0, 17, 0xfff4d0, { opacity: 0.06, taper: 0.45, lean: [-3.4, 1.8], range: 110 });
-  b.godRay(-42, 15, 0, 4.0, 8.6, 0xfff0c0, { opacity: 0.07, taper: 0.4, lean: [-1.6, 0.8] });
-  // haze along the treeline, so the forest has depth rather than a hard edge
+  b.godRay(0, 18, 34, 5.0, 18, 0xfff4d0, { opacity: 0.06, taper: 0.45, lean: [-3.4, 1.8], range: 110 });
   for (const [mx0, mz0, mx1, mz1] of [
-    [-54, 33, 54, 49], [-54, -49, 54, -42], [-54, -42, -40, 33], [40, -42, 54, 33]
+    [-54, 33, 54, 49], [-54, -49, 54, -40], [-54, -40, -42, 33], [42, -40, 54, 33]
   ]) b.mist(mx0, mz0, mx1, mz1, 0, 0xcfe0d8, { opacity: 0.13, scale: 17 });
 
-  // ---- THE SPRING UNDER THE TERRACE --------------------------------------
-  // Two falls off the retaining face, either side of the steps, into stone
-  // basins on the lawn. A mountain campus with a 6.4 m rock face on it and no
-  // water coming off it anywhere was the one thing the west side was missing.
-  // Purely visual — a fighter walks through the fall and through the basin, and
-  // nothing here registers a collider that could hold anyone still.
-  for (const wz of [-12.6, 12.6]) {
-    b.waterfall(-33.4, TY - 0.2, wz, 2.2, 6.4, { color: 0x9fd8ea, opacity: 0.55, speed: 2.4 });
-    b.water(-34.4, wz - 2.6, -28.5, wz + 2.6, 0.11, {
-      shallow: 0x6fc0d8, deep: 0x1e5a72, opacity: 0.7, caustic: 0.3
-    });
-    b.rock(-30.2, 0, wz - 3.4, 0.55);
-    b.rock(-29.4, 0, wz + 3.6, 0.45);
-    b.steamVent(-32.6, 0.2, wz, { height: 2.4, period: 3.8, opacity: 0.22, color: 0xdfeef4 });
+  const near = [], far = [];
+  for (let i = 0; i < 150; i++) {
+    const a = rand(0, Math.PI * 2), r = rand(34, 52);
+    const x = Math.sin(a) * r, z = Math.cos(a) * r;
+    if (Math.abs(x) < 6 && z > 18) continue;
+    if (x > DOJO.x - 12 && x < DOJO.x + 12 && z > DOJO.z - 12 && z < DOJO.z + 12) continue;
+    if (a > TERR.a0 - 0.2 && a < TERR.a1 + 0.2 && r < TERR.rOut + 3) continue;
+    (r < 40 && near.length < 14 ? near : far).push([x, z]);
   }
+  for (const [x, z] of near) b.tree(x, 0, z, rand(1.0, 1.7));
+  const fi = far.map(([x, z]) => ({ x, y: 0, z, s: rand(1.2, 2.2), ry: rand(0, 6.3) }));
+  b.repeat(new THREE.CylinderGeometry(0.2, 0.34, 4.2, 6), b.tint('trunk', 0x33241a),
+    fi.map(f => ({ ...f, y: 2.1 * f.s, sy: f.s, s: f.s })));
+  b.repeat(new THREE.SphereGeometry(1.9, 8, 6), b.tint('foliage', 0x22381f),
+    fi.map(f => ({ ...f, y: 5.4 * f.s, s: f.s })));
 
-  // ---- THE APPROACH -------------------------------------------------------
-  // Lanterns strung down the torii path and noren hanging in both hall
-  // thresholds. The approach was a paved strip between two rows of trees.
-  for (let i = 0; i < 4; i++) {
-    const z0 = 22 + i * 6, z1 = z0 + 6;
-    b.lanternString(v3(-3.6, 4.4, z0), v3(-3.6, 4.4, z1), { color: 0xffb45e, sag: 0.7 });
-    b.lanternString(v3(3.6, 4.4, z0), v3(3.6, 4.4, z1), { color: 0xffb45e, sag: 0.7 });
-  }
-  for (let i = 0; i < 5; i++) {
-    for (const s of [-1, 1]) {
-      const post = new THREE.BoxGeometry(0.18, 4.6, 0.18);
-      post.translate(s * 3.6, 2.3, 22 + i * 6);
-      b.static_(post, M.trunk);
-    }
-  }
-  // noren over the hall's south face and the dojo's west face
-  for (let i = 0; i < 5; i++) {
-    b.banner(HX0 + 4 + i * 8.5, 4.05, HZ1 + 1.9, 3.2, 1.5, 0x24486e, { ry: 0, amp: 0.09 });
-  }
-  for (let i = 0; i < 3; i++) {
-    b.banner(DX0 - 1.9, 3.35, DZ0 + 3.5 + i * 5.2, 3.0, 1.4, 0x6a2434, { ry: Math.PI / 2, amp: 0.09 });
-  }
-  b.hangingLamp(DX0 + 5, 3.4, -7, 0.9, 0xffd08a);
-  b.hangingLamp(DX0 + 14, 3.4, -7, 0.9, 0xffd08a);
+  // the storehouse behind the dojo, and its sealed vessels
+  b.crates(DOJO.x + 3, 0, DOJO.z - 11, { count: 3 });
+  b.crates(DOJO.x + 4.8, 0, DOJO.z - 12.4, { count: 2 });
+  for (let i = 0; i < 4; i++) b.drum(DOJO.x - 2 - i * 1.05, 0, DOJO.z - 11.4, { color: 0x6a5a44, markColor: 0xff5ad8 });
+  b.crates(-41, TERR.y, 3, { count: 2 });
+  b.crates(-43, TERR.y, 1.4, { count: 1 });
 
-  // ---- THE STOREHOUSE -----------------------------------------------------
-  // Crates and sealed vessels behind the dojo, off the north-east corner. The
-  // vessels are the map's gimmick, and they are drums under the paint: a warded
-  // jar full of something a jujutsu school seals rather than throws away goes
-  // off exactly as hard as a fuel drum and takes its neighbours with it. Set
-  // well behind the building so nothing on a route is narrowed by them.
-  b.crates(DX1 + 4, 0, DZ0 - 6, { count: 3 });
-  b.crates(DX1 + 5.8, 0, DZ0 - 7.4, { count: 2 });
-  b.crates(DX1 + 2.4, 0, DZ0 - 7.6, { count: 1 });
-  for (let i = 0; i < 4; i++) {
-    b.drum(DX1 - 1 - i * 1.05, 0, DZ0 - 6.4, { color: 0x6a5a44, markColor: 0xff5ad8 });
-  }
-  b.crates(-46, TY, -11, { count: 2 });
-  b.crates(-48, TY, -12.4, { count: 1 });
-
-  // ---- ambient life: leaves, pollen, warm haze ----------------------------
   b.particles(280, { x0: -52, x1: 52, y0: 0.4, y1: 18, z0: -47, z1: 47 },
     { color: 0xd8e8a0, size: 0.11, opacity: 0.42, vy: [-0.7, -0.2] });
   b.particles(160, { x0: -52, x1: 52, y0: 1, y1: 14, z0: -47, z1: 47 },
     { color: 0xfff0c0, size: 0.07, opacity: 0.30, vy: [0.05, 0.3] });
 
-  b.bounds.spawns = [v3(-9, 0.06, 3), v3(9, 0.06, 3), v3(0, 0.06, -9), v3(0, 0.06, 13)];
+  // On the second tier, off the hall's doorway axis and off the two flights.
+  b.bounds.spawns = [0.25, 0.75, 1.25, 1.75].map(k => {
+    const a = Math.PI * k;
+    return v3(Math.sin(a) * 19, T2, Math.cos(a) * 19);
+  });
   return b;
-}
-
-// ---------------------------------------------------------------------------
-// A TILED ROOF whose pitch is on the PERIMETER.
-// ---------------------------------------------------------------------------
-// The hall roof used to carry a four-sided cone sitting on the middle of the
-// deck, described in its own comment as "visual only — you stand on the flat".
-// But the flat IS the middle, so standing anywhere on the roof put the fighter
-// inside two and a half metres of solid roof. The pitch belongs on the edge,
-// outside the walkable rect, where a deep eave belongs on this building — and
-// the ridge down the centre is cover rather than an obstruction because it is
-// registered as a wall AND as a platform on top of it.
-function tiledRoof(b, M, x0, z0, x1, z1, y, ridgeId) {
-  const cz = (z0 + z1) / 2;
-  // EVERY PIECE AN EAVE DRAWS GETS A TOP. Both tiers of this roof edge stand
-  // proud of the deck they trim — the upper course by 0.37 m and the skirt
-  // 1.4 m outboard of the building line — so between them they put a ring of
-  // visible tile round both halls that a fighter could see, land on and drop
-  // straight through onto the courtyard. `mapcheck.rims()` reported 36 cells of
-  // it across the two roofs. The lip is a platform and nothing else, so neither
-  // tier becomes something you walk into.
-  const eave = (a, c, e, f, drop) => {
-    const g = new THREE.BoxGeometry(Math.abs(e - a), 0.34, Math.abs(f - c));
-    g.translate((a + e) / 2, y + 0.2, (c + f) / 2);
-    b.static_(g, M.rock);
-    b.lip(a, c, e, f, y + 0.37);
-    const sw = Math.abs(e - a) + (drop === 'x' ? 0 : 3.0);
-    const sd = Math.abs(f - c) + (drop === 'z' ? 0 : 3.0);
-    const sx = (a + e) / 2 + (drop === 'x' ? Math.sign((a + e) / 2 || 1) * 1.4 : 0);
-    const sz = (c + f) / 2 + (drop === 'z' ? Math.sign((c + f) / 2 - cz || 1) * 1.4 : 0);
-    const s = new THREE.Mesh(new THREE.BoxGeometry(sw, 0.3, sd), M.rock);
-    s.position.set(sx, y - 0.55, sz);
-    b.add(s);
-    b.lip(sx - sw / 2, sz - sd / 2, sx + sw / 2, sz + sd / 2, y - 0.40);
-  };
-  eave(x0, z0, x0 + 1.2, z1, 'x');
-  eave(x1 - 1.2, z0, x1, z1, 'x');
-  eave(x0, z0, x1, z0 + 1.2, 'z');
-  eave(x0, z1 - 1.2, x1, z1, 'z');
-  const ridge = new THREE.BoxGeometry(x1 - x0 - 4, 0.55, 1.1);
-  ridge.translate((x0 + x1) / 2, y + 0.28, cz);
-  b.static_(ridge, M.rock);
-  b.bounds.wall(x0 + 2, cz - 0.55, x1 - 2, cz + 0.55, y, y + 0.55, { id: ridgeId });
-  b.bounds.platform(x0 + 2, cz - 0.55, x1 - 2, cz + 0.55, y + 0.55);
 }
