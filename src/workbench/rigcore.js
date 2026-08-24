@@ -18,7 +18,7 @@ import {
 import {
   analyzeJoints, applyJointEdits, collectSkeletons, moveBonePivot, worldToLocalPos, mirrorPairs
 } from '../art/rig3d/joints.js';
-import { stylizeToon, TOON_DEFAULTS } from '../art/rig3d/stylize.js';
+import { liftMaterials, LIFT_DEFAULTS } from '../art/rig3d/lift.js';
 import { makeCharacter } from '../characters/index.js';
 import { AnimPlayer } from '../art/anim/player.js';
 import { DEG } from '../core/mathutil.js';
@@ -190,9 +190,9 @@ export class RigSession {
     this.preview = false;
     this.stress = null;
 
-    this.toon = null;          // stylize handle
-    this.toonOpts = { ...TOON_DEFAULTS };
-    this.toonOn = true;
+    this.lift = null;          // ambient-lift handle
+    this.liftOpts = { ...LIFT_DEFAULTS };
+    this.liftOn = true;
 
     this.skeletonHelper = null;
     this.markers = null;
@@ -256,7 +256,7 @@ export class RigSession {
     const toModel = new THREE.Matrix4().copy(scene.matrixWorld).invert();
     this.baseModelPos = new Map(this.nodes.map(n =>
       [n, new THREE.Vector3().setFromMatrixPosition(n.matrixWorld).applyMatrix4(toModel)]));
-    this.setToon(this.toonOn);
+    this.setLift(this.liftOn);
     this.setSkeleton(true);
     return this.mapReport;
   }
@@ -265,8 +265,8 @@ export class RigSession {
     this.stopPreview();
     this.showWeights(false);
     this.setSkeleton(false);
-    this.toon?.restore();
-    this.toon = null;
+    this.lift?.restore();
+    this.lift = null;
     if (this.wrapper) this.stage.scene.remove(this.wrapper);
     this.wrapper = this.model3d = this.baseline = null;
     this.map = {}; this.overrides = {}; this.rotOffset = {};
@@ -545,14 +545,15 @@ export class RigSession {
   }
 
   // ---- display ------------------------------------------------------------
-  setToon(on, opts) {
-    this.toonOn = on;
-    if (opts) Object.assign(this.toonOpts, opts);
+  setLift(on, opts) {
+    this.liftOn = on;
+    if (opts) Object.assign(this.liftOpts, opts);
     if (!this.model3d) return;
-    if (this.toon && opts && on) { this.toon.set(this.toonOpts); return; }
-    this.toon?.restore();
-    this.toon = null;
-    if (on) this.toon = stylizeToon(this.model3d, this.toonOpts);
+    // intensity and grade are live; only toggling needs the material swap
+    if (this.lift && on) { this.lift.set(this.liftOpts); return; }
+    this.lift?.restore();
+    this.lift = null;
+    if (on) this.lift = liftMaterials(this.model3d, this.liftOpts);
     if (this.weightsOn) this.showWeights(true);
   }
 
@@ -627,7 +628,7 @@ export class RigSession {
     this.weightsOn = on;
     const node = on && this.selected ? this.map[this.selected] : null;
     this.model3d?.traverse(o => {
-      if (!o.isSkinnedMesh || o.name.endsWith('_outline')) return;
+      if (!o.isSkinnedMesh) return;
       if (!on) {
         const orig = this._origMats.get(o);
         if (orig) { o.material = orig; this._origMats.delete(o); }
@@ -684,13 +685,13 @@ export class RigSession {
       entry.rotOffset = Object.fromEntries(
         Object.entries(this.rotOffset).map(([k, v]) => [k, v.map(x => Math.round(x * 100) / 100)]));
     }
-    if (!this.toonOn) entry.toon = false;
+    if (!this.liftOn) entry.lift = false;
     else {
       const diff = {};
-      for (const [k, v] of Object.entries(this.toonOpts)) {
-        if (JSON.stringify(v) !== JSON.stringify(TOON_DEFAULTS[k])) diff[k] = v;
+      for (const [k, v] of Object.entries(this.liftOpts)) {
+        if (JSON.stringify(v) !== JSON.stringify(LIFT_DEFAULTS[k])) diff[k] = v;
       }
-      if (Object.keys(diff).length) entry.toon = diff;
+      if (Object.keys(diff).length) entry.lift = diff;
     }
     return entry;
   }

@@ -15,8 +15,9 @@
 //               and reports where each joint actually is versus where the
 //               bone sits; the nudge dials move the pivot (and only the
 //               pivot — the mesh does not budge, see art/rig3d/joints.js).
-//   4 LOOK      the anime pass, so the model is judged in the shading the
-//               game will actually give it.
+//   4 LIGHTING  a small ambient lift, so a model authored for an offline
+//               render is judged with its colour reaching the camera rather
+//               than sunk in this scene's shadows.
 //
 // EXPORT CHANGES downloads one JSON carrying all of it — mapping picks, pivot
 // fixes, rest-pose calibration, trims, fit and notes — which is verbatim the
@@ -254,39 +255,37 @@ export function mountRigBench(root) {
     });
   }
 
-  // ---- 4 · LOOK -----------------------------------------------------------
-  const sLook = sec(panel, '4 · LOOK — the anime pass');
+  // ---- 4 · LIGHTING -------------------------------------------------------
+  const sLook = sec(panel, '4 · LIGHTING — a small lift, not a restyle');
   sLook.append(el('div', 'mb-hint',
-    'The model is re-shaded through the game’s own cel material and outline, so ' +
-    'it is judged in the shading it will ship with rather than in its PBR ' +
-    'original. These dials export with the model.'));
+    'The model keeps its own materials. <b>Ambient</b> adds back a fraction of ' +
+    'its own texture as light, which lifts the shadows and makes the blue read ' +
+    'as blue rather than black — an ambient <i>light</i> would only add grey. ' +
+    '<b>Saturation</b> is a gentle push on top. Both export with the model.'));
   const lookRow = el('div', 'mb-row');
-  const toonChk = el('label', 'mb-check', '<input type="checkbox" checked><span>Anime shading</span>');
-  toonChk.querySelector('input').onchange = e => session.setToon(e.target.checked);
+  const liftChk = el('label', 'mb-check', '<input type="checkbox" checked><span>Lighting lift</span>');
+  liftChk.querySelector('input').onchange = e => session.setLift(e.target.checked);
   const wireChk = el('label', 'mb-check', '<input type="checkbox"><span>Wireframe</span>');
   wireChk.querySelector('input').onchange = e => session.setWireframe(e.target.checked);
   const weightChk = el('label', 'mb-check', '<input type="checkbox"><span>Weights</span>');
   weightChk.querySelector('input').onchange = e => session.showWeights(e.target.checked);
-  lookRow.append(toonChk, wireChk, weightChk);
+  lookRow.append(liftChk, wireChk, weightChk);
   sLook.append(lookRow);
   for (const [label, k, min, max, step] of [
-    ['saturation', 'saturation', 0.4, 2.5, 0.05],
-    ['brightness', 'brightness', 0.5, 2.2, 0.05],
-    ['contrast', 'contrast', 0.5, 2, 0.05],
-    ['outline', 'outline', 0, 0.03, 0.001]
+    ['ambient', 'ambient', 0, 0.6, 0.01],
+    ['saturation', 'saturation', 0.8, 1.8, 0.02],
+    ['brightness', 'brightness', 0.6, 1.6, 0.02]
   ]) {
     const row = el('div', 'mb-slider');
     const range = el('input'); range.type = 'range';
     range.min = min; range.max = max; range.step = step;
-    range.value = session.toonOpts[k];
+    range.value = session.liftOpts[k];
     const num = el('input', 'mb-num'); num.type = 'number'; num.step = step;
-    num.value = session.toonOpts[k];
+    num.value = session.liftOpts[k];
     const apply = v => {
       const n = Number(v);
       range.value = num.value = n;
-      // outline thickness needs the hulls rebuilt; the grade dials are live
-      if (k === 'outline') { session.toonOpts.outline = n; session.setToon(session.toonOn); }
-      else session.setToon(session.toonOn, { [k]: n });
+      session.setLift(session.liftOn, { [k]: n });
     };
     range.oninput = () => apply(range.value);
     num.onchange = () => apply(num.value);
