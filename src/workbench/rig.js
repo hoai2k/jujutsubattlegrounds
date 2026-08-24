@@ -56,7 +56,16 @@ export function mountRigBench(root) {
   const sModel = sec(panel, 'MODEL');
   const { box: loaderBox, status } = buildLoaderUI(session, {
     prefs, save,
-    onLoaded: () => { session.select(null); syncAll(); }
+    onLoaded: () => { session.select(null); syncAll(); },
+    // a manifest chip names the character it stands in for — follow it, so
+    // the mapping is reviewed against the fighter it will actually replace
+    onReference: pick => {
+      const base = pick.split(':')[0];
+      if (!ROSTER_IDS.includes(base)) return;
+      refSel.value = base;
+      prefs.char = base; save(prefs);
+      session.setReference(pick);
+    }
   });
   sModel.append(loaderBox);
 

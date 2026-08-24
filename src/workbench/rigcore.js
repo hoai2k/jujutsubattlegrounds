@@ -245,6 +245,7 @@ export class RigSession {
     this.baseline = null;      // {trs: Map, inverses: Map}
     this.sourceUrl = '';
     this.sourceLabel = '';
+    this.stats = null;         // {tris, verts, meshes} of the loaded file
     this.fitReport = '';
 
     this.ref = null;           // {model, clips, player, rest, pick}
@@ -321,9 +322,31 @@ export class RigSession {
     const toModel = new THREE.Matrix4().copy(scene.matrixWorld).invert();
     this.baseModelPos = new Map(this.nodes.map(n =>
       [n, new THREE.Vector3().setFromMatrixPosition(n.matrixWorld).applyMatrix4(toModel)]));
+    this.stats = meshStats(scene);
     this.setLift(this.liftOn);
     this.setSkeleton(true);
     return this.mapReport;
+  }
+
+  // Load a manifest entry's committed fixes into the edit stack — the exact
+  // inverse of exportJson(), so a model opened from the manifest is benched
+  // in the state ?render3d actually gives it rather than raw off the file.
+  // Without this the bench silently disagrees with the game about any model
+  // that needed a fix to ship.
+  applyEntry(entry) {
+    if (!entry || !this.model3d) return;
+    this.overrides = { ...(entry.boneMap || {}) };
+    this.jointEdits = { ...(entry.joints || {}) };
+    this.poseEdits = { ...(entry.pose || {}) };
+    this.rotOffset = Object.fromEntries(
+      Object.entries(entry.rotOffset || {}).map(([k, v]) => [k, [...v]]));
+    this.fit = {
+      scale: entry.scale ?? 1, yOffset: entry.yOffset ?? 0, faceYaw: entry.faceYaw ?? 0
+    };
+    this.liftOn = entry.lift !== false;
+    this.liftOpts = { ...LIFT_DEFAULTS, ...(typeof entry.lift === 'object' ? entry.lift : {}) };
+    this.setLift(this.liftOn, this.liftOpts);
+    this.remap();
   }
 
   unload() {
@@ -334,6 +357,7 @@ export class RigSession {
     this.lift = null;
     if (this.wrapper) this.stage.scene.remove(this.wrapper);
     this.wrapper = this.model3d = this.baseline = null;
+    this.stats = null;
     this.map = {}; this.overrides = {}; this.rotOffset = {};
     this.jointEdits = {}; this.poseEdits = {};
     this.landmarks = {}; this.armedLandmark = null;
@@ -944,7 +968,7 @@ export const sec = (panel, title) => {
   return s;
 };
 
-export function buildLoaderUI(session, { prefs, save, onLoaded }) {
+export function buildLoaderUI(session, { prefs, save, onLoaded, onReference }) {
   const box = el('div');
   box.append(el('div', 'mb-hint',
     'Drop a .glb/.gltf anywhere on this page, pick a file, or paste a URL. ' +
@@ -961,11 +985,17 @@ export function buildLoaderUI(session, { prefs, save, onLoaded }) {
   const status = el('div', 'mb-status', 'No model loaded — the reference body stands alone.');
   box.append(rowFile, manifestRow, status);
 
-  async function loadFrom(url, label) {
+  // `entry` is set only for the manifest chips: the character the entry is
+  // keyed to becomes the reference (the fit is measured against its H, so it
+  // has to be in place BEFORE the load), and the entry's committed fixes are
+  // replayed onto the model after it.
+  async function loadFrom(url, label, { pick, entry } = {}) {
     status.textContent = 'Loading ' + (label || url) + '…';
     status.classList.remove('err');
     try {
+      if (pick) onReference?.(pick);
       const report = await session.load(url, label);
+      if (entry) session.applyEntry(entry);
       const t = session.stats?.tris ?? 0;
       status.className = 'mb-status' + (t > TRI_BUDGET ? ' warn' : '');
       status.textContent = `${session.sourceLabel} — ${report}, ${(t / 1000).toFixed(0)}k tris` +
@@ -998,9 +1028,12 @@ export function buildLoaderUI(session, { prefs, save, onLoaded }) {
     for (const [k, v] of Object.entries(m)) {
       const url = typeof v === 'string' ? v : v?.url;
       if (!url) continue;
+      const entry = typeof v === 'string' ? { url: v } : v;
       const b = el('button', 'mb-chip', k);
+      b.title = `${url.split('/').pop()} — loaded as the game loads it, for ${k.split(':')[0]}`;
       b.onclick = () => loadFrom(
-        new URL(url, modelsUrl('manifest.json')).href, url.split('/').pop());
+        new URL(url, modelsUrl('manifest.json')).href, url.split('/').pop(),
+        { pick: k, entry });
       manifestRow.append(b);
     }
   });

@@ -40,6 +40,23 @@ to check, and both had to be checked for Uraume and Ryu:
       node tools/decimate.mjs in.glb out.glb --tris 120000
       node tools/decimate.mjs --check old.glb new.glb    # compare only
 
+- **"the imported model actually plays"** — `modelcheck.mjs` runs the REAL
+  `?render3d` load path on every file in `public/models/manifest.json`,
+  headless: the same `guessBoneMap` -> `rerigHierarchy` -> `applyJointEdits` ->
+  `applyRestPose` -> `fitInto` -> `Retargeter`, driven by the character's own
+  procedural model playing its own compiled clips. This exists because the
+  swap FAILS QUIETLY by design — an unusable rig leaves the procedural body
+  standing and writes one console line nobody is watching — so "it maps" was
+  a claim only a person paging through clips in a browser could check. It
+  catches a rig the mapper cannot name, a hierarchy that leaves limbs behind
+  when the hips move, a limb that stops tracking part-way through some clip
+  nobody thought to open, NaN, a model that floats or sinks instead of
+  standing on `y = 0`, and a triangle count that will cost the frame rate. It
+  cannot judge how a model LOOKS — shoot that on the viewer bench.
+
+      node tools/modelcheck.mjs              # every manifest entry
+      node tools/modelcheck.mjs jogo         # one
+
 Usage:
 
     node tools/shoot.mjs '[{"kind":"sheet","id":"uraume","name":"out",

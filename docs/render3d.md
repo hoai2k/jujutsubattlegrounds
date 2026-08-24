@@ -77,6 +77,7 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `yOffset` | `0` | metres up/down after grounding |
 | `faceYaw` | `0` | degrees, for models that don't face `+Z` |
 | `boneMap` | `{}` | `{canonical: nodeName}` overrides; `null` drops a bone |
+| `pose` | `{}` | `{nodeName: [x°,y°,z°]}` rest-pose calibration — absolute local rotations applied before anything is measured, which is how a model that ships in some arbitrary pose is stood into a bind |
 | `joints` | `{}` | `{nodeName: [dx,dy,dz]}` pivot corrections — moves where a bone *rotates* without moving the mesh (inverse-binds are rebuilt). The fix for a shoulder that sits too low. Values are an offset in the model's own axes **as a fraction of its height**, so they survive the model being re-exported or decimated |
 | `lift` | `{ambient: 0.22, saturation: 1.18}` | a small lighting lift (see below). `false` leaves the file's materials completely untouched |
 | `rotOffset` | `{}` | `{canonical: [x°,y°,z°]}` world-space trim per bone |
@@ -85,6 +86,37 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 
 `boneMap`/`rotOffset` canonical names are the shared skeleton's:
 `Hips Spine Chest Neck Head ClavL UpArmL LoArmL HandL … ThighR ShinR FootR`.
+
+## What ships today
+
+Three models are committed and mapped, all of them the same shape of export —
+a Rigify `DEF-` rig, 33 bones, 19 of them canonical, ~120k triangles, 3–4 MB:
+
+| Character | File | Rest pose | Entry |
+| --- | --- | --- | --- |
+| Yuji | `yuji.glb` | as authored (neither T nor A) | plain URL |
+| Nobara | `nobara.glb` | A-pose | plain URL |
+| Jogo | `jogo.glb` | T-pose | `scale: 1.06` |
+
+None of them needed a `pose` calibration, a `boneMap` override or a pivot
+fix: bind alignment absorbs the rest-pose difference (that is what it is for,
+and it is why Yuji's un-posed export maps as cleanly as Jogo's T-pose), and
+`rerigHierarchy` reparents the eight limbs Rigify exports flat under the
+armature root.
+
+Jogo's `scale` is the one deliberate trim, and it is a *proportion* fix
+rather than a fit one. His procedural body is built around a volcano head
+roughly a third of his height, and the crater emitter that vents his smoke
+and embers is parented to the drive rig's `Head` bone at an offset derived
+from that geometry. An imported Jogo is humanly proportioned, so his head
+stops ~12 cm short of where the plume starts and the flame reads as floating.
+Six percent of extra height closes it. Anything else procedural that anchors
+off model-specific geometry will want the same kind of trim.
+
+Verify a model before it lands:
+
+    node tools/modelcheck.mjs              # every manifest entry
+    node tools/modelcheck.mjs jogo         # one
 
 ## What deliberately does not change
 
@@ -104,6 +136,14 @@ shipped pipeline rather than a parallel implementation — the same
 `guessBoneMap`, `rerigHierarchy`, `Retargeter` and `fitInto` the game runs.
 Models load from the manifest, from a URL, or by dropping a file on the page,
 so nothing has to be committed to be inspected.
+
+A manifest chip loads the model **as the game loads it**: the entry's own
+`scale`, `pose`, `boneMap`, `joints`, `rotOffset` and `lift` are replayed onto
+it, and the character the entry is keyed to becomes the reference body. A
+bench that showed the raw file instead would disagree with the game about
+every model that needed a fix to ship — and would measure the fit against
+whatever fighter happened to be selected, since the height fit is normalized
+to the reference's `H`.
 
 **`?edit=models` — integration.** Stand a model into a bind (auto T-pose or
 auto game-bind, then per-bone adjustment), check skinning with the per-bone
