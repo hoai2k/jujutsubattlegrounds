@@ -1,3 +1,5 @@
 {
-  "yuji": "./yuji_rigged.glb"
+  "yuji": "./yuji.glb",
+  "jogo": "./jogo.glb",
+  "nobara": "./nobara.glb"
 }
