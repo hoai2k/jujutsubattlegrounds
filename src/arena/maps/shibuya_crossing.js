@@ -278,10 +278,12 @@ export function build(quality) {
     { color: 0x9fc0e8, size: 0.055, opacity: 0.34, vy: [-16, -9] });
   b.particles(160, { x0: -52, x1: 52, y0: 0.2, y1: 8, z0: -48, z1: 48 },
     { color: 0xff8fc8, size: 0.10, opacity: 0.22, vy: [0.1, 0.5] });
-  const sheen = new THREE.Mesh(new THREE.CircleGeometry(R_ROAD, 40), haloMaterial(0x3c5f9f, 0.10));
-  sheen.rotation.x = -Math.PI / 2;
-  sheen.position.y = 0.03;
-  b.add(sheen);
+  // NO FLOOR SHEEN. A big additive quad lying flat on the ground looks like wet
+  // tarmac from above and like a BAND ACROSS THE SCREEN from eye level: its far
+  // edge lands on the horizon, so the bottom of the frame washes out and the
+  // line where it stops is dead straight and razor sharp. Perspective squeezes
+  // the gradient that is supposed to hide that edge into about four pixels. It
+  // is the single most visible artefact in the stage-select shots.
 
   // On the roadway, on the four bearings the flights use — off the roads, off
   // the steps and out of the court.

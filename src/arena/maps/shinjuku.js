@@ -41,7 +41,7 @@ export const DEF = {
     rim: { color: 0xff9f6f, intensity: 0.65, pos: [-16, 14, -14] },
     hemi: { sky: 0x4a5c90, ground: 0x241f26, intensity: 0.46 }
   },
-  previewCam: { pos: [-33, 23, 50], look: [6, 6.0, -6] },
+  previewCam: { pos: [-30, 20, -48], look: [6, 6.0, 10] },
   shadowScale: 1.7,
   shrineScale: 1.33,
   size: '136 × 118 m · sunken plaza, arc viaduct, tower decks'

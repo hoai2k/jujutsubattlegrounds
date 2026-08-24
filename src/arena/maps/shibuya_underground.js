@@ -48,7 +48,11 @@ export const DEF = {
     rim: { color: 0xd8688f, intensity: 0.66, pos: [-10, 12, -10] },
     hemi: { sky: 0x4a5c92, ground: 0x22222c, intensity: 0.58 }
   },
-  previewCam: { pos: [-38, 5.2, -12.5], look: [4, 3.2, 1] },
+  // NOT at y = 5.2. That is exactly where the vault springs off the side wall,
+  // and a camera level with a horizontal edge that runs the length of the map
+  // splits the frame in two along a dead-straight line — it reads as a
+  // rendering fault rather than as a building.
+  previewCam: { pos: [-31, 3.2, 7.5], look: [14, 2.4, -1] },
   shadowScale: 1.15,
   shrineScale: 0.95,
   size: '96 × 46 m · vaulted shed, domed rotunda, trenches, parapet walk'
@@ -354,10 +358,12 @@ export function build(quality) {
     { color: 0x9fc0e8, size: 0.05, opacity: 0.26, vy: [-15, -9] });
   b.particles(140, { x0: -R_ROT, x1: R_ROT, y0: 0.2, y1: PARA, z0: -R_ROT, z1: R_ROT },
     { color: 0xffd0a8, size: 0.09, opacity: 0.22, vy: [0.1, 0.5] });
-  const sheen = new THREE.Mesh(new THREE.PlaneGeometry(66, 18), haloMaterial(0x3c5f9f, 0.12));
-  sheen.rotation.x = -Math.PI / 2;
-  sheen.position.set(0, 0.03, 0);
-  b.add(sheen);
+  // NO FLOOR SHEEN. A big additive quad lying flat on the ground looks like wet
+  // tarmac from above and like a BAND ACROSS THE SCREEN from eye level: its far
+  // edge lands on the horizon, so the bottom of the frame washes out and the
+  // line where it stops is dead straight and razor sharp. Perspective squeezes
+  // the gradient that is supposed to hide that edge into about four pixels. It
+  // is the single most visible artefact in the stage-select shots.
 
   b.bounds.spawns = [v3(-22, 0, 0), v3(22, 0, 0), v3(0, 0, -5), v3(0, 0, 5)];
   return b;

@@ -49,7 +49,7 @@ export const DEF = {
     hemi: { sky: 0x44608c, ground: 0x2a2620, intensity: 0.68 }
   },
   // On the first gallery, looking across the rotunda at the watch post.
-  previewCam: { pos: [13.2, 7.6, 13.2], look: [-1, 4.2, -1] },
+  previewCam: { pos: [3, 11, 18], look: [-2, 1.2, -12] },
   shadowScale: 0.82,
   shrineScale: 0.90,
   size: '100 × 94 m · panopticon rotunda, 3 cell rings, watch post, yard'
