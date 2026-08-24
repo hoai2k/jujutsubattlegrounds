@@ -394,10 +394,9 @@ export class DomainSystem {
     // account of itself. Four different situations, four different things the
     // player should do about them, and no way to tell which one you were in.
     if (!f.cfg.domain) { f.emit('noCE', { why: 'NO DOMAIN' }); return false; }
-    if (f.backlash > 0) {
-      f.emit('noCE', { why: 'BACKLASH — ' + f.backlash.toFixed(1) + 's' });
-      return false;
-    }
+    // Wordless: the backlash is the player's own bar sitting flat and refusing
+    // to refill, which they are already staring at. The fizzle is the cue.
+    if (f.backlash > 0) { f.emit('noCE', { why: '' }); return false; }
     if (!f.ultReady) {
       // Name the actual shortfall. The gate is MAX_CE at 100 with the bar full
       // (or a domain's own lower `castThreshold`), and "not enough cursed
@@ -407,9 +406,7 @@ export class DomainSystem {
       const th = f.castThresholdOverride ?? f.cfg.domain.castThreshold ?? 1;
       const want = 100 * th;
       f.emit('noCE', {
-        why: f.res.maxCE < want - 0.01
-          ? 'CURSED ENERGY CEILING ' + Math.round(f.res.maxCE) + '/' + Math.round(want)
-          : 'NOT ENOUGH CURSED ENERGY'
+        why: f.res.maxCE < want - 0.01 ? 'NEED HIGHER ENERGY CEILING' : 'NEED CURSED ENERGY'
       });
       return false;
     }

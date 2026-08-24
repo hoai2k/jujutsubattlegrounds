@@ -1072,8 +1072,11 @@ export class CurseSystem {
     if (this.isLost(owner, key)) return def.short + ' IS GONE';
     if (this.cooldownOf(owner, key) > 0) return def.short + ' RECOVERING';
     const limit = owner.cfg.curses?.activeLimit ?? 2;
+    // The cap as a number, for the same reason as the shikigami limit: a player
+    // told "the stable is deployed" has to work out what that implies, and one
+    // told the ceiling can count.
     if (this.usedSlots(owner) + (def.slots ?? 1) > limit) {
-      return def.slots >= limit ? 'NO ROOM FOR A SPECIAL GRADE' : 'STABLE IS DEPLOYED';
+      return def.slots >= limit ? 'NO ROOM FOR A SPECIAL GRADE' : 'MAX CURSES: ' + limit;
     }
     // only ONE special grade at a time, stated separately from the slot budget
     // so the HUD message is the true reason rather than a generic "full"

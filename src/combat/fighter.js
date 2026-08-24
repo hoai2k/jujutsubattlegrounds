@@ -1106,8 +1106,13 @@ export class Fighter {
   // on it. Anything that will still be true after they land goes first.
   _ultRefusal() {
     if (!this.cfg.domain && !this.cfg.ultimate) return 'NO DOMAIN';
-    if (this.backlash > 0) return 'BACKLASH — ' + this.backlash.toFixed(1) + 's';
-    if (!this.grounded) return 'LAND FIRST';
+    // WORDLESS. Both of these are timers the player is already watching — the
+    // backlash is the bar sitting flat and refusing to refill, and being in the
+    // air is the most visible state in the game. The fizzle covers them; a
+    // caption would only be in the way, and these are the two most-pressed
+    // wrong moments there are.
+    if (this.backlash > 0) return '';
+    if (!this.grounded) return '';
     // THE CEILING VERSUS THE CHARGE. The gate is MAX_CE at 100 with the bar
     // full (or a domain's own lower `castThreshold`). Telling a player with a
     // visibly full bar that they have "not enough cursed energy" explains
@@ -1116,9 +1121,9 @@ export class Fighter {
     const th = this.castThresholdOverride ?? this.cfg.domain?.castThreshold ?? 1;
     const want = 100 * th;
     if (this.res.maxCE < want - 0.01) {
-      return 'CURSED ENERGY CEILING ' + Math.round(this.res.maxCE) + '/' + Math.round(want);
+      return 'NEED HIGHER ENERGY CEILING';
     }
-    return 'NOT ENOUGH CURSED ENERGY';
+    return 'NEED CURSED ENERGY';
   }
 
   get ultReady() {
@@ -2346,7 +2351,7 @@ export class Fighter {
       // do not pass it at all; the first melee hit that lands on it breaks it.
       // See applyHit for the intercept and fx.shutterUp for the door itself.
       case 'hakari_shutter': {
-        if (this.shutterT > 0) { this.emit('noCE', { why: 'SHUTTER ALREADY UP' }); return false; }
+        if (this.shutterT > 0) { this.emit('noCE', { why: '' }); return false; }   // the door is on screen
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         const move = {
@@ -2503,7 +2508,7 @@ export class Fighter {
       case 'dagon_summon': {
         const sys = ctx.match.ocean;
         if (!sys) return false;
-        if (sys.countFor(this) >= (sp.maxOutside ?? 1)) { this.emit('summonCapped'); return false; }
+        if (sys.countFor(this) >= (sp.maxOutside ?? 1)) { this.emit('summonCapped', { max: sp.maxOutside ?? 1 }); return false; }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         const mv = input?.move ?? { x: 0, z: 0 };
@@ -2589,7 +2594,7 @@ export class Fighter {
       case 'jogo_overheat': {
         // vulnerable channel: he stands venting through the whole startup —
         // getting hit cancels it (the ct state drops on any clean hit)
-        if (this.buffs.overheat > 0) { this.emit('noCE', { why: 'ALREADY VENTING' }); return false; }
+        if (this.buffs.overheat > 0) { this.emit('noCE', { why: '' }); return false; }   // he is visibly venting
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         const move = {
@@ -2771,7 +2776,7 @@ export class Fighter {
       // lets Fighter.update flip it to `projT` a quarter of a second later,
       // rather than arming instantly on the press.
       case 'naoya_stance': {
-        if (this.projT > 0 || this.projArmT > 0) { this.emit('noCE', { why: 'STANCE ALREADY SET' }); return false; }
+        if (this.projT > 0 || this.projArmT > 0) { this.emit('noCE', { why: '' }); return false; }   // he is stood in it
         // during MAXIMUM PROJECTION the stance is already permanently on, so
         // pressing it again is a wasted bar rather than a stacked buff
         if (this.maxProjT > 0) { this.emit('stanceRedundant'); return false; }
@@ -4490,7 +4495,7 @@ export class Fighter {
         this._setSpecialCD(this.cfg.special.cooldown);
         ctx.effects.blackFlash(this);
       } else if (this.bfT > 0) {
-        this.emit('noCE', { why: 'TOO EARLY' }); // pressed during the lockout
+        this.emit('noCE', { why: '' }); // pressed during the lockout — the flash tell is the message
       }
     }
 
@@ -4511,7 +4516,7 @@ export class Fighter {
         this.bfT = 0;
         ctx.effects.blackFlash(this);
       } else {
-        this.emit('noCE', { why: 'TOO EARLY' }); // still inside the lockout
+        this.emit('noCE', { why: '' }); // still inside the lockout — same
       }
     }
 
