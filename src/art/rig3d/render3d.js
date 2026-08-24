@@ -25,10 +25,14 @@
 //                              // mesh (inverse-binds are rebuilt) — the fix
 //                              // for a shoulder that sits too low. Authored
 //                              // on /workbench/?edit=rig.
-//       "toon": true,          // re-shade with the game's cel material +
-//                              // outline (default). false = keep the file's
-//                              // own PBR materials. An object overrides the
-//                              // grade: {"saturation":1.6,"brightness":1.3}
+//       "lift": {"ambient": 0.22, "saturation": 1.18},
+//                              // a small lighting lift so the model reads in
+//                              // this scene: `ambient` adds a fraction of the
+//                              // model's OWN texture back as light (lifting
+//                              // shadows without greying the hue), and
+//                              // `saturation` gives it a gentle push. The
+//                              // file's own PBR materials are kept. false or
+//                              // {"ambient":0,"saturation":1} = untouched.
 //       "pose": {"LeftArm": [0, 0, 62]},   // rest-pose calibration: local
 //                              // XYZ euler degrees per NODE NAME, applied at
 //                              // load before anything is measured — how a
@@ -58,7 +62,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { guessBoneMap } from './bonemap.js';
 import { Retargeter, captureSourceRest, rerigHierarchy } from './retarget.js';
 import { applyJointEdits, collectSkeletons } from './joints.js';
-import { stylizeToon } from './stylize.js';
+import { liftMaterials } from './lift.js';
 import { DEG } from '../../core/mathutil.js';
 
 // public/models/ resolved from ANY page — the game at the site root and the
@@ -233,9 +237,9 @@ function attach(model, srcRest, scene, src, pick) {
   scene.traverse(o => {
     if (o.isMesh || o.isSkinnedMesh) { o.frustumCulled = false; }
   });
-  // the anime pass: the game's own cel shader + outline, unless opted out
-  if (src.toon !== false) {
-    stylizeToon(scene, typeof src.toon === 'object' ? src.toon : {});
+  // a small lighting lift, unless opted out — see lift.js
+  if (src.lift !== false) {
+    liftMaterials(scene, typeof src.lift === 'object' ? src.lift : {});
   }
   model.group.add(wrapper);
   const retargeter = new Retargeter(model, srcRest, wrapper, map, {

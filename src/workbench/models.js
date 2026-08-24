@@ -179,24 +179,24 @@ export function mountModelBench(root) {
     return l;
   };
   dispRow.append(
-    mkCheck('Anime shading', true, on => session.setToon(on)),
+    mkCheck('Lighting lift', true, on => session.setLift(on)),
     mkCheck('Skeleton + joints', true, on => session.setSkeleton(on)),
     mkCheck('Wireframe', false, on => session.setWireframe(on)),
     mkCheck('Weight heatmap (selected bone)', false, on => session.showWeights(on)));
   sDisp.append(dispRow);
   for (const [label, k, min, max, step] of [
-    ['saturation', 'saturation', 0.4, 2.5, 0.05],
-    ['brightness', 'brightness', 0.5, 2.2, 0.05],
-    ['contrast', 'contrast', 0.5, 2, 0.05]
+    ['ambient', 'ambient', 0, 0.6, 0.01],
+    ['saturation', 'saturation', 0.8, 1.8, 0.02],
+    ['brightness', 'brightness', 0.6, 1.6, 0.02]
   ]) {
     const row = el('div', 'mb-slider');
     const range = el('input'); range.type = 'range';
-    range.min = min; range.max = max; range.step = step; range.value = session.toonOpts[k];
-    const num = el('input', 'mb-num'); num.type = 'number'; num.step = step; num.value = session.toonOpts[k];
+    range.min = min; range.max = max; range.step = step; range.value = session.liftOpts[k];
+    const num = el('input', 'mb-num'); num.type = 'number'; num.step = step; num.value = session.liftOpts[k];
     const apply = v => {
       const n = Number(v);
       range.value = num.value = n;
-      session.setToon(session.toonOn, { [k]: n });
+      session.setLift(session.liftOn, { [k]: n });
     };
     range.oninput = () => apply(range.value);
     num.onchange = () => apply(num.value);
@@ -204,9 +204,9 @@ export function mountModelBench(root) {
     sDisp.append(row);
   }
   sDisp.append(el('div', 'mb-hint',
-    'The model is re-shaded through the game’s own cel material and outline, so it ' +
-    'is judged in the shading it ships with. Heatmap paints each vertex by how much ' +
-    'the selected bone owns it — ' +
+    'The lift keeps the model’s own materials and adds back a fraction of its own ' +
+    'texture as light, so shadows lift without the colour greying out. ' +
+    'Heatmap paints each vertex by how much the selected bone owns it — ' +
     'black none, red partial, yellow full. Page through the bones with it on: ' +
     'a thigh bleeding into a coat hem shows up in one glance.'));
 

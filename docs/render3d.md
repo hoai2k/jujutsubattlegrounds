@@ -78,7 +78,7 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `faceYaw` | `0` | degrees, for models that don't face `+Z` |
 | `boneMap` | `{}` | `{canonical: nodeName}` overrides; `null` drops a bone |
 | `joints` | `{}` | `{nodeName: [x,y,z]}` corrected pivot positions — moves where a bone *rotates* without moving the mesh (inverse-binds are rebuilt). The fix for a shoulder that sits too low |
-| `toon` | `true` | re-shade with the game's cel material + outline. `false` keeps the file's PBR materials; an object overrides the grade (`saturation`, `brightness`, `contrast`, `steps`, `rim`, `outline`) |
+| `lift` | `{ambient: 0.22, saturation: 1.18}` | a small lighting lift (see below). `false` leaves the file's materials completely untouched |
 | `rotOffset` | `{}` | `{canonical: [x°,y°,z°]}` world-space trim per bone |
 | `keepProps` | `true` | procedural weapons stay in hand (they follow the drive rig's hands, which track the imported hands) |
 | `hideSprings` | `true` | procedural hair/coat spring meshes hidden |
@@ -110,6 +110,29 @@ auto game-bind, then per-bone adjustment), check skinning with the per-bone
 weight heatmap, and preview any character's real clips beside the procedural
 body it replaces.
 
+### Lighting: a lift, not a restyle
+
+A `.glb` authored for an offline render arrives lit for a room that has an
+environment in it. Dropped into this scene — three lights, no envmap — the
+dark half of every surface falls to near-black and a navy uniform reads as a
+black one. The colour is in the texture; nothing is reaching it.
+
+So imported models keep their own PBR materials and get two small dials
+(`src/art/rig3d/lift.js`), live in both benches and exported with the model:
+
+- **`ambient`** adds back a fraction of the model's **own base texture** as
+  emissive. That detail is the whole point: an ambient *light* adds grey and
+  washes the hue out, while adding the surface's own colour lifts the shadows
+  and makes the blue *more* blue. It is also per material rather than per
+  scene, so two fighters don't double each other's lighting the way two
+  ambient lights in one scene would.
+- **`saturation`** is a gentle push on top, for a texture baked a little grey
+  for a fighting game. At `1` no shader is compiled at all.
+
+Deliberately not a style pass. An earlier version re-shaded imports through
+the game's cel material with an ink outline, and it was far too much — a
+model should look like itself, only lit.
+
 **`?edit=rig` — the questions only eyes can answer.** Walk the mapping bone
 by bone with the guessed joint lit in the view (click the right joint in 3D
 to reassign); run the **stress poses** — arms overhead, deep squat, spine
@@ -118,8 +141,8 @@ skin weights to see where each joint actually is versus where the bone sits;
 and correct pivots and retarget trims with live dials.
 
 Both export one manifest-entry JSON carrying every correction — mapping
-picks, pivot fixes, rest-pose calibration, trims, fit numbers, look dials and
-free-text notes.
+picks, pivot fixes, rest-pose calibration, trims, fit numbers, lighting dials
+and free-text notes.
 
 ### Where a joint actually is
 
