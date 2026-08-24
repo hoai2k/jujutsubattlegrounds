@@ -90,7 +90,7 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 
 ## What ships today
 
-Four models are committed and mapped, all of them the same shape of export —
+Five models are committed and mapped, all of them the same shape of export —
 a Rigify `DEF-` rig, 33 bones, 19 of them canonical:
 
 | Character | File | Rest pose | Triangles | Entry |
@@ -99,6 +99,7 @@ a Rigify `DEF-` rig, 33 bones, 19 of them canonical:
 | Nobara | `nobara.glb` | A-pose | 120k | `weights`, `keepProps: false` |
 | Jogo | `jogo.glb` | T-pose | 120k | `weights` bleed |
 | Mahito | `mahito.glb` | as authored | 300k | `weights` bleed |
+| Naoya | `naoya.glb` | as authored | 120k | `weights` bleed |
 
 None of them needed a `pose` calibration, a `boneMap` override or a pivot
 fix: bind alignment absorbs the rest-pose difference (that is what it is for,
@@ -153,13 +154,22 @@ connected to a sleeve; a hammer is not connected to a hand.
 
 | Op | Meaning |
 | --- | --- |
-| `{"bleed": ["hand", "forearm"]}` | remove those bones' influence from every island they do not **dominate**. A sleeve is dominated by the forearm and keeps its weights; a skirt is dominated by the thigh and pelvis, so the 15% the forearm had acquired comes off |
+| `{"bleed": ["hand", "forearm"]}` | remove those bones' influence from every island that is not part of their own **limb**. A skirt is dominated by thigh and pelvis, so the 15% the forearm had acquired comes off; anything the arm chain owns is left alone |
 | `{"at": […], "rigid": "DEF-handR"}` | bind one island 100% to a bone — the fix for a held prop that bends |
 | `{"at": […], "drop": ["…"]}` | remove named bones from one island |
 
 `bleed` is the one that generalises: no anchors, nothing to re-derive when
 the model is exported again, and it is a no-op where there is no bleed (it
-cleaned two islands on Yuji, ten on Nobara, none on Jogo). `at` is a point
+cleans fourteen islands on Nobara, four on Naoya, none on Yuji or Jogo).
+
+**Limb, not bone** — that distinction is the whole correctness of the rule.
+The first version protected only islands the dropped bones *dominated*, which
+sounds equivalent and is not: an arm is usually one island dominated by the
+upper arm with the forearm holding a third of it, so dropping "forearm" there
+tore the forearm off the arm it belongs to. The elbow stopped bending and the
+mesh came apart — holes in Nobara's sleeves, Yuji's hand cut up. The guard is
+now the whole limb chain, and a drop that would leave a vertex with nothing
+skips that vertex rather than snapping it to a fallback bone. `at` is a point
 measured from the mesh's own rest bounding box and divided by that box's
 height, so it is scale- and space-invariant — the bench measures a fitted
 model in metres, the game applies ops before the fit in the file's own units,
