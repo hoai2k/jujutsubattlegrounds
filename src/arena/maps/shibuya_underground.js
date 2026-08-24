@@ -1,36 +1,36 @@
 // SHIBUYA STATION — ELEVATED PLATFORM LEVEL.
 //
-// REFERENCE NOTE (researched): the JR viaduct running above the scramble, an
-// island platform between two tracks under a long steel canopy on columns,
-// trains standing at the edge, tactile paving along the platform lip, and the
-// city carried on past the parapet in every direction. Night, rain, and the
-// neon of the crossing throwing colour up onto the underside of the roof.
+// REFERENCE NOTE (researched): the great nineteenth-century terminus. An island
+// platform under a BARREL-VAULTED train shed — a single arched span from
+// trackside to trackside with no columns down the middle of it — and, where the
+// concourse crosses, a domed ROTUNDA lifted over the platform on a ring of
+// columns with an oculus cut through its floor, so the booking hall looks
+// straight down onto the trains.
 //
-// The layout bones are the good ones: a long central platform, a trench either
-// side, a mezzanine ring overhead carried on structural pillars, and several
-// ways between the levels. What changed is the SCALE — this was 68 x 52 m and
-// by a distance the tightest arena in the set, which made every zoner miserable
-// on it — and the standing trains, one of which is now a room.
+// WHY THIS SHAPE. The previous version was a flat slab canopy on two rows of
+// posts over a straight platform, with a rectangular mezzanine ring above it:
+// three stacked rectangles, and the same three rectangles as half this set. A
+// vault has no columns in the middle, so the platform is one clear run instead
+// of a slalom; and the rotunda is a round room hanging in the middle of a
+// linear map, which gives the map a centre it never had. Everything routes
+// through it and everything under it can be seen from it.
+//
+// It is still a platform between two trenches with trains standing in them.
 //
 // LAYOUT (96 x 46 m):
 //   y = -1.10  TRACK PITS      two trenches flanking the platform, part-filled
-//                              by standing trains. Mirrored so each side has
+//                              by standing trains. Mirrored, so each side has
 //                              one blocked half and one open half.
-//   y = -0.60  THE OPEN CAR    one car in the north trench is a real interior:
-//                              floor, ceiling, seats, two door gaps. The
-//                              tightest space on the map and the only one with
-//                              a roof you can hear the rain on.
-//   y =  0.00  PLATFORM        the central engagement space, 66 m of it, two
-//                              pillar rows, benches, vending, signage.
-//   y =  5.20  CONCOURSE       a mezzanine ring above, ticket gates, reached by
-//                              two escalators and two stairs.
-//   y = 10.70  ROOF WALK       the top of the exit stair, above the canopy —
-//                              the highest ground and fully exposed.
-//   y = 10.75  CANOPY PLATE     the roof itself is solid, so a fighter thrown
-//                              onto it lands on it. Railed off from the roof
-//                              walk: somewhere to be put, not a route.
-//   VERTICAL                   2 escalators + 2 stairs + 1 exit stair.
-import { MapBuilder, emissive, glowMaterial } from '../kit.js';
+//   y = -0.60  THE OPEN CAR    one car is a real interior. The tightest space
+//                              here and the only one with a roof on it.
+//   y =  0.00  PLATFORM        66 m of clear run under the vault.
+//   y =  5.20  THE ROTUNDA     a drum over the middle of the platform, its
+//                              floor an annulus round a 12 m oculus.
+//   y = 10.40  THE PARAPET     the walk round the base of the dome. Highest
+//                              ground, fully exposed, and a ring.
+//   VERTICAL                   2 escalators up through wells in the rotunda
+//                              floor, 2 platform stairs, 1 helix to the parapet.
+import { MapBuilder, emissive, glowMaterial, haloMaterial } from '../kit.js';
 import * as THREE from 'three';
 import { rand, v3 } from '../../core/mathutil.js';
 
@@ -38,120 +38,202 @@ export const DEF = {
   id: 'shibuya_underground',
   name: 'SHIBUYA STATION',
   jp: '渋谷駅 高架ホーム',
-  desc: 'Elevated platform. Steel canopy, standing trains, and the city past the parapet.',
-  // groundY sits at the trench floor, not 0. Without it the default ground
-  // plane (y=0) sits ABOVE the pit slabs and floorAt never returns them, so
-  // the "step down into the trench" is visual only and you walk on air across
-  // the tracks.
-  // The bounds stop where the built floor does. They used to run out past the
-  // deepest authored surface, so anyone who walked off the end of a track pit
-  // kept going on the invisible ground plane with the city thirteen metres
-  // below them. Walking on air is worse than a wall, and this station has a
-  // real wall to put there (see the outer trench walls below).
+  desc: 'A vaulted train shed with a domed rotunda hung over the middle of it.',
   extent: { minX: -46, maxX: 46, minZ: -18, maxZ: 18, groundY: -1.10 },
   background: 0x0a0e1c,
   fog: { color: 0x141c30, near: 44, far: 150 },
   grade: { vignette: 0.54, tint: [1.00, 0.98, 1.12], lift: 0.004, sat: 1.06 },
   lights: {
-    key: { color: 0xcfe0ff, intensity: 1.05, pos: [8, 18, 6] },
-    rim: { color: 0xd8688f, intensity: 0.62, pos: [-10, 12, -10] },
-    hemi: { sky: 0x46578c, ground: 0x1a1a22, intensity: 0.46 }
+    key: { color: 0xcfe0ff, intensity: 1.15, pos: [8, 20, 6] },
+    rim: { color: 0xd8688f, intensity: 0.66, pos: [-10, 12, -10] },
+    hemi: { sky: 0x4a5c92, ground: 0x22222c, intensity: 0.58 }
   },
-  previewCam: { pos: [-44, 6.5, -6.5], look: [8, 1.8, 1] },
+  previewCam: { pos: [-38, 5.2, -12.5], look: [4, 3.2, 1] },
   shadowScale: 1.15,
-  shrineScale: 0.95,      // a platform with trenches: still the most enclosed map, but no longer cramped
-  size: '96 × 46 m · platform + trenches + mezzanine'
+  shrineScale: 0.95,
+  size: '96 × 46 m · vaulted shed, domed rotunda, trenches, parapet walk'
 };
 
-// The platform half-length and the trench geometry, named once: the floor, the
-// canopy, the trains, the concourse bays and the outer walls all have to agree
-// about where the platform ends, and eight hand-copied numbers is how they stop
-// agreeing.
 const PX = 33;          // platform half-length
 const PZ = 9;           // platform half-width (the trench lip)
 const TZ = 17;          // outer edge of the track pits
 const EX = 45;          // outer edge of everything
-const CY = 5.2;         // concourse
-const RY = 10.4;        // canopy underside
-const SY = 10.7;        // roof walk
+const CY = 5.2;         // rotunda floor, and the vault's springing
+const PARA = 10.4;      // the parapet walk round the dome
+const R_ROT = 15;       // the rotunda drum
+const R_OC = 6;         // the oculus through its floor
+// The two escalator wells, PULLED IN off the drum's outer edge. At 10.5 out,
+// an escalator long enough to clear the well surfaced past the annulus
+// altogether — there was no ring of floor left between the hole and the wall to
+// land on.
+const WELL = [
+  { x: -8.5, z: -5.5, r: 3.1 },
+  { x: 8.5, z: 5.5, r: 3.1 }
+];
+const HELIX = { x: 0, z: -11.6 };
 
 export function build(quality) {
   const b = new MapBuilder(DEF);
   const M = b.mats;
   const Z = 'station';
-  b.zone(Z, { x0: -EX - 1, x1: EX + 1, z0: -TZ - 1, z1: TZ + 1, y0: -2, y1: 16 }, false);
+  b.zone(Z, { x0: -EX - 1, x1: EX + 1, z0: -TZ - 1, z1: TZ + 1, y0: -2, y1: 20 }, false);
 
-  // ---- the city this thing is standing in --------------------------------
+  // ---- THIS STATION'S OWN MATERIALS --------------------------------------
+  // Soot-darkened brick and painted iron, not the set's shared grey concrete.
+  const brick = b.tint('concreteWall', 0x6b5a52);
+  const brickIn = b.tint('concreteWall', 0x7a6a60, { side: 2 });
+  const plat = b.tint('tile', 0x8e9298);
+  const iron = b.tint('darkMetal', 0x2b3138, { rim: 0.46 });
+  const glassIron = b.tint('metal', 0x8fa4b4, { rim: 0.55, gloss: 0.6 });
+  const stone = b.tint('concrete', 0x8a8c86);
+
   b.sky(0x060a18, 0x101a38, 0x2a2450);
   b.groundPlane(0x090c14, 300, -14);
   b.skyline(30, 150, { color: 0x0b0f1e, minW: 14, maxW: 34, minH: 34, maxH: 120 });
 
   // ---- PLATFORM LEVEL -----------------------------------------------------
-  b.floor(-PX, -PZ, PX, PZ, 0, { mat: M.tile });
+  b.floor(-PX, -PZ, PX, PZ, 0, { mat: plat });
   for (const z of [-PZ, PZ]) {
     const g = new THREE.BoxGeometry(PX * 2, 0.04, 0.7);
     g.translate(0, 0.02, z + (z < 0 ? 0.35 : -0.35));
     b.static_(g, emissive(0xc8a83c), Z);
   }
 
-  // TRACK PITS: a step down either side. Walkable — cornering someone in a
-  // trench is a real option — and the only dead ends on the map.
+  // TRACK PITS either side, and the outer walls that carry everything above.
   for (const s of [-1, 1]) {
-    const ZC = s * 13;                            // track centreline
-    b.floor(-EX, Math.min(s * PZ, s * TZ), EX, Math.max(s * PZ, s * TZ), -1.10, { mat: M.concrete });
-    b.wall(-EX, s * PZ, EX, s * PZ, -1.10, 0, { mat: M.concreteWall, thick: 0.4, collide: false });
+    const ZC = s * 13;
+    b.floor(-EX, Math.min(s * PZ, s * TZ), EX, Math.max(s * PZ, s * TZ), -1.10, { mat: stone });
+    b.wall(-EX, s * PZ, EX, s * PZ, -1.10, 0, { mat: brick, thick: 0.4, collide: false });
     const bal = new THREE.BoxGeometry(EX * 2 - 2, 0.12, 4.0);
     bal.translate(0, -1.04, ZC);
-    b.static_(bal, M.rust, Z);
+    b.static_(bal, b.tint('rust', 0x4a3c30), Z);
     for (const off of [-0.72, 0.72]) {
       const g = new THREE.BoxGeometry(EX * 2 - 2, 0.16, 0.10);
       g.translate(0, -0.94, ZC + off);
-      b.static_(g, M.metal, Z);
+      b.static_(g, glassIron, Z);
     }
     const sleepers = [];
     for (let x = -EX + 2; x <= EX - 2; x += 0.95) sleepers.push({ x, y: -1.02, z: ZC });
-    b.repeat(new THREE.BoxGeometry(0.26, 0.12, 2.7), M.wood, sleepers);
-    // The far side of the pit: the station's outer wall, carrying the mezzanine
-    // above it. This is what the trench used to be missing — the slab simply
-    // stopped and the fighter carried on into open sky.
-    // stopped 0.12 m under the concourse it carries, for the same reason the
-    // columns are — a wall topping out at exactly the floor height beside it
-    // collides with anyone standing on that floor. Hidden inside the slab.
-    b.wall(-EX - 0.4, s * (TZ + 0.4), EX + 0.4, s * (TZ + 0.4), -1.10, CY - 0.12, { mat: M.concreteWall, zone: Z });
+    b.repeat(new THREE.BoxGeometry(0.26, 0.12, 2.7), b.tint('wood', 0x3a2c1e), sleepers);
+    // the shed's side wall — it is what the vault springs off
+    b.wall(-EX - 0.4, s * (TZ + 0.4), EX + 0.4, s * (TZ + 0.4), -1.10, CY,
+      { mat: brick, zone: Z, id: 'sidewall' + s });
   }
-  // and the two ends of the pits, for the same reason
   for (const s of [-1, 1]) {
-    b.wall(s * (EX + 0.4), -TZ - 0.4, s * (EX + 0.4), TZ + 0.4, -1.10, CY - 0.12, { mat: M.concreteWall, zone: Z });
+    b.wall(s * (EX + 0.4), -TZ - 0.4, s * (EX + 0.4), TZ + 0.4, -1.10, CY + 4,
+      { mat: brick, zone: Z, id: 'endwall' + s });
+  }
+
+  // ---- THE TRAIN SHED ----------------------------------------------------
+  // ONE ARCH, trackside to trackside, in two runs either side of the rotunda.
+  // No columns down the middle: the vault is the whole point, and it is why the
+  // platform is a clear run now instead of a slalom between two rows of posts.
+  for (const [vx0, vx1] of [[-EX, -R_ROT + 1], [R_ROT - 1, EX]]) {
+    b.vault(vx0, -TZ - 0.4, vx1, TZ + 0.4, CY, 7.2, { mat: brickIn, axis: 'x', segs: 15, zone: Z });
+    // the ribs that carry it, one every 6 m
+    const n = Math.max(1, Math.round((vx1 - vx0) / 6));
+    for (let i = 0; i <= n; i++) {
+      const x = vx0 + (vx1 - vx0) * (i / n);
+      for (let k = 0; k < 13; k++) {
+        const a0 = Math.PI * k / 13, a1 = Math.PI * (k + 1) / 13;
+        const u0 = -Math.cos(a0) * (TZ + 0.4), u1 = -Math.cos(a1) * (TZ + 0.4);
+        const v0 = Math.sin(a0) * 7.2, v1 = Math.sin(a1) * 7.2;
+        const L = Math.hypot(u1 - u0, v1 - v0) * 1.06;
+        const g = new THREE.BoxGeometry(0.5, 0.38, L);
+        g.rotateX(-Math.atan2(v1 - v0, u1 - u0));
+        g.translate(x, CY + (v0 + v1) / 2, (u0 + u1) / 2);
+        b.static_(g, glassIron, Z);
+      }
+    }
+  }
+  // and the glazed strip down the crown, which is what the rain comes through
+  for (let i = 0; i < 22; i++) {
+    const x = -EX + 2 + i * 4;
+    if (Math.abs(x) < R_ROT) continue;
+    b.stripLight(x, CY + 6.9, 0, 2.6, 'x', 0xdfeaff, i === 4 ? 0.4 : 0);
+  }
+
+  // ---- THE ROTUNDA -------------------------------------------------------
+  // A drum lifted over the middle of the platform on a ring of columns, with a
+  // 12 m oculus cut through its floor so the booking hall looks straight down
+  // onto the trains. It is the centre this map never had.
+  b.roundDeck(0, 0, R_ROT, CY, {
+    rIn: R_OC, mat: stone, thick: 0.45, zone: Z, id: 'rotunda',
+    holes: WELL.map(w => ({ x: w.x, z: w.z, r: w.r }))
+  });
+  // the columns that carry it: on the platform where they can, on the trench
+  // walls where the drum oversails the tracks
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 + Math.PI / 12;
+    const px = Math.sin(a) * (R_ROT - 1.6), pz = Math.cos(a) * (R_ROT - 1.6);
+    const base = Math.abs(pz) > PZ ? -1.10 : 0;
+    if (WELL.some(w => Math.hypot(w.x - px, w.z - pz) < w.r + 1.2)) continue;
+    b.pillar(px, pz, base, CY - base - 0.12, 0.6, {
+      mat: stone, hp: 260, zone: Z, id: 'rotcol' + i
+    });
+  }
+  // the drum wall, with four wide openings so the rotunda is not a box
+  for (let q = 0; q < 4; q++) {
+    b.arcWall(0, 0, R_ROT + 0.4, q * Math.PI / 2 + 0.34, (q + 1) * Math.PI / 2 - 0.34,
+      CY, PARA - 0.12, { mat: brick, thick: 0.8, zone: Z, id: 'drum' + q });
+  }
+  // THE PARAPET WALK round the base of the dome — the highest ground, a ring,
+  // and completely exposed.
+  b.roundDeck(0, 0, R_ROT + 1.6, PARA, {
+    rIn: R_ROT - 0.6, mat: stone, thick: 0.4, zone: Z, id: 'parapet',
+    holes: [{ x: HELIX.x, z: HELIX.z, r: 3.3 }]
+  });
+  b.arcWall(0, 0, R_ROT + 1.7, 0, Math.PI * 2, PARA + 0.5, PARA + 1.15,
+    { mat: iron, thick: 0.12, zone: Z, id: 'pararail', collide: false });
+  b.dome(0, 0, PARA, R_ROT - 0.4, { mat: brickIn, rise: 5.4, oculus: 0.16, segs: 36, rings: 12 });
+  b.roundTower(0, 0, 2.2, PARA + 4.6, 1.6, { mat: glassIron, segs: 14, cap: true, id: 'lantern' });
+  b.beacon(0, PARA + 6.6, 0, 0xff5a6a, { reach: 6.0, rate: 0.8 });
+
+  // ---- GETTING UP --------------------------------------------------------
+  // Two escalators from the platform up through the wells, and a helix from the
+  // rotunda floor out to the parapet.
+  // Each runs from the platform UP THROUGH its well and lands on the annulus
+  // beyond it. Stopped inside the well, an escalator ends over a five-metre
+  // hole with the floor it climbs to still a metre away.
+  WELL.forEach((w, i) => {
+    const s = i ? 1 : -1;
+    b.escalator(w.x - s * 4.5, w.z - s * 1.7, w.x + s * 3.9, w.z + s * 1.7, 0, CY, 'x',
+      { zone: Z, id: 'esc' + i });
+  });
+  {
+    const a = Math.atan2(HELIX.x, HELIX.z);
+    b.spiralStair(HELIX.x, HELIX.z, CY, PARA, {
+      rIn: 0.6, rOut: 3.0, rise: 0.24, turns: 1, dir: 1, a0: a,
+      mat: iron, newelMat: iron, zone: Z, id: 'parahelix'
+    });
+    const lx = HELIX.x + Math.sin(a) * 2.9, lz = HELIX.z + Math.cos(a) * 2.9;
+    b.floor(lx - 1.5, lz - 1.5, lx + 1.5, lz + 1.5, PARA, { mat: stone, zone: Z, id: 'paraland' });
+  }
+  // The two platform stairs climb to the annulus's OUTER edge, through the
+  // openings in the drum wall. Aimed at its inner edge they ran the last eight
+  // metres underneath the floor they were climbing to and surfaced through it.
+  for (const s of [-1, 1]) {
+    b.stairs(s * 23, -2.0, s * (R_ROT + 0.4), 2.0, 0, CY, 'x', { mat: plat, zone: Z });
   }
 
   // ---- STANDING TRAINS ----------------------------------------------------
-  // One rake per trench, mirrored: each side has a blocked half and an open
-  // half, so neither player gets a free lane. `open` names the car index whose
-  // shell is built as a ROOM instead of a solid block.
   const CARL = 9.0;
   const train = (s, xStart, cars, band, open = -1) => {
     const ZC = s * 13;
+    const shell = b.tint('metal', 0x7d8894, { rim: 0.5, gloss: 0.55 });
     for (let c = 0; c < cars; c++) {
       const cx = xStart + c * (CARL + 0.5) + CARL / 2;
       const enterable = c === open;
-      // the shell. An enterable car gets its sides built as wall runs with door
-      // gaps in them rather than one merged box, so the body is still solid to
-      // look at and hollow to walk into.
       if (!enterable) {
         const body = new THREE.BoxGeometry(CARL, 3.3, 2.94);
         body.translate(cx, 0.75, ZC);
-        b.static_(body, M.metal, Z);
-        // A ROOF YOU CAN STAND ON. The car is a 3.5 m solid mass beside a
-        // mezzanine you can drop off, and its top was nothing but the top of a
-        // wall: anyone who landed on it sank into the collider and was pushed
-        // out sideways, which reads exactly like falling through the train.
-        // Deck at the drawn roof height, wall stopping under it.
+        b.static_(body, shell, Z);
         b.bounds.wall(cx - CARL / 2, ZC - 1.55, cx + CARL / 2, ZC + 1.55, -1.10, 2.28,
           { id: 'train' + s + c });
         b.bounds.platform(cx - CARL / 2, ZC - 1.55, cx + CARL / 2, ZC + 1.55, 2.40,
           { id: 'train' + s + c, prop: true });
       } else {
-        buildOpenCar(b, M, Z, cx, ZC, CARL, s);
+        buildOpenCar(b, shell, iron, Z, cx, ZC, CARL, s);
       }
       for (const side of [-1, 1]) {
         const win = new THREE.BoxGeometry(CARL - 1.8, 1.0, 0.06);
@@ -160,7 +242,7 @@ export function build(quality) {
         const bd = new THREE.BoxGeometry(CARL - 0.5, 0.40, 0.05);
         bd.translate(cx, 0.20, ZC + side * 1.52);
         b.static_(bd, emissive(band), Z);
-        if (enterable) continue;                   // its doors are holes, not decals
+        if (enterable) continue;
         for (let d = 0; d < 2; d++) {
           const dr = new THREE.BoxGeometry(1.25, 2.0, 0.05);
           dr.translate(cx - CARL / 4 + d * (CARL / 2), 0.70, ZC + side * 1.53);
@@ -169,322 +251,129 @@ export function build(quality) {
       }
       const bo = new THREE.BoxGeometry(2.4, 0.7, 2.5);
       bo.translate(cx, -0.75, ZC);
-      b.static_(bo, M.darkMetal, Z);
+      b.static_(bo, iron, Z);
     }
   };
-  train(-1, -34, 4, 0x6fd44a, 2);   // north trench: west half blocked, third car open
-  train(1, -2, 4, 0xe8842c);        // south trench: east half blocked
-
-  // ---- CONCOURSE (y = 5.2) ------------------------------------------------
-  // A mezzanine ring over the platform edges, open in the middle so the two
-  // levels can always see each other. Nine bays a side, one per pillar below,
-  // so dropping a pillar leaves a hole rather than deleting a 66 m strip.
-  const NB = 9, BW = 7.4, BX0 = -NB * BW / 2;
-  const bayId = (i, north) => 'bay' + (north ? 'N' : 'S') + i;
-  // ESCALATOR WELLS. One bay a side is the one its escalator comes up through,
-  // so that slab is laid with a hole in it. Without the hole the escalator is a
-  // flight of steps buried inside a concrete slab that the fighter pops out of
-  // the top of.
-  const wellN = { x0: -13.0, x1: -7.0, z0: -14.5, z1: -7.0 };
-  const wellS = { x0: 7.0, x1: 13.0, z0: 7.0, z1: 14.5 };
-  const CZ = 6.5;                     // inner edge of the mezzanine ring
-  for (let i = 0; i < NB; i++) {
-    const x0 = BX0 + i * BW, x1 = x0 + BW;
-    const overN = x1 > wellN.x0 && x0 < wellN.x1;
-    const overS = x1 > wellS.x0 && x0 < wellS.x1;
-    if (overN) b.floorHole(x0, -TZ, x1, -CZ, CY, wellN, { mat: M.concrete, id: bayId(i, true) });
-    else b.floor(x0, -TZ, x1, -CZ, CY, { mat: M.concrete, id: bayId(i, true) });
-    if (overS) b.floorHole(x0, CZ, x1, TZ, CY, wellS, { mat: M.concrete, id: bayId(i, false) });
-    else b.floor(x0, CZ, x1, TZ, CY, { mat: M.concrete, id: bayId(i, false) });
-  }
-  // rail the two long sides of each well
-  for (const w of [wellN, wellS]) {
-    b.railing(w.x0, w.z0, w.x0, w.z1, CY, { zone: Z });
-    b.railing(w.x1, w.z0, w.x1, w.z1, CY, { zone: Z });
-  }
-  b.floor(-PX, -CZ, -20, CZ, CY, { mat: M.concrete, id: 'concW' });
-  b.floor(20, -CZ, PX, CZ, CY, { mat: M.concrete, id: 'concE' });
-
-  for (let i = 0; i < NB; i++) {
-    const x = BX0 + BW / 2 + i * BW;
-    for (const z of [-CZ, CZ]) {
-      // A 1.2 m structural column standing in an escalator well is not cover,
-      // it is a plug: the flight is unusable with one in it.
-      if (z < 0 && x > wellN.x0 - 1 && x < wellN.x1 + 1) continue;
-      if (z > 0 && x > wellS.x0 - 1 && x < wellS.x1 + 1) continue;
-      // STOP THE COLUMN SHORT OF THE SLAB IT CARRIES. `resolveWalls` skips a
-      // wall only when `y > w.y1`, so a column topping out at exactly the
-      // concourse height still collides with anyone standing on the concourse
-      // beside it — an invisible 1.2 m blocker at the foot of all fourteen
-      // columns, on the floor they hold up. The 0.12 m it loses is hidden
-      // inside the slab.
-      b.pillar(x, z, 0, CY - 0.12, 0.6, {
-        square: true, mat: M.concreteWall, hp: 260, zone: Z, drops: [bayId(i, z < 0)]
-      });
-    }
-  }
-  // Only across the OPEN middle. z = ±CZ is also the seam between the bays and
-  // the two concourse link slabs, and a rail run end to end along it fences
-  // every bay off from the only two pieces of concourse the stairs reach.
-  for (const [x0, x1] of [[-20, 20]]) {
-    b.railing(x0, -CZ, x1, -CZ, CY, { zone: Z });
-    b.railing(x0, CZ, x1, CZ, CY, { zone: Z });
-  }
-  // outer edge of the mezzanine drops to the city — parapet, not a railing
-  b.wall(-PX, -TZ, PX, -TZ, CY, CY + 1.15, { mat: M.concreteWall, zone: Z });
-  b.wall(-PX, TZ, PX, TZ, CY, CY + 1.15, { mat: M.concreteWall, zone: Z });
-
-  // ---- CANOPY over the platform -------------------------------------------
-  // Steel, on columns off the mezzanine, with a slot down the centreline so
-  // the rain and the neon get through onto the platform.
-  for (let i = 0; i < 12; i++) {
-    const x = -PX + 1.5 + i * 6;
-    for (const z of [-10.5, 10.5]) {
-      const col = new THREE.BoxGeometry(0.26, RY - CY, 0.26);
-      col.translate(x, CY + (RY - CY) / 2, z);
-      b.static_(col, M.darkMetal, Z);
-    }
-    const beam = new THREE.BoxGeometry(0.3, 0.34, 22.5);
-    beam.translate(x, RY + 0.15, 0);
-    b.static_(beam, M.darkMetal, Z);
-    // The beams bridge the slot between the two canopy halves at 10.72, three
-    // centimetres under the plate either side of them, so with the plate now
-    // solid they read as part of the same roof. Give them a top for the same
-    // reason the plate has one.
-    b.lip(x - 0.15, -11.25, x + 0.15, 11.25, RY + 0.32);
-  }
-  // AND THE CANOPY HAS A TOP. Its plate is drawn at 10.75 and the roof walk sits
-  // at 10.70 immediately beside it, so anyone thrown up there landed on a roof
-  // that was not there and dropped eleven metres through it onto the platform —
-  // the largest fall-through on this map and invisible to every check that
-  // starts from the colliders. It is deliberately NOT a route: the roof walk's
-  // rails still fence it off, so the only way onto the canopy is to be put
-  // there, and it is the same height as the high ground that already exists
-  // rather than a new tier above it.
-  for (const [cz0, cz1] of [[-TZ, -2.4], [2.4, TZ]]) {
-    b.ceiling(-PX - 3, cz0, PX + 3, cz1, RY, { mat: M.darkMetal, zone: Z });
-    b.lip(-PX - 3, cz0, PX + 3, cz1, RY + 0.35);
-  }
-  for (let i = 0; i < 11; i++) {
-    b.stripLight(-PX + 2 + i * 6.3, RY - 0.35, -6.0, 4.6, 'x', 0xdfeaff, i === 7 ? 0.35 : 0);
-    b.stripLight(-PX + 2 + i * 6.3, RY - 0.35, 6.0, 4.6, 'x', 0xdfeaff, 0);
-  }
-
-  // ---- TICKET GATES across the west concourse link ------------------------
-  const gateGeo = new THREE.BoxGeometry(0.5, 1.0, 1.7);
-  const gates = [];
-  for (let i = 0; i < 6; i++) gates.push({ x: -25.5, y: CY + 0.5, z: -4.5 + i * 1.8 });
-  b.repeat(gateGeo, M.paint, gates);
-  for (const g of gates) {
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.12, 1.74), emissive(0x4fd8a8));
-    top.position.set(g.x, g.y + 0.56, g.z);
-    b.add(top);
-    b.bounds.wall(g.x - 0.3, g.z - 0.9, g.x + 0.3, g.z + 0.9, CY, CY + 1.0, { id: 'gate' + g.z });
-  }
-
-  // ---- ESCALATORS + STAIRS ------------------------------------------------
-  // The escalators were once authored as LINES — x0 === x1 — so every tread was
-  // a box with a zero-length side and the ramp collider had zero area. They
-  // were not steep, or misplaced: they did not exist.
-  //
-  // Both start on the platform, climb out over their trench and surface through
-  // the well cut in the bay above (see wellN / wellS), which is how a station
-  // actually gets you from a platform to a concourse.
-  b.escalator(-13, -4, -7.5, -14, 0, CY, 'z', { zone: Z });
-  b.escalator(7.5, 4, 13, 14, 0, CY, 'z', { zone: Z });
-  // The west stair used to run entirely underneath the west concourse slab: you
-  // climbed five metres inside solid concrete and surfaced through the floor.
-  // Both stairs now climb from the open platform and land ON a slab's edge.
-  b.stairs(-12, -3, -20, 3, 0, CY, 'x', { zone: Z, mat: M.tile });
-  b.railing(-12, -3.2, -20, -3.2, CY - 2.6, { zone: Z, collide: false });
-  b.railing(-12, 3.2, -20, 3.2, CY - 2.6, { zone: Z, collide: false });
-  b.stairs(12, -3, 20, 3, 0, CY, 'x', { zone: Z, mat: M.tile });
-  b.railing(12, -3.2, 20, -3.2, CY - 2.6, { zone: Z, collide: false });
-  b.railing(12, 3.2, 20, 3.2, CY - 2.6, { zone: Z, collide: false });
-
-  // ---- EXIT STAIR to the roof walk — the highest ground -------------------
-  b.stairs(24, -3, PX, 3, CY, SY, 'x', { zone: Z, mat: M.concrete });
-  b.floor(PX, -7, EX, 7, SY, { mat: M.concrete, id: 'roofwalk' });
-  b.railing(PX, -7, EX, -7, SY, { zone: Z });
-  b.railing(PX, 7, EX, 7, SY, { zone: Z });
-  b.railing(EX, -7, EX, 7, SY, { zone: Z });
-  for (let i = 0; i < 4; i++) b.stripLight(PX + 2 + i * 3, SY + 3.0, 0, 2.6, 'x', 0xfff0d8);
-
-  // ---- PLATFORM FURNITURE -------------------------------------------------
-  for (const x of [-26, -16, -6, 6, 16, 26]) b.bench(x, 0, 0, Math.PI / 2, 3.0);
-  b.vending(-30.5, 0, 3.4, Math.PI, 0xd8402c);
-  b.vending(-30.5, 0, -3.4, Math.PI, 0x2c78d8);
-  b.vending(30.5, 0, 3.4, 0, 0x3ba85a);
-  b.vending(30.5, 0, -3.4, 0, 0xd8402c);
-  // hanging platform signage under the canopy, readable from both directions
-  for (const sx of [-22, 0, 22]) {
-    b.sign(sx, RY - 1.6, 0, 4.6, 1.0, 0x1d5a3c, 0);
-    b.sign(sx, RY - 1.6, 0, 4.6, 1.0, 0x1d5a3c, Math.PI);
-  }
-  b.sign(-13, CY + 2.4, -6.4, 5.0, 1.1, 0x1d3f6a, 0);
-  b.sign(13, CY + 2.4, 6.4, 5.0, 1.1, 0x1d3f6a, Math.PI);
-
-  // ---- THE CITY PAST THE PARAPET -----------------------------------------
-  b.bigScreen(-26, 15, -27.5, 18, 10, 0, 205);
-  b.bigScreen(24, 18, -27.5, 16, 9, 0, 320);
-  b.bigScreen(-24, 16, 27.5, 16, 9, Math.PI, 150);
-  b.bigScreen(26, 13, 27.5, 14, 8, Math.PI, 30);
-  for (const [nx, nz, nry] of [[-42, -22, 0], [42, -22, 0], [-42, 22, Math.PI], [42, 22, Math.PI]]) {
-    for (let i = 0; i < 3; i++) {
-      b.neon(nx, 6 + i * 6.5, nz, 1.4, 5.0, [0xff4f9f, 0x4fd8ff, 0xffd84f][i], nry);
-    }
-  }
+  train(-1, -40, 3, 0x6fd44a, 1);    // north trench: west half blocked
+  train(1, 12, 3, 0xe8842c);         // south trench: east half blocked
 
   // ---- THE CATENARY -------------------------------------------------------
-  // Overhead line down both trenches, with the droppers off it. A railway
-  // without wire over the track is a trench with sleepers in it, and this is
-  // the single cheapest thing that says "trains run here" — it also fills the
-  // volume between the ballast and the canopy, which was empty air.
   for (const s of [-1, 1]) {
     const ZC = s * 13;
     for (let i = 0; i < 5; i++) {
       const x0 = -EX + 2 + i * 18, x1 = Math.min(EX - 2, x0 + 18);
       if (x1 - x0 < 2) continue;
-      b.cable(v3(x0, 4.5, ZC), v3(x1, 4.5, ZC), { sag: 0.5, r: 0.05, mat: M.darkMetal });
-      b.cable(v3(x0, 3.7, ZC), v3(x1, 3.7, ZC), { sag: 0.34, r: 0.035, mat: M.darkMetal });
+      b.cable(v3(x0, 4.4, ZC), v3(x1, 4.4, ZC), { sag: 0.5, r: 0.05, mat: iron });
+      b.cable(v3(x0, 3.7, ZC), v3(x1, 3.7, ZC), { sag: 0.34, r: 0.035, mat: iron });
     }
-    // the masts, off the outer wall
     for (let i = 0; i < 9; i++) {
       const x = -EX + 4 + i * 10.5;
-      const mast = new THREE.BoxGeometry(0.2, 6.2, 0.2);
-      mast.translate(x, 1.9, s * (TZ - 0.6));
-      b.static_(mast, M.rust, Z);
+      if (Math.abs(x) < R_ROT - 2) continue;
+      const mast = new THREE.BoxGeometry(0.2, 5.6, 0.2);
+      mast.translate(x, 1.6, s * (TZ - 0.6));
+      b.static_(mast, b.tint('rust', 0x5a4436), Z);
       const arm = new THREE.BoxGeometry(0.14, 0.14, Math.abs(s * (TZ - 0.6) - ZC));
-      arm.translate(x, 4.9, (s * (TZ - 0.6) + ZC) / 2);
-      b.static_(arm, M.rust, Z);
+      arm.translate(x, 4.4, (s * (TZ - 0.6) + ZC) / 2);
+      b.static_(arm, b.tint('rust', 0x5a4436), Z);
     }
   }
 
-  // ---- WHAT COMES THROUGH THE SLOT ---------------------------------------
-  // The canopy has a slot down the centreline and until now the only thing that
-  // came through it was rain. These are the shafts of it — the crossing's neon
-  // and the platform lights arriving as volume rather than as a lit strip on a
-  // ceiling 10 m up.
-  for (let i = 0; i < 7; i++) {
-    b.godRay(-30 + i * 10, RY - 0.2, 0, 3.0, RY, 0xcfe0ff,
-      { opacity: 0.075, taper: 0.35, lean: [(i % 2 ? 1 : -1) * 0.7, 0], range: 90 });
+  // ---- LIGHT, SIGNAGE AND THE WARD ---------------------------------------
+  b.godRay(0, PARA + 5.2, 0, 5.0, PARA + 5.2 + 1.1, 0xcfe0ff,
+    { opacity: 0.10, taper: 0.4, lean: [3.4, -2.6], poolGain: 1.1, range: 110 });
+  for (let i = 0; i < 6; i++) {
+    const x = -30 + i * 12;
+    if (Math.abs(x) < R_ROT) continue;
+    b.godRay(x, CY + 6.9, 0, 3.0, CY + 6.9, 0xcfe0ff,
+      { opacity: 0.06, taper: 0.35, lean: [(i % 2 ? 1 : -1) * 0.8, 0], range: 90 });
   }
-  b.godRay(-13, CY - 0.1, -10.8, 2.6, CY + 1.1, 0xffd8a0, { opacity: 0.09, taper: 0.4 });
-  b.godRay(13, CY - 0.1, 10.8, 2.6, CY + 1.1, 0xffd8a0, { opacity: 0.09, taper: 0.4 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    b.hangingLamp(Math.sin(a) * (R_ROT - 4), CY + 4.2, Math.cos(a) * (R_ROT - 4),
+      1.2, 0xffe6c0, { amp: 0.06, range: 46 });
+  }
+  b.sigil(0, 0.06, 0, 8.5, 0x8f6aff, { rings: 3, spokes: 14, sides: 6, opacity: 0.26, spin: -0.04 });
+  b.sigil(0, PARA + 0.05, 0, 6.0, 0x8f6aff, { rings: 2, spokes: 10, sides: 3, opacity: 0.24, spin: 0.10 });
+  for (const [bx, bc] of [[-26, 0xd8324f], [-19, 0x2f7fd8], [19, 0xd8a52f], [26, 0x2fd88a]]) {
+    b.banner(bx, CY + 5.6, -6.6, 2.2, 3.4, bc, { ry: 0, amp: 0.09 });
+    b.banner(bx, CY + 5.6, 6.6, 2.2, 3.4, bc, { ry: Math.PI, amp: 0.09 });
+  }
 
-  // ---- THE TRENCHES ARE A DIFFERENT PLACE ---------------------------------
-  // Mist on the ballast, steam off the pits, and a broken feeder arcing where
-  // the wire has come down. The trenches were correct, walkable and completely
-  // undifferentiated from the platform above them.
+  // ---- PLATFORM FURNITURE + THE WORKS ------------------------------------
+  for (const x of [-27, -20, 20, 27]) b.bench(x, 0, 0, Math.PI / 2, 3.0);
+  b.vending(-30.5, 0, 3.4, Math.PI, 0xd8402c);
+  b.vending(-30.5, 0, -3.4, Math.PI, 0x2c78d8);
+  b.vending(30.5, 0, 3.4, 0, 0x3ba85a);
+  for (const sx of [-24, 0, 24]) {
+    if (sx === 0) continue;
+    b.sign(sx, CY + 3.4, 0, 4.6, 1.0, 0x1d5a3c, 0);
+    b.sign(sx, CY + 3.4, 0, 4.6, 1.0, 0x1d5a3c, Math.PI);
+  }
+  b.crates(24, -1.10, -13, { count: 3 });
+  b.crates(26.4, -1.10, -12.2, { count: 2 });
+  for (let i = 0; i < 4; i++) b.drum(31 + i * 1.05, -1.10, -13.4, { color: 0xc4562c });
+  b.beacon(29, 0.5, -14.6, 0xffa03c, { reach: 4.2 });
+  b.crates(-24, -1.10, 13, { count: 3 });
+  for (let i = 0; i < 4; i++) b.drum(-31 - i * 1.05, -1.10, 13.4, { color: 0xb8483c });
+  b.beacon(-29, 0.5, 14.6, 0xffa03c, { reach: 4.2 });
   for (const s of [-1, 1]) {
-    b.mist(-EX + 1, s * (PZ + 0.3), EX - 1, s * (TZ - 0.3), -1.10, 0x8296b4,
-      { opacity: 0.26, scale: 16 });
+    b.mist(-EX + 1, s * (PZ + 0.3), EX - 1, s * (TZ - 0.3), -1.10, 0x8296b4, { opacity: 0.24, scale: 16 });
+    b.sparker(s * 21, 4.2, s * 13, { color: 0xbfe4ff });
+    b.steamVent(s * 8, -1.05, s * 16, { height: 4.6, period: 3.6, opacity: 0.26 });
   }
-  b.steamVent(6, -1.05, -16, { height: 4.6, period: 3.6, opacity: 0.26 });
-  b.steamVent(-8, -1.05, 16, { height: 4.6, period: 4.1, opacity: 0.26 });
-  b.steamVent(38, -1.05, -10, { height: 3.4, period: 2.8, opacity: 0.22 });
-  b.sparker(24, 4.4, -13, { color: 0xbfe4ff });
-  b.sparker(-26, 4.4, 13, { color: 0xbfe4ff });
-  b.sparker(-13, RY - 0.6, 3.4, { color: 0xdfeaff });
-
-  // ---- ENGINEERING POSSESSION --------------------------------------------
-  // Both trenches have a blocked half and an open half (see `train`), and the
-  // open halves were bare ballast. They are now the works site: cover to fight
-  // round, a stack to climb, and a row of drums that takes the lot with it.
-  // Placed clear of the standing rakes so neither route is narrowed.
-  b.crates(20, -1.10, -13, { count: 3 });
-  b.crates(22.4, -1.10, -12.2, { count: 2 });
-  for (let i = 0; i < 4; i++) b.drum(28 + i * 1.05, -1.10, -13.4, { color: 0xc4562c });
-  b.beacon(26, 0.5, -14.6, 0xffa03c, { reach: 4.2 });
-  b.crates(-20, -1.10, 13, { count: 3 });
-  b.crates(-22.4, -1.10, 12.2, { count: 2 });
-  for (let i = 0; i < 4; i++) b.drum(-28 - i * 1.05, -1.10, 13.4, { color: 0xb8483c });
-  b.beacon(-26, 0.5, 14.6, 0xffa03c, { reach: 4.2 });
-
-  // ---- SIGNAGE AND THE WARD ----------------------------------------------
-  // Hanging cloth under the canopy, and the veil laid over the platform: the
-  // same ward as the crossing below, seen from inside it.
-  b.sigil(0, 0.06, 0, 11, 0x8f6aff, { rings: 3, spokes: 14, sides: 6, opacity: 0.24, spin: -0.04 });
-  for (const [bx, bc] of [[-30, 0xd8324f], [-10, 0x2f7fd8], [10, 0xd8a52f], [30, 0x2fd88a]]) {
-    b.banner(bx, RY - 0.4, -6.6, 2.2, 3.4, bc, { ry: 0, amp: 0.09 });
-    b.banner(bx, RY - 0.4, 6.6, 2.2, 3.4, bc, { ry: Math.PI, amp: 0.09 });
-  }
-  // rain coming off the lip of the canopy, both sides of the slot
-  b.waterfall(-18, RY - 0.1, -2.5, 2.4, RY - 0.4, { color: 0x9fc0e8, opacity: 0.30, speed: 3.2 });
-  b.waterfall(18, RY - 0.1, 2.5, 2.4, RY - 0.4, { color: 0x9fc0e8, opacity: 0.30, speed: 3.2 });
-  b.beacon(EX - 3, SY + 1.4, 0, 0xff4a5a, { reach: 5.0, rate: 1.1 });
 
   // ---- RAIN + HAZE --------------------------------------------------------
-  // Falls through the slot in the canopy, so the platform reads as open.
-  b.particles(700, { x0: -44, x1: 44, y0: 0, y1: 28, z0: -24, z1: 24 },
-    { color: 0x9fc0e8, size: 0.05, opacity: 0.30, vy: [-15, -9] });
-  b.particles(120, { x0: -38, x1: 38, y0: 0.2, y1: 7, z0: -16, z1: 16 },
-    { color: 0xff8fc8, size: 0.09, opacity: 0.20, vy: [0.1, 0.5] });
-  const sheen = new THREE.Mesh(new THREE.PlaneGeometry(66, 18), glowMaterial(0x3c5f9f, 0.09));
+  b.particles(500, { x0: -44, x1: 44, y0: 0, y1: 20, z0: -20, z1: 20 },
+    { color: 0x9fc0e8, size: 0.05, opacity: 0.26, vy: [-15, -9] });
+  b.particles(140, { x0: -R_ROT, x1: R_ROT, y0: 0.2, y1: PARA, z0: -R_ROT, z1: R_ROT },
+    { color: 0xffd0a8, size: 0.09, opacity: 0.22, vy: [0.1, 0.5] });
+  const sheen = new THREE.Mesh(new THREE.PlaneGeometry(66, 18), haloMaterial(0x3c5f9f, 0.12));
   sheen.rotation.x = -Math.PI / 2;
   sheen.position.set(0, 0.03, 0);
   b.add(sheen);
 
-  b.bounds.spawns = [v3(-16, 0, 0), v3(16, 0, 0), v3(0, 0, -4), v3(0, 0, 4)];
+  b.bounds.spawns = [v3(-22, 0, 0), v3(22, 0, 0), v3(0, 0, -5), v3(0, 0, 5)];
   return b;
 }
 
 // ---------------------------------------------------------------------------
-// THE OPEN CAR
+// THE OPEN CAR — a carriage you can fight inside.
 // ---------------------------------------------------------------------------
-// A carriage you can fight inside: floor, ceiling, bench seats, grab poles, and
-// two door gaps on the platform side. It is the one genuinely enclosed room on
-// an otherwise wide-open map, which is what makes it worth having.
-//
-// The floor sits 0.50 m above the trench, not the 0.75 m a real car's deck
-// would be: STEP_UP is 0.55, so 0.50 is a threshold the fighter walks over from
-// the ballast in both directions. At 0.75 the doorway is a wall you can see
-// through, which is worse than no doorway at all.
-function buildOpenCar(b, M, Z, cx, ZC, CARL, s) {
-  const FY = -0.60, ROOF = 2.30;
-  const HW = 1.47;                          // body half-width
+// Its floor is 0.50 m above the trench, not the 0.75 m a real deck would be:
+// STEP_UP is 0.55, so 0.50 is a threshold the fighter walks over in both
+// directions. At 0.75 the doorway is a wall you can see through.
+function buildOpenCar(b, shell, iron, Z, cx, ZC, CARL, s) {
+  const FY = -0.60, ROOF = 2.30, HW = 1.47;
   const x0 = cx - CARL / 2, x1 = cx + CARL / 2;
   const id = 'car' + s;
-
-  b.floor(x0, ZC - HW, x1, ZC + HW, FY, { mat: M.darkMetal, zone: Z, id });
-  b.ceiling(x0, ZC - HW, x1, ZC + HW, ROOF, { mat: M.metal, zone: Z });
-  // and the top of that ceiling is a roof, same as the sealed cars beside it:
-  // without it the open car is the one train you drop straight through.
+  b.floor(x0, ZC - HW, x1, ZC + HW, FY, { mat: iron, zone: Z, id });
+  b.ceiling(x0, ZC - HW, x1, ZC + HW, ROOF, { mat: shell, zone: Z });
   b.bounds.platform(x0, ZC - HW, x1, ZC + HW, ROOF + 0.35, { id: id + 'roof', prop: true });
-  // the ends
   for (const ex of [x0, x1]) {
-    b.wall(ex, ZC - HW, ex, ZC + HW, FY, ROOF, { mat: M.metal, thick: 0.14, zone: Z, id: id + 'e' + ex });
+    b.wall(ex, ZC - HW, ex, ZC + HW, FY, ROOF, { mat: shell, thick: 0.14, zone: Z, id: id + 'e' + ex });
   }
-  // THE SIDES. The far side is solid; the platform side carries the two door
-  // gaps. Each side is authored as the runs BETWEEN the openings, so the holes
-  // are holes in the collision too and not just in the art.
   const doorW = 1.5;
   const d1 = cx - CARL / 4, d2 = cx + CARL / 4;
   const far = ZC - s * HW, near = ZC + s * HW;
-  b.wall(x0, far, x1, far, FY, ROOF, { mat: M.metal, thick: 0.14, zone: Z, id: id + 'f' });
+  b.wall(x0, far, x1, far, FY, ROOF, { mat: shell, thick: 0.14, zone: Z, id: id + 'f' });
   for (const [a, c] of [[x0, d1 - doorW / 2], [d1 + doorW / 2, d2 - doorW / 2], [d2 + doorW / 2, x1]]) {
     if (c - a < 0.12) continue;
-    b.wall(a, near, c, near, FY, ROOF, { mat: M.metal, thick: 0.14, zone: Z, id: id + 'n' + Math.round(a) });
+    b.wall(a, near, c, near, FY, ROOF, { mat: shell, thick: 0.14, zone: Z, id: id + 'n' + Math.round(a) });
   }
-  // the door head, so the openings read as doors rather than as missing wall
   for (const d of [d1, d2]) {
     const g = new THREE.BoxGeometry(doorW, 0.30, 0.16);
     g.translate(d, ROOF - 0.15, near);
-    b.static_(g, M.darkMetal, Z);
+    b.static_(g, iron, Z);
   }
-  // bench seats down both sides, and grab poles
   for (const side of [-1, 1]) {
     const g = new THREE.BoxGeometry(CARL - 1.2, 0.12, 0.62);
     g.translate(cx, FY + 0.44, ZC + side * (HW - 0.34));
     b.static_(g, emissive(0x2a4a6a), Z);
-    const back = new THREE.BoxGeometry(CARL - 1.2, 0.70, 0.10);
-    back.translate(cx, FY + 0.80, ZC + side * (HW - 0.06));
-    b.static_(back, M.paint, Z);
   }
   for (let i = 0; i < 4; i++) {
     const g = new THREE.CylinderGeometry(0.05, 0.05, ROOF - FY, 6);
     g.translate(cx - CARL / 2 + 1.5 + i * (CARL - 3) / 3, (FY + ROOF) / 2, ZC);
-    b.static_(g, M.metal, Z);
+    b.static_(g, iron, Z);
   }
   b.stripLight(cx - 2, ROOF - 0.18, ZC, 2.6, 'x', 0xeaf4ff);
   b.stripLight(cx + 2, ROOF - 0.18, ZC, 2.6, 'x', 0xeaf4ff);
