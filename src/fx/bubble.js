@@ -108,8 +108,14 @@ function tailPath(g, cx, baseY, rnd) {
   g.closePath();
 }
 
-function makeTexture(text, accent) {
-  const key = text + '|' + accent;
+// `note` swaps the speech bubble for a REFUSAL PLATE. Same paper, same ink,
+// same three-pass text — everything the header argues for about legibility
+// under the domain grades and at fighting-game distance holds either way — but
+// no tail and a squared-off box, because these are not something the character
+// said. They are the game answering a button, and a plate reads as a caption
+// where a bubble would read as dialogue.
+function makeTexture(text, accent, note = false) {
+  const key = text + '|' + accent + (note ? '|n' : '');
   if (_cache.has(key)) return _cache.get(key);
 
   const measure = document.createElement('canvas').getContext('2d');
@@ -119,8 +125,9 @@ function makeTexture(text, accent) {
   const textW = Math.max(...lines.map(l => measure.measureText(l).width));
   const textH = lines.length * LINE_H;
 
+  const tailH = note ? 0 : TAIL_H;
   const w = Math.ceil((textW + PAD_X * 2 + 90) / 4) * 4;
-  const h = Math.ceil((textH + PAD_Y * 2 + TAIL_H + 70) / 4) * 4;
+  const h = Math.ceil((textH + PAD_Y * 2 + tailH + 70) / 4) * 4;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const g = c.getContext('2d');
@@ -142,25 +149,23 @@ function makeTexture(text, accent) {
     g.translate(ox, oy);
     g.strokeStyle = `rgba(8,9,14,${alpha})`;
     g.lineWidth = lw;
-    tailPath(g, cx, cy + ry - 6, seeded(text));
-    g.stroke();
-    bubblePath(g, cx, cy, rx, ry, seeded(text));
+    if (!note) { tailPath(g, cx, cy + ry - 6, seeded(text)); g.stroke(); }
+    plate(g, cx, cy, rx, ry, note, seeded(text));
     g.stroke();
     g.restore();
   }
 
   // ---- the paper ----------------------------------------------------------
   g.fillStyle = PAPER;
-  tailPath(g, cx, cy + ry - 6, seeded(text));
-  g.fill();
-  bubblePath(g, cx, cy, rx, ry, seeded(text));
+  if (!note) { tailPath(g, cx, cy + ry - 6, seeded(text)); g.fill(); }
+  plate(g, cx, cy, rx, ry, note, seeded(text));
   g.fill();
 
   // The accent band: a thin inner ring in the character's colour. Kept inside
   // the ink and well away from the text, so it identifies the speaker without
   // ever being the thing legibility depends on.
   g.save();
-  bubblePath(g, cx, cy, rx - 13, ry - 13, seeded(text));
+  plate(g, cx, cy, rx - 13, ry - 13, note, seeded(text));
   g.strokeStyle = accent;
   g.lineWidth = 5;
   g.globalAlpha = 0.85;
@@ -201,6 +206,21 @@ function makeTexture(text, accent) {
   return out;
 }
 
+// The outline, either shape. A refusal plate is a plain rounded box: no wobble
+// either, because the wobble is a hand-drawn tell and this is not the character
+// speaking.
+function plate(g, cx, cy, rx, ry, note, rnd) {
+  if (!note) return bubblePath(g, cx, cy, rx, ry, rnd);
+  const r = Math.min(18, ry * 0.5);
+  g.beginPath();
+  g.moveTo(cx - rx + r, cy - ry);
+  g.lineTo(cx + rx - r, cy - ry); g.quadraticCurveTo(cx + rx, cy - ry, cx + rx, cy - ry + r);
+  g.lineTo(cx + rx, cy + ry - r); g.quadraticCurveTo(cx + rx, cy + ry, cx + rx - r, cy + ry);
+  g.lineTo(cx - rx + r, cy + ry); g.quadraticCurveTo(cx - rx, cy + ry, cx - rx, cy + ry - r);
+  g.lineTo(cx - rx, cy - ry + r); g.quadraticCurveTo(cx - rx, cy - ry, cx - rx + r, cy - ry);
+  g.closePath();
+}
+
 // Pop-in with a snap, hold, fade. The overshoot is doing the "snap": the quad
 // arrives 14% too big and settles back over three frames, which is what stops a
 // scale-from-zero reading as a fade-in.
@@ -219,10 +239,15 @@ export class BubbleSystem {
   // `cam` is the eye this bubble BILLBOARDS TO. It matters only in split-screen,
   // where there is more than one, and the caller passes the taunting fighter's
   // OWN eye — see the note in `update`.
-  say(fighter, text, { hold = 1.4, accent = '#ff5f74', cam = null } = {}) {
+  // `note`  draw a refusal plate rather than a speech bubble (see makeTexture)
+  // `layer` a seat's private render layer (core/stage.js `seatLayer`), so only
+  //         the player whose button was refused is told about it. Left off, the
+  //         quad stays on layer 0 and every seat sees it, which is what a taunt
+  //         wants.
+  say(fighter, text, { hold = 1.4, accent = '#ff5f74', cam = null, note = false, layer = 0, scale = 1 } = {}) {
     if (!text) return null;
     this.clearFor(fighter);
-    const { tex, aspect } = makeTexture(text, accent);
+    const { tex, aspect } = makeTexture(text, accent, note);
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(aspect, 1),
       new THREE.MeshBasicMaterial({
@@ -237,8 +262,9 @@ export class BubbleSystem {
     mesh.renderOrder = 900;                    // over the world, over the FX
     mesh.userData.billboard = true;            // aimed per eye in core/stage.js
     mesh.frustumCulled = false;
+    if (layer) mesh.layers.set(layer);
     this.scene.add(mesh);
-    const b = { mesh, fighter, t: 0, hold, aspect, cam };
+    const b = { mesh, fighter, t: 0, hold, aspect, cam, scale };
     this.live.push(b);
     return b;
   }
@@ -286,7 +312,13 @@ export class BubbleSystem {
       // The floor is what keeps it legible in a tight interior where the camera
       // is 3 m away; the ceiling is what stops it swallowing the screen on the
       // Mahoraga and grown-Kurourushi pull-backs, where `dist` gets large.
-      const s = Math.min(2.4, Math.max(0.95, dist * 0.102));
+      // A REFUSAL PLATE IS NOT A TAUNT. The clamp above is tuned so a joke
+      // lands — a taunt is the thing you are meant to be looking at for a
+      // beat. A note explaining a button is the opposite: it has to be read
+      // without taking the frame away from the fight it is interrupting. Same
+      // curve, scaled down, which keeps it legible at the same distances
+      // without becoming the picture.
+      const s = Math.min(2.4, Math.max(0.95, dist * 0.102)) * (b.scale ?? 1);
 
       // ---- the life curve ------------------------------------------------
       let k = 1, alpha = 1;

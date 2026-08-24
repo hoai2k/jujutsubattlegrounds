@@ -52,6 +52,7 @@ import { BubbleSystem } from '../fx/bubble.js';
 import { tauntWeight, pickTaunt, tauntLine } from '../combat/taunts.js';
 import { buildMap, applyMapLighting, registerMapGrade, currentQuality, MAP_IDS } from '../arena/index.js';
 import { FightCamera } from './camera.js';
+import { seatLayer } from './stage.js';
 import { setXrayFocus, clearXrayFocus } from '../art/shaders/xray.js';
 import { Ritual } from './ritual.js';
 import { Finishers } from '../finishers/index.js';
@@ -387,6 +388,43 @@ export class Match {
   // goes through `seatView` and none of them index `cams` by seat.
   camFor(f) { return this.cams[this.seatView.get(f.index) ?? 0] || this.cams[0]; }
 
+  // ---- WHY THAT BUTTON DID NOTHING ----------------------------------------
+  // A refused input has to say so, next to the character, in the view of the
+  // player who pressed it. Three properties, each of which was missing before:
+  //
+  //   BY THE CHARACTER, not on the name plate at the top of the screen. The
+  //   player's eyes are on their fighter — that is the whole premise of the
+  //   camera work — and a line that appears anywhere else is read late or not
+  //   at all. It rides the same anchor as a taunt bubble (fx/bubble.js), drawn
+  //   as a plate rather than a bubble because the game is answering, not the
+  //   character speaking.
+  //
+  //   IN THAT SEAT'S VIEW ONLY. "You cannot afford that" is information for
+  //   one player and clutter for everyone else at the couch; on a four-way it
+  //   is clutter three times over. The plate goes on the seat's private render
+  //   layer (core/stage.js `seatLayer`) so no other eye draws it.
+  //
+  //   ONCE, NOT PER FRAME. Every refusal in the game is reachable by holding a
+  //   button, and the cooldown ones are reachable by mashing. The throttle is
+  //   here rather than at each of the thirty-odd call sites, and it is keyed on
+  //   the TEXT so a different reason still gets through immediately — being
+  //   told "on cooldown" should not swallow "no mask".
+  notice(f, text) {
+    if (!text || !f?.alive) return;
+    const view = this.seatView.get(f.index);
+    // Nobody at this machine is looking through this fighter's eyes — online,
+    // that is most of the roster, and their refusals are not our business.
+    if (view == null) return;
+    const now = this.clock ?? 0;
+    if (f._noticeText === text && now - (f._noticeAt ?? -9) < 0.85) return;
+    f._noticeText = text; f._noticeAt = now;
+    this.bubbles.say(f, text, {
+      hold: 0.85, note: true, accent: '#ff9a5c', scale: 0.6,
+      cam: this.cams[view]?.cam, layer: seatLayer(view)
+    });
+    this.sfx.noCE();
+  }
+
   // Seeds every fighter's private random stream off one match seed. Called
   // once at construction and again each round, so a rematch or a round two is
   // not a replay of round one.
@@ -414,6 +452,11 @@ export class Match {
   }
 
   update(dt) {
+    // Wall clock for the match, in seconds. Only `notice` reads it, and only to
+    // throttle a repeated refusal — deliberately NOT the logic step's own time,
+    // because a message the player is reading should not stretch through
+    // hitstop and slow-motion with the fight.
+    this.clock = (this.clock ?? 0) + dt;
     const seats = Math.max(2, this.viewSeats.length);
     const { all } = this.input.pollAll(this.inputMode, seats);
     if (all.some(f => f.pauseP)) { this.opts.onPause?.(); if (!this.net) return; }
@@ -868,8 +911,7 @@ export class Match {
           this.sfx.buildFail?.();
           break;
         case 'constructCapped':
-          this.hud.toast(f, 'TWO IS THE LIMIT');
-          this.sfx.uiBad?.() ?? this.sfx.uiOk?.();
+          this.notice(f, 'TWO IS THE LIMIT');
           break;
         // THE DEPLOY. The corpse is built HERE, at the event, so the entity
         // system is the only thing that ever constructs one and the state
@@ -1041,15 +1083,14 @@ export class Match {
           break;
         }
         case 'confiscationEnds': this.hud.toast(f, 'RETURNED'); break;
-        case 'slotLocked': this.hud.toast(f, 'CONFISCATED — NOT YOURS'); this.sfx.noCE(); break;
+        case 'slotLocked': this.notice(f, 'CONFISCATED — NOT YOURS'); break;
         case 'swordOnly':
           // X and Y are dead while he holds the blade. Said once, so the
           // two-button rule reads as a rule rather than as dropped inputs.
           if (!f._swordOnlyToast) {
             f._swordOnlyToast = true;
-            this.hud.toast(f, 'RB SLASH · RT EXECUTION');
+            this.notice(f, 'RB SLASH · RT EXECUTION');
           }
-          this.sfx.noCE();
           break;
         case 'execSpent': this.hud.toast(f, 'ONE SENTENCE PER COURTROOM'); this.sfx.noCE(); break;
         case 'judgmentSlash': this.sfx.whiff(); break;
@@ -1185,7 +1226,12 @@ export class Match {
           break;
         case 'guardBreak': this.hud.toast(f, 'GUARD BREAK'); break;
         case 'copied': this.sfx.copied(); this.hud.toast(f, 'COPIED: ' + e.name); break;
-        case 'noCE': this.sfx.noCE(); break;
+        // THE GENERIC REFUSAL. Forty call sites reach this and it used to be a
+        // buzz and nothing else — the player heard "no" and was never told
+        // which "no" it was. Sites where the answer really is the bar say
+        // nothing and get the default; the rest name their own reason.
+        case 'noCE': this.notice(f, e?.why || 'NOT ENOUGH CURSED ENERGY'); break;
+        case 'onCooldown': this.notice(f, 'ON COOLDOWN — ' + e.t.toFixed(1) + 's'); break;
         case 'swordPickup':
           // pickup snap: blade-draw sound, small camera kick, CE tracing the edge
           this.sfx.swordGrab();
@@ -1242,10 +1288,7 @@ export class Match {
           this.sfx.warp();
           this.fx.warpBlink(e.from, e.to, f.model.palette.accent ?? 0x7fd0ff);
           break;
-        case 'warpSealed':
-          this.hud.toast(f, 'BARRIER SEALS THE WARP');
-          this.sfx.noCE();
-          break;
+        case 'warpSealed': this.notice(f, 'BARRIER SEALS THE WARP'); break;
         case 'boogie':
           this.sfx.clap();
           this.fx.boogieSwap(e.a, e.b, f.model.palette.accent ?? 0xff5fc8);
@@ -1295,9 +1338,7 @@ export class Match {
           break;
         }
         case 'awakenGate':
-          this.hud.toast(f, e.used ? 'ALREADY SPENT'
-            : '天与呪縛 ' + e.stage + '/' + e.need);
-          this.sfx.noCE();
+          this.notice(f, e.used ? 'ALREADY SPENT' : '天与呪縛 ' + e.stage + '/' + e.need);
           break;
         // ---- yuki: star rage ----------------------------------------------
         case 'massChargeStart':
@@ -1351,8 +1392,7 @@ export class Match {
           this.cam.fovKick(7);
           break;
         case 'assassinCooling':
-          this.hud.toast(f, '術師殺し — ' + e.t.toFixed(1) + 's');
-          this.sfx.noCE();
+          this.notice(f, '術師殺し — ' + e.t.toFixed(1) + 's');
           break;
         case 'assassinWhiff':
           this.hud.toast(f, 'MISSED');
@@ -1463,10 +1503,7 @@ export class Match {
             this.fx._ring(f.pos.clone().setY(0.06), 0x8fb6d8, { size: 0.5, growRate: 7, life: 0.35 });
           }
           break;
-        case 'shikiBlocked':
-          this.hud.toast(f, e.text);
-          this.sfx.noCE();
-          break;
+        case 'shikiBlocked': this.notice(f, e.text); break;
         // ---- REGGIE: 再契象 ------------------------------------------------
         // The two refusals get their own lines for the same reason Inumaki's
         // do: "nothing happened" is the worst thing a button can report, and
@@ -1505,10 +1542,7 @@ export class Match {
         case 'maskRefit':
           this.hud.toast(f, '着面 REFITTING');
           break;
-        case 'maskless':
-          this.hud.toast(f, 'NO MASK — NO TECHNIQUE');
-          this.sfx.noCE();
-          break;
+        case 'maskless': this.notice(f, 'NO MASK — NO TECHNIQUE'); break;
         case 'exitLock':
           this.hud.toast(f, '麒麟 CRASH · ' + e.duration.toFixed(2) + 's');
           break;
@@ -1711,8 +1745,7 @@ export class Match {
           break;
         }
         case 'noUltimate':
-          this.hud.toast(f, e.text || f.cfg.noUltimateReason || 'NO ULTIMATE');
-          this.sfx.noCE();
+          this.notice(f, e.text || f.cfg.noUltimateReason || 'NO ULTIMATE');
           break;
 
         // ---- HAKARI --------------------------------------------------------

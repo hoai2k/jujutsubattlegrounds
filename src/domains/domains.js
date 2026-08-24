@@ -388,7 +388,31 @@ export class DomainSystem {
   // the restriction cannot come back by accident. Anything that needs to reset
   // between casts does so in `_activate` / `_collapse`, which run every time.
   castDomain(f, ctx) {
-    if (!f.cfg.domain || !f.ultReady || f.backlash > 0) return false;
+    // ---- AND WHEN IT REFUSES, IT SAYS WHY -----------------------------------
+    // This gate used to be one line of four ANDed conditions returning false,
+    // so the single most expensive button in the game did nothing and gave no
+    // account of itself. Four different situations, four different things the
+    // player should do about them, and no way to tell which one you were in.
+    if (!f.cfg.domain) { f.emit('noCE', { why: 'NO DOMAIN' }); return false; }
+    if (f.backlash > 0) {
+      f.emit('noCE', { why: 'BACKLASH — ' + f.backlash.toFixed(1) + 's' });
+      return false;
+    }
+    if (!f.ultReady) {
+      // Name the actual shortfall. The gate is MAX_CE at 100 with the bar full
+      // (or a domain's own lower `castThreshold`), and "not enough cursed
+      // energy" with a bar that LOOKS full is not an explanation — that player
+      // is short on the ceiling, not on the charge, and has to keep fighting
+      // rather than keep waiting.
+      const th = f.castThresholdOverride ?? f.cfg.domain.castThreshold ?? 1;
+      const want = 100 * th;
+      f.emit('noCE', {
+        why: f.res.maxCE < want - 0.01
+          ? 'CURSED ENERGY CEILING ' + Math.round(f.res.maxCE) + '/' + Math.round(want)
+          : 'NOT ENOUGH CURSED ENERGY'
+      });
+      return false;
+    }
     if (this.contest) return false; // barriers are already locked
     if (this.active) {
       if (this.active.caster !== f) return this._clash(f);
