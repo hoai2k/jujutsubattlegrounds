@@ -2165,7 +2165,15 @@ export class MapBuilder {
     const mat = opts.mat || this.mats.concreteWall;
     const th = opts.thick ?? 0.4;
     const span = Math.abs(a1 - a0);
-    const n = opts.segs ?? Math.max(2, Math.ceil(span * r / 2.0));
+    // CHORD LENGTH MATTERS TO THE COLLIDER, not just to the silhouette. Each
+    // segment registers the AABB of its own rotated box, and an AABB is at its
+    // most generous at 45 degrees — a 5 m chord on a 0.9 m wall reaches 2.2 m
+    // diagonally past its own centreline there. A coarse arc is therefore a FAT
+    // arc to walk into, invisibly: it cost the detention centre's watchtower,
+    // which stood four metres inside the perimeter wall and had its stair
+    // treads sitting inside that wall's collider. 1.4 m chords keep the
+    // overshoot near half a metre and cost nothing but boxes in a merged batch.
+    const n = opts.segs ?? Math.max(2, Math.ceil(span * r / 1.4));
     for (let i = 0; i < n; i++) {
       const am = a0 + (a1 - a0) * (i + 0.5) / n;
       // 1.06 so consecutive chords overlap rather than leaving a hairline slot
