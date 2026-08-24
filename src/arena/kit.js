@@ -2165,6 +2165,19 @@ export class MapBuilder {
     return null;
   }
 
+  // Clamp a shape-space point into the arena, honouring the same `inset` the
+  // collider uses. A ring big enough to reach the corners of a rectangular map
+  // is drawn 30 m off three sides of it otherwise, and every metre of that is
+  // floor you can see, cannot stand on, and cannot even get to.
+  _clampShapePt([sx, sy], cx, cz, opts) {
+    const E = this.def.extent;
+    if (!E || !(opts.inset > 0)) return [sx, sy];
+    const IN = opts.inset;
+    const wx = Math.max(E.minX + IN, Math.min(E.maxX - IN, sx + cx));
+    const wz = Math.max(E.minZ + IN, Math.min(E.maxZ - IN, cz - sy));
+    return [wx - cx, -(wz - cz)];
+  }
+
   // An annular SECTOR of deck — the piece `roundDeck` cannot make, because a
   // ring is a closed loop and a sweeping viaduct is not. Bearings follow the
   // project convention (0 is +z, running clockwise through +x).
@@ -2194,8 +2207,12 @@ export class MapBuilder {
         return out;
       };
       for (const sign of [1, -1]) {
-        const pts = arc(rOut, sign);
+        let pts = arc(rOut, sign);
         if (rIn > c) pts.push(...arc(rIn, sign).reverse());
+        // mirroring x reverses the winding, and a shape wound the wrong way
+        // triangulates into a mess that raycasts as null normals
+        if (sign < 0) pts = pts.reverse();
+        pts = pts.map(q => this._clampShapePt(q, cx, cz, opts));
         const shape = new THREE.Shape();
         shape.moveTo(pts[0][0], pts[0][1]);
         for (const q of pts.slice(1)) shape.lineTo(q[0], q[1]);
@@ -2208,7 +2225,7 @@ export class MapBuilder {
       const segs = opts.segs ?? Math.max(8, Math.ceil(Math.abs(a1 - a0) * rOut / 1.2));
       // authored in XY and extruded along +Z; `rotateX(-90)` maps shape-Y to
       // world -Z, so the z of every point is negated going in.
-      const pt = (a, r) => [Math.sin(a) * r, -Math.cos(a) * r];
+      const pt = (a, r) => this._clampShapePt([Math.sin(a) * r, -Math.cos(a) * r], cx, cz, opts);
       const shape = new THREE.Shape();
       let first = true;
       for (let i = 0; i <= segs; i++) {
