@@ -221,3 +221,7 @@
   padding: 9px 12px;
 }
 .mb-notes:focus { outline: none; border-color: var(--ac); }
+/* a pivot the user has moved — distinct from "mapped" and from "selected",
+   because a moved joint is an edit that will be exported */
+.mb-chip.moved { color: #a8c8ff; background: rgba(127, 176, 255, 0.1); border-color: rgba(127, 176, 255, 0.5); }
+.mb-status.warn { color: var(--ce-warm, #f2b23c); }

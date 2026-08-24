@@ -20,7 +20,7 @@
 // ===========================================================================
 import { ROSTER_IDS, ROSTER } from '../characters/index.js';
 import {
-  createStage, RigSession, CANONICAL, downloadJson, el, sec, buildLoaderUI
+  createStage, RigSession, CANONICAL, STRESS_POSES, downloadJson, el, sec, buildLoaderUI
 } from './rigcore.js';
 
 const KEY = 'jujutsu-battlegrounds.workbench.models';
@@ -108,7 +108,6 @@ export function mountModelBench(root) {
         range.value = num.value = e[i];
         session.stopPreview();
         session.setNodeEuler(node, e);
-        session.refit();
       };
       range.oninput = () => apply(range.value);
       num.onchange = () => apply(num.value);
@@ -152,7 +151,22 @@ export function mountModelBench(root) {
     clipSel.value = clipNames.includes(keep) ? keep : 'idle';
   }
   syncClips();
-  bPlay.onclick = () => { if (!session.startPreview(clipSel.value)) status.textContent = 'Nothing to preview — load a model with a mappable Hips first.'; };
+  const rowStress = el('div', 'mb-chips');
+  for (const name of Object.keys(STRESS_POSES)) {
+    const b = el('button', 'mb-chip', name);
+    b.onclick = () => {
+      if (!session.startStress(name)) status.textContent = 'Load a model with a mappable Hips first.';
+      [...rowStress.children].forEach(x => x.classList.toggle('on', x === b));
+    };
+    rowStress.append(b);
+  }
+  sPrev.append(el('div', 'mb-hint',
+    'STRESS POSES — the rig check rather than the animation check: each drives one ' +
+    'joint group to where a misplaced pivot stops being subtle.'), rowStress);
+  bPlay.onclick = () => {
+    [...rowStress.children].forEach(x => x.classList.remove('on'));
+    if (!session.startPreview(clipSel.value)) status.textContent = 'Nothing to preview — load a model with a mappable Hips first.';
+  };
   clipSel.onchange = () => { if (session.preview) session.startPreview(clipSel.value); };
   bStop.onclick = () => session.stopPreview();
 
@@ -165,11 +179,34 @@ export function mountModelBench(root) {
     return l;
   };
   dispRow.append(
+    mkCheck('Anime shading', true, on => session.setToon(on)),
     mkCheck('Skeleton + joints', true, on => session.setSkeleton(on)),
     mkCheck('Wireframe', false, on => session.setWireframe(on)),
     mkCheck('Weight heatmap (selected bone)', false, on => session.showWeights(on)));
-  sDisp.append(dispRow, el('div', 'mb-hint',
-    'Heatmap paints each vertex by how much the selected bone owns it — ' +
+  sDisp.append(dispRow);
+  for (const [label, k, min, max, step] of [
+    ['saturation', 'saturation', 0.4, 2.5, 0.05],
+    ['brightness', 'brightness', 0.5, 2.2, 0.05],
+    ['contrast', 'contrast', 0.5, 2, 0.05]
+  ]) {
+    const row = el('div', 'mb-slider');
+    const range = el('input'); range.type = 'range';
+    range.min = min; range.max = max; range.step = step; range.value = session.toonOpts[k];
+    const num = el('input', 'mb-num'); num.type = 'number'; num.step = step; num.value = session.toonOpts[k];
+    const apply = v => {
+      const n = Number(v);
+      range.value = num.value = n;
+      session.setToon(session.toonOn, { [k]: n });
+    };
+    range.oninput = () => apply(range.value);
+    num.onchange = () => apply(num.value);
+    row.append(el('span', null, label[0].toUpperCase()), range, num);
+    sDisp.append(row);
+  }
+  sDisp.append(el('div', 'mb-hint',
+    'The model is re-shaded through the game’s own cel material and outline, so it ' +
+    'is judged in the shading it ships with. Heatmap paints each vertex by how much ' +
+    'the selected bone owns it — ' +
     'black none, red partial, yellow full. Page through the bones with it on: ' +
     'a thigh bleeding into a coat hem shows up in one glance.'));
 

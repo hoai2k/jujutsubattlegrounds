@@ -32,7 +32,7 @@ const check = (label, ok, detail = '') => {
 };
 
 // ---- a synthetic Mixamo-style T-pose humanoid, 1.6 m, facing +Z ------------
-function makeMixamoRig() {
+function makeMixamoRig(bend = 0) {
   const B = (name, x, y, z, parent) => {
     const b = new THREE.Bone();
     b.name = 'mixamorig:' + name;
@@ -51,7 +51,9 @@ function makeMixamoRig() {
     const sh = B(s + 'Shoulder', m * 0.06, 0.09, 0, spine2);
     const arm = B(s + 'Arm', m * 0.11, 0, 0, sh);         // T-pose: straight out
     const fore = B(s + 'ForeArm', m * 0.26, 0, 0, arm);
-    const hand = B(s + 'Hand', m * 0.24, 0, 0, fore);
+    // `bend` puts the rest elbow OUT of the plane the game's rest arm bends
+    // in — the case the roll reference exists for
+    const hand = B(s + 'Hand', m * 0.24, -bend * 0.10, bend * 0.14, fore);
     B(s + 'HandMiddle1', m * 0.08, 0, 0, hand);
     const up = B(s + 'UpLeg', m * 0.09, -0.06, 0, hips);
     const leg = B(s + 'Leg', 0, -0.38, 0, up);
@@ -231,6 +233,40 @@ check('knockdown drops the imported hips to the floor',
   arm.updateMatrixWorld(true);
   const hipY1 = new THREE.Vector3().setFromMatrixPosition(rm.ThighL.matrixWorld).y;
   check('a crouch carries the flat-rigged legs down', Math.abs(hipY1 - 0.4) < 1e-6, `y=${hipY1}`);
+}
+
+// ---- 4d: TWIST — does the elbow bend in the right plane? -------------------
+// Matching only the bone DIRECTION leaves the rotation about the limb free,
+// and a model whose rest elbow bends out of the game's plane then flicks its
+// forearm sideways the moment a clip bends it. The roll reference pins it.
+// The bend-plane normal after retargeting must match the drive rig's, for a
+// rest pose deliberately built 40 degrees out of plane.
+{
+  const t3 = makeMixamoRig(1);
+  const m3 = guessBoneMap(t3).map;
+  const w3 = new THREE.Group();
+  w3.scale.setScalar(s);
+  w3.add(t3);
+  t3.position.y -= box.min.y;
+  model.group.add(w3);
+  const rt3 = new Retargeter(model, srcRest, w3, m3);
+  const planeOf = (a, b, c, get) =>
+    new THREE.Vector3().crossVectors(dir(get(a), get(b)), dir(get(b), get(c))).normalize();
+  let worstPlane = 1;
+  for (const clip of ['block', 'punch3', 'hitHeavy', 'getup']) {
+    player.play(clip, { fade: 0, restart: true });
+    for (let i = 0; i < 12; i++) player.update(1 / 60);
+    rt3.apply();
+    for (const side of ['L', 'R']) {
+      const src = planeOf('UpArm' + side, 'LoArm' + side, 'Hand' + side, srcJointWorld);
+      const dst = planeOf('UpArm' + side, 'LoArm' + side, 'Hand' + side,
+        n => worldPos(model.group, m3[n]));
+      if (src.lengthSq() > 0.5 && dst.lengthSq() > 0.5) worstPlane = Math.min(worstPlane, src.dot(dst));
+    }
+  }
+  check('elbows bend in the drive rig\'s plane, not the model\'s', worstPlane > 0.99,
+    `worst normal dot=${worstPlane.toFixed(4)}`);
+  model.group.remove(w3);
 }
 
 // ---- 5: numerical health across the whole base clip set --------------------

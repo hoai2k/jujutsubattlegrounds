@@ -19,6 +19,16 @@
 //       "yOffset": 0,          // metres, after the feet are grounded
 //       "faceYaw": 0,          // degrees, if the model doesn't face +Z
 //       "boneMap": {"Chest": "Spine03", "HandL": null},   // override/drop
+//       "joints": {"DEF-upper_armL": [0.118, 0.29, 0.06]},  // pivot fixes:
+//                              // a bone's corrected LOCAL position. Moves
+//                              // where the bone ROTATES without moving the
+//                              // mesh (inverse-binds are rebuilt) — the fix
+//                              // for a shoulder that sits too low. Authored
+//                              // on /workbench/?edit=rig.
+//       "toon": true,          // re-shade with the game's cel material +
+//                              // outline (default). false = keep the file's
+//                              // own PBR materials. An object overrides the
+//                              // grade: {"saturation":1.6,"brightness":1.3}
 //       "pose": {"LeftArm": [0, 0, 62]},   // rest-pose calibration: local
 //                              // XYZ euler degrees per NODE NAME, applied at
 //                              // load before anything is measured — how a
@@ -47,6 +57,8 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { guessBoneMap } from './bonemap.js';
 import { Retargeter, captureSourceRest, rerigHierarchy } from './retarget.js';
+import { applyJointEdits, collectSkeletons } from './joints.js';
+import { stylizeToon } from './stylize.js';
 import { DEG } from '../../core/mathutil.js';
 
 // public/models/ resolved from ANY page — the game at the site root and the
@@ -144,6 +156,26 @@ export function applyRestPose(root, pose) {
 }
 const _e2 = new THREE.Euler();
 
+// Triangle budget. A model authored for a render is routinely two orders of
+// magnitude heavier than one authored for a game, and the symptom — a frame
+// rate that collapses the moment a second fighter spawns — looks like a bug
+// in the renderer rather than a fact about the file. So it is counted and
+// said out loud, once, at load.
+export function meshStats(root) {
+  let tris = 0, verts = 0, meshes = 0;
+  root.traverse(o => {
+    if (!o.isMesh && !o.isSkinnedMesh) return;
+    if (o.name.endsWith('_outline')) return;
+    const g = o.geometry;
+    if (!g?.attributes?.position) return;
+    meshes++;
+    verts += g.attributes.position.count;
+    tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+  });
+  return { tris: Math.round(tris), verts, meshes };
+}
+export const TRI_BUDGET = 150000;
+
 // measure the model in its own space — geometry bounds plus every node
 // origin, so even a mesh-light export still measures its skeleton
 export function measureScene(scene) {
@@ -184,10 +216,15 @@ function attach(model, srcRest, scene, src, pick) {
   if (!map.Hips || missing.length > 8) {
     throw new Error(`unusable rig (${report})`);
   }
-  // order matters, and the workbench runs the same one: normalize the
-  // hierarchy off the map, THEN apply the bench-authored rest pose (its
-  // eulers are in post-rerig local frames), THEN measure and fit
+  // THE LOAD ORDER. The workbench runs exactly this sequence, which is what
+  // makes a bench export replay identically in the game:
+  //   rerig  — normalize the hierarchy off the map
+  //   joints — move pivots (rebuilds inverse-binds; must precede any posing,
+  //            because it reads and rewrites children's local transforms)
+  //   pose   — the rest-pose calibration (absolute local rotations)
+  //   fit    — measure and normalize height/ground/facing
   rerigHierarchy(scene, map);
+  applyJointEdits(scene, src.joints);
   applyRestPose(scene, src.pose);
   const wrapper = new THREE.Group();
   wrapper.name = 'render3d';
@@ -196,11 +233,22 @@ function attach(model, srcRest, scene, src, pick) {
   scene.traverse(o => {
     if (o.isMesh || o.isSkinnedMesh) { o.frustumCulled = false; }
   });
+  // the anime pass: the game's own cel shader + outline, unless opted out
+  if (src.toon !== false) {
+    stylizeToon(scene, typeof src.toon === 'object' ? src.toon : {});
+  }
   model.group.add(wrapper);
   const retargeter = new Retargeter(model, srcRest, wrapper, map, {
     rotOffset: src.rotOffset
   });
-  console.info(`[render3d] ${pick}: ${src.url.split('/').pop()} — ${report}`);
+  const stats = meshStats(scene);
+  console.info(`[render3d] ${pick}: ${src.url.split('/').pop()} — ${report}, ` +
+    `${(stats.tris / 1000).toFixed(0)}k tris`);
+  if (stats.tris > TRI_BUDGET) {
+    console.warn(`[render3d] ${pick}: ${(stats.tris / 1000).toFixed(0)}k triangles is far over the ` +
+      `~${TRI_BUDGET / 1000}k a fighter should cost — expect frame drops with several on screen. ` +
+      `Decimate the source (gltfpack -si, or Blender's Decimate) before shipping it.`);
+  }
 
   hideProcedural(model, wrapper, src);
 
