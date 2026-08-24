@@ -225,3 +225,25 @@
    because a moved joint is an edit that will be exported */
 .mb-chip.moved { color: #a8c8ff; background: rgba(127, 176, 255, 0.1); border-color: rgba(127, 176, 255, 0.5); }
 .mb-status.warn { color: var(--ce-warm, #f2b23c); }
+
+/* the landmark checklist: a row per joint, armed rows lit, marked rows ticked */
+.mb-lm { display: flex; flex-direction: column; gap: 3px; }
+.mb-lm-row { display: flex; gap: 4px; align-items: stretch; flex-wrap: wrap; }
+.mb-lm-btn {
+  font: inherit; font-size: 12px; letter-spacing: 0.04em; text-align: left; cursor: pointer;
+  color: var(--bone-far); background: rgba(240, 236, 228, 0.03);
+  border: 1px solid rgba(240, 236, 228, 0.12); padding: 5px 9px; flex: 1;
+}
+.mb-lm-btn b { font-weight: 500; }
+.mb-lm-btn i { color: var(--ac); font-style: normal; }
+.mb-lm-row.set .mb-lm-btn { color: var(--bone); border-color: rgba(255, 95, 200, 0.5); }
+.mb-lm-row.armed .mb-lm-btn { color: var(--ink); background: var(--ac); border-color: var(--ac); }
+.mb-lm-x {
+  font: inherit; font-size: 13px; cursor: pointer; color: var(--bone-far);
+  background: transparent; border: 1px solid rgba(240, 236, 228, 0.12); padding: 0 9px;
+}
+.mb-lm-x:hover { color: var(--blood); border-color: var(--blood); }
+.mb-lm-hint {
+  flex-basis: 100%; font-size: 11px; line-height: 1.45; color: var(--bone-dim);
+  border-left: 2px solid var(--ac); padding: 4px 0 4px 8px; margin: 2px 0 4px;
+}

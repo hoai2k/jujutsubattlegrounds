@@ -17,9 +17,18 @@
 //
 // After that the rest pose renders exactly as before — same vertices, same
 // weights, same falloff — but the bone now ROTATES ABOUT THE RIGHT POINT.
-// That is the whole of the correction, and it is reversible and data-only:
-// the bench exports the new local positions as the manifest's `joints`, and
-// the game replays them at load.
+// That is the whole of the correction, and it is reversible and data-only.
+//
+// STORED PORTABLY. A correction is written as an OFFSET in the model's own
+// root space, NORMALIZED BY THE MODEL'S HEIGHT — "move this pivot up by 2.3%
+// of the body" rather than "put it at these coordinates". That survives the
+// thing that will actually happen to a model: being re-exported. A decimated
+// or re-rigged version arrives with different vertex counts, possibly
+// different units (gltfpack quantizes; a plain Blender export does not) and a
+// different absolute origin, and an absolute local position would silently
+// land in the wrong place. A fraction of body height lands correctly as long
+// as the character is still the same shape, and reads meaningfully to a
+// person besides.
 import * as THREE from 'three';
 
 export function collectSkeletons(root) {
@@ -33,7 +42,8 @@ export function collectSkeletons(root) {
 const _m = new THREE.Matrix4();
 const _inv = new THREE.Matrix4();
 
-// newLocalPos: the bone's new position in its parent's space.
+// newLocalPos: the bone's new position in its parent's space. Callers that
+// want portability should go through applyJointEdits rather than this.
 export function moveBonePivot(bone, newLocalPos, skeletons) {
   bone.updateWorldMatrix(true, true);
   const Mold = bone.matrixWorld.clone();
@@ -57,16 +67,65 @@ export function moveBonePivot(bone, newLocalPos, skeletons) {
   for (const sk of skeletons) sk.needsUpdate = true;
 }
 
-// Manifest replay: { nodeName: [x, y, z] } local positions.
-export function applyJointEdits(root, joints, skeletons = collectSkeletons(root)) {
+// THE UNIT a pivot offset is measured in: the model's bind height in ITS OWN
+// root-local axes. Measured here rather than taken from a world-space bbox
+// because the root may carry a transform of its own (a scaled armature, a
+// centimetre export) — and the offsets are converted THROUGH that same
+// transform on the way in, so counting it twice would scale every correction
+// by the square of it.
+export function modelBindHeight(root) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  const m = new THREE.Matrix4();
+  root.traverse(o => {
+    if (o.isMesh || o.isSkinnedMesh) {
+      const g = o.geometry;
+      if (g && !g.boundingBox) g.computeBoundingBox();
+      const b = g?.boundingBox;
+      if (b) {
+        m.multiplyMatrices(inv, o.matrixWorld);
+        for (let i = 0; i < 8; i++) {
+          v.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z)
+            .applyMatrix4(m);
+          box.expandByPoint(v);
+        }
+      }
+    }
+    // node origins too, so a skeleton with no geometry still measures
+    box.expandByPoint(v.setFromMatrixPosition(o.matrixWorld).applyMatrix4(inv));
+  });
+  return Math.max(1e-6, box.max.y - box.min.y);
+}
+
+// Manifest replay. `joints` is { nodeName: [dx, dy, dz] } — an offset in the
+// model root's own axes, as a fraction of `height` (the model's bind height
+// in its own units). Applied on top of whatever position the file authored,
+// so this composes with any re-export that kept the skeleton.
+export function applyJointEdits(root, joints, skeletons = collectSkeletons(root),
+  height = modelBindHeight(root)) {
   if (!joints) return 0;
+  root.updateMatrixWorld(true);
   const byName = new Map();
   root.traverse(o => { if (o.name && !byName.has(o.name)) byName.set(o.name, o); });
+  // root-local direction -> world direction
+  const rootLin = new THREE.Matrix3().setFromMatrix4(root.matrixWorld);
+  const d = new THREE.Vector3();
+  const parentLin = new THREE.Matrix3();
   let n = 0;
-  for (const [name, p] of Object.entries(joints)) {
+  for (const [name, off] of Object.entries(joints)) {
     const bone = byName.get(name);
     if (!bone) { console.warn(`[render3d] joints names no node "${name}"`); continue; }
-    moveBonePivot(bone, new THREE.Vector3(p[0], p[1], p[2]), skeletons);
+    if (!Array.isArray(off) || off.length !== 3 || !off.every(Number.isFinite)) {
+      console.warn(`[render3d] joints["${name}"] is not an [x,y,z] offset`); continue;
+    }
+    d.fromArray(off).multiplyScalar(height).applyMatrix3(rootLin);
+    if (bone.parent) {
+      parentLin.setFromMatrix4(bone.parent.matrixWorld).invert();
+      d.applyMatrix3(parentLin);
+    }
+    moveBonePivot(bone, bone.position.clone().add(d), skeletons);
     n++;
   }
   return n;

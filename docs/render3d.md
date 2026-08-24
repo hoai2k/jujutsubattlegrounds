@@ -77,7 +77,7 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `yOffset` | `0` | metres up/down after grounding |
 | `faceYaw` | `0` | degrees, for models that don't face `+Z` |
 | `boneMap` | `{}` | `{canonical: nodeName}` overrides; `null` drops a bone |
-| `joints` | `{}` | `{nodeName: [x,y,z]}` corrected pivot positions — moves where a bone *rotates* without moving the mesh (inverse-binds are rebuilt). The fix for a shoulder that sits too low |
+| `joints` | `{}` | `{nodeName: [dx,dy,dz]}` pivot corrections — moves where a bone *rotates* without moving the mesh (inverse-binds are rebuilt). The fix for a shoulder that sits too low. Values are an offset in the model's own axes **as a fraction of its height**, so they survive the model being re-exported or decimated |
 | `lift` | `{ambient: 0.22, saturation: 1.18}` | a small lighting lift (see below). `false` leaves the file's materials completely untouched |
 | `rotOffset` | `{}` | `{canonical: [x°,y°,z°]}` world-space trim per bone |
 | `keepProps` | `true` | procedural weapons stay in hand (they follow the drive rig's hands, which track the imported hands) |
@@ -133,6 +133,40 @@ Deliberately not a style pass. An earlier version re-shaded imports through
 the game's cel material with an ink outline, and it was far too much — a
 model should look like itself, only lit.
 
+### Landmarks: pointing at the joints
+
+Everything the alignment does is derived from **where the bones sit inside the
+mesh**: a bone's rest direction is (this joint → the next joint down), and
+that direction is what gets matched onto the game's. So a bone in the wrong
+place aims its limb somewhere the clip never asked for — arms that come out
+bent, a torso that hunches — and no amount of tuning the clip will fix it.
+
+Skin weights can measure this (`MEASURE`, above) but only up to the shape of
+the costume: the hand-over band between two bones is a hoodie as much as it
+is a shoulder. A person looking at the model does not have that problem.
+
+So the rig bench asks for the one thing a person is unambiguously better at.
+Pick a row from the landmark list — pelvis, waist, chest, neck base, head,
+and both shoulders, elbows, wrists, hips, knees and ankles — then **click that
+joint on the model**. The click lands *inside* the body (the ray is averaged
+through it), and clicking the same joint again from the opposite side
+averages the samples, which is worth doing for the shoulders and hips. A pink
+dot marks it; a line runs to where the bone currently is, so a long line is
+the error.
+
+Two buttons turn marks into fixes:
+
+- **Check mapping** — for each mark, the nearest joint in the model is the
+  model's own answer. Where it disagrees with what was mapped, that is a
+  *mapping* bug rather than a placement one.
+- **Move bones to marks** — every marked joint becomes its bone's pivot.
+  Because the alignment is derived from bone positions, correcting the
+  positions corrects every clip at once.
+
+The export carries the marks (in model space and normalized by body height),
+the per-bone error in centimetres, and any mapping the marks disagree with —
+enough to reproduce and improve the fix offline.
+
 **`?edit=rig` — the questions only eyes can answer.** Walk the mapping bone
 by bone with the guessed joint lit in the view (click the right joint in 3D
 to reassign); run the **stress poses** — arms overhead, deep squat, spine
@@ -141,8 +175,8 @@ skin weights to see where each joint actually is versus where the bone sits;
 and correct pivots and retarget trims with live dials.
 
 Both export one manifest-entry JSON carrying every correction — mapping
-picks, pivot fixes, rest-pose calibration, trims, fit numbers, lighting dials
-and free-text notes.
+picks, landmarks, pivot fixes, rest-pose calibration, trims, fit numbers,
+lighting dials and free-text notes.
 
 ### Where a joint actually is
 
@@ -159,9 +193,10 @@ would tear apart a model whose bind pose is legitimately asymmetric).
 A model authored for rendering is routinely far heavier than one authored for
 a game. `tools/decimate.mjs` shrinks one safely — see tools/README.md — and
 **a decimation that preserves the skeleton preserves every manifest fix**,
-because `boneMap`, `joints`, `pose` and `rotOffset` are all keyed to bone
-names and bone-local frames, and every automatic pass is re-derived at load
-from the skeleton. The tool diffs the two skeletons and says so explicitly.
+because `boneMap`, `pose` and `rotOffset` are keyed to bone names, `joints`
+is stored as a fraction of body height in the model's own axes (so it
+survives a re-export at a different scale or origin), and every automatic
+pass is re-derived at load from the skeleton. The tool diffs the two skeletons and says so explicitly.
 
 Anything over ~150k triangles warns at load and in the bench status:
 expect frame drops with several fighters on screen, and decimate the source

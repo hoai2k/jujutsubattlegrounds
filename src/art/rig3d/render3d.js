@@ -19,12 +19,14 @@
 //       "yOffset": 0,          // metres, after the feet are grounded
 //       "faceYaw": 0,          // degrees, if the model doesn't face +Z
 //       "boneMap": {"Chest": "Spine03", "HandL": null},   // override/drop
-//       "joints": {"DEF-upper_armL": [0.118, 0.29, 0.06]},  // pivot fixes:
-//                              // a bone's corrected LOCAL position. Moves
-//                              // where the bone ROTATES without moving the
-//                              // mesh (inverse-binds are rebuilt) — the fix
-//                              // for a shoulder that sits too low. Authored
-//                              // on /workbench/?edit=rig.
+//       "joints": {"DEF-upper_armL": [0, 0.023, 0]},  // pivot fixes: move
+//                              // where a bone ROTATES without moving the mesh
+//                              // (inverse-binds are rebuilt) — the fix for a
+//                              // shoulder that sits too low. Values are an
+//                              // offset in the model's own axes as A FRACTION
+//                              // OF ITS HEIGHT, so they survive re-exporting
+//                              // or decimating the model. Authored on
+//                              // /workbench/?edit=rig.
 //       "lift": {"ambient": 0.22, "saturation": 1.18},
 //                              // a small lighting lift so the model reads in
 //                              // this scene: `ambient` adds a fraction of the
@@ -61,7 +63,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { guessBoneMap } from './bonemap.js';
 import { Retargeter, captureSourceRest, rerigHierarchy } from './retarget.js';
-import { applyJointEdits, collectSkeletons } from './joints.js';
+import { applyJointEdits, collectSkeletons, modelBindHeight } from './joints.js';
 import { liftMaterials } from './lift.js';
 import { DEG } from '../../core/mathutil.js';
 
