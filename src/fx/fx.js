@@ -262,6 +262,139 @@ export class FXSystem {
     node.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
 
+  // =========================================================================
+  // A CURSED ENERGY ATTEMPT THAT COMES TO NOTHING
+  // =========================================================================
+  // The universal "that did not happen" cue, and the reason most refusals no
+  // longer need words. Energy gathers at the chest for a fraction of a beat
+  // and then falls apart instead of going anywhere: the motes rush IN, stall,
+  // and drop. The ring CONTRACTS, borrowing the grammar `braceGather` above
+  // established for taking energy in — but where a brace closes, this one
+  // stalls short and fades, which is the whole read.
+  //
+  // Desaturated on purpose. Every technique in the game leaves in a character's
+  // accent colour; a failure leaves in none of them, so a fizzle is never
+  // mistaken at a glance for a move that went off.
+  fizzle(fighter) {
+    const p = fighter.pos, h = (fighter.hurtBox?.center ?? 1.05) + 0.15;
+    // COLOURLESS, NOT DIM. The first pass took "desaturated" too literally —
+    // grey motes at 0.1 m against a lit arena were invisible from behind the
+    // shoulder, which is the only angle anyone will ever see this from. What
+    // has to be true is that it does not read as a TECHNIQUE, and hue does
+    // that on its own: everything the roster casts leaves in a character
+    // accent, so a cold near-white with no colour in it is unmistakably not
+    // one, at any brightness. Brightness is free.
+    for (let i = 0; i < 16; i++) {
+      const a = Math.random() * Math.PI * 2, rr = rand(0.7, 1.6);
+      this._spawn(p.clone().add(v3(Math.cos(a) * rr, h + rand(-0.4, 0.7), Math.sin(a) * rr)), {
+        color: i % 3 === 0 ? 0xf2eeff : 0xb9b2d8,
+        size: rand(0.17, 0.34), aspect: 0.5, life: rand(0.26, 0.46),
+        // inward and then DOWN: gravity is what turns a gather into a spill
+        vel: v3(-Math.cos(a) * rr * 2.2, rand(0.2, 1.0), -Math.sin(a) * rr * 2.2),
+        gravity: 7
+      });
+    }
+    // two contracting rings, offset in size, so the collapse has a direction
+    // you can read in a single frame rather than one ambiguous circle
+    this._ring(p.clone().setY(p.y + h), 0xe6e0ff, { size: 1.5, growRate: -3.4, life: 0.3, flat: false });
+    this._ring(p.clone().setY(p.y + h), 0xa79ecb, { size: 2.1, growRate: -4.6, life: 0.36, flat: false });
+  }
+
+  // =========================================================================
+  // THE ARENA BOUNDARY
+  // =========================================================================
+  // Every map is a rectangle and `bounds.clampXZ` holds the fighter inside it.
+  // Where the map has built a wall along that line the wall does the work and
+  // is its own explanation; where it has not, the fighter simply stops in open
+  // ground with nothing to have stopped against, which reads as the controller
+  // dropping input rather than as a limit.
+  //
+  // So the limit gets a body. A barrier panel flares at the point of contact —
+  // a hex lattice, because that is the visual language the domain barriers
+  // already use here (fx/domainfx.js `_buildBarrier` is a wireframe sphere in
+  // the same family), so a curtain around the arena reads as the same class of
+  // thing rather than as a new one.
+  //
+  // Deliberately CHEAP AND SHORT. It is feedback, not scenery: nothing persists,
+  // there is no standing dome to light or cull, and a player who never touches
+  // the edge never sees it. Walking along the boundary retriggers it, which is
+  // correct — the hand stays on the glass.
+  _barrierTexture() {
+    if (this._ffTex) return this._ffTex;
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, 256, 256);
+    // A HEX LATTICE, drawn rather than tiled: one ring of cells around the
+    // centre, brightest at the impact and dying out toward the rim, so the
+    // panel has a middle instead of being a uniform sheet of pattern.
+    const R = 22, H = R * Math.sqrt(3) / 2;
+    g.lineWidth = 2.4;
+    g.lineJoin = 'round';
+    for (let row = -4; row <= 4; row++) {
+      for (let col = -4; col <= 4; col++) {
+        const cx = 128 + col * R * 1.5;
+        const cy = 128 + row * H * 2 + (col & 1 ? H : 0);
+        const d = Math.hypot(cx - 128, cy - 128) / 118;
+        if (d > 1) continue;
+        g.strokeStyle = 'rgba(255,255,255,' + (0.9 * (1 - d) * (1 - d)).toFixed(3) + ')';
+        g.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = i * Math.PI / 3;
+          const x = cx + Math.cos(a) * R * 0.94, y = cy + Math.sin(a) * R * 0.94;
+          if (i) g.lineTo(x, y); else g.moveTo(x, y);
+        }
+        g.closePath();
+        g.stroke();
+      }
+    }
+    // and a soft bloom under it so the middle of the strike is a light, not a
+    // drawing of one
+    const grad = g.createRadialGradient(128, 128, 2, 128, 128, 120);
+    grad.addColorStop(0, 'rgba(255,255,255,0.55)');
+    grad.addColorStop(0.45, 'rgba(255,255,255,0.13)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.globalCompositeOperation = 'lighter';
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 256);
+    return (this._ffTex = new THREE.CanvasTexture(c));
+  }
+
+  // `nx, nz` is the OUTWARD normal of the boundary that was hit — the panel
+  // stands in the plane of the barrier, facing back into the arena.
+  forceField(pos, nx, nz, power = 1) {
+    const size = 2.2 + power * 1.1;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size * 1.15),
+      new THREE.MeshBasicMaterial({
+        map: this._barrierTexture(), color: 0x8fd8ff, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        toneMapped: false
+      }));
+    mesh.position.copy(pos);
+    // NOT a billboard. The panel IS the barrier, so it has to lie in the
+    // barrier's plane from every seat — turning it to face a camera would make
+    // it a card floating in the air instead of a surface being pressed on.
+    mesh.lookAt(pos.x + nx, pos.y, pos.z + nz);
+    mesh.renderOrder = 3;
+    this.prop(mesh, 0.46, (node, k) => {
+      // IN HARD, OUT SOFT. The flare has to land on the frame the fighter
+      // stopped, or it reads as a consequence of something else.
+      const a = k < 0.12 ? k / 0.12 : Math.pow(1 - (k - 0.12) / 0.88, 1.7);
+      node.material.opacity = a * 0.85;
+      // and it swells a little as it goes, so the pressure reads as spreading
+      // outward from the hand rather than as a lamp switching off
+      const sc = 1 + k * 0.35;
+      node.scale.set(sc, sc, 1);
+    });
+    // two or three sparks skidding along the surface sell it as a contact
+    for (let i = 0; i < 3; i++) {
+      this._spawn(pos.clone().add(v3(rand(-0.4, 0.4), rand(-0.5, 0.6), rand(-0.4, 0.4))), {
+        color: 0xbfeaff, size: 0.14, life: 0.3,
+        vel: v3(-nx * rand(0.4, 1.2) + rand(-0.6, 0.6), rand(0.6, 2.0), -nz * rand(0.4, 1.2) + rand(-0.6, 0.6))
+      });
+    }
+  }
+
   attachShadow(fighter) {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5),
       new THREE.MeshBasicMaterial({ map: this._shadowTex, color: 0x000000, transparent: true, depthWrite: false }));

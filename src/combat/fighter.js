@@ -1096,6 +1096,36 @@ export class Fighter {
     return this.cfg.ultimate?.kind === 'cooldown' && this.assassinCD <= 0 && !this.assassinPhase;
   }
 
+  // Why D-pad Right did nothing.
+  //
+  // PERMANENT FACTS BEFORE TEMPORARY ONES. The tempting order is "tell them the
+  // thing they can act on first" — land, wait out the backlash, build the bar —
+  // and it is wrong for the one case that matters most: a character with no
+  // domain at all, pressing the button mid-jump, was told LAND FIRST. That is
+  // not merely unhelpful, it is a lie about the character, and the player acts
+  // on it. Anything that will still be true after they land goes first.
+  _ultRefusal() {
+    if (!this.cfg.domain && !this.cfg.ultimate) return 'NO DOMAIN';
+    // WORDLESS. Both of these are timers the player is already watching — the
+    // backlash is the bar sitting flat and refusing to refill, and being in the
+    // air is the most visible state in the game. The fizzle covers them; a
+    // caption would only be in the way, and these are the two most-pressed
+    // wrong moments there are.
+    if (this.backlash > 0) return '';
+    if (!this.grounded) return '';
+    // THE CEILING VERSUS THE CHARGE. The gate is MAX_CE at 100 with the bar
+    // full (or a domain's own lower `castThreshold`). Telling a player with a
+    // visibly full bar that they have "not enough cursed energy" explains
+    // nothing — they are short on the CEILING, which is raised by fighting
+    // rather than by waiting, and that is a different instruction.
+    const th = this.castThresholdOverride ?? this.cfg.domain?.castThreshold ?? 1;
+    const want = 100 * th;
+    if (this.res.maxCE < want - 0.01) {
+      return 'NEED HIGHER ENERGY CEILING';
+    }
+    return 'NEED CURSED ENERGY';
+  }
+
   get ultReady() {
     if (this.noCE) return false;   // no bar, so no gate — see `assassinReady`
     // HIGURUMA: `castThresholdOverride` is the same dial, moved at runtime by
@@ -2011,7 +2041,7 @@ export class Fighter {
     const sys = ctx.match.shikigami;
     const key = sys.bindingOf(this, slot);
     const def = this.cfg.shikigami.defs[key];
-    if (!def) { this.emit('noCE'); return false; }
+    if (!def) { this.emit('noCE', { why: 'NOTHING BOUND TO THAT SLOT' }); return false; }
     const blocked = sys.blockReason(this, key);
     if (blocked) { this.emit('shikiBlocked', { text: blocked }); return false; }
     const free = !!sys._gardenFor(this);
@@ -2121,7 +2151,7 @@ export class Fighter {
   _openWheel(w, sp) {
     // No options at all is possible (Geto with every curse destroyed) and must
     // not open an empty radial or commit a corpse.
-    if (!w.avail.length) { this.emit('noCE'); return false; }
+    if (!w.avail.length) { this.emit('noCE', { why: 'NOTHING LEFT TO CHOOSE' }); return false; }
     // The DEFAULT: whatever is already equipped/bound if it is still available,
     // otherwise the config's stated default, otherwise the first thing left.
     const cur = w.sel >= 0 ? w.order[w.sel] : null;
@@ -2300,7 +2330,15 @@ export class Fighter {
 
   trySpecial(input, ctx) {
     const sp = this._def('special');
-    if (!sp || this.specialCD > 0) return false;
+    if (!sp) return false;
+    // ON COOLDOWN. This used to return in silence, which is the one refusal a
+    // player is guaranteed to hit repeatedly and the one they are most likely
+    // to read as the button not working. The notice is throttled at the other
+    // end (Match.notice) so mashing it says so once, not thirty times.
+    if (this.specialCD > 0) {
+      this.emit('onCooldown', { slot: 'special', t: this.specialCD });
+      return false;
+    }
     // a confiscated SPECIAL is confiscated
     if (this.slotLocked('special')) { this.emit('slotLocked', { slot: 'special' }); return false; }
     // NOTHING fires out of an execution duel. The frozen states below already
@@ -2313,7 +2351,7 @@ export class Fighter {
       // do not pass it at all; the first melee hit that lands on it breaks it.
       // See applyHit for the intercept and fx.shutterUp for the door itself.
       case 'hakari_shutter': {
-        if (this.shutterT > 0) { this.emit('noCE'); return false; }
+        if (this.shutterT > 0) { this.emit('noCE', { why: '' }); return false; }   // the door is on screen
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         const move = {
@@ -2399,7 +2437,7 @@ export class Fighter {
       // away actually buys the opponent, and it is enough.
       case 'yuki_command': {
         const sys = ctx.match.garuda;
-        if (!sys?.forOwner(this)) { this.emit('noCE'); return false; }
+        if (!sys?.forOwner(this)) { this.emit('noCE', { why: 'GARUDA IS DOWN' }); return false; }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         if (!sys.command(this, ctx.match.other(this))) {
           this.emit('garudaStunned');
@@ -2470,7 +2508,7 @@ export class Fighter {
       case 'dagon_summon': {
         const sys = ctx.match.ocean;
         if (!sys) return false;
-        if (sys.countFor(this) >= (sp.maxOutside ?? 1)) { this.emit('summonCapped'); return false; }
+        if (sys.countFor(this) >= (sp.maxOutside ?? 1)) { this.emit('summonCapped', { max: sp.maxOutside ?? 1 }); return false; }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         const mv = input?.move ?? { x: 0, z: 0 };
@@ -2541,7 +2579,7 @@ export class Fighter {
         return true;
       }
       case 'yuta_copy': {
-        if (!this.copySlot) { this.emit('noCE'); return false; }
+        if (!this.copySlot) { this.emit('noCE', { why: 'NOTHING COPIED YET' }); return false; }
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         this.startCopy(ctx);
@@ -2556,7 +2594,7 @@ export class Fighter {
       case 'jogo_overheat': {
         // vulnerable channel: he stands venting through the whole startup —
         // getting hit cancels it (the ct state drops on any clean hit)
-        if (this.buffs.overheat > 0) { this.emit('noCE'); return false; }
+        if (this.buffs.overheat > 0) { this.emit('noCE', { why: '' }); return false; }   // he is visibly venting
         if (!this.spendCE(sp.cost)) { this.emit('noCE'); return false; }
         this._setSpecialCD(sp.cooldown);
         const move = {
@@ -2738,7 +2776,7 @@ export class Fighter {
       // lets Fighter.update flip it to `projT` a quarter of a second later,
       // rather than arming instantly on the press.
       case 'naoya_stance': {
-        if (this.projT > 0 || this.projArmT > 0) { this.emit('noCE'); return false; }
+        if (this.projT > 0 || this.projArmT > 0) { this.emit('noCE', { why: '' }); return false; }   // he is stood in it
         // during MAXIMUM PROJECTION the stance is already permanently on, so
         // pressing it again is a wasted bar rather than a stacked buff
         if (this.maxProjT > 0) { this.emit('stanceRedundant'); return false; }
@@ -4457,7 +4495,7 @@ export class Fighter {
         this._setSpecialCD(this.cfg.special.cooldown);
         ctx.effects.blackFlash(this);
       } else if (this.bfT > 0) {
-        this.emit('noCE'); // pressed during the lockout: too early
+        this.emit('noCE', { why: '' }); // pressed during the lockout — the flash tell is the message
       }
     }
 
@@ -4478,7 +4516,7 @@ export class Fighter {
         this.bfT = 0;
         ctx.effects.blackFlash(this);
       } else {
-        this.emit('noCE'); // still inside the lockout: too early
+        this.emit('noCE', { why: '' }); // still inside the lockout — same
       }
     }
 
@@ -4536,6 +4574,15 @@ export class Fighter {
         // a line rather than silently swallowed, so the absence reads as a
         // design decision instead of a bug.
         if (input.ultP && this.cfg.noUltimate) { this.emit('noUltimate'); break; }
+        // ---- AND EVERY OTHER WAY THE BUTTON CAN COME TO NOTHING ------------
+        // Mahoraga's line above was the only one of these that existed. The
+        // ordinary cases — the bar is short, the ceiling is short, you are in
+        // the air, you are still in backlash — all fell straight through this
+        // switch and did nothing at all, on the single most expensive button in
+        // the game. Whatever the reason, it now gets said. `input.block` is
+        // excluded because LT + this button is the barrier break, which the
+        // domain system answers for itself.
+        if (input.ultP && !input.block) { this.emit('noCE', { why: this._ultRefusal() }); break; }
         // inside his own sword domain a held blade replaces punches and CTs
         if (this.heldSword && this.grounded && ctx.domains.isSwordField(this)
           && (input.punchP || input.heavyP || input.ct1P || input.ct2P)) { this.startSwordSwing(ctx); break; }
@@ -5885,7 +5932,35 @@ export class Fighter {
     if (b) {
       // walls first, then the outer edge
       b.resolveWalls(this.pos, 0.36);
+      // ---- THE ARENA BOUNDARY IS A THING YOU CAN HIT --------------------
+      // `clampXZ` is an invisible line: the fighter stops in open ground with
+      // nothing to have stopped against, which reads as dropped input rather
+      // than as a limit. Report the contact so the match can put a barrier
+      // flare there (fx.forceField).
+      //
+      // NO TEST FOR "IS THERE A WALL HERE". There does not need to be one:
+      // `resolveWalls` above has already run, so anywhere the map built a
+      // perimeter the fighter was stopped by it and never reached the clamp.
+      // A displacement here means the line, and only the line.
+      const ex = this.pos.x, ez = this.pos.z;
       b.clampXZ(this.pos, 0.35);
+      this._edgeCD = Math.max(0, (this._edgeCD ?? 0) - dt);
+      const edx = this.pos.x - ex, edz = this.pos.z - ez;
+      if ((edx || edz) && this._edgeCD <= 0) {
+        // Retriggered while you keep pushing, but on a cooldown — walking the
+        // length of the boundary should read as a hand dragging along glass,
+        // not as a strobe.
+        this._edgeCD = 0.22;
+        const m = Math.hypot(edx, edz) || 1;
+        this.emit('arenaEdge', {
+          // the contact point is where the body WAS, at chest height
+          at: { x: ex, y: this.pos.y + 1.05, z: ez },
+          // outward normal: the clamp pushed us back in, so the boundary is
+          // the way we were heading
+          nx: -edx / m, nz: -edz / m,
+          power: Math.min(1, Math.hypot(this.vel.x, this.vel.z) / 9)
+        });
+      }
       // A LAUNCHED BODY IS A DAMAGE SOURCE. If a wall just stopped someone
       // travelling fast, the wall pays for it — that is the "launched bodies
       // hitting geometry" case, and it is the most satisfying one.

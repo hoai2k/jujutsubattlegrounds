@@ -1072,13 +1072,29 @@ export class CurseSystem {
     if (this.isLost(owner, key)) return def.short + ' IS GONE';
     if (this.cooldownOf(owner, key) > 0) return def.short + ' RECOVERING';
     const limit = owner.cfg.curses?.activeLimit ?? 2;
+    // The cap as a number, for the same reason as the shikigami limit: a player
+    // told "the stable is deployed" has to work out what that implies, and one
+    // told the ceiling can count.
     if (this.usedSlots(owner) + (def.slots ?? 1) > limit) {
-      return def.slots >= limit ? 'NO ROOM FOR A SPECIAL GRADE' : 'STABLE IS DEPLOYED';
+      return def.slots >= limit ? 'NO ROOM FOR A SPECIAL GRADE' : 'MAX CURSES: ' + limit;
     }
-    // only ONE special grade at a time, stated separately from the slot budget
-    // so the HUD message is the true reason rather than a generic "full"
+    // Only ONE special grade at a time, stated separately from the slot budget
+    // so the message is the true reason rather than a generic "full".
+    //
+    // PHRASED AS A CAP like every other limit in the game, rather than as the
+    // sentence "one special grade at a time": a player reading MAX CURSES: 2
+    // one moment and a different grammar the next has to work out whether they
+    // are being told about the same rule. The 1 is a literal because the rule
+    // is — the test is "is any special grade alive", with no dial behind it.
+    //
+    // NOTE THAT THIS IS UNREACHABLE ON THE SHIPPED CONFIG. Every special grade
+    // is `slots: 2` against an `activeLimit` of 2, so a live one fills the
+    // whole budget and the slot check above always answers first. It goes live
+    // the moment that limit is raised to 3 — which is exactly the "a special
+    // grade AND one low grade" tuning knob the header names — and it is kept
+    // for that, not deleted.
     if (def.specialGrade && this.list.some(c => c.owner === owner && c.alive && c.special)) {
-      return 'ONE SPECIAL GRADE AT A TIME';
+      return 'MAX SPECIAL GRADES: 1';
     }
     return null;
   }

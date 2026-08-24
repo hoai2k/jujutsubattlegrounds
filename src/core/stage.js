@@ -128,6 +128,11 @@ export const GRADES = {
   ko: { vignette: 0.66, tint: [1.05, 0.95, 0.92], lift: 0, sat: 0.6 }
 };
 
+// The first of four layers reserved for objects only ONE seat may see. See the
+// note in `eyeAt`; `seatLayer(i)` is the accessor everything else should use.
+export const SEAT_LAYER = 8;
+export function seatLayer(i) { return SEAT_LAYER + Math.max(0, Math.min(3, i | 0)); }
+
 export function createStage() {
   const canvas = document.getElementById('game-canvas');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -160,11 +165,27 @@ export function createStage() {
 
   // Eye 0 owns the shared `camera`; eyes 1-3 are created on demand the first
   // time a match asks for that many views.
-  const eyes = [makeEye(camera)];
+  const eyes = [];
   function eyeAt(i) {
-    while (eyes.length <= i) eyes.push(makeEye(new THREE.PerspectiveCamera(50, 1, 0.05, 220)));
+    while (eyes.length <= i) {
+      const cam = eyes.length ? new THREE.PerspectiveCamera(50, 1, 0.05, 220) : camera;
+      // ---- SEAT-PRIVATE OBJECTS -------------------------------------------
+      // Everything in the game is drawn from one scene, once per eye, so by
+      // default every seat sees everything. A few things must not be shared:
+      // a message telling YOU why YOUR button did nothing is noise on the
+      // other half of the couch, and in a four-way it is three quarters noise.
+      //
+      // Layers are how three.js says that. A camera sees layer 0 plus whatever
+      // it enables, so eye `i` is given SEAT_LAYER + i and nothing else has to
+      // change: an object left on layer 0 is still seen by everybody, and one
+      // moved onto a seat's layer is seen by that seat alone. It costs nothing
+      // per frame — the test is a bitmask on the object.
+      cam.layers.enable(SEAT_LAYER + eyes.length);
+      eyes.push(makeEye(cam));
+    }
     return eyes[i];
   }
+  eyeAt(0);
   let views = 1;
 
   // Viewport rects in normalized 0..1 space, origin bottom-left (the WebGL

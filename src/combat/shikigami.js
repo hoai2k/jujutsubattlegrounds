@@ -1365,7 +1365,9 @@ export class ShikigamiSystem {
     if (garden) return null;                                   // free and instant
     if (this.cooldownOf(owner, key) > 0) return def.short + ' ON COOLDOWN';
     const limit = owner.cfg.shikigami?.activeLimit ?? 2;
-    if (this.usedSlots(owner) + (def.slots ?? 1) > limit) return 'SHADOW IS FULL';
+    // STATE THE CAP AS A NUMBER. "The shadow is full" is flavour that tells a
+    // player nothing they can plan around; the limit itself does.
+    if (this.usedSlots(owner) + (def.slots ?? 1) > limit) return 'MAX SHIKIGAMI: ' + limit;
     if (owner.res.curCE < def.cost) return null;               // CE is checked by the caller
     return null;
   }

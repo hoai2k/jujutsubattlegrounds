@@ -33,6 +33,25 @@ export const STEP_UP = 0.55;    // how high a fighter can walk up without jumpin
 // authored around, so ties are forgiven here as well.
 export const LIP_EPS = 0.02;
 
+// ---- HOW FAR OUTSIDE THE ARENA THE CAMERA MAY SIT ------------------------
+// The play area is a rectangle and the fighter is clamped 0.35 m inside it, so
+// a fighter pinned against the perimeter with the opponent in front of him
+// wants the camera OUTSIDE the rectangle. The two camera sweeps below both
+// treat "outside" as blocked, and this is how much slack they allow first.
+//
+// It was 1.5 m, which is less than a third of the follow distance: pinned to
+// the edge, the shot collapsed to under two metres and the fighter's own back
+// filled the screen. There is nothing structural about the boundary — it is an
+// invisible line, not a wall, and every map draws scenery well past it — so
+// the only thing the old value bought was a guarantee against seeing the end
+// of the world, and it bought it at the cost of the shot in every edge fight.
+//
+// 4.2 m clears the full follow distance at the shallow angles that matter and
+// still stops well short of the point where a map runs out of set dressing. A
+// perimeter that IS solid is unaffected either way: real walls are in `walls`
+// and the sweep stops on them first, long before this.
+export const CAM_OUTSET = 4.2;
+
 export class Bounds {
   constructor({ minX = -20, maxX = 20, minZ = -20, maxZ = 20, groundY = 0, terrain = ARTIFICIAL } = {}) {
     this.minX = minX; this.maxX = maxX;
@@ -319,7 +338,7 @@ export class Bounds {
         if (y < w.y0 || y > w.y1) continue;
         if (x > w.x0 && x < w.x1 && z > w.z0 && z < w.z1) return Math.max(0.12, (i - 1) / steps);
       }
-      if (!this.contains(x, z, -1.5)) return Math.max(0.12, (i - 1) / steps);
+      if (!this.contains(x, z, -CAM_OUTSET)) return Math.max(0.12, (i - 1) / steps);
     }
     return 1;
   }
@@ -372,7 +391,7 @@ export class Bounds {
         if (x > w.x0 && x < w.x1 && z > w.z0 && z < w.z1) { blocked = true; break; }
       }
       if (!blocked && !this._sameSpace(x, y, z, sub)) blocked = true;
-      if (!blocked && !this.contains(x, z, -1.5)) blocked = true;
+      if (!blocked && !this.contains(x, z, -CAM_OUTSET)) blocked = true;
       if (blocked) return Math.max(0.12, (i - 1) / steps);
     }
     return 1;
