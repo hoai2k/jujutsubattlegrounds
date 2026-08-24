@@ -52,9 +52,12 @@ export const DEF = {
   size: '120 × 108 m · circus, sunken court, elevated ring, tower drum'
 };
 
-const R_COURT = 13;      // the sunken concourse
-const CY = -4.0;
-const NSTEP = 8;
+// THE CONCOURSE IS THE ARENA. At 13 m it was a 26 m circle with a fountain in
+// it, ringed by 6 m of steps and then a road — the biggest clear space on the
+// busiest crossing in the world was the size of a tennis court.
+const R_COURT = 20;      // the sunken concourse
+const CY = -3.0;
+const NSTEP = 6;
 const R_STEPS = R_COURT + NSTEP * 0.85;    // where the steps meet the roadway
 const R_ROAD = 38;       // the circus
 const R_PAVE = 46;       // outer edge of the pavement ring
@@ -122,7 +125,7 @@ export function build(quality) {
     b.roundDeck(0, 0, ro, y, { rIn: ri, mat: court, thick: (-CY / NSTEP) + 0.2, id: 'step' + i });
   }
   b.water(0, 0, 0, 0, CY + 0.06, {
-    radius: 5.5, shallow: 0x4f8fb0, deep: 0x123448, opacity: 0.5, caustic: 0.3
+    radius: 7.5, shallow: 0x4f8fb0, deep: 0x123448, opacity: 0.5, caustic: 0.3
   });
   b.mist(0, 0, 0, 0, CY + 0.1, 0x7f96b8, { radius: R_COURT - 1, opacity: 0.26, scale: 12 });
   b.sigil(0, CY + 0.08, 0, R_COURT - 2, 0x8f6aff, { rings: 3, spokes: 18, sides: 6, opacity: 0.30, spin: -0.03 });

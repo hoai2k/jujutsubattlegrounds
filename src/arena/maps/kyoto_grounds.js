@@ -70,11 +70,18 @@ const RZ0 = POOL.z + POOL.r - 0.6;   // the river runs from the pool's lip south
 
 // The eight terraces. Every rise is 0.5 m — under STEP_UP (0.55) — so the bowl
 // is climbable from any bearing without a single stair cut into it.
+// THE CLEARING IS THE ARENA and the first bench used to start 20 m out, so
+// each side of the river was an eleven-metre lane between the water and a
+// staircase of rock. The bowl starts at 30 m now: two open greens either side
+// of the water, each wide enough to fight a whole round in without touching a
+// terrace.
 const TERRACES = [
-  [20, 26, 0.5], [26, 32, 1.0], [32, 38, 1.5], [38, 44, 2.0],
-  [44, 50, 2.5], [50, 56, 3.0], [56, 64, 3.5], [64, 82, 4.0]
+  [38, 44, 0.5], [44, 50, 1.0], [50, 56, 1.5], [56, 62, 2.0],
+  [62, 70, 2.5], [70, 82, 3.0]
 ];
-const CRAG = { x: -34, z: 14, rIn: 8.2, rOut: 12.0, top: 12.0, foot: 0.5 };
+// OUT OF THE GREEN. A crag whose base is 24 m across, standing in the middle of
+// the west side, is the same mistake as a hall in the middle of a courtyard.
+const CRAG = { x: -44, z: 20, rIn: 8.2, rOut: 12.0, top: 12.0, foot: 0.0 };
 const BR = { y: 6.0, z0: 12, z1: 16, x: 16.6 };   // the high bridge
 
 export function build(quality) {
@@ -116,7 +123,7 @@ export function build(quality) {
       { mat, thick: y + 0.5, band: 0.5, segs: 48, cutX: CW, omit: valley, inset: 3.2, id });
   };
   // the clearing itself: the flat ground inside the first terrace
-  bench(0.5, 20, 0, 'clearing');
+  bench(0.5, 38, 0, 'clearing');
   // EVERY TERRACE OVERLAPS THE ONE BELOW IT by 0.6 m. The cell scan only calls
   // a cell walkable when all four of its corners are inside the ring, so two
   // rings that merely touch at a shared radius BOTH reject the cells straddling
@@ -131,10 +138,9 @@ export function build(quality) {
       b.floor(s > 0 ? RX : -CW, z0, s > 0 ? CW : -RX, z1, 0, { mat: grass, id: 'valley' + s + z0 });
     }
   }
-  // a rock ramp up the back of the bowl on each side, so the top benches are
-  // not only reachable by walking the long way round the rim
-  b.slope(-46, -34, -34, -22, 2.5, 0.5, 'x', { mat: rockLo, depth: 1.6, segs: 18 });
-  b.slope(34, 22, 46, 34, 0.5, 2.5, 'x', { mat: rockLo, depth: 1.6, segs: 18 });
+  // No ramps up the back of the bowl: every rise on it is 0.5 m, under STEP_UP,
+  // so the whole thing is already climbable from any bearing. The two that were
+  // here were cut for terrace heights that no longer exist.
 
   // ---- THE RIVER ----------------------------------------------------------
   // `groundY` is one number for the whole map and it is 0, so the channel needs
@@ -202,8 +208,8 @@ export function build(quality) {
   b.floor(-BR.x, BR.z0, BR.x, BR.z1, BR.y, { mat: M.wood, id: 'bridge' });
   b.railing(-BR.x, BR.z0, BR.x, BR.z0, BR.y);
   b.railing(-BR.x, BR.z1, BR.x, BR.z1, BR.y);
-  b.stairs(-30, BR.z0, -BR.x + 0.3, BR.z1, 1.5, BR.y, 'x', { mat: M.wood, id: 'bridgeW' });
-  b.stairs(BR.x - 0.3, BR.z0, 30, BR.z1, BR.y, 1.5, 'x', { mat: M.wood, id: 'bridgeE' });
+  b.stairs(-30, BR.z0, -BR.x + 0.3, BR.z1, 0, BR.y, 'x', { mat: M.wood, id: 'bridgeW' });
+  b.stairs(BR.x - 0.3, BR.z0, 30, BR.z1, BR.y, 0, 'x', { mat: M.wood, id: 'bridgeE' });
   // the trestles, both of them standing on the valley floor clear of the water
   for (const s of [-1, 1]) {
     for (const z of [BR.z0 + 0.9, BR.z1 - 0.9]) {

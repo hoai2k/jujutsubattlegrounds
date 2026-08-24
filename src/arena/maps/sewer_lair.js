@@ -62,9 +62,13 @@ export const DEF = {
 };
 
 const R_CHAMBER = 23;     // inside face of the brick wall
-const R_BASIN = 9;        // the water
-const R_COL = 15.5;       // the column ring
-const R_GALL_IN = 16.5;   // gallery inner edge
+// THE BASIN IS THE FLOOR OF THIS ROOM and it was 18 m across in a 46 m chamber,
+// with a ring of columns closed in around it: the largest circle that fitted
+// anywhere in the lair was 17 m. The water is 26 m across now and the columns
+// stand four metres further out, against the gallery.
+const R_BASIN = 12;       // the water
+const R_COL = 16.6;       // the column ring
+const R_GALL_IN = 17.6;   // gallery inner edge
 const CY = -1.4;          // basin floor
 const LY = 0.0;           // ring floor
 const GY = 4.6;           // gallery
@@ -129,7 +133,7 @@ export function build(quality) {
   // side of its rim landed past the ring floor's own outer edge — a lip of well
   // wall standing in the gap between the floor and the chamber wall.
   const SUMP_A = Math.PI * 0.75;
-  const SUMP = { x: Math.sin(SUMP_A) * 17.5, z: Math.cos(SUMP_A) * 17.5, r: 4.4 };
+  const SUMP = { x: Math.sin(SUMP_A) * 19.0, z: Math.cos(SUMP_A) * 19.0, r: 3.2 };
   b.roundDeck(0, 0, R_CHAMBER, LY, {
     rIn: R_BASIN + 3.2, mat: brick, thick: 0.4, zone: CH, id: 'ring',
     holes: [{ x: SUMP.x, z: SUMP.z, r: SUMP.r }]

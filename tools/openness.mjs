@@ -58,6 +58,10 @@ const res = await page.evaluate(async (only) => {
       }
     }
     let best = 0, rect = 0, rectDims = [0, 0], rectY = 0;
+    // THE BIGGEST CIRCLE THAT FITS, which is the number a fight cares about.
+    // The largest RECTANGLE rewards corridors — a 15 m lane 108 m long scores
+    // higher than a 30 m green — and a corridor is the thing being fixed.
+    let disc = 0, discY = 0, discAt = [0, 0];
     const floors = [];
     for (const [yb, set] of byY) {
       if (!set.size) continue;
@@ -78,6 +82,38 @@ const res = await page.evaluate(async (only) => {
           }
         }
         if (region.length > best) best = region.length;
+        {
+          // two-pass chamfer distance transform inside this component
+          let ai = Infinity, aj = Infinity, bi = -Infinity, bj = -Infinity;
+          for (const k of region) {
+            const [ci, cj] = k.split(',').map(Number);
+            ai = Math.min(ai, ci); bi = Math.max(bi, ci);
+            aj = Math.min(aj, cj); bj = Math.max(bj, cj);
+          }
+          const w = bi - ai + 3, h = bj - aj + 3;      // 1-cell margin of "outside"
+          const d = new Float32Array(w * h);           // 0 outside, INF inside
+          for (const k of region) {
+            const [ci, cj] = k.split(',').map(Number);
+            d[(ci - ai + 1) * h + (cj - aj + 1)] = Infinity;
+          }
+          const D1 = 1, D2 = Math.SQRT2;
+          for (let i = 1; i < w; i++) for (let j = 1; j < h - 1; j++) {
+            const o = i * h + j;
+            if (!d[o]) continue;
+            d[o] = Math.min(d[o], d[o - h] + D1, d[o - 1] + D1, d[o - h - 1] + D2, d[o - h + 1] + D2);
+          }
+          for (let i = w - 2; i >= 0; i--) for (let j = h - 2; j >= 1; j--) {
+            const o = i * h + j;
+            if (!d[o]) continue;
+            d[o] = Math.min(d[o], d[o + h] + D1, d[o + 1] + D1, d[o + h + 1] + D2, d[o + h - 1] + D2);
+          }
+          for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) {
+            const v = d[i * h + j];
+            if (v > disc && v < Infinity) {
+              disc = v; discY = yb * 0.5; discAt = [(i + ai - 1) * STEP, (j + aj - 1) * STEP];
+            }
+          }
+        }
         floors.push({ y: yb * 0.5, area: Math.round(region.length * STEP * STEP), rect: 0, dims: [0, 0] });
         // largest all-ones rectangle in this component
         const rs = new Set(region);
@@ -117,6 +153,7 @@ const res = await page.evaluate(async (only) => {
       biggestFloor: Math.round(best * STEP * STEP),
       openRect: [Math.round(rectDims[0]), Math.round(rectDims[1])],
       openRectY: rectY,
+      discR: +(disc * STEP).toFixed(1), discY, discAt: discAt.map(v => Math.round(v)),
       wallsInPlay: inPlay,
       platforms: bd.platforms.length,
       floors: floors.filter(f => f.area > 120).sort((a, b) => b.rect - a.rect).slice(0, 5)
@@ -131,6 +168,7 @@ for (const r of res) {
     ('walk ' + r.walkArea + ' m²').padEnd(14),
     ('arena ' + r.biggestFloor + ' m²').padEnd(15),
     ('open ' + r.openRect[0] + '×' + r.openRect[1] + ' m @ y' + r.openRectY).padEnd(24),
+    ('circle Ø' + Math.round(r.discR * 2) + ' m @ y' + r.discY).padEnd(21),
     ('walls ' + r.wallsInPlay).padEnd(11),
     'pieces ' + r.platforms
   );
