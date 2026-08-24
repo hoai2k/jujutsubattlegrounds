@@ -66,6 +66,9 @@ import { buildRyu } from '../art/models/ryu.js';
 import { buildReggie } from '../art/models/reggie.js';
 import { buildIno } from '../art/models/ino.js';
 import { makeClips } from '../art/anim/index.js';
+// ?render3d — optional swap of the procedural body for a rigged 3D humanoid,
+// loaded at runtime and driven by the same clips. No-op without the URL param.
+import { maybeAttachRender3D } from '../art/rig3d/render3d.js';
 import {
   variantsOf, hasVariants, variantEntry, resolveVariant, splitPick, joinPick,
   lastVariant, rememberVariant
@@ -408,6 +411,7 @@ export function makeCharacter(pick) {
   // HUD cut-in and the finisher grade already use — and that the older models,
   // most of which never declared a palette accent, get it for free.
   if (model.palette) model.palette.accent = r.accent ?? model.palette.accent;
+  maybeAttachRender3D(model, pick);
   return {
     config: r.config,
     model,
@@ -456,9 +460,11 @@ export const SUMMONS = {
 export function makeSummon(id) {
   const entry = SUMMONS[id];
   if (!entry) throw new Error('unknown summon: ' + id);
+  const model = entry.buildModel();
+  maybeAttachRender3D(model, id);
   return {
     config: entry.config,
-    model: entry.buildModel(),
+    model,
     clips: makeClips(id)
   };
 }
