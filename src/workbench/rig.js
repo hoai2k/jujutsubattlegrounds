@@ -11,10 +11,14 @@
 //               twist. A clip shows whether the rig animates; a stress pose
 //               shows whether it is BUILT right, because that is where a
 //               misplaced pivot stops being subtle.
-//   3 PIVOTS    the measurement, and the fix. MEASURE reads the skin weights
-//               and reports where each joint actually is versus where the
-//               bone sits; the nudge dials move the pivot (and only the
-//               pivot — the mesh does not budge, see art/rig3d/joints.js).
+//   3 LANDMARKS the part only a person can do: POINT AT THE JOINTS. Every
+//               alignment the retargeter builds comes from where the bones
+//               sit inside the mesh, so a bone in the wrong place aims its
+//               limb somewhere the clip never asked for. Marking where the
+//               shoulder actually is fixes that at the source — and the
+//               same marks say whether the right BONE was mapped at all.
+//   4 PIVOTS    the same fix from the other direction: skin weights measure
+//               where each joint is, and the dials move it by hand.
 //   4 LIGHTING  a small ambient lift, so a model authored for an offline
 //               render is judged with its colour reaching the camera rather
 //               than sunk in this scene's shadows.
@@ -25,7 +29,7 @@
 // ===========================================================================
 import { ROSTER_IDS, ROSTER } from '../characters/index.js';
 import {
-  createStage, RigSession, CANONICAL, CORE, STRESS_POSES,
+  createStage, RigSession, CANONICAL, CORE, STRESS_POSES, LANDMARKS,
   downloadJson, el, sec, buildLoaderUI
 } from './rigcore.js';
 
@@ -114,7 +118,14 @@ export function mountRigBench(root) {
     assignBox.append(row);
   }
   stage.canvas.addEventListener('pointerup', e => {
-    if (!stage.wasClick() || !session.selected || !session.model3d) return;
+    if (!stage.wasClick() || !session.model3d) return;
+    // an armed landmark takes the click; otherwise it reassigns a bone
+    if (session.armedLandmark) {
+      const p = session.pickSurface(e);
+      if (p) { session.addLandmarkSample(session.armedLandmark, p); syncLandmarks(); }
+      return;
+    }
+    if (!session.selected) return;
     const node = session.pickAt(e);
     if (node) { session.assign(session.selected, node.name); syncAll(); }
   });
@@ -157,8 +168,74 @@ export function mountRigBench(root) {
   bLoaded.onclick = () => { session.stopPreview(); session.restoreLoadedPose(); clearActive(); syncAll(); };
   bStop.onclick = () => { session.stopPreview(); clearActive(); };
 
+  // ---- 3 · LANDMARKS ------------------------------------------------------
+  const sLm = sec(panel, '3 · LANDMARKS — show me where the joints are');
+  sLm.append(el('div', 'mb-hint',
+    'Pick a row, then <b>click that joint on the model</b>. The click lands ' +
+    '<i>inside</i> the body (the ray is averaged through it), and clicking the ' +
+    'same joint again from the opposite side averages the two — worth doing for ' +
+    'the shoulders and hips. A pink dot is your mark; the line runs to where the ' +
+    'bone currently is, so a long line is the error. Nothing has to be perfect: ' +
+    'within a centimetre or two is plenty.'));
+  const lmList = el('div', 'mb-lm');
+  const lmRow2 = el('div', 'mb-row');
+  const bLmApply = el('button', 'mb-btn ac', '<span>Move bones to marks</span>');
+  const bLmCheck = el('button', 'mb-btn', '<span>Check mapping</span>');
+  const bLmClear = el('button', 'mb-btn', '<span>Clear all</span>');
+  lmRow2.append(bLmApply, bLmCheck, bLmClear);
+  const lmOut = el('div', 'mb-hint');
+  sLm.append(lmList, lmRow2, lmOut);
+
+  function syncLandmarks() {
+    lmList.innerHTML = '';
+    for (const def of LANDMARKS) {
+      const n = session.landmarks[def.key]?.length ?? 0;
+      const armed = session.armedLandmark === def.key;
+      const row = el('div', 'mb-lm-row' + (armed ? ' armed' : '') + (n ? ' set' : ''));
+      const b = el('button', 'mb-lm-btn',
+        `<b>${def.label}</b>${n ? ` <i>${n} mark${n > 1 ? 's' : ''}</i>` : ''}`);
+      b.title = def.hint;
+      b.onclick = () => {
+        session.armedLandmark = armed ? null : def.key;
+        session._refreshLandmarks();
+        syncLandmarks();
+      };
+      row.append(b);
+      if (n) {
+        const x = el('button', 'mb-lm-x', '×');
+        x.onclick = () => { session.clearLandmark(def.key); syncLandmarks(); };
+        row.append(x);
+      }
+      lmList.append(row);
+      if (armed) row.append(el('div', 'mb-lm-hint', def.hint));
+    }
+    const done = LANDMARKS.filter(d => session.landmarks[d.key]?.length).length;
+    lmOut.innerHTML = done
+      ? `<b>${done}/${LANDMARKS.length} marked.</b> Export sends the marks, the error against ` +
+        'each mapped bone, and any bone the marks disagree with.'
+      : 'The two shoulders and the two hip joints are worth more than all the rest put together.';
+  }
+  bLmApply.onclick = () => {
+    const n = session.applyLandmarksToPivots();
+    status.textContent = n
+      ? `Moved ${n} bones onto your marks — try the stress poses again.`
+      : 'No marks yet.';
+    syncAll();
+  };
+  bLmCheck.onclick = () => {
+    const rows = session.suggestFromLandmarks();
+    if (!rows.length) { lmOut.textContent = 'No marks yet.'; return; }
+    const bad = rows.filter(r => !r.agrees);
+    lmOut.innerHTML = bad.length
+      ? '<b>Mapping disagrees with your marks:</b><br>' + bad.map(r =>
+        `${r.bone}: mapped to <b>${r.current}</b> (${r.currentCm} cm away) — ` +
+        `nearest joint is <b>${r.nearest}</b> (${r.nearestCm} cm)`).join('<br>')
+      : `<b>Mapping agrees with all ${rows.length} marks.</b> Any error left is placement, not mapping — press MOVE BONES TO MARKS.`;
+  };
+  bLmClear.onclick = () => { session.clearLandmarks(); session.armedLandmark = null; syncAll(); };
+
   // ---- 3 · PIVOTS ---------------------------------------------------------
-  const sJoint = sec(panel, '3 · PIVOTS — where does each bone rotate from?');
+  const sJoint = sec(panel, '4 · PIVOTS — where does each bone rotate from?');
   sJoint.append(el('div', 'mb-hint',
     'MEASURE reads the skin weights: where two bones hand over to each other ' +
     '<i>is</i> the joint, so the difference against the bone is a measurement ' +
@@ -255,8 +332,8 @@ export function mountRigBench(root) {
     });
   }
 
-  // ---- 4 · LIGHTING -------------------------------------------------------
-  const sLook = sec(panel, '4 · LIGHTING — a small lift, not a restyle');
+  // ---- 5 · LIGHTING -------------------------------------------------------
+  const sLook = sec(panel, '5 · LIGHTING — a small lift, not a restyle');
   sLook.append(el('div', 'mb-hint',
     'The model keeps its own materials. <b>Ambient</b> adds back a fraction of ' +
     'its own texture as light, which lifts the shadows and makes the blue read ' +
@@ -293,8 +370,8 @@ export function mountRigBench(root) {
     sLook.append(row);
   }
 
-  // ---- 5 · EXPORT ---------------------------------------------------------
-  const sExp = sec(panel, '5 · EXPORT CHANGES');
+  // ---- 6 · EXPORT ---------------------------------------------------------
+  const sExp = sec(panel, '6 · EXPORT CHANGES');
   const notes = el('textarea', 'mb-notes');
   notes.placeholder = 'What still looks wrong, what you could not fix here, anything the numbers don’t carry…';
   const bExport = el('button', 'mb-btn ac', '<span>Export changes</span>');
@@ -311,7 +388,7 @@ export function mountRigBench(root) {
     'rest pose, trims, look dials and your notes. It is the manifest entry ' +
     '<b>?render3d</b> loads.'));
 
-  function syncAll() { syncMapping(); syncAssign(); syncJoint(); }
+  function syncAll() { syncMapping(); syncAssign(); syncLandmarks(); syncJoint(); }
   syncAll();
 
   window.__bench = { session, stage, syncAll, loadFrom: (u, l) => session.load(u, l).then(syncAll) };

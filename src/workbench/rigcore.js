@@ -16,7 +16,8 @@ import {
   loadScene, applyRestPose, fitInto, modelsUrl, meshStats, TRI_BUDGET
 } from '../art/rig3d/render3d.js';
 import {
-  analyzeJoints, applyJointEdits, collectSkeletons, moveBonePivot, worldToLocalPos, mirrorPairs
+  analyzeJoints, applyJointEdits, collectSkeletons, moveBonePivot, worldToLocalPos,
+  mirrorPairs, modelBindHeight
 } from '../art/rig3d/joints.js';
 import { liftMaterials, LIFT_DEFAULTS } from '../art/rig3d/lift.js';
 import { makeCharacter } from '../characters/index.js';
@@ -147,6 +148,62 @@ export const STRESS_POSES = {
   'head turn': { Neck: [0, 52, 0], Head: [-12, 26, 0] }
 };
 
+// -------------------------------------------------------------- landmarks --
+// WHAT THE RETARGETER ACTUALLY NEEDS FROM A HUMAN.
+//
+// Everything the alignment does is derived from WHERE THE JOINTS ARE: a
+// bone's rest direction is (this joint -> the next joint down), and that
+// direction is what gets matched onto the game's. So if a bone sits in the
+// wrong place inside the mesh, its rest direction is wrong, the alignment
+// built from it is wrong, and the limb points somewhere the clip never asked
+// for — which is exactly the "arms out looks bent and hunched" failure.
+//
+// Skin weights can measure this (see joints.js) but only up to the shape of
+// the costume: the band between two bones is a hoodie as much as it is a
+// shoulder. A person looking at the model does not have that problem. So the
+// bench asks for the one thing a person is unambiguously better at — POINT AT
+// THE JOINT — and everything else is derived:
+//
+//   landmark -> bone pivot -> rest direction -> alignment -> every clip
+//
+// Each entry names the canonical bone it fixes, so a marked landmark is
+// directly actionable rather than a note in a bug report. `hint` is written
+// to be answerable without anatomy training, and always describes the
+// INTERIOR joint centre rather than the surface bump above it.
+export const LANDMARKS = [
+  { key: 'hips', bone: 'Hips', label: 'Pelvis centre',
+    hint: 'Inside the body, level with the top of the hip bones — the point the whole body pivots around when he leans.' },
+  { key: 'waist', bone: 'Spine', label: 'Waist',
+    hint: 'The narrowest part of the waist, roughly the navel. This is where the torso is meant to BEND.' },
+  { key: 'chest', bone: 'Chest', label: 'Chest / ribcage',
+    hint: 'The middle of the ribcage, level with the armpits — not the collarbone.' },
+  { key: 'neckBase', bone: 'Neck', label: 'Neck base',
+    hint: 'Where the neck meets the shoulders — the notch at the top of the breastbone, in the middle.' },
+  { key: 'headCentre', bone: 'Head', label: 'Head centre',
+    hint: 'The middle of the SKULL, roughly between the ears. Ignore the hair entirely.' },
+  { key: 'shoulderL', bone: 'UpArmL', label: 'Shoulder · left', side: 'L',
+    hint: 'The ball joint INSIDE the shoulder where the arm swings from — not the top of the shoulder, and not the sleeve seam.' },
+  { key: 'shoulderR', bone: 'UpArmR', label: 'Shoulder · right', side: 'R',
+    hint: 'Same on the other side. Getting these two right matters more than anything else in this list.' },
+  { key: 'elbowL', bone: 'LoArmL', label: 'Elbow · left', side: 'L',
+    hint: 'The centre of the elbow joint, inside the arm.' },
+  { key: 'elbowR', bone: 'LoArmR', label: 'Elbow · right', side: 'R', hint: 'The centre of the elbow joint, inside the arm.' },
+  { key: 'wristL', bone: 'HandL', label: 'Wrist · left', side: 'L',
+    hint: 'Where the hand pivots on the forearm, in the middle of the wrist.' },
+  { key: 'wristR', bone: 'HandR', label: 'Wrist · right', side: 'R',
+    hint: 'Where the hand pivots on the forearm, in the middle of the wrist.' },
+  { key: 'hipL', bone: 'ThighL', label: 'Hip joint · left', side: 'L',
+    hint: 'The top of the thigh bone, INSIDE the hip — well below the waist and inboard of the outer hip.' },
+  { key: 'hipR', bone: 'ThighR', label: 'Hip joint · right', side: 'R',
+    hint: 'The top of the thigh bone, inside the hip.' },
+  { key: 'kneeL', bone: 'ShinL', label: 'Knee · left', side: 'L', hint: 'The centre of the knee joint, inside the leg.' },
+  { key: 'kneeR', bone: 'ShinR', label: 'Knee · right', side: 'R', hint: 'The centre of the knee joint, inside the leg.' },
+  { key: 'ankleL', bone: 'FootL', label: 'Ankle · left', side: 'L',
+    hint: 'The centre of the ankle joint, above the heel — not the bottom of the shoe.' },
+  { key: 'ankleR', bone: 'FootR', label: 'Ankle · right', side: 'R',
+    hint: 'The centre of the ankle joint, above the heel.' }
+];
+
 // -------------------------------------------------------------- session ----
 // One loaded model + one reference character, and every operation the two
 // benches perform on the pair.
@@ -177,8 +234,13 @@ export class RigSession {
     this.mapReport = '';
     this.overrides = {};       // canonical -> nodeName|null (user picks)
     this.rotOffset = {};       // canonical -> [x,y,z] degrees (retarget trim)
-    this.jointEdits = {};      // nodeName -> [x,y,z] local pivot position
+    this.jointEdits = {};      // nodeName -> [dx,dy,dz] offset in model axes,
+                               // as a fraction of the model's height — see
+                               // art/rig3d/joints.js on why it is stored that
+                               // way rather than as a position
     this.poseEdits = {};       // nodeName -> [x,y,z] local euler degrees
+    this.landmarks = {};       // key -> [Vector3, …] samples, in MODEL space
+    this.armedLandmark = null; // the key the next click in the view sets
     this.fit = { scale: 1, yOffset: 0, faceYaw: 0 };
     this.baseline = null;      // {trs: Map, inverses: Map}
     this.sourceUrl = '';
@@ -251,6 +313,9 @@ export class RigSession {
     this.wrapper.name = 'render3d-bench';
     this.wrapper.add(scene);
     this.stage.scene.add(this.wrapper);
+    // the model's own bind height, in its own axes: the unit every pivot fix
+    // is expressed in, so a fix survives the model being re-exported
+    this.modelHeight = modelBindHeight(scene);
     this.remap();
     // model-space rest position of every joint, for the symmetry pass
     const toModel = new THREE.Matrix4().copy(scene.matrixWorld).invert();
@@ -271,6 +336,8 @@ export class RigSession {
     this.wrapper = this.model3d = this.baseline = null;
     this.map = {}; this.overrides = {}; this.rotOffset = {};
     this.jointEdits = {}; this.poseEdits = {};
+    this.landmarks = {}; this.armedLandmark = null;
+    if (this.lmGroup) { this.stage.scene.remove(this.lmGroup); this.lmGroup = null; }
     this.selected = null;
     this.retargeter = null;
     this.suggestions = null;
@@ -293,7 +360,7 @@ export class RigSession {
   rebuild() {
     if (!this.model3d) return;
     this._restoreBaseline();
-    applyJointEdits(this.model3d, this.jointEdits, this.skeletons);
+    applyJointEdits(this.model3d, this.jointEdits, this.skeletons, this.modelHeight);
     applyRestPose(this.model3d, this.poseEdits);
     this.refit();
     this._rebuildRetarget();
@@ -403,35 +470,40 @@ export class RigSession {
     return true;
   }
 
+  // A world-space target becomes a normalized offset from the model's own
+  // rest — the portable form, so the fix survives a re-export of the model.
   _setJointWorld(canonical, world) {
     const node = this.map[canonical];
-    if (!node) return;
-    this.jointEdits[node.name] = worldToLocalPos(node, world).toArray()
-      .map(v => Math.round(v * 1e6) / 1e6);
+    if (!node || !this.baseModelPos?.has(node)) return;
+    this.model3d.updateMatrixWorld(true);
+    const target = world.clone().applyMatrix4(
+      new THREE.Matrix4().copy(this.model3d.matrixWorld).invert());
+    this.jointEdits[node.name] = target.sub(this.baseModelPos.get(node))
+      .divideScalar(this.modelHeight || 1)
+      .toArray().map(v => Math.round(v * 1e6) / 1e6);
     this.rebuild();
   }
 
-  // Nudge in WORLD metres — what a slider in the panel means.
+  // Nudge in WORLD metres — what a slider in the panel means. The model is
+  // fitted to the character's height, so a normalized offset of 1 is exactly
+  // H metres on screen; the two conversions are that one number.
   nudgeJoint(canonical, deltaWorld) {
     const node = this.map[canonical];
     if (!node || !this.wrapper) return;
     this.wrapper.updateMatrixWorld(true);
-    // the wrapper scales the model to the character's height, so a metre of
-    // slider has to come back through that scale to be a metre on screen
-    const k = 1 / (this.wrapper.scale.x || 1);
     const world = new THREE.Vector3().setFromMatrixPosition(node.matrixWorld)
-      .add(new THREE.Vector3().fromArray(deltaWorld).multiplyScalar(k));
+      .add(new THREE.Vector3().fromArray(deltaWorld));
     this._setJointWorld(canonical, world);
   }
 
+  // the current pivot offset in world metres, for the panel's dials
   jointOffsetOf(canonical) {
     const node = this.map[canonical];
-    if (!node || !this.baseline) return [0, 0, 0];
-    const base = this.baseline.trs.get(node);
-    const cur = this.jointEdits[node.name];
-    if (!base || !cur) return [0, 0, 0];
-    const k = this.wrapper?.scale.x ?? 1;
-    return [(cur[0] - base.p.x) * k, (cur[1] - base.p.y) * k, (cur[2] - base.p.z) * k];
+    const cur = node && this.jointEdits[node.name];
+    if (!cur) return [0, 0, 0];
+    const H = this.ref?.model.H ?? 1.8;
+    return new THREE.Vector3().fromArray(cur).multiplyScalar(H)
+      .applyQuaternion(this.wrapper.quaternion).toArray();
   }
 
   // SYMMETRY, APPLIED TO THE CORRECTIONS RATHER THAN TO THE BONES.
@@ -441,26 +513,19 @@ export class RigSession {
   // symmetric, and Yuji's is not: he ships mid-stride with one leg forward,
   // so forcing his hips and knees to mirror each other tears the stance
   // apart. What SHOULD be symmetric is the fix: if the left shoulder needs
-  // lifting 4 cm, so does the right. So the left and right OFFSETS from the
-  // model's own rest are averaged (with x negated across the pair) and
-  // applied back to both, leaving the asymmetric bind exactly as authored.
+  // lifting 4 cm, so does the right. Since a correction is already stored as
+  // an offset in the model's own axes, that is just averaging the pair with x
+  // negated across it.
   mirrorJoints() {
-    if (!this.model3d || !this.baseModelPos) return 0;
-    this.wrapper.updateMatrixWorld(true);
-    const toModel = new THREE.Matrix4().copy(this.model3d.matrixWorld).invert();
-    const modelPos = n => new THREE.Vector3().setFromMatrixPosition(n.matrixWorld).applyMatrix4(toModel);
-    const toWorld = v => v.clone().applyMatrix4(this.model3d.matrixWorld);
     let n = 0;
     for (const [l, r] of mirrorPairs(this.map)) {
       const nl = this.map[l], nr = this.map[r];
-      const bl = this.baseModelPos.get(nl), br = this.baseModelPos.get(nr);
-      if (!bl || !br) continue;
-      const ol = modelPos(nl).sub(bl), or = modelPos(nr).sub(br);
-      const avg = new THREE.Vector3((ol.x - or.x) / 2, (ol.y + or.y) / 2, (ol.z + or.z) / 2);
-      if (avg.lengthSq() < 1e-12) continue;
-      this.jointEdits[nl.name] = worldToLocalPos(nl, toWorld(bl.clone().add(avg))).toArray();
-      this.jointEdits[nr.name] = worldToLocalPos(nr,
-        toWorld(br.clone().add(new THREE.Vector3(-avg.x, avg.y, avg.z)))).toArray();
+      const ol = this.jointEdits[nl.name] ?? [0, 0, 0];
+      const or = this.jointEdits[nr.name] ?? [0, 0, 0];
+      const avg = [(ol[0] - or[0]) / 2, (ol[1] + or[1]) / 2, (ol[2] + or[2]) / 2];
+      if (!avg.some(v => Math.abs(v) > 1e-9)) continue;
+      this.jointEdits[nl.name] = avg.map(v => Math.round(v * 1e6) / 1e6);
+      this.jointEdits[nr.name] = [-avg[0], avg[1], avg[2]].map(v => Math.round(v * 1e6) / 1e6);
       n++;
     }
     this.rebuild();
@@ -591,6 +656,7 @@ export class RigSession {
   }
 
   _tickMarkers() {
+    if (this.lmGroup && Object.keys(this.landmarks).length) this._refreshLandmarks();
     if (!this.markers || !this.wrapper) return;
     this.wrapper.updateMatrixWorld(true);
     for (const m of this.markers.children) {
@@ -658,8 +724,136 @@ export class RigSession {
     });
   }
 
+  // ---- landmarks ----------------------------------------------------------
+  // A click in the view, turned into a point INSIDE the body: the ray is cast
+  // through a temporarily double-sided mesh and the entry and exit points are
+  // averaged, so clicking the outside of an arm lands in the middle of it
+  // rather than on its skin. Sampling the same landmark from two opposite
+  // sides averages out whatever that leaves.
+  pickSurface(event, maxDepth = 0.35) {
+    if (!this.model3d) return null;
+    const meshes = [];
+    this.model3d.traverse(o => { if ((o.isMesh || o.isSkinnedMesh) && o.visible) meshes.push(o); });
+    if (!meshes.length) return null;
+    const sides = meshes.map(m => [].concat(m.material).map(x => x.side));
+    meshes.forEach(m => [].concat(m.material).forEach(x => { x.side = THREE.DoubleSide; }));
+    const r = this.stage.canvas.getBoundingClientRect();
+    const p = new THREE.Vector2(
+      ((event.clientX - r.left) / r.width) * 2 - 1,
+      -((event.clientY - r.top) / r.height) * 2 + 1);
+    this._raycaster.setFromCamera(p, this.stage.camera);
+    const hits = this._raycaster.intersectObjects(meshes, false);
+    meshes.forEach((m, i) => [].concat(m.material).forEach((x, j) => { x.side = sides[i][j]; }));
+    if (!hits.length) return null;
+    const first = hits[0];
+    let last = first;
+    for (const h of hits) if (h.distance - first.distance <= maxDepth) last = h;
+    return first.point.clone().lerp(last.point, 0.5);
+  }
+
+  // stored in MODEL space, so a landmark survives refitting and rescaling
+  addLandmarkSample(key, world) {
+    if (!this.model3d || !world) return;
+    this.model3d.updateMatrixWorld(true);
+    const local = world.clone().applyMatrix4(
+      new THREE.Matrix4().copy(this.model3d.matrixWorld).invert());
+    (this.landmarks[key] ??= []).push(local);
+    this._refreshLandmarks();
+  }
+  clearLandmark(key) { delete this.landmarks[key]; this._refreshLandmarks(); }
+  clearLandmarks() { this.landmarks = {}; this._refreshLandmarks(); }
+
+  landmarkModel(key) {
+    const s = this.landmarks[key];
+    if (!s?.length) return null;
+    return s.reduce((a, v) => a.add(v), new THREE.Vector3()).multiplyScalar(1 / s.length);
+  }
+  landmarkWorld(key) {
+    const m = this.landmarkModel(key);
+    if (!m || !this.model3d) return null;
+    this.model3d.updateMatrixWorld(true);
+    return m.applyMatrix4(this.model3d.matrixWorld);
+  }
+
+  // THE FIX, in one press: every marked landmark becomes its bone's pivot.
+  // Because the alignment is derived from bone positions, correcting the
+  // positions corrects every clip at once.
+  applyLandmarksToPivots() {
+    let n = 0;
+    for (const def of LANDMARKS) {
+      const w = this.landmarkWorld(def.key);
+      if (!w || !this.map[def.bone]) continue;
+      this._setJointWorld(def.bone, w);
+      n++;
+    }
+    return n;
+  }
+
+  // Is the bone we mapped even the right bone? For each landmark, the nearest
+  // skin joint is the model's own answer, and where it disagrees with the map
+  // that is a mapping bug rather than a placement one.
+  suggestFromLandmarks() {
+    const out = [];
+    if (!this.model3d) return out;
+    this.wrapper.updateMatrixWorld(true);
+    for (const def of LANDMARKS) {
+      const w = this.landmarkWorld(def.key);
+      if (!w) continue;
+      let best = null, bestD = Infinity;
+      for (const n of this.nodes) {
+        const d = w.distanceTo(new THREE.Vector3().setFromMatrixPosition(n.matrixWorld));
+        if (d < bestD) { bestD = d; best = n; }
+      }
+      const cur = this.map[def.bone];
+      const curD = cur ? w.distanceTo(
+        new THREE.Vector3().setFromMatrixPosition(cur.matrixWorld)) : null;
+      out.push({
+        key: def.key, bone: def.bone,
+        current: cur?.name ?? null, currentCm: curD == null ? null : +(curD * 100).toFixed(1),
+        nearest: best?.name ?? null, nearestCm: +(bestD * 100).toFixed(1),
+        agrees: !!cur && best === cur
+      });
+    }
+    return out;
+  }
+
+  _refreshLandmarks() {
+    // marks live in the model's REST frame, so during a pose they would sit
+    // where the body no longer is — hide them rather than mislead
+    if (this.lmGroup) this.lmGroup.visible = !this.preview;
+    if (!this.lmGroup) {
+      this.lmGroup = new THREE.Group();
+      this.lmGroup.renderOrder = 12;
+      this.stage.scene.add(this.lmGroup);
+    }
+    for (const c of [...this.lmGroup.children]) this.lmGroup.remove(c);
+    const geo = new THREE.SphereGeometry(0.022, 10, 8);
+    for (const def of LANDMARKS) {
+      const w = this.landmarkWorld(def.key);
+      if (!w) continue;
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: def.key === this.armedLandmark ? 0xffd86b : 0xff5fc8, depthTest: false
+      }));
+      m.position.copy(w);
+      this.lmGroup.add(m);
+      // a line to where the bone currently sits: the error, drawn
+      const bone = this.map[def.bone];
+      if (!bone) continue;
+      const bp = new THREE.Vector3().setFromMatrixPosition(bone.matrixWorld);
+      const g = new THREE.BufferGeometry().setFromPoints([w, bp]);
+      this.lmGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({
+        color: 0xff5fc8, depthTest: false, transparent: true, opacity: 0.6
+      })));
+    }
+  }
+
   // ---- export -------------------------------------------------------------
   exportJson(bench, notes) {
+    // every number below describes the REST pose — measuring a landmark
+    // against a bone that is currently mid-clip would report the pose as
+    // error. The panel stops preview before exporting; this makes it true
+    // however the method is reached.
+    this.stopPreview();
     const boneMap = {};
     for (const [c, n] of Object.entries(this.overrides)) boneMap[c] = n;
     const entry = {
@@ -671,7 +865,31 @@ export class RigSession {
         jointOffsetsCm: Object.fromEntries([...CANONICAL]
           .filter(c => this.map[c] && this.jointEdits[this.map[c].name])
           .map(c => [c, this.jointOffsetOf(c).map(v => Math.round(v * 1000) / 10)])),
-        notes: notes || ''
+        notes: notes || '',
+        // WHAT THE USER POINTED AT. Model-space so it is independent of the
+        // fit, plus the error against the bone that is currently mapped and
+        // the model's own nearest joint — which between them say whether a
+        // bone is misplaced, mis-mapped, or fine.
+        landmarks: Object.fromEntries(LANDMARKS
+          .filter(d => this.landmarkModel(d.key))
+          .map(d => {
+            const w = this.landmarkWorld(d.key);
+            const bone = this.map[d.bone];
+            const bp = bone && new THREE.Vector3().setFromMatrixPosition(bone.matrixWorld);
+            const k = 100;   // centimetres, at the fitted scale
+            return [d.key, {
+              bone: d.bone, node: bone?.name ?? null,
+              model: this.landmarkModel(d.key).toArray().map(v => +v.toFixed(6)),
+              // portable: a fraction of the model's own height, so the mark
+              // still means the same thing on a re-exported version of it
+              norm: this.landmarkModel(d.key).divideScalar(this.modelHeight || 1)
+                .toArray().map(v => +v.toFixed(5)),
+              samples: this.landmarks[d.key].length,
+              errorCm: bp ? w.clone().sub(bp).toArray().map(v => +(v * k).toFixed(1)) : null,
+              distCm: bp ? +(w.distanceTo(bp) * k).toFixed(1) : null
+            }];
+          })),
+        landmarkMapping: this.suggestFromLandmarks().filter(r => !r.agrees)
       },
       url: './' + this.sourceLabel
     };

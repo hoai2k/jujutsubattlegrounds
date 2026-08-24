@@ -24,6 +24,7 @@ import { guessBoneMap } from '../src/art/rig3d/bonemap.js';
 import { Retargeter, captureSourceRest } from '../src/art/rig3d/retarget.js';
 import { applyRestPose } from '../src/art/rig3d/render3d.js';
 import { rerigHierarchy } from '../src/art/rig3d/retarget.js';
+import { applyJointEdits, modelBindHeight } from '../src/art/rig3d/joints.js';
 
 let failures = 0;
 const check = (label, ok, detail = '') => {
@@ -267,6 +268,64 @@ check('knockdown drops the imported hips to the floor',
   check('elbows bend in the drive rig\'s plane, not the model\'s', worstPlane > 0.99,
     `worst normal dot=${worstPlane.toFixed(4)}`);
   model.group.remove(w3);
+}
+
+// ---- 4e: pivot fixes are portable and non-destructive ----------------------
+// A correction is stored as an offset in the model's own axes as a FRACTION
+// OF ITS HEIGHT, so the same numbers land in the same anatomical place on a
+// re-exported or decimated version of the model. Two properties matter: the
+// pivot lands where asked, and nothing downstream moves — children keep their
+// world transforms, and the inverse-bind is rebuilt so the rest mesh is
+// unchanged (skinMatrix = M · boneInverse must be invariant).
+{
+  const rig = makeMixamoRig();
+  const map = guessBoneMap(rig).map;
+  rerigHierarchy(rig, map);
+  rig.updateMatrixWorld(true);
+  // a stand-in skeleton so the inverse-bind path is exercised
+  const bones = Object.values(map);
+  const skel = new THREE.Skeleton(bones);
+  const sk = { bones, boneInverses: skel.boneInverses, needsUpdate: false };
+  const before = bones.map((b, i) =>
+    new THREE.Matrix4().multiplyMatrices(b.matrixWorld, sk.boneInverses[i]).clone());
+
+  const H = modelBindHeight(rig);                 // this rig's own bind height
+  const shoulder = map.UpArmL;
+  const elbowBefore = new THREE.Vector3().setFromMatrixPosition(map.LoArmL.matrixWorld);
+  const shoulderBefore = new THREE.Vector3().setFromMatrixPosition(shoulder.matrixWorld);
+  applyJointEdits(rig, { [shoulder.name]: [0, 0.03, 0] }, [sk], H);
+  rig.updateMatrixWorld(true);
+
+  const moved = new THREE.Vector3().setFromMatrixPosition(shoulder.matrixWorld).sub(shoulderBefore);
+  check('a normalized pivot offset lands where asked',
+    Math.abs(moved.y - 0.03 * H) < 1e-6 && Math.hypot(moved.x, moved.z) < 1e-6,
+    `moved ${moved.y.toFixed(4)} of ${(0.03 * H).toFixed(4)}`);
+  const elbowAfter = new THREE.Vector3().setFromMatrixPosition(map.LoArmL.matrixWorld);
+  check('children keep their world position when a pivot moves',
+    elbowAfter.distanceTo(elbowBefore) < 1e-6);
+  let worstSkin = 0;
+  for (let i = 0; i < bones.length; i++) {
+    const now = new THREE.Matrix4().multiplyMatrices(bones[i].matrixWorld, sk.boneInverses[i]);
+    for (let k = 0; k < 16; k++) worstSkin = Math.max(worstSkin, Math.abs(now.elements[k] - before[i].elements[k]));
+  }
+  check('the rest mesh is untouched (skin matrices invariant)', worstSkin < 1e-6,
+    `max drift ${worstSkin.toExponential(1)}`);
+  // portability: the same numbers on a model exported at a different scale
+  const rig2 = makeMixamoRig();
+  const map2 = guessBoneMap(rig2).map;
+  rerigHierarchy(rig2, map2);
+  rig2.scale.setScalar(100);                       // "re-exported in centimetres"
+  rig2.updateMatrixWorld(true);
+  const sk2 = { bones: Object.values(map2), boneInverses: new THREE.Skeleton(Object.values(map2)).boneInverses };
+  const sBefore2 = new THREE.Vector3().setFromMatrixPosition(map2.UpArmL.matrixWorld);
+  // no height passed: it is measured in the root's own axes, which is the
+  // whole point — the scaled export must not double-count its own transform
+  applyJointEdits(rig2, { [map2.UpArmL.name]: [0, 0.03, 0] }, [sk2]);
+  rig2.updateMatrixWorld(true);
+  const moved2 = new THREE.Vector3().setFromMatrixPosition(map2.UpArmL.matrixWorld).sub(sBefore2);
+  check('the same fix survives a re-export at a different scale',
+    Math.abs(moved2.y / 100 - 0.03 * H) < 1e-4,
+    `${(moved2.y / 100).toFixed(4)} vs ${(0.03 * H).toFixed(4)}`);
 }
 
 // ---- 5: numerical health across the whole base clip set --------------------
