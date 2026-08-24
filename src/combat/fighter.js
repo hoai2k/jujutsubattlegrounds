@@ -5885,7 +5885,35 @@ export class Fighter {
     if (b) {
       // walls first, then the outer edge
       b.resolveWalls(this.pos, 0.36);
+      // ---- THE ARENA BOUNDARY IS A THING YOU CAN HIT --------------------
+      // `clampXZ` is an invisible line: the fighter stops in open ground with
+      // nothing to have stopped against, which reads as dropped input rather
+      // than as a limit. Report the contact so the match can put a barrier
+      // flare there (fx.forceField).
+      //
+      // NO TEST FOR "IS THERE A WALL HERE". There does not need to be one:
+      // `resolveWalls` above has already run, so anywhere the map built a
+      // perimeter the fighter was stopped by it and never reached the clamp.
+      // A displacement here means the line, and only the line.
+      const ex = this.pos.x, ez = this.pos.z;
       b.clampXZ(this.pos, 0.35);
+      this._edgeCD = Math.max(0, (this._edgeCD ?? 0) - dt);
+      const edx = this.pos.x - ex, edz = this.pos.z - ez;
+      if ((edx || edz) && this._edgeCD <= 0) {
+        // Retriggered while you keep pushing, but on a cooldown — walking the
+        // length of the boundary should read as a hand dragging along glass,
+        // not as a strobe.
+        this._edgeCD = 0.22;
+        const m = Math.hypot(edx, edz) || 1;
+        this.emit('arenaEdge', {
+          // the contact point is where the body WAS, at chest height
+          at: { x: ex, y: this.pos.y + 1.05, z: ez },
+          // outward normal: the clamp pushed us back in, so the boundary is
+          // the way we were heading
+          nx: -edx / m, nz: -edz / m,
+          power: Math.min(1, Math.hypot(this.vel.x, this.vel.z) / 9)
+        });
+      }
       // A LAUNCHED BODY IS A DAMAGE SOURCE. If a wall just stopped someone
       // travelling fast, the wall pays for it — that is the "launched bodies
       // hitting geometry" case, and it is the most satisfying one.

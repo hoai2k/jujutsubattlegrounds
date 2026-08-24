@@ -34,7 +34,8 @@ const res = await page.evaluate(async ({ only, STEP }) => {
   // A settled shot: run the rig long enough that the damping has converged.
   // `ground` is what combat/fighter.js would be reporting as this fighter's
   // own floor — the match hands the rig the same number every frame.
-  const settle = (cam, me, foe, ground) => { for (let i = 0; i < 150; i++) cam.update(1 / 60, me, foe, null, ground); };
+  const OPTS = g => ({ ground: g, foeH: 1.8 });
+  const settle = (cam, me, foe, ground) => { for (let i = 0; i < 150; i++) cam.update(1 / 60, me, foe, null, OPTS(ground)); };
 
   const out = { maps: [] };
   for (const id of ids) {
@@ -134,7 +135,7 @@ const res = await page.evaluate(async ({ only, STEP }) => {
       const rest = cam.deckY;
       // a 1.9 m jump — roughly the top of a normal jump arc
       me.y = under + 1.9;
-      for (let i = 0; i < 30; i++) cam.update(1 / 60, me, foe, null, under);
+      for (let i = 0; i < 30; i++) cam.update(1 / 60, me, foe, null, OPTS(under));
       if (cam.deckY - rest > 0.5)
         bump('DECK-HEAVE', { x: +cx.toFixed(1), z: +cz.toFixed(1), rest: +rest.toFixed(2), jumped: +cam.deckY.toFixed(2), lid: pl.y });
     }

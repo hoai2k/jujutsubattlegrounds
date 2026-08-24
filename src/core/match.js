@@ -1217,6 +1217,19 @@ export class Match {
           this.arena.splash?.(f.pos.x, f.pos.z, 1.1);
           this.arena.destruct?.damageAt(f.pos, 1.6, 22, { kind: 'body' });
           break;
+        case 'arenaEdge': {
+          // THE EDGE OF THE MAP, MADE VISIBLE. See fx.forceField and the note
+          // in fighter.js `_physics`: the play area is a rectangle and the maps
+          // do not always wall it, so the clamp gets a barrier to have hit.
+          const at = new THREE.Vector3(e.at.x, e.at.y, e.at.z);
+          this.fx.forceField(at, e.nx, e.nz, e.power);
+          this.sfx.arenaEdge(e.power);
+          // A NUDGE only when you actually ARRIVE at it. A fighter grinding
+          // along the boundary at walking pace should see the panel and feel
+          // nothing; a body thrown into it should feel the barrier take it.
+          if (e.power > 0.45) this.camFor(f)?.shake(0.05 + e.power * 0.1);
+          break;
+        }
         case 'wallSlam':
           // a launched body hitting geometry damages the geometry
           this.sfx.slam();
@@ -2173,11 +2186,18 @@ export class Match {
       // fighter's shoulder instead of staring at your own body
       if (!me.alive || me.eliminated) me = this._spectateTarget(me) || me;
       const foe = this.other(me) || me;
-      // `me.groundY` is the surface the fighter's own swept floor test settled
-      // on this tick. Handing it over stops the rig re-deriving the floor with
-      // a query that reads a mezzanine overhead as the deck the moment he
-      // jumps under one — see FightCamera._deck.
-      cam.update(frameDt, me.pos, foe.pos, this.input.frameFor(i).cam, me.groundY);
+      // WHAT THE RIG CANNOT WORK OUT FOR ITSELF.
+      // `me.groundY` is the surface this fighter's own swept floor test settled
+      // on this tick; handing it over stops the rig re-deriving the floor with
+      // a query that reads a mezzanine overhead as the deck the moment he jumps
+      // under one. `foeH` is how tall the other body is, which is what lets the
+      // rig climb over an opponent standing in front of the lens — the x-ray
+      // cuts level geometry and never the roster, so nothing else covers it.
+      // See FightCamera._deck and FightCamera._bodyBlocks.
+      cam.update(frameDt, me.pos, foe.pos, this.input.frameFor(i).cam, {
+        ground: me.groundY,
+        foeH: foe !== me ? (foe.cfg?.size?.height ?? 1.8) : 0
+      });
       // X-RAY: level geometry between this eye and the fighter it is following
       // dissolves rather than blocking the shot. Aimed at the chest, not the
       // feet, so the hole is centred on the body.

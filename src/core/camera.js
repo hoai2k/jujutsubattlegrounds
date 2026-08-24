@@ -13,9 +13,20 @@ const _anchor = new THREE.Vector3();
 // which is worse than any amount of wall clipping.
 const MIN_LENS = 1.5;
 
-// scratch for the along-axis cap below
+// HOW FAR THE AIM MAY CLIMB toward a fighter who is higher up, in metres. See
+// the locked branch: past this the camera is looking at a rooftop and its own
+// fighter is off the bottom of the frame.
+const AIM_RISE_CAP = 1.6;
+
+// HOW FAR THE RIG WILL CLIMB to see over something, in metres, tried in order.
+// Four metres is a high shot and about the limit before the frame stops
+// reading as a chase camera and starts reading as a map.
+const RISE_LADDER = [0.8, 1.6, 2.5, 3.4, 4.2];
+
+// scratch for the along-axis cap and the rise search below
 const _ray = new THREE.Vector3();
 const _rel = new THREE.Vector3();
+const _cand = new THREE.Vector3();
 
 export class FightCamera {
   constructor(camera, mode = 'follow') {
@@ -66,6 +77,11 @@ export class FightCamera {
     // a ledge is a move rather than a cut.
     this.deckY = 0;
     this._deckInit = false;
+    // ---- THE LIFT ---------------------------------------------------------
+    // How far the rig is currently riding ABOVE the shot its branch asked for,
+    // so it can see over whatever is in the way. Eased rather than switched —
+    // see the rise search in `update`.
+    this.rise = 0;
   }
 
   // The surface the followed fighter is standing on, eased. Falls back to their
@@ -87,6 +103,46 @@ export class FightCamera {
     if (!this._deckInit) { this.deckY = g; this._deckInit = true; }
     else this.deckY = damp(this.deckY, g, 4.5, dt);
     return this.deckY;
+  }
+
+  // ---- IS THE OTHER FIGHTER IN THE WAY? -----------------------------------
+  // The x-ray dissolves LEVEL geometry standing between the lens and the
+  // subject, and deliberately never touches the roster (art/shaders/xray.js):
+  // cutting a fighter would mean the subject's own body dissolving whenever the
+  // camera came close. That leaves one occluder nothing handles — the OTHER
+  // fighter — and at Mahoraga's 3.6 m of body it is an opaque wall two metres
+  // wide, close to the lens, exactly where the fight is.
+  //
+  // It is rarer than it sounds and that is what makes moving the camera the
+  // right answer rather than a twitchy one: the locked rig sits behind its own
+  // fighter looking down the fight line, so the opponent is normally BEYOND the
+  // subject, never between. It takes the orbit swung round, the free camera, or
+  // the two shoving past each other to put a body in front of the lens — and
+  // when that happens the shot is genuinely blind and worth moving for.
+  //
+  // Treated as an upright cylinder, and only counted when it sits between the
+  // two ends rather than at either of them.
+  _bodyBlocks(from, to, foePos, opts) {
+    const h = opts?.foeH ?? 0;
+    if (!(h > 0) || !foePos) return false;
+    // SILHOUETTE WIDTH, not the collision radius. `size.bodyRadius` is held at
+    // the human 0.36 for everybody on purpose (see characters/mahoraga.js) so
+    // that navigation behaves the same at every scale, which makes it exactly
+    // the wrong number here — Mahoraga does not occlude like a 0.36 m post.
+    // The hurt capsule is the other candidate and it is too generous the other
+    // way. Scale a normal shoulder width by how tall the thing actually is.
+    const r = 0.42 * (h / 1.8);
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    const len2 = dx * dx + dz * dz;
+    if (len2 < 1e-6) return false;
+    let t = ((foePos.x - from.x) * dx + (foePos.z - from.z) * dz) / len2;
+    if (t <= 0.08 || t >= 0.94) return false;              // at one end, not between
+    const cx = from.x + dx * t, cz = from.z + dz * t;
+    if (Math.hypot(cx - foePos.x, cz - foePos.z) > r) return false;
+    // and the sightline has to pass through the body's HEIGHT there, not over
+    // his head or under his feet
+    const y = from.y + dy * t;
+    return y > foePos.y + 0.15 && y < foePos.y + h;
   }
 
   // Point the framing at whatever this seat is now following. Reads the
@@ -154,7 +210,13 @@ export class FightCamera {
     for (const c of this.links) c.cine = null;
   }
 
-  update(dt, p1Pos, p2Pos, camInput, subjGround) {
+  // `opts` is what the match knows and the rig cannot work out for itself:
+  //   ground  the surface the followed fighter's own physics settled on
+  //   foeH    the other fighter's standing height, metres. Absent = do not
+  //           test the other body at all (the preview and the model viewer).
+  // Everything is optional; the preview and the model viewer pass none of it.
+  update(dt, p1Pos, p2Pos, camInput, opts) {
+    const subjGround = opts?.ground;
     // orbit input eases back to the soft-lock frame — but only while locked.
     // Unlocked, letting go of the stick must NOT drag the camera back to the
     // opponent, or the toggle does nothing.
@@ -268,9 +330,23 @@ export class FightCamera {
       // target". Offset 0 leaves the classic fight-line framing untouched.
       const s = Math.sin(this.yawOffset), c = Math.cos(this.yawOffset);
       const lx = mid.x - p1Pos.x, lz = mid.z - p1Pos.z;
+      // AND THE AIM RISES WITH THE HIGHER FIGHTER — BUT NOT WITHOUT LIMIT.
+      // The blend toward whoever is higher is what keeps an opponent on a crate
+      // or halfway through a jump in the frame, and it used to be uncapped. A
+      // ten-metre gap is not a jump, it is a roof: the aim climbed four metres,
+      // the rig stayed on its own deck, and the fighter the camera BELONGS to
+      // dropped off the bottom of the picture. Measured on Shinjuku, with the
+      // opponent directly overhead: on screen at six metres of separation, off
+      // it at ten, three screen-heights gone at twenty-four.
+      //
+      // Capped, the opponent is the one who leaves frame instead, which is the
+      // right way round — an opponent that far above is not in the fight yet,
+      // and the HUD still tracks them. The cap is stated as a height rather
+      // than a ratio so it means the same thing on every map.
       targetLook.set(
         p1Pos.x + lx * c + lz * s,
-        deck + (Math.max(p1Pos.y, p2Pos.y) - deck) * 0.4 + 1.15 + this.subjHeight,
+        deck + Math.min((Math.max(p1Pos.y, p2Pos.y) - deck) * 0.4, AIM_RISE_CAP)
+          + 1.15 + this.subjHeight,
         p1Pos.z - lx * s + lz * c);
       rate = 7;
     } else {
@@ -339,7 +415,12 @@ export class FightCamera {
     _anchor.set(p1Pos.x, p1Pos.y + 1.15, p1Pos.z);
     let clamped = false;
     const want = _anchor.distanceTo(targetPos);   // the shot's full length
-    if (this.bounds) {
+    // THE RISE RUNS WITH OR WITHOUT MAP COLLISION. The sweep half of it needs
+    // `bounds`; the other-body test does not, and gating the whole thing on a
+    // map would mean the one occluder the x-ray cannot touch went unhandled
+    // anywhere collision is absent.
+    const swept = (from, to) => !this.bounds || this.bounds.sweepClear(from, to, p1Pos, 14) === 1;
+    if (this.bounds || opts?.foeH) {
       // FLOORS COUNT, not just walls (bounds.sweepClear). Most of what a camera
       // actually sinks into is not a wall: a river trench, a bank, the body of
       // a plateau. Under one of those the rig is inside the world, the screen
@@ -352,7 +433,46 @@ export class FightCamera {
       // sweep measured from there starts inside a rock. The fighter is standing
       // on his own floor by definition, which makes him the one point in the
       // shot guaranteed to be in the space the camera is supposed to share.
-      const hit = this.bounds.sweepClear(_anchor, targetPos, p1Pos, 14);
+      let hit = this.bounds ? this.bounds.sweepClear(_anchor, targetPos, p1Pos, 14) : 1;
+      if (hit < 1 || this._bodyBlocks(_anchor, targetPos, p2Pos, opts)) {
+        // ---- GO OVER IT FIRST ---------------------------------------------
+        // Pulling the lens toward the fighter is the last resort, not the
+        // first: it is what makes a corner or a colonnade collapse the shot to
+        // arm's length. The first thing to try is what a camera operator would
+        // do, and what every third-person game with a wall behind the player
+        // does — RAISE THE RIG AND LOOK DOWN OVER THE TOP. A high shot keeps
+        // the full stand-off distance, keeps the fighter and the ground around
+        // him in frame, and reads as a deliberate angle rather than a failure.
+        //
+        // Straight up rather than by re-pitching the orbit, because the bearing
+        // is already correct — it is only the height that is wrong — and
+        // because a vertical lift needs nothing from the branch that built the
+        // shot, so it works the same for the locked rig, the free one and the
+        // broadcast framing.
+        //
+        // The ladder is coarse and the RESULT is eased (`this.rise`), not the
+        // choice: easing the height means walking past a pillar lifts and
+        // settles the camera smoothly instead of stepping between rungs. The
+        // search is bounded and only runs on a frame that is actually blocked,
+        // so an open-field fight never pays for it.
+        //
+        // `_sameSpace` inside the sweep is what stops this from being a way
+        // through the ceiling: in an interior, a lift that would poke up
+        // through a gallery the fighter is not standing on comes back blocked,
+        // so the ladder simply finds no rung and the pull-in takes over.
+        let want = 0;
+        for (const lift of RISE_LADDER) {
+          _cand.set(targetPos.x, targetPos.y + lift, targetPos.z);
+          if (swept(_anchor, _cand)
+            && !this._bodyBlocks(_anchor, _cand, p2Pos, opts)) { want = lift; break; }
+        }
+        this.rise = damp(this.rise, want, 5, dt);
+        targetPos.y += this.rise;
+        if (this.bounds) hit = this.bounds.sweepClear(_anchor, targetPos, p1Pos, 14);
+      } else {
+        this.rise = damp(this.rise, 0, 3, dt);
+        targetPos.y += this.rise;
+      }
       if (hit < 1) {
         clamped = true;
         // THE PULL-IN FLOOR IS A DISTANCE, NOT A FRACTION. It used to be
@@ -373,8 +493,10 @@ export class FightCamera {
       // from the fighter's own deck now: everything he could step onto counts,
       // and a walkway well over his head does not, so a fight under one still
       // gets a camera under it.
-      const floor = this.bounds.floorAt(targetPos.x, targetPos.z, this.deckY + 2.6);
-      if (targetPos.y < floor + 0.45) targetPos.y = floor + 0.45;
+      if (this.bounds) {
+        const floor = this.bounds.floorAt(targetPos.x, targetPos.z, this.deckY + 2.6);
+        if (targetPos.y < floor + 0.45) targetPos.y = floor + 0.45;
+      }
     }
 
     // ---- A SHORTENED SHOT HAS TO RE-AIM ------------------------------------

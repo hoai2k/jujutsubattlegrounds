@@ -1007,6 +1007,18 @@ export class Sfx {
     if (!this.ctx || Math.random() > 0.2) return;
     this._noise({ dur: 0.1, gain: 0.14, freq: 3000, q: 3 });
   }
+  // THE ARENA BOUNDARY. A curtain being pressed, not a wall being hit: a short
+  // filtered chime with a hair of noise under it and a rising tail, so it reads
+  // as something energetic giving slightly rather than as an impact. Quiet on
+  // purpose — this fires whenever a player leans on the edge, and anything
+  // percussive would be exhausting.
+  arenaEdge(power = 1) {
+    this.ensure();
+    const g = 0.05 + power * 0.07;
+    this._osc('sine', 620, { to: 940, dur: 0.16, gain: g });
+    this._osc('triangle', 1240, { to: 1680, dur: 0.12, gain: g * 0.45 });
+    this._noise({ dur: 0.09, gain: g * 0.5, freq: 4200, q: 4 });
+  }
   simpleDomain() { this.ensure(); this._osc('sine', 700, { to: 1020, dur: 0.3, gain: 0.12 }); }
 
   // ---- flow ---------------------------------------------------------------
