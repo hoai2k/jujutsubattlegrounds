@@ -68,9 +68,13 @@ const BY = -7.2;                          // the chamber floor
 // chamber, so the way down led to the inside of a terrace and the room the map
 // exists for was sealed.
 const R_MOUND = 32;                       // foot of the mound, and T1's outer edge
-const R_T1 = 32, R_T2 = 24, R_SUM = 17;   // outer edge of each terrace
-const R_CH = 15;                          // the chamber
-const SHAFT = { x: 8.5, z: -8.5, r: 3.6 };  // the way down, off the summit's axis
+// THE SUMMIT IS THE ARENA and it was 34 m across with a hole in it — the fight
+// happened on three 8 m terraces spiralling round a plate you could barely turn
+// on. The mound is the same size; the terraces are thinner and the top is more
+// than twice the floor it was.
+const R_T1 = 32, R_T2 = 28, R_SUM = 23;   // outer edge of each terrace
+const R_CH = 18;                          // the chamber
+const SHAFT = { x: -16.5, z: 9.0, r: 3.6 };   // tucked beside the hall, not standing in the floor  // the way down, off the summit's axis
 const STAIRW = 3.4;                       // half-width of the processional stair
 
 export function build(quality) {
@@ -157,9 +161,13 @@ export function build(quality) {
   // Ground -> first terrace, on +z: the torii stair.
   b.stairs(-STAIRW, R_T1 + 6.5, STAIRW, R_T1 - 0.6, 0.05, T1, 'z', { mat: flag });
   // first -> second, on +x
-  b.stairs(R_T1 - 1.2, -STAIRW, R_T2 - 0.6, STAIRW, T1, T2, 'x', { mat: flag });
+  // THE OVERLAP IS A FRACTION OF THE FLIGHT, not a fixed 0.6 m. The BURIED
+  // probe steps a TENTH of the run past the head: on the old 7.4 m flights a
+  // 0.6 m overlap cleared it easily, and on a 4 m flight between thinner
+  // terraces the same 0.6 m puts the probe under the deck it climbs to.
+  b.stairs(R_T1 - 0.4, -STAIRW, R_T2 - 0.35, STAIRW, T1, T2, 'x', { mat: flag });
   // second -> summit, on -z
-  b.stairs(-STAIRW, -(R_T2 - 1.2), STAIRW, -(R_SUM - 0.6), T2, SUM, 'z', { mat: flag });
+  b.stairs(-STAIRW, -(R_T2 - 0.4), STAIRW, -(R_SUM - 0.35), T2, SUM, 'z', { mat: flag });
 
   // ---- THE TORII CORRIDOR ------------------------------------------------
   // Straddling the long approach and the first flight, standing on whatever is
@@ -196,6 +204,10 @@ export function build(quality) {
   // ---- THE SUMMIT --------------------------------------------------------
   // An octagonal hall on the mound's axis, a ring of stone lanterns round it,
   // and the shaft down into the chamber cut through the flagstones.
+  // AT THE BACK OF THE SUMMIT. Dead centre, a 14 m hall on a 46 m plate leaves
+  // a ring to fight in and no plate at all — the same mistake as the precinct
+  // and the rotunda, made a third time.
+  const SC = { x: 0, z: 13 };
   const HALLR = 7.0, HALLY = SUM + 4.6;
   for (let i = 0; i < 8; i++) {
     const a0 = (i / 8) * Math.PI * 2, a1 = ((i + 1) / 8) * Math.PI * 2;
@@ -203,21 +215,21 @@ export function build(quality) {
     if (i === 5) continue;
     if (i === 4) {
       b.windows(
-        Math.sin(a0) * HALLR, Math.cos(a0) * HALLR,
-        Math.sin(a1) * HALLR, Math.cos(a1) * HALLR, SUM, HALLY - 0.8,
+        SC.x + Math.sin(a0) * HALLR, SC.z + Math.cos(a0) * HALLR,
+        SC.x + Math.sin(a1) * HALLR, SC.z + Math.cos(a1) * HALLR, SUM, HALLY - 0.8,
         { hp: 14, id: 'starshoji', mat: new THREE.MeshBasicMaterial({ color: 0xe8e0cc, transparent: true, opacity: 0.85 }) });
       continue;
     }
-    b.arcWall(0, 0, HALLR, a0, a1, SUM, HALLY - 0.6,
+    b.arcWall(SC.x, SC.z, HALLR, a0, a1, SUM, HALLY - 0.6,
       { mat: timber, thick: 0.4, segs: 1, id: 'hall' + i });
   }
-  b.roundDeck(0, 0, HALLR - 0.5, SUM + 0.08, { mat: timber, thick: 0.2, walk: false });
+  b.roundDeck(SC.x, SC.z, HALLR - 0.5, SUM + 0.08, { mat: timber, thick: 0.2, walk: false });
   // the roof: eight rafters to a finial, and a walkable deck on top of it
-  b.roundDeck(0, 0, HALLR + 2.2, HALLY, { mat: revet, thick: 0.4, id: 'hallroof' });
+  b.roundDeck(SC.x, SC.z, HALLR + 2.2, HALLY, { mat: revet, thick: 0.4, id: 'hallroof' });
 
-  b.roundTower(0, 0, 1.4, HALLY, 2.6, { mat: revet, taper: 0.2, segs: 8, cap: true, id: 'finial' });
+  b.roundTower(SC.x, SC.z, 1.4, HALLY, 2.6, { mat: revet, taper: 0.2, segs: 8, cap: true, id: 'finial' });
   // the steps up onto the roof, off the summit on the +x face
-  b.stairs(HALLR + 6.5, -1.6, HALLR + 1.8, 1.6, SUM, HALLY, 'x', { mat: revet });
+  b.stairs(SC.x + HALLR + 6.5, SC.z - 1.6, SC.x + HALLR + 1.8, SC.z + 1.6, SUM, HALLY, 'x', { mat: revet });
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2 + 0.31;
     const lx = Math.sin(a) * 12.2, lz = Math.cos(a) * 12.2;
@@ -243,7 +255,11 @@ export function build(quality) {
   // pillars and the vessel's dais in the middle. The fallback floor has to come
   // down under all of it or the mound above pages straight over the room.
   b.zone(TOMB, { x0: -R_CH - 2, x1: R_CH + 2, z0: -R_CH - 2, z1: R_CH + 2, y0: -9, y1: SUM }, false);
-  b.pit(-R_CH, -R_CH, R_CH, R_CH, BY);
+  // THE PIT HAS TO COVER THE SHAFT, not just the room. The shaft moved out to
+  // the summit's edge and its far side hung over the chamber's square footprint
+  // by two metres — a helix of treads with the fallback ground back up at y = 0
+  // underneath them.
+  b.pit(-R_CH - 3, -R_CH - 3, R_CH + 3, R_CH + 3, BY);
   b.roundDeck(0, 0, R_CH, BY, { mat: dressed, thick: 0.5, zone: TOMB, id: 'chamber' });
   b.arcWall(0, 0, R_CH + 0.4, 0, Math.PI * 2, BY, SUM - 2.2,
     { mat: dressed, thick: 1.0, zone: TOMB, id: 'chamberwall' });
@@ -347,7 +363,7 @@ export function build(quality) {
   // the ring it edges and reaches a good half metre further in than it looks.
   b.bounds.spawns = [
     v3(-4.5, 0.05, 38), v3(4.5, 0.05, 38),
-    v3(-13, T1, 26), v3(13, T1, 26)
+    v3(-17, 0.05, 30), v3(17, 0.05, 30)
   ];
   return b;
 }

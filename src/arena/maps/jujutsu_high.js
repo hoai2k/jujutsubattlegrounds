@@ -58,9 +58,15 @@ export const DEF = {
 // This is the reason the tiers exist at all: the middle of the map has to be
 // climbable from any bearing.
 const T1 = 0.5, T2 = 1.0, PREC = 1.5;
-const R_PREC = 17, R_T2 = 21, R_T1 = 25;
-const COL_R = 27.5, COL_Y = 2.4, COL_ROOF = 6.2;   // the colonnade
+const R_PREC = 23, R_T2 = 27, R_T1 = 31;
+const COL_R = 33.5, COL_Y = 2.4, COL_ROOF = 6.2;   // the colonnade
 const HALL_R = 8.5, HALL_EAVE = 6.4, HALL_ROOF = 8.6;
+// THE HALL STANDS AT THE HEAD OF THE PRECINCT, not in the middle of it. A
+// 17 m precinct with an 8.5 m hall planted at its centre is an 8 m ring to
+// fight in, and that is what this map was: a courtyard with no courtyard. It
+// is the way a temple is actually laid out, too — the hall faces you down the
+// approach across an open forecourt, it does not sit in the middle of one.
+const HC = { x: 0, z: -13.5 };
 // Pushed out past the colonnade's outer edge: at 36 the ring ran between the
 // precinct and the dojo, so the dojo's own stair started on the colonnade roof
 // instead of on the ground.
@@ -104,35 +110,35 @@ export function build(quality) {
     const a0 = (i / 8) * Math.PI * 2, a1 = ((i + 1) / 8) * Math.PI * 2;
     if (i === 0) continue;                       // the doorway, on the approach axis
     if (i === 3 || i === 5) {
-      const p0 = v3(Math.sin(a0) * HALL_R, 0, Math.cos(a0) * HALL_R);
-      const p1 = v3(Math.sin(a1) * HALL_R, 0, Math.cos(a1) * HALL_R);
+      const p0 = v3(HC.x + Math.sin(a0) * HALL_R, 0, HC.z + Math.cos(a0) * HALL_R);
+      const p1 = v3(HC.x + Math.sin(a1) * HALL_R, 0, HC.z + Math.cos(a1) * HALL_R);
       b.windows(p0.x, p0.z, p1.x, p1.z, PREC, HALL_EAVE - 0.8, {
         hp: 14, id: 'shoji' + i,
         mat: new THREE.MeshBasicMaterial({ color: 0xe8e0cc, transparent: true, opacity: 0.85 })
       });
       continue;
     }
-    b.arcWall(0, 0, HALL_R, a0, a1, PREC, HALL_EAVE - 0.6,
+    b.arcWall(HC.x, HC.z, HALL_R, a0, a1, PREC, HALL_EAVE - 0.6,
       { mat: timber, thick: 0.45, segs: 1, id: 'hall' + i });
   }
   // the eight posts at the corners, and the beam ring they carry
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
-    b.roundTower(Math.sin(a) * HALL_R, Math.cos(a) * HALL_R, 0.34, PREC, HALL_EAVE - PREC - 0.12,
+    b.roundTower(HC.x + Math.sin(a) * HALL_R, HC.z + Math.cos(a) * HALL_R, 0.34, PREC, HALL_EAVE - PREC - 0.12,
       { mat: timber, segs: 8, id: 'hallpost' + i });
   }
-  b.roundDeck(0, 0, HALL_R - 0.6, PREC + 0.08, { mat: timber, thick: 0.2, walk: false });
+  b.roundDeck(HC.x, HC.z, HALL_R - 0.6, PREC + 0.08, { mat: timber, thick: 0.2, walk: false });
   // the roof: a deep octagonal eave, then the deck, then the finial
-  b.roundDeck(0, 0, HALL_R + 3.2, HALL_EAVE, { mat: tileRoof, thick: 0.5, segs: 8, id: 'halleave' });
-  b.roundDeck(0, 0, HALL_R - 1.0, HALL_ROOF, { mat: tileRoof, thick: 0.5, segs: 8, id: 'hallroof' });
+  b.roundDeck(HC.x, HC.z, HALL_R + 3.2, HALL_EAVE, { mat: tileRoof, thick: 0.5, segs: 8, id: 'halleave' });
+  b.roundDeck(HC.x, HC.z, HALL_R - 1.0, HALL_ROOF, { mat: tileRoof, thick: 0.5, segs: 8, id: 'hallroof' });
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
     const g = new THREE.BoxGeometry(0.5, 0.5, 4.6);
     g.rotateY(a);
-    g.translate(Math.sin(a) * (HALL_R + 0.6), (HALL_EAVE + HALL_ROOF) / 2, Math.cos(a) * (HALL_R + 0.6));
+    g.translate(HC.x + Math.sin(a) * (HALL_R + 0.6), (HALL_EAVE + HALL_ROOF) / 2, HC.z + Math.cos(a) * (HALL_R + 0.6));
     b.static_(g, tileRoof);
   }
-  b.roundTower(0, 0, 1.1, HALL_ROOF, 2.4, { mat: tileRoof, taper: 0.2, segs: 8, cap: true, id: 'finial' });
+  b.roundTower(HC.x, HC.z, 1.1, HALL_ROOF, 2.4, { mat: tileRoof, taper: 0.2, segs: 8, cap: true, id: 'finial' });
   // the flight up onto the eave, and on to the roof, both on +x where the
   // radius runs along an axis and an axis-aligned stair fits
   // EVERY TOP TREAD OVERLAPS ITS LANDING by about 0.3 m. Stopped just outside
@@ -141,13 +147,13 @@ export function build(quality) {
   // drops through it, and the deck above is unreachable. It cost four platforms
   // on this map. The overlap is small enough that the BURIED probe at t = 0.1
   // still lands clear of the slab.
-  b.stairs(HALL_R + 7.0, -1.8, HALL_R + 2.9, 1.8, PREC, HALL_EAVE, 'x', { mat: dressed, id: 'eavestair' });
+  b.stairs(HC.x + HALL_R + 7.0, HC.z - 1.8, HC.x + HALL_R + 2.9, HC.z + 1.8, PREC, HALL_EAVE, 'x', { mat: dressed, id: 'eavestair' });
   // On the opposite bearing from eavestair: two flights sharing +x at the same z
   // band means the low end of the upper one probes onto the treads of the lower.
-  b.stairs(-(HALL_R + 1.8), -1.8, -(HALL_R - 1.3), 1.8, HALL_EAVE, HALL_ROOF, 'x', { mat: tileRoof, id: 'roofstair' });
+  b.stairs(HC.x - HALL_R - 1.8, HC.z - 1.8, HC.x - HALL_R + 1.3, HC.z + 1.8, HALL_EAVE, HALL_ROOF, 'x', { mat: tileRoof, id: 'roofstair' });
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + 0.4;
-    b.hangingLamp(Math.sin(a) * 5.4, HALL_EAVE - 1.4, Math.cos(a) * 5.4, 1.0, 0xffd08a, { range: 44 });
+    b.hangingLamp(HC.x + Math.sin(a) * 5.4, HALL_EAVE - 1.4, HC.z + Math.cos(a) * 5.4, 1.0, 0xffd08a, { range: 44 });
   }
 
   // ---- THE COLONNADE -----------------------------------------------------
