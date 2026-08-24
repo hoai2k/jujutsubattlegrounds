@@ -54,6 +54,10 @@ export function toonMaterial(opts = {}) {
     warm = 0x2a1d12,
     cool = 0x101828,
     vertexColors = true,
+    // WHICH FACES DRAW. Defaults to the usual front-only; a room's own ceiling
+    // is the case that needs the other answer — a dome is a sphere seen from
+    // INSIDE, and a front-face-only sphere is invisible from in there.
+    side = THREE.FrontSide,
     transparent = false,
     opacity = 1,
     emissive = 0x000000,
@@ -62,7 +66,7 @@ export function toonMaterial(opts = {}) {
 
   const mat = new THREE.MeshToonMaterial({
     color, map, gradientMap: bandTexture(steps), vertexColors, transparent, opacity,
-    emissive, emissiveIntensity
+    emissive, emissiveIntensity, side
   });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRimColor = { value: new THREE.Color(rimColor) };

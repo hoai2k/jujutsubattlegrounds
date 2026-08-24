@@ -152,32 +152,74 @@ export function screenTexture(hue = 200) {
 // level geometry standing between a camera and the fighter it is following
 // dissolves out of the shot instead of blocking it. The roster's materials
 // deliberately do NOT get this — see the note in that file.
-let _mats = null;
+// EVERY SURFACE IS A RECIPE, not just a material.
+//
+// The table used to build fifteen finished materials and hand them out, which
+// meant every map in the set was made of the same fifteen greys. That is a
+// bigger reason the locations read as one place than any amount of set dressing
+// is: Kyoto's rock, the sewer's brick, the detention centre's concrete and the
+// tomb's dressed stone were LITERALLY THE SAME MATERIAL, and no arrangement of
+// lights makes two identical surfaces look like different materials.
+//
+// Keeping the recipe lets a map ask for its own version of one — see
+// `MapBuilder.tint` — without duplicating the texture (the canvas is shared by
+// reference, so a tinted variant costs a material and no GPU upload) and
+// without losing the toon banding, the rim or the x-ray cut, all three of which
+// a plain `material.clone()` silently drops.
+let _mats = null, _recipes = null;
+
+function buildSurface(name, r) {
+  const m = xrayable(toonMaterial({
+    vertexColors: false, color: 0xffffff, steps: [54, 118, 214], rim: 0.14, ...r
+  }));
+  // WHAT THIS SURFACE IS, carried on the material itself. Terrain classification
+  // is by material identity (terrain.js `classifyMaterial`), and a tinted
+  // variant is a different object with a different uuid — so without this a map
+  // that recoloured its grass would have handed Hanami a lawn that classified as
+  // DEAD GROUND, silently, with nothing anywhere to say so.
+  m.userData.surface = name;
+  return m;
+}
+
 export function surfaces() {
   if (_mats) return _mats;
-  const T = (map, o = {}) => xrayable(toonMaterial({ vertexColors: false, color: 0xffffff, map, steps: [54, 118, 214], rim: 0.14, ...o }));
-  _mats = {
-    tile: T(TEX.tile([6, 6])),
-    tileWall: T(TEX.tile([4, 2]), { rim: 0.2 }),
-    concrete: T(TEX.concrete([5, 5])),
-    concreteWall: T(TEX.concrete([3, 2])),
-    asphalt: T(TEX.asphalt([8, 8]), { rim: 0.06 }),
-    wood: T(TEX.wood([4, 4]), { rim: 0.18 }),
-    grass: T(TEX.grass([10, 10]), { rim: 0.1 }),
-    poolTile: T(TEX.poolTile([5, 5]), { rim: 0.3 }),
-    rust: T(TEX.rust([4, 4]), { rim: 0.28 }),
-    metal: xrayable(toonMaterial({ vertexColors: false, color: 0x6d7684, steps: [44, 104, 196], rim: 0.5, gloss: 0.55 })),
-    darkMetal: xrayable(toonMaterial({ vertexColors: false, color: 0x2f343e, steps: [40, 98, 190], rim: 0.42, gloss: 0.4 })),
-    paint: xrayable(toonMaterial({ vertexColors: false, color: 0x777e8a, steps: [56, 122, 214], rim: 0.16 })),
-    glass: xrayable(toonMaterial({
-      vertexColors: false, color: 0x6f98ae, steps: [90, 160, 230], rim: 0.75, gloss: 0.7,
+  _recipes = {
+    tile: { map: TEX.tile([6, 6]) },
+    tileWall: { map: TEX.tile([4, 2]), rim: 0.2 },
+    concrete: { map: TEX.concrete([5, 5]) },
+    concreteWall: { map: TEX.concrete([3, 2]) },
+    asphalt: { map: TEX.asphalt([8, 8]), rim: 0.06 },
+    wood: { map: TEX.wood([4, 4]), rim: 0.18 },
+    grass: { map: TEX.grass([10, 10]), rim: 0.1 },
+    poolTile: { map: TEX.poolTile([5, 5]), rim: 0.3 },
+    rust: { map: TEX.rust([4, 4]), rim: 0.28 },
+    metal: { color: 0x6d7684, steps: [44, 104, 196], rim: 0.5, gloss: 0.55 },
+    darkMetal: { color: 0x2f343e, steps: [40, 98, 190], rim: 0.42, gloss: 0.4 },
+    paint: { color: 0x777e8a, steps: [56, 122, 214], rim: 0.16 },
+    glass: {
+      color: 0x6f98ae, steps: [90, 160, 230], rim: 0.75, gloss: 0.7,
       transparent: true, opacity: 0.34
-    })),
-    foliage: xrayable(toonMaterial({ vertexColors: false, color: 0x243a28, steps: [48, 108, 198], rim: 0.16 })),
-    trunk: xrayable(toonMaterial({ vertexColors: false, color: 0x2b2015, steps: [50, 116, 200], rim: 0.12 })),
-    rock: xrayable(toonMaterial({ vertexColors: false, color: 0x474950, steps: [52, 116, 202], rim: 0.16 }))
+    },
+    foliage: { color: 0x243a28, steps: [48, 108, 198], rim: 0.16 },
+    trunk: { color: 0x2b2015, steps: [50, 116, 200], rim: 0.12 },
+    rock: { color: 0x474950, steps: [52, 116, 202], rim: 0.16 }
   };
+  _mats = {};
+  for (const [name, r] of Object.entries(_recipes)) _mats[name] = buildSurface(name, r);
   return _mats;
+}
+
+// A map's own version of a shared surface. Cached across builds, because a map
+// is rebuilt every round and a fresh material per build is a fresh shader
+// program per build.
+const _tintCache = new Map();
+export function tintedSurface(name, color, over = {}) {
+  surfaces();
+  if (!_recipes[name]) throw new Error('[kit] no such surface to tint: ' + name);
+  const key = name + '|' + color + '|' + JSON.stringify(over);
+  let m = _tintCache.get(key);
+  if (!m) _tintCache.set(key, m = buildSurface(name, { ..._recipes[name], color, ...over }));
+  return m;
 }
 export function glowMaterial(color, opacity = 1) {
   return new THREE.MeshBasicMaterial({
@@ -282,6 +324,13 @@ export class MapBuilder {
   }
 
   add(obj) { this.group.add(obj); return obj; }
+
+  // THIS MAP'S OWN VERSION OF A SHARED SURFACE. See `tintedSurface`: the recipe
+  // is reused, so the canvas texture, the toon banding, the rim and the x-ray
+  // cut all come with it, and the material still knows what it is for terrain
+  // classification. `b.tint('rock', 0x6a5442)` is a map saying its stone is
+  // warm sandstone rather than the set's default grey granite.
+  tint(name, color, over) { return tintedSurface(name, color, over); }
 
   // ---- static geometry batching ------------------------------------------
   // Anything that never moves and never breaks goes through here and ends up
@@ -1036,9 +1085,24 @@ export class MapBuilder {
   }
 
   // Water that reacts: the surface ripples, and combat near it throws splashes.
+  // `opts.radius` makes it a DISC instead of a rectangle — a round basin, a
+  // plunge pool, a flooded shaft. A rectangle of water in a round basin is the
+  // most obvious thing in a frame: the surface reads as a lid somebody dropped
+  // in rather than as the pool filling the shape it is in.
+  //
+  // The disc is a RING with its hole closed rather than a `CircleGeometry`,
+  // because a circle is a triangle fan with no interior vertices at all — the
+  // wave displacement in the vertex shader would move its rim and nothing else,
+  // and a pool whose middle cannot move is a pool that never ripples. Three's
+  // ring UVs are the same square mapping a plane has, so the caustics and the
+  // impact ripples need no special case.
   water(x0, z0, x1, z1, y, opts = {}) {
-    const w = Math.abs(x1 - x0), d = Math.abs(z1 - z0);
-    const geo = new THREE.PlaneGeometry(w, d, Math.min(40, Math.round(w)), Math.min(40, Math.round(d)));
+    const disc = opts.radius > 0;
+    const w = disc ? opts.radius * 2 : Math.abs(x1 - x0);
+    const d = disc ? opts.radius * 2 : Math.abs(z1 - z0);
+    const geo = disc
+      ? new THREE.RingGeometry(0.02, opts.radius, opts.segs ?? 44, opts.rings ?? 9)
+      : new THREE.PlaneGeometry(w, d, Math.min(40, Math.round(w)), Math.min(40, Math.round(d)));
     const mat = new THREE.ShaderMaterial({
       transparent: true,
       uniforms: {
@@ -1417,7 +1481,14 @@ export class MapBuilder {
       }
     }, [1, 1]);
     const grp = new THREE.Group();
-    const w = Math.abs(x1 - x0), d = Math.abs(z1 - z0);
+    // `opts.radius` makes the sheet a DISC. A rectangle of mist lying over a
+    // round basin is a green square in the middle of the room — the one thing
+    // in the frame with a corner in it — and it reads as a lid rather than as
+    // air. Same ring-with-a-closed-hole trick `water` uses, for the same reason
+    // it uses it.
+    const disc = opts.radius > 0;
+    const w = disc ? opts.radius * 2 : Math.abs(x1 - x0);
+    const d = disc ? opts.radius * 2 : Math.abs(z1 - z0);
     const layers = [];
     for (let i = 0; i < 2; i++) {
       const mat = new THREE.MeshBasicMaterial({
@@ -1427,7 +1498,9 @@ export class MapBuilder {
       mat.map.wrapS = mat.map.wrapT = THREE.RepeatWrapping;
       mat.map.repeat.set(Math.max(1, w / (opts.scale ?? 26)), Math.max(1, d / (opts.scale ?? 26)));
       mat.map.needsUpdate = true;
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+      const m = new THREE.Mesh(
+        disc ? new THREE.RingGeometry(0.02, opts.radius, opts.segs ?? 40, 4)
+             : new THREE.PlaneGeometry(w, d), mat);
       m.rotation.x = -Math.PI / 2;
       m.position.set((x0 + x1) / 2, y + 0.06 + i * 0.30, (z0 + z1) / 2);
       m.renderOrder = 2;
@@ -1965,6 +2038,315 @@ export class MapBuilder {
         this.tickers.push(oneShot(0.09, () => D.damageAt(at, radius, power, { kind: 'heat' })));
       }
     });
+  }
+
+  // =========================================================================
+  // FORM — the reason every map in this set used to look like the same place
+  // =========================================================================
+  // `Bounds` is axis-aligned by design and every helper above draws a BOX,
+  // because a box is the one shape whose collider writes itself. Ten maps built
+  // out of nothing but boxes is ten maps with the same silhouette: rectangular
+  // rooms, rectangular decks, rectangular buildings, flat slabs on square
+  // columns. You can relight that and redress it and it is still the same
+  // massing in the same arrangement.
+  //
+  // This is the vocabulary for everything else — circles, rings, arcs, vaults,
+  // domes, helices, tapers — and the whole trick is that each one registers a
+  // collider that is right by construction:
+  //
+  //   · A CIRCULAR DECK is tiled by scanning it in bands and solving for the
+  //     chord at each band. That is exact, not sampled, and the tiles are laid
+  //     GENEROUS at the rim (the chord at the band edge nearest the centre), so
+  //     the collider always covers what was drawn. A conservative tiling would
+  //     leave a ring of visible deck with nothing under it — a rim, the exact
+  //     fault `mapcheck.rims()` exists to catch — so the error is deliberately
+  //     pushed the harmless way: you may stand a couple of centimetres past the
+  //     drawn edge, which nobody can see.
+  //   · A CURVED WALL is a run of chord segments, each registering the AABB of
+  //     its own rotated box. Also generous, for the same reason and in the same
+  //     direction: a wall you cannot quite reach through.
+  //   · A HELICAL STAIR is a run of treads, each registering a platform at the
+  //     height it is drawn, with the rise kept under STEP_UP so the flood fill
+  //     in `mapcheck.reachable` can walk it like any other flight.
+  //
+  // Nothing here needs the map author to think about collision at all, which is
+  // the only way a shape this awkward gets used rather than avoided.
+
+  // Scan a disc (or an annulus) into horizontal bands and return the rects that
+  // cover it. Shared by every round surface below.
+  _bands(cx, cz, rOut, rIn = 0, band = 0.8) {
+    const out = [];
+    const n = Math.max(2, Math.ceil((2 * rOut) / band));
+    const h = (2 * rOut) / n;
+    for (let i = 0; i < n; i++) {
+      const z0 = -rOut + i * h, z1 = z0 + h;
+      // GENEROUS OUTSIDE: the chord is taken at whichever edge of the band is
+      // nearest the centre, which is the widest the disc gets anywhere in it.
+      const zNear = (z0 <= 0 && z1 >= 0) ? 0 : Math.min(Math.abs(z0), Math.abs(z1));
+      if (zNear >= rOut) continue;
+      const xo = Math.sqrt(Math.max(0, rOut * rOut - zNear * zNear));
+      // CONSERVATIVE INSIDE: the hole is taken at the band edge FURTHEST from
+      // the centre, which is the narrowest the hole gets — so the ring's two
+      // arms always meet the drawn inner edge instead of leaving a gap at it.
+      const zFar = Math.max(Math.abs(z0), Math.abs(z1));
+      const xi = (!rIn || zFar >= rIn) ? 0 : Math.sqrt(rIn * rIn - zFar * zFar);
+      if (xi <= 0.01) { out.push([cx - xo, cz + z0, cx + xo, cz + z1]); continue; }
+      out.push([cx - xo, cz + z0, cx - xi, cz + z1]);
+      out.push([cx + xi, cz + z0, cx + xo, cz + z1]);
+    }
+    return out;
+  }
+
+  // A round or annular slab of floor. `rIn` > 0 makes it a ring; `holes` is a
+  // list of {x, z, r} punched out of it — a stairwell, a light well, the shaft
+  // a spiral climbs through. Same contract as `floorHole`: the hole is a hole
+  // in the COLLISION as well as in the art, or the flight coming up through it
+  // is buried under the slab it is climbing to.
+  roundDeck(cx, cz, rOut, y, opts = {}) {
+    const mat = opts.mat || this.mats.concrete;
+    const rIn = opts.rIn || 0;
+    const thick = opts.thick ?? 0.3;
+    const holes = opts.holes || [];
+    const shape = new THREE.Shape();
+    shape.absarc(0, 0, rOut, 0, Math.PI * 2, false);
+    if (rIn > 0) {
+      const hole = new THREE.Path();
+      hole.absarc(0, 0, rIn, 0, Math.PI * 2, true);
+      shape.holes.push(hole);
+    }
+    for (const h of holes) {
+      const p = new THREE.Path();
+      // The shape is authored in XY and extruded along +Z, and `rotateX(-90)`
+      // below maps shape-Y to world -Z. A circle does not care about the flip,
+      // but its CENTRE does.
+      p.absarc(h.x - cx, -(h.z - cz), h.r, 0, Math.PI * 2, true);
+      shape.holes.push(p);
+    }
+    const g = new THREE.ExtrudeGeometry(shape, {
+      depth: thick, bevelEnabled: false, curveSegments: opts.segs ?? 40
+    });
+    // the shape is authored in XY and extruded along +Z; this stands it up so
+    // the extrusion runs in +Y and the slab's TOP lands exactly at `y`
+    g.rotateX(-Math.PI / 2);
+    g.translate(cx, y - thick, cz);
+    this.static_(g, mat, opts.zone);
+    for (const [a, b, c, d] of this._bands(cx, cz, rOut, rIn, opts.band)) {
+      // Subtract each hole from this band's x-run. The hole is taken at its
+      // WIDEST within the band, so the collider's hole is never smaller than
+      // the drawn one — a stair coming up through a hole that the collision
+      // does not quite have is a stair that ends in a ceiling.
+      let runs = [[a, c]];
+      for (const h of holes) {
+        if (b > h.z + h.r || d < h.z - h.r) continue;
+        const dz = (h.z >= b && h.z <= d) ? 0 : Math.min(Math.abs(b - h.z), Math.abs(d - h.z));
+        const hw = Math.sqrt(Math.max(0, h.r * h.r - dz * dz));
+        const h0 = h.x - hw, h1 = h.x + hw;
+        const next = [];
+        for (const [r0, r1] of runs) {
+          if (h1 <= r0 || h0 >= r1) { next.push([r0, r1]); continue; }
+          if (h0 > r0) next.push([r0, h0]);
+          if (h1 < r1) next.push([h1, r1]);
+        }
+        runs = next;
+      }
+      for (const [r0, r1] of runs) {
+        if (r1 - r0 < 0.05) continue;
+        this._terrainFor(r0, b, r1, d, y, mat, opts);
+        if (opts.walk !== false) this.bounds.platform(r0, b, r1, d, y, { id: opts.id });
+      }
+    }
+    return null;
+  }
+
+  // A wall bent round an arc. Angles are the project's usual bearing
+  // convention — 0 is +z, and they run clockwise through +x — so a map can put
+  // an opening in a curved wall by naming the bearings it spans.
+  arcWall(cx, cz, r, a0, a1, y0, y1, opts = {}) {
+    const mat = opts.mat || this.mats.concreteWall;
+    const th = opts.thick ?? 0.4;
+    const span = Math.abs(a1 - a0);
+    const n = opts.segs ?? Math.max(2, Math.ceil(span * r / 2.0));
+    for (let i = 0; i < n; i++) {
+      const am = a0 + (a1 - a0) * (i + 0.5) / n;
+      // 1.06 so consecutive chords overlap rather than leaving a hairline slot
+      // you can see the sky through from inside a sealed room
+      const chord = 2 * r * Math.sin(span / (2 * n)) * 1.06;
+      const px = cx + Math.sin(am) * r, pz = cz + Math.cos(am) * r;
+      const g = new THREE.BoxGeometry(chord, y1 - y0, th);
+      g.rotateY(am);
+      g.translate(px, (y0 + y1) / 2, pz);
+      this.static_(g, mat, opts.zone);
+      if (opts.collide === false) continue;
+      const ca = Math.abs(Math.cos(am)), sa = Math.abs(Math.sin(am));
+      const hx = (ca * chord + sa * th) / 2, hz = (sa * chord + ca * th) / 2;
+      this.bounds.wall(px - hx, pz - hz, px + hx, pz + hz, y0, y1, { id: opts.id });
+    }
+  }
+
+  // A wall running straight out from a centre along one bearing — the spoke to
+  // `arcWall`'s hoop. Radial plans are built out of the two of them.
+  radialWall(cx, cz, a, r0, r1, y0, y1, opts = {}) {
+    const mat = opts.mat || this.mats.concreteWall;
+    const th = opts.thick ?? 0.4;
+    const len = Math.abs(r1 - r0);
+    const rc = (r0 + r1) / 2;
+    const px = cx + Math.sin(a) * rc, pz = cz + Math.cos(a) * rc;
+    const g = new THREE.BoxGeometry(th, y1 - y0, len);
+    g.rotateY(a);
+    g.translate(px, (y0 + y1) / 2, pz);
+    this.static_(g, mat, opts.zone);
+    if (opts.collide === false) return;
+    const ca = Math.abs(Math.cos(a)), sa = Math.abs(Math.sin(a));
+    const hx = (ca * th + sa * len) / 2, hz = (sa * th + ca * len) / 2;
+    this.bounds.wall(px - hx, pz - hz, px + hx, pz + hz, y0, y1, { id: opts.id });
+  }
+
+  // A cylindrical mass — a drum tower, a silo, a round pier, the shaft a
+  // spiral stair winds up. Collides as its own banded footprint rather than as
+  // the square it fits in, so you can walk round it instead of into its corners.
+  roundTower(x, z, r, y0, h, opts = {}) {
+    const mat = opts.mat || this.mats.concreteWall;
+    const g = new THREE.CylinderGeometry(r * (opts.taper ?? 1), r, h, opts.segs ?? 20, 1, !!opts.open);
+    g.translate(x, y0 + h / 2, z);
+    this.static_(g, mat, opts.zone);
+    if (opts.collide === false) return;
+    // Stops short of the top when the map means to stand on it, for the reason
+    // every solid thing in this kit does: a blocker level with the floor beside
+    // it collides with anyone standing there.
+    const top = opts.cap ? y0 + h - 0.12 : y0 + h;
+    for (const [a, b, c, d] of this._bands(x, z, r, 0, opts.band ?? 0.9)) {
+      this.bounds.wall(a, b, c, d, y0, top, { id: opts.id });
+      if (opts.cap) this.bounds.platform(a, b, c, d, y0 + h, { id: opts.id, prop: true });
+    }
+  }
+
+  // A HELICAL STAIR. The one piece of vertical circulation in this kit that is
+  // not a straight flight, and the reason several of these maps can now put a
+  // climb inside a tower rather than laying a 20 m ramp across the floor.
+  //
+  // Each tread registers its own platform at the height it is DRAWN. The rise
+  // is held under STEP_UP so the fighter — and `mapcheck.reachable`, which
+  // mirrors the fighter's own move-resolve — can walk from one to the next; the
+  // check is what proves the helix is climbable rather than an argument about
+  // whether it ought to be.
+  spiralStair(cx, cz, y0, y1, opts = {}) {
+    const mat = opts.mat || this.mats.concrete;
+    const rIn = opts.rIn ?? 0.5;
+    const rOut = opts.rOut ?? 2.6;
+    const rise = opts.rise ?? 0.24;
+    const turns = opts.turns ?? 1;
+    const dir = opts.dir ?? 1;
+    const a0 = opts.a0 ?? 0;
+    const n = Math.max(8, Math.round(Math.abs(y1 - y0) / rise));
+    const rc = (rIn + rOut) / 2, depth = rOut - rIn;
+    const thick = Math.abs(y1 - y0) / n + 0.22;
+    for (let i = 0; i < n; i++) {
+      const t = (i + 1) / n;
+      const a = a0 + dir * turns * Math.PI * 2 * (i + 0.5) / n;
+      const y = y0 + (y1 - y0) * t;
+      const px = cx + Math.sin(a) * rc, pz = cz + Math.cos(a) * rc;
+      // 1.3 so consecutive treads overlap: a helix of exactly-abutting boxes
+      // leaves a hairline of nothing between every pair of them, and a hairline
+      // of nothing under a fighter's foot is a fall
+      const wide = (2 * Math.PI * rc * turns / n) * 1.3;
+      const g = new THREE.BoxGeometry(wide, thick, depth);
+      g.rotateY(a);
+      g.translate(px, y - thick / 2, pz);
+      this.static_(g, mat, opts.zone);
+      const ca = Math.abs(Math.cos(a)), sa = Math.abs(Math.sin(a));
+      const hx = (ca * wide + sa * depth) / 2, hz = (sa * wide + ca * depth) / 2;
+      this.bounds.platform(px - hx, pz - hz, px + hx, pz + hz, y, { id: opts.id, prop: true });
+      this._terrainFor(px - hx, pz - hz, px + hx, pz + hz, y, mat, opts);
+    }
+    // the newel it winds around, which is also what stops you cutting the
+    // corner straight up the middle of it
+    if (opts.newel !== false) {
+      this.roundTower(cx, cz, rIn * 0.9, y0, (y1 - y0) + 0.2, {
+        mat: opts.newelMat || this.mats.darkMetal, segs: 10, zone: opts.zone
+      });
+    }
+  }
+
+  // A BARREL VAULT. A curved ceiling, faceted into strips. This is what turns a
+  // room from "a box with a lid" into a hall — and it is the single biggest
+  // difference between the sewer's cistern, the station's train shed and the
+  // school's gym, all three of which used to be a flat slab overhead.
+  vault(x0, z0, x1, z1, ySpring, rise, opts = {}) {
+    const mat = opts.mat || this.mats.concrete;
+    const axis = opts.axis ?? 'x';
+    const n = opts.segs ?? 14;
+    const th = opts.thick ?? 0.34;
+    const along = axis === 'x' ? Math.abs(x1 - x0) : Math.abs(z1 - z0);
+    const acrossHalf = (axis === 'x' ? Math.abs(z1 - z0) : Math.abs(x1 - x0)) / 2;
+    const cAlong = axis === 'x' ? (x0 + x1) / 2 : (z0 + z1) / 2;
+    const cAcross = axis === 'x' ? (z0 + z1) / 2 : (x0 + x1) / 2;
+    for (let i = 0; i < n; i++) {
+      const aA = Math.PI * i / n, aB = Math.PI * (i + 1) / n;
+      const uA = -Math.cos(aA) * acrossHalf, uB = -Math.cos(aB) * acrossHalf;
+      const vA = Math.sin(aA) * rise, vB = Math.sin(aB) * rise;
+      const du = uB - uA, dv = vB - vA;
+      const L = Math.hypot(du, dv) * 1.04;
+      const um = (uA + uB) / 2, vm = (vA + vB) / 2;
+      const phi = -Math.atan2(dv, du);
+      const g = new THREE.BoxGeometry(along, th, L);
+      g.rotateX(phi);
+      if (axis === 'x') g.translate(cAlong, ySpring + vm, cAcross + um);
+      else { g.rotateY(Math.PI / 2); g.translate(cAcross + um, ySpring + vm, cAlong); }
+      this.static_(g, mat, opts.zone);
+    }
+  }
+
+  // A dome over a round room. Drawn only: it is a ceiling, and the maps that
+  // use one want the sky through its oculus rather than a floor on its back.
+  //
+  // ONE mesh, DOUBLE-SIDED. A dome is a sphere and a room's dome is a sphere
+  // seen from inside it, where every face is a back face — so the first version
+  // drew nothing at all from the only place anyone stands, and the second drew
+  // a second inner shell scaled about the world origin, which moved it. Pass a
+  // material built with `side: THREE.DoubleSide` (see `tint`) and the one shell
+  // is the roof from above and the ceiling from below.
+  dome(cx, cz, y, r, opts = {}) {
+    const mat = opts.mat || this.mats.concrete;
+    const oc = opts.oculus ?? 0;
+    const g = new THREE.SphereGeometry(r, opts.segs ?? 28, opts.rings ?? 12,
+      0, Math.PI * 2, 0, Math.PI / 2 - oc);
+    g.scale(1, (opts.rise ?? r * 0.55) / r, 1);
+    g.translate(cx, y, cz);
+    const m = new THREE.Mesh(g, mat);
+    this.add(m);
+    return m;
+  }
+
+  // A TAPERED TOWER — a bridge pylon, a chimney, a mast. Two legs and the
+  // cross-heads between them, so it reads as a structure carrying something
+  // rather than as a post.
+  pylon(x, z, y0, h, opts = {}) {
+    const mat = opts.mat || this.mats.concrete;
+    const spread = opts.spread ?? 5.0;
+    const legs = opts.axis === 'x' ? [[-1, 0], [1, 0]] : [[0, -1], [0, 1]];
+    const segs = opts.segs ?? 8;
+    for (const [sx, sz] of legs) {
+      for (let i = 0; i < segs; i++) {
+        const t0 = i / segs, t1 = (i + 1) / segs;
+        const o0 = spread * (1 - t0) / 2, o1 = spread * (1 - t1) / 2;
+        const w0 = (opts.thick ?? 1.5) * (1 - t0 * 0.45);
+        const g = new THREE.BoxGeometry(w0, h / segs + 0.06, w0);
+        g.translate(x + sx * (o0 + o1) / 2, y0 + h * (t0 + t1) / 2, z + sz * (o0 + o1) / 2);
+        this.static_(g, mat, opts.zone);
+        if (i === 0) {
+          this.bounds.wall(x + sx * o0 - w0, z + sz * o0 - w0,
+            x + sx * o0 + w0, z + sz * o0 + w0, y0, y0 + h * 0.5, { id: opts.id });
+        }
+      }
+    }
+    for (const ty of opts.crossAt ?? [h * 0.55, h * 0.92]) {
+      const t = ty / h, o = spread * (1 - t) / 2 + (opts.thick ?? 1.5) / 2;
+      const g = opts.axis === 'x'
+        ? new THREE.BoxGeometry(o * 2, 0.9, (opts.thick ?? 1.5) * 0.8)
+        : new THREE.BoxGeometry((opts.thick ?? 1.5) * 0.8, 0.9, o * 2);
+      g.translate(x, y0 + ty, z);
+      this.static_(g, mat, opts.zone);
+    }
   }
 
   _regMesh(id, mesh) {
