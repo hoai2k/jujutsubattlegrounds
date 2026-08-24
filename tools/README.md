@@ -69,5 +69,40 @@ times from a headless software renderer are meaningless; what it is for is
 **pageErrors** (a map that throws on build fails here and nowhere else) and
 relative before/after comparison across a change.
 
-All three need `playwright` — install ad hoc with
+## Camera harness
+
+    node tools/camaudit.mjs                 # all ten maps (~3 min)
+    node tools/camaudit.mjs sewer_lair      # one map
+    node tools/camaudit.mjs --step 4        # coarser grid, faster
+
+`mapaudit` answers "can the fighter stand here". `camaudit` answers the next
+question — "and if he does, can he SEE himself". It builds each map, walks a
+grid of standable positions, puts an opponent at eight bearings around each one,
+runs the real `src/core/camera.js` rig to a settled frame and projects the
+fighter's chest through it. Roughly 45,000 shots across the set.
+
+What it reports, worst first:
+
+  · `POINT-BLANK`      the lens ended up closer to the fighter's chest than the
+                       standoff floor (`camera.js MIN_LENS`) allows. A leak.
+  · `OFF-FRAME`        the fighter does not project inside the picture.
+  · `FREE-OFF-FRAME`   the same, with the opponent lock toggled off (R3).
+  · `BURIED-CAM`       the rig is under a surface the fighter is not under, and
+                       far enough out that the sweep should have caught it.
+  · `DECK-HEAVE`       jumping under an overhang moves the rig's idea of the
+                       floor onto the thing overhead.
+  · `STANDOFF-CLIP`    advisory: the rig is clipping geometry *at* the standoff
+                       floor. That is the designed trade — a clipped wall corner
+                       beats a lens inside the fighter — not a fault.
+  · `TIGHT`            advisory: a settled shot between the floor and 2 m. Worth
+                       knowing where they are; they are legitimate.
+
+It found the four faults the camera pass fixed, all of them invisible in a
+screenshot of a normal fight: the collision pull-in compounding frame over frame
+until the lens sat 0.71 m inside the fighter's head, the unlocked camera framing
+from the world origin so that toggling it anywhere but the ground plane lost the
+character (13,488 shots), the deck query reading a mezzanine as the floor on a
+jump, and the standoff radius deadlocking the rig in front of the fighter.
+
+All four need `playwright` — install ad hoc with
 `npm i -D playwright --no-save`, same as the character harnesses above.

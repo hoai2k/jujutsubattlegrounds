@@ -6,6 +6,17 @@ import { damp, angleDamp, clamp, yawBetween } from './mathutil.js';
 // scratch: the shot's anchor, rebuilt every frame (see the collision block)
 const _anchor = new THREE.Vector3();
 
+// HOW CLOSE THE LENS MAY EVER GET to the fighter it is following, in metres
+// from his chest, at human scale. Everything that shortens the shot — the wall
+// sweep, the floor clamp, the map edge — bottoms out here. Below about a metre
+// and a half a 50-degree lens is inside the body and the frame is one shoulder,
+// which is worse than any amount of wall clipping.
+const MIN_LENS = 1.5;
+
+// scratch for the along-axis cap below
+const _ray = new THREE.Vector3();
+const _rel = new THREE.Vector3();
+
 export class FightCamera {
   constructor(camera, mode = 'follow') {
     this.cam = camera;
@@ -59,8 +70,20 @@ export class FightCamera {
 
   // The surface the followed fighter is standing on, eased. Falls back to their
   // own feet when the map has no collision (the preview and the model viewer).
-  _deck(pos, dt) {
-    const g = this.bounds ? this.bounds.floorAt(pos.x, pos.z, pos.y + 0.8) : pos.y;
+  //
+  // `ground` IS THE FIGHTER'S OWN ANSWER, and it is the one to use when there
+  // is one. The rig used to re-derive the floor with `floorAt(x, z, y + 0.8)`,
+  // and that query is wrong in exactly the place a chase camera cannot afford
+  // to be wrong: standing UNDER something. The 0.8 m of headroom is there so a
+  // step up is picked up early, but it also means that jumping under a
+  // mezzanine, an awning or a gallery lifts the ceiling of the query past the
+  // slab overhead — so the slab becomes "the floor", the whole frame heaves up
+  // by its height, and the rig's floor backstop below shoves the camera out on
+  // TOP of the thing the fighter is standing under. combat/fighter.js already
+  // tracks the real surface (`groundY`, swept and grounded-aware), so take it.
+  _deck(pos, dt, ground) {
+    const g = Number.isFinite(ground) ? ground
+      : this.bounds ? this.bounds.floorAt(pos.x, pos.z, pos.y + 0.8) : pos.y;
     if (!this._deckInit) { this.deckY = g; this._deckInit = true; }
     else this.deckY = damp(this.deckY, g, 4.5, dt);
     return this.deckY;
@@ -131,7 +154,7 @@ export class FightCamera {
     for (const c of this.links) c.cine = null;
   }
 
-  update(dt, p1Pos, p2Pos, camInput) {
+  update(dt, p1Pos, p2Pos, camInput, subjGround) {
     // orbit input eases back to the soft-lock frame — but only while locked.
     // Unlocked, letting go of the stick must NOT drag the camera back to the
     // opponent, or the toggle does nothing.
@@ -153,7 +176,12 @@ export class FightCamera {
     this.subjHeight = damp(this.subjHeight, this.subjHeightTo, 3.2, dt);
     this.subjPitch = damp(this.subjPitch, this.subjPitchTo, 3.2, dt);
 
+    // EVERY BRANCH BELOW WRITES A TARGET AND NOTHING ELSE. The rig's own
+    // position is moved once, after the collision pass — see THE ORDER OF
+    // OPERATIONS below for why that separation is load-bearing rather than
+    // tidiness. `rate` is the branch's damping speed.
     let targetPos = new THREE.Vector3(), targetLook = new THREE.Vector3();
+    let rate = 7;
     if (this.cine) {
       const c = this.cine;
       c.t += dt;
@@ -165,7 +193,11 @@ export class FightCamera {
         c.around.z + Math.cos(ang) * c.radius);
       targetLook.copy(c.around).setY(c.around.y + 1.2);
       if (c.t >= c.dur) this.cine = null;
-      this.pos.lerp(targetPos, 1 - Math.exp(-6 * dt));
+      // keep the deck tracking through the sweep, or the floor backstop below
+      // spends the whole shot working from wherever the fighter was standing
+      // when the cinematic opened
+      this._deck(p1Pos, dt, subjGround);
+      rate = 6;
     } else if (this.mode === 'shared') {
       // broadcast framing: stay perpendicular to the fight line, keep both
       // fighters on screen, stick to one side of the line to avoid flips
@@ -177,16 +209,14 @@ export class FightCamera {
       const dv = a => { let d = (a - curYaw) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return Math.abs(d); };
       const yaw = (dv(c1) <= dv(c2) ? c1 : c2) + this.yawOffset;
       const dist = clamp(3.4 + sep * 0.8, 5.2, 10.5);
-      const deck = this._deck(p1Pos.y >= p2Pos.y ? p1Pos : p2Pos, dt);
+      const deck = this._deck(p1Pos.y >= p2Pos.y ? p1Pos : p2Pos, dt, p1Pos.y >= p2Pos.y ? subjGround : undefined);
       const h = deck + 1.7 + dist * 0.16 + Math.sin(this.pitch) * dist * 0.5;
       targetPos.set(
         mid.x + Math.sin(yaw) * dist * Math.cos(this.pitch * 0.6),
         h,
         mid.z + Math.cos(yaw) * dist * Math.cos(this.pitch * 0.6));
       targetLook.set(mid.x, deck + (Math.max(p1Pos.y, p2Pos.y) - deck) * 0.45 + 1.05, mid.z);
-      this.pos.x = damp(this.pos.x, targetPos.x, 6, dt);
-      this.pos.y = damp(this.pos.y, targetPos.y, 6, dt);
-      this.pos.z = damp(this.pos.z, targetPos.z, 6, dt);
+      rate = 6;
     } else if (this.mode === 'corridor') {
       // ---- THE SET'S CAMERA -------------------------------------------------
       // A fixed-bearing platformer camera, looking straight down the corridor
@@ -209,16 +239,14 @@ export class FightCamera {
       // player has to judge in here is on the floor.
       const dist = this.dist * this.distScale * 1.75;
       const pitch = this.pitch + 0.22;
-      const deck = this._deck(p1Pos, dt);
+      const deck = this._deck(p1Pos, dt, subjGround);
       const h = deck + 2.9 + Math.sin(pitch) * dist * 0.9;
       targetPos.set(
         p1Pos.x + Math.sin(yaw) * dist * Math.cos(pitch),
         h,
         p1Pos.z + Math.cos(yaw) * dist * Math.cos(pitch) - 1.2);
       targetLook.set(p1Pos.x + 4.4, deck + 1.30, p1Pos.z * 0.45);
-      this.pos.x = damp(this.pos.x, targetPos.x, 6, dt);
-      this.pos.y = damp(this.pos.y, targetPos.y, 6, dt);
-      this.pos.z = damp(this.pos.z, targetPos.z, 6, dt);
+      rate = 6;
     } else if (this.locked) {
       const mid = p1Pos.clone().add(p2Pos).multiplyScalar(0.5);
       const yaw = yawBetween(p2Pos, p1Pos) + this.yawOffset; // behind P1 axis
@@ -226,7 +254,7 @@ export class FightCamera {
       const sep = p1Pos.distanceTo(p2Pos);
       const dist = (this.dist + clamp(sep - 3, 0, 6) * 0.42) * this.distScale * this.subjDist;
       const pitch = this.pitch + this.subjPitch;
-      const deck = this._deck(p1Pos, dt);
+      const deck = this._deck(p1Pos, dt, subjGround);
       const h = deck + 1.55 + this.subjHeight * 0.62 + Math.sin(pitch) * dist * 0.8;
       targetPos.set(
         p1Pos.x + Math.sin(yaw) * dist * Math.cos(pitch) * 0.85,
@@ -244,9 +272,7 @@ export class FightCamera {
         p1Pos.x + lx * c + lz * s,
         deck + (Math.max(p1Pos.y, p2Pos.y) - deck) * 0.4 + 1.15 + this.subjHeight,
         p1Pos.z - lx * s + lz * c);
-      this.pos.x = damp(this.pos.x, targetPos.x, 7, dt);
-      this.pos.y = damp(this.pos.y, targetPos.y, 7, dt);
-      this.pos.z = damp(this.pos.z, targetPos.z, 7, dt);
+      rate = 7;
     } else {
       // UNLOCKED: a plain trailing camera. The yaw is whatever the right stick
       // has wound it to, the frame is centred on its own fighter, and the
@@ -255,18 +281,28 @@ export class FightCamera {
       this.yaw = yaw;
       const dist = this.dist * this.distScale * this.subjDist;
       const pitch = this.pitch + this.subjPitch;
-      const deck = this._deck(p1Pos, dt);
+      const deck = this._deck(p1Pos, dt, subjGround);
       const h = deck + 1.55 + this.subjHeight * 0.62 + Math.sin(pitch) * dist * 0.8;
       targetPos.set(
         p1Pos.x + Math.sin(yaw) * dist * Math.cos(pitch) * 0.85,
         h,
         p1Pos.z + Math.cos(yaw) * dist * Math.cos(pitch) * 0.85);
-      targetLook.set(p1Pos.x, p1Pos.y * 0.4 + 1.3 + this.subjHeight, p1Pos.z);
-      this.pos.x = damp(this.pos.x, targetPos.x, 7, dt);
-      this.pos.y = damp(this.pos.y, targetPos.y, 7, dt);
-      this.pos.z = damp(this.pos.z, targetPos.z, 7, dt);
+      // FROM THE DECK, exactly as the locked branch above does it. This line
+      // used to read `p1Pos.y * 0.4 + 1.3`, which measures the framing height
+      // from the WORLD ORIGIN — the same bug the `deckY` block at the top of
+      // this file was written to kill, left behind in the one branch that did
+      // not exist yet when it was fixed. On flat ground the two agree and it
+      // is invisible. Everywhere else it is not subtle: on a roof at 10 m the
+      // rig aims 4 m below the fighter's feet and he leaves the top of the
+      // frame, and in the sewer's sump at -4.2 m it aims above his head and he
+      // leaves the bottom of it. Toggling the lock off anywhere but the ground
+      // plane simply lost the character.
+      targetLook.set(
+        p1Pos.x,
+        deck + (p1Pos.y - deck) * 0.4 + 1.15 + this.subjHeight,
+        p1Pos.z);
+      rate = 7;
     }
-    this.look.lerp(targetLook, 1 - Math.exp(-9 * dt));
 
     // trauma shake (persists through hitstop on purpose)
     this.trauma = Math.max(0, this.trauma - dt * 2.2);
@@ -275,11 +311,34 @@ export class FightCamera {
     const sx = (Math.sin(this._noise * 1.7) + Math.sin(this._noise * 3.1)) * 0.5;
     const sy = (Math.sin(this._noise * 2.3 + 5) + Math.sin(this._noise * 4.1)) * 0.5;
 
-    // INTERIOR COLLISION. Interiors, corridors and the space under a mezzanine
-    // will happily put a chase camera inside a wall. Sweep from the look
-    // target out to the desired position and pull the camera in to the first
-    // thing it would have entered; the small floor clamp stops it dropping
-    // through the surface the fighter is standing on.
+    // ---- THE ORDER OF OPERATIONS -------------------------------------------
+    // COLLISION IS APPLIED TO THE TARGET, NOT TO THE RIG. It used to be the
+    // other way round: every branch damped `this.pos` toward its target and the
+    // sweep below then pulled `this.pos` in from wherever it had landed. That
+    // is a RATCHET, and it is the single worst thing the camera did.
+    //
+    // The sweep runs from the fighter out to the position it is handed, so once
+    // the rig has been pulled in a metre the NEXT frame sweeps that shorter ray
+    // — still blocked, because the obstacle is still there — and multiplies the
+    // remaining distance down again. The damping only claws back about a tenth
+    // of the gap per frame, the clamp takes at least six per cent (and 82 per
+    // cent when it bottoms out on `floorFrac`), so the two settle at a fixed
+    // point far closer than either intended. Measured on the ten shipping maps
+    // it converged to 0.71 m from the fighter's chest — the lens inside his
+    // head, one shoulder filling the screen — anywhere a wall, a pillar or the
+    // edge of the map sat behind him. Backing into a corner blanked the frame.
+    //
+    // Clamping the TARGET instead makes the fixed point the clamp's own answer,
+    // because the target is rebuilt from the fighter's position every frame and
+    // nothing accumulates. The rig then eases toward a spot that is already
+    // clear.
+    //
+    // Sweep from the shot's anchor out to where the rig wants to be, pull the
+    // target in to the first thing it would have entered, and keep it off the
+    // floor the fighter is standing on.
+    _anchor.set(p1Pos.x, p1Pos.y + 1.15, p1Pos.z);
+    let clamped = false;
+    const want = _anchor.distanceTo(targetPos);   // the shot's full length
     if (this.bounds) {
       // FLOORS COUNT, not just walls (bounds.sweepClear). Most of what a camera
       // actually sinks into is not a wall: a river trench, a bank, the body of
@@ -293,15 +352,18 @@ export class FightCamera {
       // sweep measured from there starts inside a rock. The fighter is standing
       // on his own floor by definition, which makes him the one point in the
       // shot guaranteed to be in the space the camera is supposed to share.
-      _anchor.set(p1Pos.x, p1Pos.y + 1.15, p1Pos.z);
-      const hit = this.bounds.sweepClear(_anchor, this.pos, p1Pos, 14);
+      const hit = this.bounds.sweepClear(_anchor, targetPos, p1Pos, 14);
       if (hit < 1) {
-        // The minimum pull-in scales with the subject: at 0.18 of a 9 m rig
-        // the camera ends up INSIDE a 3.6 m fighter, which reads far worse
-        // than clipping a wall corner. Big subject -> keep more distance and
-        // let the geometry lose the argument.
-        const floorFrac = Math.min(0.5, 0.18 * this.subjDist);
-        this.pos.lerpVectors(_anchor, this.pos, Math.max(floorFrac, hit * 0.94));
+        clamped = true;
+        // THE PULL-IN FLOOR IS A DISTANCE, NOT A FRACTION. It used to be
+        // `0.18 * subjDist` of whatever the ray happened to be, which is a
+        // different answer every frame — 0.83 m behind a close opponent, 1.3 m
+        // behind a far one — and all of them too close: at arm's length a
+        // 50-degree lens is looking at a shoulder. Stated in metres it is one
+        // number that means what it says, and it still scales with the subject
+        // so a 3.6 m fighter keeps proportionally more room.
+        const floorFrac = want > 1e-3 ? Math.min(0.9, (MIN_LENS * this.subjDist) / want) : 1;
+        targetPos.lerpVectors(_anchor, targetPos, Math.max(floorFrac, hit * 0.94));
       }
       // AND A FLOOR UNDER THE RIG ITSELF, as a backstop. The ceiling on this
       // query used to be the camera's OWN height, which made it blind exactly
@@ -311,26 +373,121 @@ export class FightCamera {
       // from the fighter's own deck now: everything he could step onto counts,
       // and a walkway well over his head does not, so a fight under one still
       // gets a camera under it.
-      const floor = this.bounds.floorAt(this.pos.x, this.pos.z, this.deckY + 2.6);
-      if (this.pos.y < floor + 0.45) this.pos.y = floor + 0.45;
+      const floor = this.bounds.floorAt(targetPos.x, targetPos.z, this.deckY + 2.6);
+      if (targetPos.y < floor + 0.45) targetPos.y = floor + 0.45;
     }
 
-    // HARD STANDOFF. The wall sweep can still pull the rig in far enough to
-    // end up inside the subject when the subject is 3.6 m of body — a corner
-    // behind him and a close opponent is enough. Whatever the geometry says,
-    // never sit closer than this to the fighter being followed: shove the
-    // camera back out along its own axis. Scales with the subject, so at 1.0
-    // it is 1.1 m and nothing on the roster ever trips it.
-    if (this.subjDist > 1.001) {
+    // ---- A SHORTENED SHOT HAS TO RE-AIM ------------------------------------
+    // The locked framing points at a spot on the fight line, roughly two metres
+    // IN FRONT of the fighter, and that is right at full length: it is what
+    // puts him at the near edge of frame with the opponent opposite. It stops
+    // being right the moment the geometry shortens the shot. With the lens a
+    // metre and a half behind him, a target two metres past him is most of a
+    // right angle away — so the rig looks over his head, or past his hip, and
+    // the frame ends up not containing him at all. The probe caught the chest
+    // projecting eight screen-heights below the bottom of the picture with the
+    // camera close enough to touch him.
+    //
+    // So as the shot is cut, walk the aim back onto the fighter himself. At
+    // full length nothing changes; by the time the shot is down to about half
+    // its length the rig is looking at him and nothing else, which is the only
+    // composition available at that range and the one that keeps him on screen.
+    //
+    // NOT FOR THE COMPOSED SHOTS. A cinematic and THE SET's corridor camera are
+    // both authored framings — one orbits a point that is not the fighter at
+    // all, the other deliberately aims down the course rather than at the
+    // contestant — and re-pointing either at the subject because a wall came
+    // close would be overriding the shot, not saving it.
+    if (want > 1e-3 && !this.cine && this.mode !== 'corridor') {
+      const tight = clamp((want - _anchor.distanceTo(targetPos)) / (want * 0.55), 0, 1);
+      if (tight > 0) {
+        const e = tight * tight * (3 - 2 * tight);
+        targetLook.x += (p1Pos.x - targetLook.x) * e;
+        targetLook.z += (p1Pos.z - targetLook.z) * e;
+        targetLook.y += (this.deckY + (p1Pos.y - this.deckY) * 0.4 + 1.15 + this.subjHeight - targetLook.y) * e;
+      }
+    }
+
+    // ---- AND ONLY NOW DOES THE RIG MOVE ------------------------------------
+    this.look.lerp(targetLook, 1 - Math.exp(-9 * dt));
+    this.pos.x = damp(this.pos.x, targetPos.x, rate, dt);
+    this.pos.y = damp(this.pos.y, targetPos.y, rate, dt);
+    this.pos.z = damp(this.pos.z, targetPos.z, rate, dt);
+
+    // PULL IN NOW, EASE OUT LATER. Damping is symmetric and collision is not:
+    // running behind a pillar has to shorten the shot on the frame it happens,
+    // while coming back out into the open should breathe. So when — and only
+    // when — the geometry shortened the target, stop the rig from sitting
+    // further out than the target does.
+    //
+    // ALONG THE SHOT'S OWN AXIS, not as a radius. A radius is the obvious
+    // reading and it is wrong in the one case that matters: while the rig is
+    // swinging round to the far side of the fighter — the fighters trading
+    // places, a stick flick, the camera catching up after a throw — it is
+    // briefly out in FRONT of him, and a radial cap re-projects it onto that
+    // wrong bearing at the safe distance every frame, so the damping can never
+    // walk it back round. It parks in front of the fighter looking away from
+    // him, permanently. Projected onto the axis instead, being on the wrong
+    // side gives a negative distance, the cap does not fire, and the swing
+    // completes. Idempotent either way, so it cannot become the ratchet again.
+    if (clamped) {
+      _ray.subVectors(targetPos, _anchor);
+      const safe = _ray.length();
+      if (safe > 1e-4) {
+        _ray.multiplyScalar(1 / safe);
+        _rel.subVectors(this.pos, _anchor);
+        const along = _rel.dot(_ray);
+        if (along > safe) this.pos.addScaledVector(_ray, safe - along);
+      }
+    }
+
+    // HARD STANDOFF, FOR EVERY SUBJECT. Whatever the geometry says, never sit
+    // closer than this to the fighter being followed: shove the camera back out
+    // along its own axis.
+    //
+    // This used to be gated on `subjDist > 1.001` — i.e. it protected Mahoraga
+    // and nobody else, on the reasoning that at 1.0 it is 1.1 m and nothing on
+    // the roster ever trips it. Nothing on the roster trips it because of its
+    // OWN size; the geometry trips it constantly. A wall, a pillar or the edge
+    // of the map behind a normal fighter is exactly the case the sweep above
+    // answers by moving the lens toward him, and with the gate on there was
+    // then no floor under how far it could go. Ungated it costs a clipped wall
+    // corner in the tightest spots and buys a frame that always has a fighter
+    // in it, which is not a close trade.
+    //
+    // AND ONLY WHEN THE SHOT ITSELF IS THIS SHORT. The rig is damped in a
+    // straight line, so any move to the far side of the fighter goes through
+    // him — the fight line flipping when the two swap ends, Boogie Woogie, a
+    // spectator hand-off, the stick whipped round. Enforced unconditionally the
+    // standoff is a wall around him that a straight-line move cannot get past:
+    // the damping walks the rig inward, the shove puts it back on the side it
+    // came from, and the two deadlock at exactly `minR` with the camera parked
+    // in front of the fighter looking away from the fight, for good. (That is
+    // live today for Mahoraga, the one subject the gate let through.) If the
+    // TARGET is further out than `minR`, the rig is in transit and is allowed
+    // to cross: a couple of frames clipping the model beats never arriving.
+    {
       const minR = 1.1 * this.subjDist;
       const dx = this.pos.x - p1Pos.x, dz = this.pos.z - p1Pos.z;
       const d = Math.hypot(dx, dz);
-      if (d < minR) {
+      const tr = Math.hypot(targetPos.x - p1Pos.x, targetPos.z - p1Pos.z);
+      if (d < minR && tr < minR + 1e-4) {
         const k = d > 1e-4 ? minR / d : 0;
         this.pos.x = d > 1e-4 ? p1Pos.x + dx * k : p1Pos.x;
         this.pos.z = d > 1e-4 ? p1Pos.z + dz * k : p1Pos.z + minR;
         this.pos.y = Math.max(this.pos.y, p1Pos.y + 1.0);
       }
+    }
+
+    // AND THE FLOOR UNDER THE RIG, LAST. The same backstop the target already
+    // got, re-run on the position the rig actually ended up at. It has to be
+    // last and it has to be here: the damping lags the target, the standoff
+    // above shoves the rig sideways, and either one can leave it under a
+    // surface the target itself cleared. Idempotent — it only ever raises y —
+    // so unlike the sweep it cannot compound.
+    if (this.bounds) {
+      const floor = this.bounds.floorAt(this.pos.x, this.pos.z, this.deckY + 2.6);
+      if (this.pos.y < floor + 0.45) this.pos.y = floor + 0.45;
     }
 
     this.cam.position.copy(this.pos);

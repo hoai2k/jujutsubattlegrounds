@@ -2173,7 +2173,11 @@ export class Match {
       // fighter's shoulder instead of staring at your own body
       if (!me.alive || me.eliminated) me = this._spectateTarget(me) || me;
       const foe = this.other(me) || me;
-      cam.update(frameDt, me.pos, foe.pos, this.input.frameFor(i).cam);
+      // `me.groundY` is the surface the fighter's own swept floor test settled
+      // on this tick. Handing it over stops the rig re-deriving the floor with
+      // a query that reads a mezzanine overhead as the deck the moment he
+      // jumps under one — see FightCamera._deck.
+      cam.update(frameDt, me.pos, foe.pos, this.input.frameFor(i).cam, me.groundY);
       // X-RAY: level geometry between this eye and the fighter it is following
       // dissolves rather than blocking the shot. Aimed at the chest, not the
       // feet, so the hole is centred on the body.
