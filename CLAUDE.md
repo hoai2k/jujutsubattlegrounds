@@ -55,6 +55,6 @@ Nothing rendered inside the game may come from a file.
 One sanctioned exception: the opt-in `?render3d` URL parameter
 ([docs/render3d.md](docs/render3d.md)) swaps a character's procedural body for
 a rigged humanoid model loaded **at runtime** from `public/models/` (or any
-URL). Those model files are user-supplied and never committed to the repo —
-only the JSON manifest and the loader/retargeting code live here — and the
-default game path stays fully procedural.
+URL). Model files in `public/models/` are user-supplied `.glb`s, committed to
+the repo but never imported into the bundle, and the default game path stays
+fully procedural.

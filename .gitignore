@@ -2,12 +2,9 @@ node_modules/
 dist/
 shots/
 
-# runtime-only 3D model drops for ?render3d — never committed (see
-# public/models/README.md); only the manifest and README belong in git
-public/models/*.glb
-public/models/*.gltf
-public/models/*.bin
-public/models/*.vrm
+# workbench throwaway dummies for the ?render3d pipeline — real models in
+# public/models/ ARE committed (loaded at runtime, never bundled)
+public/models/dummy*.glb
 
 # dev scratch: headless model probes and the Playwright viewer driver
 .probe*.mjs

@@ -19,6 +19,12 @@
 //       "yOffset": 0,          // metres, after the feet are grounded
 //       "faceYaw": 0,          // degrees, if the model doesn't face +Z
 //       "boneMap": {"Chest": "Spine03", "HandL": null},   // override/drop
+//       "pose": {"LeftArm": [0, 0, 62]},   // rest-pose calibration: local
+//                              // XYZ euler degrees per NODE NAME, applied at
+//                              // load before anything is measured — how a
+//                              // model that ships in some arbitrary pose is
+//                              // stood up into a proper T/A bind. Authored on
+//                              // the /workbench/?edit=models bench.
 //       "rotOffset": {"UpArmL": [0, 0, -8]},              // degrees, world
 //       "keepProps": true,     // procedural weapons stay in hand (default)
 //       "hideSprings": true    // procedural hair/coat physics hidden (default)
@@ -35,12 +41,22 @@
 // models inherit every pose the game has.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+// gltfpack-optimized models (the recommended way to shrink one) require the
+// meshopt decoder or GLTFLoader refuses the file outright
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { guessBoneMap } from './bonemap.js';
-import { Retargeter, captureSourceRest } from './retarget.js';
+import { Retargeter, captureSourceRest, rerigHierarchy } from './retarget.js';
 import { DEG } from '../../core/mathutil.js';
 
-const MANIFEST_URL = 'models/manifest.json';
+// public/models/ resolved from ANY page — the game at the site root and the
+// workbench one level down both land on the same folder. Lazy (a function,
+// not a const) so importing this module in node never touches `location`.
+export function modelsUrl(rel) {
+  const root = new URL(/\/workbench\/(index\.html)?$/.test(location.pathname) ? '../' : './',
+    document.baseURI);
+  return new URL(rel, new URL('models/', root)).href;
+}
 
 // ---- request parsing (once) ------------------------------------------------
 let _request;   // undefined = unparsed, null = off, {url|manifest} = on
@@ -60,7 +76,7 @@ export function render3dEnabled() { return !!request(); }
 
 let _manifest = null;
 function loadManifest() {
-  _manifest ??= fetch(MANIFEST_URL)
+  _manifest ??= fetch(modelsUrl('manifest.json'))
     .then(r => (r.ok ? r.json() : {}))
     .catch(() => ({}));
   return _manifest;
@@ -77,16 +93,21 @@ async function resolveSource(pick) {
   if (req.url) entry = { ...(entry || {}), url: req.url };
   if (!entry?.url) return null;
   // relative manifest URLs resolve against the manifest's own directory
-  const url = new URL(entry.url, new URL(MANIFEST_URL, document.baseURI)).href;
+  const url = new URL(entry.url, modelsUrl('manifest.json')).href;
   return { ...entry, url };
 }
 
 // ---- load cache: parse each URL once, clone per fighter --------------------
+// Exported for the workbench, which loads the same way (including blob: URLs
+// for a file dragged in before it is ever committed anywhere).
 let _loader = null;
 const _cache = new Map();
-function loadScene(url) {
+export function loadScene(url) {
   if (!_cache.has(url)) {
-    _loader ??= new GLTFLoader();
+    if (!_loader) {
+      _loader = new GLTFLoader();
+      _loader.setMeshoptDecoder(MeshoptDecoder);
+    }
     _cache.set(url, _loader.loadAsync(url).then(g => g.scene));
   }
   return _cache.get(url).then(scene => cloneSkeleton(scene));
@@ -105,44 +126,76 @@ export function maybeAttachRender3D(model, pick) {
     .catch(err => console.warn(`[render3d] ${pick}: failed —`, err?.message ?? err));
 }
 
-function attach(model, srcRest, scene, src, pick) {
-  // measure the raw model in its own space — geometry bounds plus every node
-  // origin, so even a mesh-light export still measures its skeleton
+// Rest-pose calibration: local XYZ euler degrees per node name, applied to
+// the loaded model's joints before anything measures or aligns against it.
+// This is how a model that ships in an arbitrary pose (most do) is stood up
+// into a proper bind — the retargeter then treats the calibrated pose as the
+// model's rest. Authored on /workbench/?edit=models, stored in the manifest.
+export function applyRestPose(root, pose) {
+  if (!pose) return;
+  const byName = new Map();
+  root.traverse(o => { if (o.name && !byName.has(o.name)) byName.set(o.name, o); });
+  for (const [name, e] of Object.entries(pose)) {
+    const n = byName.get(name);
+    if (!n) { console.warn(`[render3d] pose names no node "${name}"`); continue; }
+    _e2.set(e[0] * DEG, e[1] * DEG, e[2] * DEG, 'XYZ');
+    n.quaternion.setFromEuler(_e2);
+  }
+}
+const _e2 = new THREE.Euler();
+
+// measure the model in its own space — geometry bounds plus every node
+// origin, so even a mesh-light export still measures its skeleton
+export function measureScene(scene) {
   const temp = new THREE.Group();
+  const parent = scene.parent;
   temp.add(scene);
   temp.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(scene);
   const _p = new THREE.Vector3();
   scene.traverse(o => box.expandByPoint(_p.setFromMatrixPosition(o.matrixWorld)));
+  temp.remove(scene);
+  if (parent) parent.add(scene);
+  return box;
+}
+
+// normalize: height to the character's H, feet on y=0, centred, facing +Z.
+// Re-entrant — the bench calls it again after re-posing a model.
+export function fitInto(wrapper, scene, H, src = {}) {
+  scene.position.set(0, 0, 0);
+  const box = measureScene(scene);
   const size = box.getSize(new THREE.Vector3());
   if (!(size.y > 1e-4)) throw new Error('model has no height');
-
-  // normalize: height to the character's H, feet on y=0, centred, facing +Z
-  const wrapper = new THREE.Group();
-  wrapper.name = 'render3d';
-  const s = (src.scale ?? 1) * model.H / size.y;
+  const s = (src.scale ?? 1) * H / size.y;
   wrapper.scale.setScalar(s);
   wrapper.rotation.y = (src.faceYaw ?? 0) * DEG;
-  temp.remove(scene);
-  wrapper.add(scene);
+  if (scene.parent !== wrapper) wrapper.add(scene);
   const c = box.getCenter(new THREE.Vector3());
   // centre x/z and ground the feet, in wrapper units (pre-rotation is fine —
   // the yaw spins the model about the very axis the offsets are measured on)
-  scene.position.x -= c.x;
-  scene.position.z -= c.z;
-  scene.position.y -= box.min.y;
-  scene.position.y += (src.yOffset ?? 0) / s;
+  scene.position.set(-c.x, -box.min.y + (src.yOffset ?? 0) / s, -c.z);
+  return s;
+}
 
-  scene.traverse(o => {
-    if (o.isMesh || o.isSkinnedMesh) { o.frustumCulled = false; }
-  });
-
+function attach(model, srcRest, scene, src, pick) {
   // map bones and build the retargeter before touching visibility, so a
   // mapping failure leaves the procedural model exactly as it was
   const { map, missing, report } = guessBoneMap(scene, src.boneMap || {});
   if (!map.Hips || missing.length > 8) {
     throw new Error(`unusable rig (${report})`);
   }
+  // order matters, and the workbench runs the same one: normalize the
+  // hierarchy off the map, THEN apply the bench-authored rest pose (its
+  // eulers are in post-rerig local frames), THEN measure and fit
+  rerigHierarchy(scene, map);
+  applyRestPose(scene, src.pose);
+  const wrapper = new THREE.Group();
+  wrapper.name = 'render3d';
+  fitInto(wrapper, scene, model.H, src);
+
+  scene.traverse(o => {
+    if (o.isMesh || o.isSkinnedMesh) { o.frustumCulled = false; }
+  });
   model.group.add(wrapper);
   const retargeter = new Retargeter(model, srcRest, wrapper, map, {
     rotOffset: src.rotOffset
