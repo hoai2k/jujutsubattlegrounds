@@ -134,7 +134,13 @@ would tear apart a model whose bind pose is legitimately asymmetric).
 ## Budget
 
 A model authored for rendering is routinely far heavier than one authored for
-a game. Anything over ~150k triangles warns at load and in the bench status:
+a game. `tools/decimate.mjs` shrinks one safely — see tools/README.md — and
+**a decimation that preserves the skeleton preserves every manifest fix**,
+because `boneMap`, `joints`, `pose` and `rotOffset` are all keyed to bone
+names and bone-local frames, and every automatic pass is re-derived at load
+from the skeleton. The tool diffs the two skeletons and says so explicitly.
+
+Anything over ~150k triangles warns at load and in the bench status:
 expect frame drops with several fighters on screen, and decimate the source
 (`gltfpack -si`, or Blender's Decimate) before shipping it.
 

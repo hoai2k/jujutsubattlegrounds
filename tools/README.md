@@ -24,6 +24,22 @@ to check, and both had to be checked for Uraume and Ryu:
   input field that does not exist, and ice terrain losing a height tie to the
   map's own rect.
 
+- **"the imported model won't cost the frame rate"** — `decimate.mjs` shrinks a
+  `.glb` for `?render3d` and then PROVES the shrink was safe. Everything in
+  `public/models/manifest.json` (`boneMap`, `joints`, `pose`, `rotOffset`) is
+  keyed to bone names and bone-local frames, and every automatic pass (bone
+  mapping, hierarchy rerig, twist alignment, height fit) is re-derived at load
+  from the skeleton — so a decimation that leaves the skeleton alone leaves
+  every workbench fix applying. The tool diffs the before/after skeletons bone
+  by bone and refuses to report success if a bone was dropped, renamed,
+  reparented or moved. Yuji went 2.0M -> 120k triangles (12.2 -> 4.2 MB) with a
+  bit-identical skeleton.
+
+      npm i --no-save @gltf-transform/core @gltf-transform/extensions \
+                      @gltf-transform/functions meshoptimizer
+      node tools/decimate.mjs in.glb out.glb --tris 120000
+      node tools/decimate.mjs --check old.glb new.glb    # compare only
+
 Usage:
 
     node tools/shoot.mjs '[{"kind":"sheet","id":"uraume","name":"out",
