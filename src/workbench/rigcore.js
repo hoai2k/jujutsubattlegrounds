@@ -351,6 +351,11 @@ export class RigSession {
     if (!entry || !this.model3d) return;
     this.overrides = { ...(entry.boneMap || {}) };
     this.jointEdits = { ...(entry.joints || {}) };
+    // skin repairs travel with the entry as well, or the bench shows a body
+    // the game has already fixed — which is exactly how Nobara's dress looked
+    // repaired in play and still glued to her arm here
+    this.weightOps = Array.isArray(entry.weights) ? entry.weights.map(o => ({ ...o })) : [];
+    this._islandCache = null;
     this.poseEdits = { ...(entry.pose || {}) };
     this.rotOffset = Object.fromEntries(
       Object.entries(entry.rotOffset || {}).map(([k, v]) => [k, [...v]]));

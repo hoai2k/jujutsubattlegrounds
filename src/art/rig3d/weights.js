@@ -35,16 +35,47 @@
 //
 // `bleed` is the same idea stated as a RULE rather than as a list of places,
 // and it is the one that generalises: remove the named bones' influence from
-// every island they do not DOMINATE. A sleeve is dominated by the forearm, so
-// it keeps its forearm weights; a skirt is dominated by the thigh and the
-// pelvis, so the 15% of it that the forearm had acquired — purely because the
-// arm hangs beside the hip in the bind pose — comes off. No anchors, nothing
-// to re-derive when the model is exported again, and it reads as the
-// statement it is: "an arm does not move a dress".
+// every island that does not belong to their own LIMB. A skirt is dominated
+// by the thigh and the pelvis, so the 15% of it the forearm had acquired —
+// purely because the arm hangs beside the hip in the bind pose — comes off.
+// No anchors, nothing to re-derive when the model is exported again, and it
+// reads as the statement it is: "an arm does not move a dress".
+//
+// LIMB, not bone, and that distinction is the whole correctness of it. The
+// first version protected only islands the dropped bones DOMINATED, which
+// sounds equivalent and is not: an arm is usually one island dominated by the
+// upper arm, with the forearm holding a third of it. Dropping "forearm" from
+// an island dominated by "upper_arm" therefore tore the forearm off the arm
+// it belongs to — the elbow stopped bending and the mesh came apart, which is
+// what put holes in Nobara's sleeves and cut up Yuji's hand. So the guard is
+// the limb chain: taking a bone's influence off geometry that belongs to that
+// bone's own limb is never the repair being asked for.
 //
 // All of it is non-destructive to the file: the in-memory skin attributes are
 // rewritten at load, and the bench replays them from a pristine baseline.
 import * as THREE from 'three';
+
+// The chains a bone can belong to. A `bleed` naming any member protects every
+// member, so "drop the forearm off things that are not the arm" cannot be
+// misread as "drop the forearm off the arm".
+const LIMB_GROUPS = [
+  ['hand', 'finger', 'thumb', 'forearm', 'upper_arm', 'uparm', 'arm', 'shoulder', 'clav'],
+  ['foot', 'toe', 'shin', 'calf', 'leg', 'thigh'],
+  ['head', 'neck', 'jaw', 'eye'],
+  ['spine', 'chest', 'hips', 'pelvis', 'torso', 'waist']
+];
+
+// the protective pattern for a set of dropped-bone patterns: every limb group
+// any of them touches, in full
+function protectPattern(dropPatterns) {
+  const words = new Set(dropPatterns.map(p => String(p).toLowerCase()));
+  for (const group of LIMB_GROUPS) {
+    if (group.some(g => [...words].some(w => g.includes(w) || w.includes(g)))) {
+      for (const g of group) words.add(g);
+    }
+  }
+  return new RegExp([...words].join('|'), 'i');
+}
 
 // ---------------------------------------------------------------- islands --
 // Connected components over the index buffer. Union-find with path halving:
@@ -133,32 +164,40 @@ export function rigidify(mesh, verts, boneIndex) {
   return verts.length;
 }
 
-// Remove the named bones' influence and renormalize. A vertex left with
-// nothing falls back to the island's dominant remaining bone rather than
-// collapsing to the origin, which is what a zero weight row renders as.
-export function dropInfluence(mesh, verts, boneIndices, fallback) {
+// Remove the named bones' influence and renormalize.
+//
+// A vertex that would be left with (almost) nothing is SKIPPED rather than
+// repaired: it was genuinely driven by the bone being taken away, so
+// renormalizing a sliver or snapping it to a fallback bone tears it off the
+// surface it belongs to. Leaving one stray vertex slightly wrong is always
+// better than opening a hole, and `fallback` remains only for the pathological
+// case where nothing at all is left to keep.
+export function dropInfluence(mesh, verts, boneIndices, fallback, minKeep = 0.05) {
   const g = mesh.geometry;
   const si = g.getAttribute('skinIndex'), sw = g.getAttribute('skinWeight');
   const drop = new Set(boneIndices);
-  let touched = 0;
+  let touched = 0, skipped = 0;
+  const before = [0, 0, 0, 0];
   for (const i of verts) {
     let sum = 0, hit = false;
     for (let k = 0; k < 4; k++) {
       const w = sw.getComponent(i, k);
+      before[k] = w;
       if (w <= 0) continue;
       if (drop.has(si.getComponent(i, k))) { sw.setComponent(i, k, 0); hit = true; }
       else sum += w;
     }
     if (!hit) continue;
-    touched++;
-    if (sum > 1e-6) {
-      for (let k = 0; k < 4; k++) sw.setComponent(i, k, sw.getComponent(i, k) / sum);
-    } else {
-      si.setXYZW(i, fallback, 0, 0, 0);
-      sw.setXYZW(i, 1, 0, 0, 0);
+    if (sum < minKeep) {                      // it really is that bone's — leave it
+      for (let k = 0; k < 4; k++) sw.setComponent(i, k, before[k]);
+      skipped++;
+      continue;
     }
+    touched++;
+    for (let k = 0; k < 4; k++) sw.setComponent(i, k, sw.getComponent(i, k) / sum);
   }
   si.needsUpdate = sw.needsUpdate = true;
+  dropInfluence.lastSkipped = skipped;
   return touched;
 }
 
@@ -199,13 +238,16 @@ export function applyWeightOps(root, ops, map = {}) {
     // ---- rule form: drop bones from every island they do not dominate ----
     if (Array.isArray(op?.bleed) && op.bleed.length) {
       const re = new RegExp(op.bleed.join('|'), 'i');
+      // what may NOT be cleaned: anything the dropped bones share a limb with
+      const guard = Array.isArray(op.protect) && op.protect.length
+        ? new RegExp(op.protect.join('|'), 'i') : protectPattern(op.bleed);
       const cap = op.maxShare ?? 0.6;
       let islandsTouched = 0, vertsTouched = 0;
       for (const c of cache) {
         for (const verts of c.islands) {
           if (verts.length < 8) continue;
           const bones = islandBones(c.mesh, verts);
-          if (!bones.length || re.test(bones[0].name)) continue;   // it owns this island
+          if (!bones.length || guard.test(bones[0].name)) continue;   // its own limb
           const share = bones.filter(b => re.test(b.name)).reduce((a, b) => a + b.share, 0);
           if (share <= 1e-4 || share > cap) continue;
           const idxs = bones.filter(b => re.test(b.name)).map(b => b.index);
