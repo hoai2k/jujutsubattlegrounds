@@ -81,7 +81,8 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `joints` | `{}` | `{nodeName: [dx,dy,dz]}` pivot corrections — moves where a bone *rotates* without moving the mesh (inverse-binds are rebuilt). The fix for a shoulder that sits too low. Values are an offset in the model's own axes **as a fraction of its height**, so they survive the model being re-exported or decimated |
 | `lift` | `{ambient: 0.22, saturation: 1.18}` | a small lighting lift (see below). `false` leaves the file's materials completely untouched |
 | `rotOffset` | `{}` | `{canonical: [x°,y°,z°]}` world-space trim per bone |
-| `keepProps` | `true` | procedural weapons stay in hand (they follow the drive rig's hands, which track the imported hands) |
+| `weights` | `[]` | skin repairs (see below) — `{bleed: […]}` as a rule, or `{at, rigid}` / `{at, drop}` per mesh island |
+| `keepProps` | `true` | procedural weapons stay visible. Set `false` when the model already has them modelled in — Nobara's hammer is in her mesh, so the procedural one would be a second hammer |
 | `hideSprings` | `true` | procedural hair/coat spring meshes hidden |
 
 `boneMap`/`rotOffset` canonical names are the shared skeleton's:
@@ -117,6 +118,67 @@ Verify a model before it lands:
 
     node tools/modelcheck.mjs              # every manifest entry
     node tools/modelcheck.mjs jogo         # one
+
+## Props and effects follow the body
+
+Everything a character hangs off a bone — Toji's spear, the particle emitter
+venting fire from Jogo's head — is parented to the *procedural* skeleton.
+That skeleton keeps running as the drive rig, so those nodes keep updating;
+but it is invisible now, and its bones sit wherever the procedural body's
+proportions put them. Left alone, Jogo's fire burns in mid-air beside his
+head.
+
+So each one is re-parented onto the imported bone with the transform that
+lands it in the same place on the new body. The retargeter drives
+`importedWorld = srcWorld ∘ align`, so a node wanting to sit at `srcWorld · v`
+from the imported bone gets the local offset `align⁻¹ · v`, and a local scale
+that undoes the wrapper's model-units-to-metres factor. Uniform scale
+commutes with rotation, so the two cancel exactly. `attachProp` is wrapped as
+well, because it re-parents onto the drive rig every time a clip changes
+hands.
+
+This is why Jogo needs no `scale` trim to make his plume meet his head.
+
+## Skin repairs (`weights`)
+
+Two defects turn up in nearly every imported character, and neither is really
+a rigging mistake — they are what automatic weighting does when two pieces of
+geometry are near each other in the bind pose:
+
+- **Bled weights.** Nobara's arms hang beside her hips, so the bind gave her
+  skirt a share of the forearm. It looks fine at rest and wrong the moment
+  she moves: the dress swings when the arm does.
+- **Soft props.** A hammer held in a fist is one mesh with the body, so it
+  gets blended across the hand and forearm like flesh, and *bends*.
+
+Neither can be fixed by distance — the skirt really is closer to the forearm
+than to anything else while the arm hangs beside it — so the unit of repair
+is the **mesh island**, a connected component of the geometry. A skirt is not
+connected to a sleeve; a hammer is not connected to a hand.
+
+| Op | Meaning |
+| --- | --- |
+| `{"bleed": ["hand", "forearm"]}` | remove those bones' influence from every island they do not **dominate**. A sleeve is dominated by the forearm and keeps its weights; a skirt is dominated by the thigh and pelvis, so the 15% the forearm had acquired comes off |
+| `{"at": […], "rigid": "DEF-handR"}` | bind one island 100% to a bone — the fix for a held prop that bends |
+| `{"at": […], "drop": ["…"]}` | remove named bones from one island |
+
+`bleed` is the one that generalises: no anchors, nothing to re-derive when
+the model is exported again, and it is a no-op where there is no bleed (it
+cleaned two islands on Yuji, ten on Nobara, none on Jogo). `at` is a point
+measured from the mesh's own rest bounding box and divided by that box's
+height, so it is scale- and space-invariant — the bench measures a fitted
+model in metres, the game applies ops before the fit in the file's own units,
+and both land on the same island.
+
+Author them by clicking: **5 · SKIN** on `/workbench/?edit=rig` selects the
+island under the cursor, lists what drives it, and offers rigid/drop.
+
+## Where the swap applies
+
+Every place a character's body is built: the match, summons, the select
+screen (grid and variant preview), the title screen, and the model viewer.
+All of them route through `maybeAttachRender3D`, so a player never picks one
+body and gets another.
 
 ## What deliberately does not change
 

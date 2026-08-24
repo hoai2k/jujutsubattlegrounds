@@ -16,6 +16,9 @@ import { makeGlowMat } from '../arena/arena.js';
 import { damp } from '../core/mathutil.js';
 import { mergeMenu } from '../input/input.js';
 import { BubbleSystem } from '../fx/bubble.js';
+// ?render3d — the imported body has to stand in for the procedural one on the
+// select screen too, or a player picks one character and gets another
+import { maybeAttachRender3D } from '../art/rig3d/render3d.js';
 import { pickTaunt } from '../combat/taunts.js';
 
 // ---------------------------------------------------------------------------
@@ -129,6 +132,7 @@ export class SelectScreen {
     const rowGap = 2.5, rowRise = 0.62;
     ROSTER_IDS.forEach((id, i) => {
       const model = ROSTER[id].buildModel();
+      maybeAttachRender3D(model, id);
       const row = Math.floor(i / cols), col = i % cols;
       // the last row can be short; centre it on its own count rather than on
       // the full column width, so a ragged roster still reads as deliberate
@@ -458,6 +462,7 @@ export class SelectScreen {
     const r = resolveVariant(ROSTER[charId], charId, variantId);
     this.group.remove(slot.model.group);
     const model = r.buildModel();
+    maybeAttachRender3D(model, joinPick(charId, variantId));
     model.group.position.set(slot.x, slot.model.group.position.y, 0);
     model.group.rotation.y = slot.model.group.rotation.y;
     this.group.add(model.group);

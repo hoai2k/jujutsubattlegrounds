@@ -20,6 +20,9 @@ import {
   mirrorPairs, modelBindHeight
 } from '../art/rig3d/joints.js';
 import { liftMaterials, LIFT_DEFAULTS } from '../art/rig3d/lift.js';
+import {
+  applyWeightOps, meshIslands, restPositions, islandBones, anchorFrame
+} from '../art/rig3d/weights.js';
 import { makeCharacter } from '../characters/index.js';
 import { AnimPlayer } from '../art/anim/player.js';
 import { DEG } from '../core/mathutil.js';
@@ -239,6 +242,8 @@ export class RigSession {
                                // art/rig3d/joints.js on why it is stored that
                                // way rather than as a position
     this.poseEdits = {};       // nodeName -> [x,y,z] local euler degrees
+    this.weightOps = [];       // island repairs — see art/rig3d/weights.js
+    this.pickedIsland = null;  // {verts, bones, at} under the last click
     this.landmarks = {};       // key -> [Vector3, …] samples, in MODEL space
     this.armedLandmark = null; // the key the next click in the view sets
     this.fit = { scale: 1, yOffset: 0, faceYaw: 0 };
@@ -305,8 +310,17 @@ export class RigSession {
     this.skeletons = collectSkeletons(scene);
     this.baseline = {
       trs: new Map(),
-      inverses: this.skeletons.map(sk => sk.boneInverses.map(m => m.clone()))
+      inverses: this.skeletons.map(sk => sk.boneInverses.map(m => m.clone())),
+      // skin attributes too: a weight op rewrites them in place, and an edit
+      // stack that cannot be replayed from a clean state is not an edit stack
+      skins: []
     };
+    scene.traverse(o => {
+      if (!o.isSkinnedMesh) return;
+      const g = o.geometry;
+      const si = g.getAttribute('skinIndex'), sw = g.getAttribute('skinWeight');
+      if (si && sw) this.baseline.skins.push({ g, si: si.array.slice(), sw: sw.array.slice() });
+    });
     scene.traverse(o => this.baseline.trs.set(o, {
       p: o.position.clone(), q: o.quaternion.clone(), s: o.scale.clone()
     }));
@@ -361,6 +375,7 @@ export class RigSession {
     this.map = {}; this.overrides = {}; this.rotOffset = {};
     this.jointEdits = {}; this.poseEdits = {};
     this.landmarks = {}; this.armedLandmark = null;
+    this.weightOps = []; this.pickedIsland = null; this._islandCache = null;
     if (this.lmGroup) { this.stage.scene.remove(this.lmGroup); this.lmGroup = null; }
     this.selected = null;
     this.retargeter = null;
@@ -377,6 +392,11 @@ export class RigSession {
       sk.boneInverses.forEach((m, j) => m.copy(this.baseline.inverses[i][j]));
       sk.needsUpdate = true;
     });
+    for (const s of this.baseline.skins) {
+      const si = s.g.getAttribute('skinIndex'), sw = s.g.getAttribute('skinWeight');
+      si.array.set(s.si); sw.array.set(s.sw);
+      si.needsUpdate = sw.needsUpdate = true;
+    }
     this.model3d.updateMatrixWorld(true);
   }
 
@@ -385,6 +405,7 @@ export class RigSession {
     if (!this.model3d) return;
     this._restoreBaseline();
     applyJointEdits(this.model3d, this.jointEdits, this.skeletons, this.modelHeight);
+    applyWeightOps(this.model3d, this.weightOps, this.map);
     applyRestPose(this.model3d, this.poseEdits);
     this.refit();
     this._rebuildRetarget();
@@ -871,6 +892,65 @@ export class RigSession {
     }
   }
 
+  // ---- skin repairs -------------------------------------------------------
+  // Click the model, get the connected piece of geometry under the cursor and
+  // what drives it. A skirt is not connected to a sleeve and a hammer is not
+  // connected to a hand, so the island is exactly the unit a person means by
+  // "this bit".
+  pickIsland(event) {
+    const world = this.pickSurfaceFront(event);
+    if (!world || !this.model3d) return null;
+    this._islandCache ??= (() => {
+      const out = [];
+      this.model3d.traverse(m => {
+        if (m.isSkinnedMesh && m.geometry?.getAttribute('skinIndex')) {
+          const P = restPositions(m);
+          out.push({ mesh: m, P, ...meshIslands(m), ...anchorFrame(P) });
+        }
+      });
+      return out;
+    })();
+    let best = null, bestD = Infinity;
+    for (const c of this._islandCache) {
+      for (let i = 0; i < c.P.length / 3; i++) {
+        const d = (c.P[i * 3] - world.x) ** 2 + (c.P[i * 3 + 1] - world.y) ** 2 +
+          (c.P[i * 3 + 2] - world.z) ** 2;
+        if (d < bestD) { bestD = d; best = { c, i }; }
+      }
+    }
+    if (!best) return null;
+    const verts = best.c.islands[best.c.labels[best.i]];
+    const { box, h } = best.c;
+    const p = best.i * 3;
+    this.pickedIsland = {
+      verts: verts.length,
+      bones: islandBones(best.c.mesh, verts),
+      at: [(best.c.P[p] - box.min.x) / h, (best.c.P[p + 1] - box.min.y) / h,
+        (best.c.P[p + 2] - box.min.z) / h].map(x => +x.toFixed(4))
+    };
+    return this.pickedIsland;
+  }
+
+  // the FIRST surface hit, not the interior midpoint the landmarks want
+  pickSurfaceFront(event) {
+    if (!this.model3d) return null;
+    const meshes = [];
+    this.model3d.traverse(o => { if (o.isSkinnedMesh && o.visible) meshes.push(o); });
+    const r = this.stage.canvas.getBoundingClientRect();
+    this._raycaster.setFromCamera(new THREE.Vector2(
+      ((event.clientX - r.left) / r.width) * 2 - 1,
+      -((event.clientY - r.top) / r.height) * 2 + 1), this.stage.camera);
+    return this._raycaster.intersectObjects(meshes, false)[0]?.point ?? null;
+  }
+
+  addWeightOp(op) {
+    if (!op?.at) return;
+    this.weightOps.push(op);
+    this._islandCache = null;
+    this.rebuild();
+  }
+  clearWeightOps() { this.weightOps = []; this._islandCache = null; this.rebuild(); }
+
   // ---- export -------------------------------------------------------------
   exportJson(bench, notes) {
     // every number below describes the REST pose — measuring a landmark
@@ -922,6 +1002,7 @@ export class RigSession {
     if (this.fit.faceYaw) entry.faceYaw = this.fit.faceYaw;
     if (Object.keys(boneMap).length) entry.boneMap = boneMap;
     if (Object.keys(this.jointEdits).length) entry.joints = this.jointEdits;
+    if (this.weightOps.length) entry.weights = this.weightOps;
     if (Object.keys(this.poseEdits).length) entry.pose = this.poseEdits;
     if (Object.keys(this.rotOffset).length) {
       entry.rotOffset = Object.fromEntries(

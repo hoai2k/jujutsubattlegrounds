@@ -17,6 +17,7 @@ import { makeClips } from '../art/anim/index.js';
 import { AnimPlayer } from '../art/anim/player.js';
 import { makeGlowMat } from '../arena/arena.js';
 import { damp } from '../core/mathutil.js';
+import { maybeAttachRender3D } from '../art/rig3d/render3d.js';
 
 // Who stands on the pedestal. Picked at random each boot, because a title
 // screen that shows a different fighter every time is a free reminder of how
@@ -44,6 +45,7 @@ export class TitleScreen {
     const id = pickHero();
     this.heroId = id;
     this.model = ROSTER[id].buildModel();
+    maybeAttachRender3D(this.model, id);
     this.model.group.position.set(0, 0, 0);
     this.player = new AnimPlayer(this.model.bones, makeClips(id));
     this.player.play('idle');
