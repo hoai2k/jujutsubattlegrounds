@@ -2165,6 +2165,110 @@ export class MapBuilder {
     return null;
   }
 
+  // An annular SECTOR of deck — the piece `roundDeck` cannot make, because a
+  // ring is a closed loop and a sweeping viaduct is not. Bearings follow the
+  // project convention (0 is +z, running clockwise through +x).
+  //
+  // The collider is a CONSERVATIVE cell scan rather than a chord solve: a cell
+  // is walkable only when all four of its corners are inside the sector, so the
+  // collision can only ever be narrower than the drawn deck. A ledge you can
+  // see but not stand on reads as a kerb; a ledge you can stand on but cannot
+  // see is a fighter walking on air.
+  arcDeck(cx, cz, rIn, rOut, a0, a1, y, opts = {}) {
+    const mat = opts.mat || this.mats.concrete;
+    const thick = opts.thick ?? 0.3;
+    // A STRAIGHT CUT through a ring, for the drawing as well as the collider.
+    // `omit` only ever governed what you can stand on, and a terrace drawn
+    // straight over the river it is supposed to stop at is a terrace with a
+    // river under it: the water is lit, animated and invisible.
+    if (opts.draw !== false && opts.cutX > 0) {
+      const c = opts.cutX;
+      const segs = opts.segs ?? 48;
+      const arc = (r, sign) => {
+        const A = r > c ? Math.asin(c / r) : 0;
+        const out = [];
+        for (let i = 0; i <= segs; i++) {
+          const a = A + (Math.PI - 2 * A) * i / segs;
+          out.push([sign * Math.sin(a) * r, -Math.cos(a) * r]);
+        }
+        return out;
+      };
+      for (const sign of [1, -1]) {
+        const pts = arc(rOut, sign);
+        if (rIn > c) pts.push(...arc(rIn, sign).reverse());
+        const shape = new THREE.Shape();
+        shape.moveTo(pts[0][0], pts[0][1]);
+        for (const q of pts.slice(1)) shape.lineTo(q[0], q[1]);
+        const g = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
+        g.rotateX(-Math.PI / 2);
+        g.translate(cx, y - thick, cz);
+        this.static_(g, mat, opts.zone);
+      }
+    } else if (opts.draw !== false) {
+      const segs = opts.segs ?? Math.max(8, Math.ceil(Math.abs(a1 - a0) * rOut / 1.2));
+      // authored in XY and extruded along +Z; `rotateX(-90)` maps shape-Y to
+      // world -Z, so the z of every point is negated going in.
+      const pt = (a, r) => [Math.sin(a) * r, -Math.cos(a) * r];
+      const shape = new THREE.Shape();
+      let first = true;
+      for (let i = 0; i <= segs; i++) {
+        const [px, py] = pt(a0 + (a1 - a0) * i / segs, rOut);
+        if (first) { shape.moveTo(px, py); first = false; } else shape.lineTo(px, py);
+      }
+      for (let i = segs; i >= 0; i--) {
+        const [px, py] = pt(a0 + (a1 - a0) * i / segs, rIn);
+        shape.lineTo(px, py);
+      }
+      const g = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
+      g.rotateX(-Math.PI / 2);
+      g.translate(cx, y - thick, cz);
+      this.static_(g, mat, opts.zone);
+    }
+    const cell = opts.band ?? 0.7;
+    const lo = Math.min(a0, a1), hi = Math.max(a0, a1);
+    const inside = (x, z) => {
+      const dx = x - cx, dz = z - cz;
+      const r = Math.hypot(dx, dz);
+      if (r < rIn || r > rOut) return false;
+      let a = Math.atan2(dx, dz);
+      while (a < lo) a += Math.PI * 2;
+      return a <= hi;
+    };
+    const bx = cx - rOut, bz = cz - rOut;
+    const n = Math.ceil((rOut * 2) / cell);
+    // Nothing walkable outside the arena. A ring big enough to reach the
+    // corners of a rectangular map runs off three sides of it on the way, and
+    // the cells out there are floor a fighter can never stand on and the
+    // reachability check can never reach — a bench that is 99% fine reads as
+    // broken because of the 30 m of it that is off the map.
+    const E = this.def.extent;
+    // `inset` keeps the cells clear of whatever seals the map — a bench that
+    // runs into the rim wall leaves a strip of floor inside the stone
+    const IN = opts.inset ?? 0;
+    for (let j = 0; j < n; j++) {
+      const b = bz + j * cell, d = b + cell;
+      if (E && (b < E.minZ + IN || d > E.maxZ - IN)) continue;
+      let run = null;
+      for (let i = 0; i <= n; i++) {
+        const a = bx + i * cell, c = a + cell;
+        const outside = E && (a < E.minX + IN || c > E.maxX - IN);
+        // `omit` drops cells by footprint — the straight-sided valley cut
+        // through a set of concentric terraces, which no pair of bearings can
+        // describe: a wedge is wider where the ring is wider, and its point is
+        // a sliver of bench nobody can reach.
+        const ok = i < n && !outside && !(opts.omit && opts.omit(a, b, c, d)) &&
+          inside(a, b) && inside(c, b) && inside(a, d) && inside(c, d);
+        if (ok) { if (run) run[1] = c; else run = [a, c]; continue; }
+        if (run) {
+          this._terrainFor(run[0], b, run[1], d, y, mat, opts);
+          if (opts.walk !== false) this.bounds.platform(run[0], b, run[1], d, y, { id: opts.id, prop: opts.prop });
+          run = null;
+        }
+      }
+    }
+    return null;
+  }
+
   // A wall bent round an arc. Angles are the project's usual bearing
   // convention — 0 is +z, and they run clockwise through +x — so a map can put
   // an opening in a curved wall by naming the bearings it spans.
