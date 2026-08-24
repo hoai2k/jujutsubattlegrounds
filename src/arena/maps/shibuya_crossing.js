@@ -46,7 +46,7 @@ export const DEF = {
     rim: { color: 0xd8688f, intensity: 0.75, pos: [-14, 12, -12] },
     hemi: { sky: 0x44528c, ground: 0x2a2018, intensity: 0.62 }
   },
-  previewCam: { pos: [-8, 11, 46], look: [2, 1.0, -6] },
+  previewCam: { pos: [-15, 25, 45], look: [2, -2.0, -3] },
   shadowScale: 1.45,
   shrineScale: 1.13,
   size: '120 × 108 m · circus, sunken court, elevated ring, tower drum'
@@ -128,7 +128,7 @@ export function build(quality) {
     radius: 7.5, shallow: 0x4f8fb0, deep: 0x123448, opacity: 0.5, caustic: 0.3
   });
   b.mist(0, 0, 0, 0, CY + 0.1, 0x7f96b8, { radius: R_COURT - 1, opacity: 0.26, scale: 12 });
-  b.sigil(0, CY + 0.08, 0, R_COURT - 2, 0x8f6aff, { rings: 3, spokes: 18, sides: 6, opacity: 0.30, spin: -0.03 });
+  b.sigil(0, CY + 0.08, 0, R_COURT - 9, 0x8f6aff, { rings: 3, spokes: 18, sides: 6, opacity: 0.22, spin: -0.03 });
 
   // ---- THE TOWER RING ----------------------------------------------------
   // Cylindrical, not boxes: eight drums round the circus, each carrying a

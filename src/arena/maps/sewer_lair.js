@@ -55,7 +55,7 @@ export const DEF = {
     rim: { color: 0x5fa88e, intensity: 0.85, pos: [-9, 6, -9] },
     hemi: { sky: 0x40685a, ground: 0x5a4a3c, intensity: 0.85 }
   },
-  previewCam: { pos: [0, 2.5, 21], look: [0, -0.9, -3] },
+  previewCam: { pos: [10.5, 4.2, 12.5], look: [-2, -1.0, -3] },
   shadowScale: 0.72,
   shrineScale: 0.78,      // the most enclosed map in the set — the shrine has to be too
   size: '76 × 70 m · domed cistern, basin, column ring, gallery'
