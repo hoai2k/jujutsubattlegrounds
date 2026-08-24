@@ -1,8 +1,25 @@
 {
-  "yuji": "./yuji.glb",
-  "nobara": "./nobara.glb",
+  "yuji": {
+    "url": "./yuji.glb",
+    "weights": [{ "bleed": ["hand", "forearm"] }]
+  },
+  "nobara": {
+    "url": "./nobara.glb",
+    "_comment": "keepProps: her hammer is modelled into the mesh, so the procedural one would be a second hammer.",
+    "keepProps": false,
+    "weights": [
+      { "bleed": ["hand", "forearm"] },
+      { "at": [0.0353, 0.4038, 0.2357], "rigid": "DEF-handR" },
+      { "at": [0.0541, 0.4004, 0.1935], "rigid": "DEF-handR" }
+    ]
+  },
   "jogo": {
     "url": "./jogo.glb",
-    "scale": 1.06
+    "_comment": "no scale trim any more: the crater emitter is anchored to the IMPORTED head now (adoptAttachments), so the plume no longer needs his body inflated to reach it.",
+    "weights": [{ "bleed": ["hand", "forearm"] }]
+  },
+  "mahito": {
+    "url": "./mahito.glb",
+    "weights": [{ "bleed": ["hand", "forearm"] }]
   }
 }

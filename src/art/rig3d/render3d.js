@@ -41,6 +41,14 @@
 //                              // model that ships in some arbitrary pose is
 //                              // stood up into a proper T/A bind. Authored on
 //                              // the /workbench/?edit=models bench.
+//       "weights": [{"at": [0.01, 0.30, 0.04], "rigid": "HandR"},
+//                   {"at": [0.00, 0.45, 0.06], "drop": ["LoArmL"]}],
+//                              // skin repairs, per MESH ISLAND: `rigid` binds
+//                              // a held prop to one bone so it stops bending,
+//                              // `drop` takes a bone's bled influence off a
+//                              // piece of clothing. `at` is a point in the
+//                              // model's own axes as a fraction of height.
+//                              // Authored by clicking on /workbench/?edit=rig.
 //       "rotOffset": {"UpArmL": [0, 0, -8]},              // degrees, world
 //       "keepProps": true,     // procedural weapons stay in hand (default)
 //       "hideSprings": true    // procedural hair/coat physics hidden (default)
@@ -65,6 +73,7 @@ import { guessBoneMap } from './bonemap.js';
 import { Retargeter, captureSourceRest, rerigHierarchy } from './retarget.js';
 import { applyJointEdits, collectSkeletons, modelBindHeight } from './joints.js';
 import { liftMaterials } from './lift.js';
+import { applyWeightOps } from './weights.js';
 import { DEG } from '../../core/mathutil.js';
 
 // public/models/ resolved from ANY page — the game at the site root and the
@@ -231,6 +240,9 @@ function attach(model, srcRest, scene, src, pick) {
   //   fit    — measure and normalize height/ground/facing
   rerigHierarchy(scene, map);
   applyJointEdits(scene, src.joints);
+  // skin repairs read rest positions, so they run after the pivots settle and
+  // before the pose calibration moves anything
+  applyWeightOps(scene, src.weights, map);
   applyRestPose(scene, src.pose);
   const wrapper = new THREE.Group();
   wrapper.name = 'render3d';
@@ -256,7 +268,12 @@ function attach(model, srcRest, scene, src, pick) {
       `Decimate the source (gltfpack -si, or Blender's Decimate) before shipping it.`);
   }
 
+  // ORDER MATTERS. Hiding first, adopting second: hideProcedural decides what
+  // to hide by whether a node sits under the imported wrapper, and adoption
+  // moves props there — so adopting first would make `keepProps: false` a
+  // no-op. Visibility is untouched by the move, so hidden props stay hidden.
   hideProcedural(model, wrapper, src);
+  adoptAttachments(model, wrapper, map, retargeter, src);
 
   // run the transfer after every model update (fighter and viewer both call
   // model.update right after anim.update, so the pose is fresh)
@@ -264,6 +281,68 @@ function attach(model, srcRest, scene, src, pick) {
   model.update = dt => { orig(dt); retargeter.apply(); };
   retargeter.apply();
   model.render3d = { wrapper, retargeter, url: src.url };
+}
+
+// ---- ATTACHMENTS: props and effects follow the body they belong to --------
+// Everything a character hangs off a bone — Toji's spear, Nobara's hammer,
+// and the live particle emitters like the fire venting from Jogo's head — is
+// parented to the PROCEDURAL skeleton. That skeleton keeps running as the
+// drive rig, so those nodes keep updating; but it is now invisible, and its
+// bones sit wherever the procedural body's proportions put them, which is not
+// where the imported body is. Left alone, Jogo's fire burns in mid-air beside
+// his head.
+//
+// So each one is re-parented onto the imported bone, with the transform that
+// makes it land in the same place relative to the new body:
+//
+//   the retargeter drives  importedWorld = srcWorld ∘ align
+//   we want the node at    srcWorld · v  from the imported bone's origin
+//   so its local offset is align⁻¹ · v, and its local scale undoes the
+//   wrapper's model-units-to-metres scale.
+//
+// Uniform scale commutes with rotation, so the two cancel exactly and the
+// node ends up with the procedural world orientation on the imported body.
+function adoptAttachments(model, wrapper, map, retargeter, src) {
+  const s = wrapper.scale.x || 1;
+  const skip = new Set();
+  // spring chains drive their own pivots against their parent bone's frame,
+  // and are hidden by default anyway — moving them would only break the maths
+  for (const chain of model.springs ?? []) for (const p of chain.pivots ?? []) skip.add(p.pivot);
+
+  const adopt = node => {
+    const bone = node.parent;
+    if (!bone?.isBone || skip.has(node) || node.isBone) return false;
+    const target = map[bone.name];
+    const align = retargeter.alignOf(bone.name);
+    if (!target || !align) return false;
+    const inv = align.clone().invert();
+    node.position.applyQuaternion(inv).divideScalar(s);
+    node.quaternion.premultiply(inv);
+    node.scale.divideScalar(s);
+    target.add(node);
+    return true;
+  };
+
+  let n = 0;
+  for (const bone of model.boneList) {
+    for (const child of [...bone.children]) if (adopt(child)) n++;
+  }
+  // attachProp re-parents onto the drive rig every time a clip changes hands,
+  // so the adoption has to ride along with it rather than happen once
+  if (model.attachProp) {
+    const orig = model.attachProp.bind(model);
+    model.attachProp = (name, slot) => {
+      orig(name, slot);
+      const node = model.props?.get(name)?.node;
+      if (node?.parent?.isBone) adopt(node);
+    };
+    // re-seat whatever is already attached, now that the wrapper exists
+    for (const [name, p] of model.props ?? []) {
+      if (p.node?.parent?.isBone && adopt(p.node)) n++;
+    }
+  }
+  if (n) console.info(`[render3d] ${n} attachment(s) moved onto the imported body`);
+  return n;
 }
 
 // Hide what the imported model replaces: the merged body meshes, their

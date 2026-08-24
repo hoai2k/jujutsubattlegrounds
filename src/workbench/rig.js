@@ -19,7 +19,10 @@
 //               same marks say whether the right BONE was mapped at all.
 //   4 PIVOTS    the same fix from the other direction: skin weights measure
 //               where each joint is, and the dials move it by hand.
-//   4 LIGHTING  a small ambient lift, so a model authored for an offline
+//   5 SKIN      what a bone drives that it should not — a dress bled onto by
+//               an arm, a held prop bending like flesh. Click the geometry;
+//               the connected piece under the cursor is the unit of repair.
+//   6 LIGHTING  a small ambient lift, so a model authored for an offline
 //               render is judged with its colour reaching the camera rather
 //               than sunk in this scene's shadows.
 //
@@ -128,6 +131,12 @@ export function mountRigBench(root) {
   }
   stage.canvas.addEventListener('pointerup', e => {
     if (!stage.wasClick() || !session.model3d) return;
+    // the picking modes are exclusive and explicit, so a stray click never
+    // silently rewrites a mapping
+    if (picking) {
+      if (session.pickIsland(e)) syncSkin();
+      return;
+    }
     // an armed landmark takes the click; otherwise it reassigns a bone
     if (session.armedLandmark) {
       const p = session.pickSurface(e);
@@ -341,8 +350,67 @@ export function mountRigBench(root) {
     });
   }
 
+  // ---- 5 · SKIN -----------------------------------------------------------
+  const sSkin = sec(panel, '5 · SKIN — what is a bone driving that it shouldn’t?');
+  sSkin.append(el('div', 'mb-hint',
+    'Turn on <b>Pick geometry</b>, then click a part of the model: it selects the ' +
+    'connected piece under the cursor (a skirt is not joined to a sleeve, a hammer ' +
+    'is not joined to a hand) and lists what drives it. Then either make it ' +
+    '<b>rigid</b> to one bone — the fix for a held prop that bends like flesh — or ' +
+    '<b>drop</b> a bone that has bled onto it, which is why a dress swings when an ' +
+    'arm moves.'));
+  const skinRow = el('div', 'mb-row');
+  const pickChk = el('label', 'mb-check', '<input type="checkbox"><span>Pick geometry</span>');
+  const bSkinClear = el('button', 'mb-btn', '<span>Clear repairs</span>');
+  skinRow.append(pickChk, bSkinClear);
+  const skinOut = el('div', 'mb-assign');
+  sSkin.append(skinRow, skinOut);
+  let picking = false;
+  pickChk.querySelector('input').onchange = e => { picking = e.target.checked; };
+  bSkinClear.onclick = () => { session.clearWeightOps(); syncSkin(); };
+
+  function syncSkin() {
+    skinOut.innerHTML = '';
+    const p = session.pickedIsland;
+    if (p) {
+      skinOut.append(el('div', 'mb-hint',
+        `Selected: <b>${p.verts} vertices</b> — driven by ` +
+        p.bones.slice(0, 4).map(b => `${b.name} ${(b.share * 100).toFixed(0)}%`).join(', ')));
+      const row = el('div', 'mb-row');
+      const top = p.bones[0];
+      if (top) {
+        const b = el('button', 'mb-btn ac', `<span>Rigid → ${top.name}</span>`);
+        b.onclick = () => { session.addWeightOp({ at: p.at, rigid: top.name }); syncAll(); };
+        row.append(b);
+      }
+      // drop whichever limb group is the minority — the bled one
+      const minor = p.bones.filter(b => b.share < 0.25).map(b => b.name);
+      if (minor.length) {
+        const b = el('button', 'mb-btn', `<span>Drop ${minor.length} minor bone(s)</span>`);
+        b.title = minor.join(', ');
+        b.onclick = () => { session.addWeightOp({ at: p.at, drop: minor }); syncAll(); };
+        row.append(b);
+      }
+      skinOut.append(row);
+      const perBone = el('div', 'mb-chips');
+      for (const b of p.bones.slice(0, 6)) {
+        const x = el('button', 'mb-chip', `drop ${b.name}`);
+        x.onclick = () => { session.addWeightOp({ at: p.at, drop: [b.name] }); syncAll(); };
+        perBone.append(x);
+      }
+      skinOut.append(perBone);
+    } else {
+      skinOut.append(el('div', 'mb-hint', 'Nothing selected — tick <b>Pick geometry</b> and click the model.'));
+    }
+    if (session.weightOps.length) {
+      skinOut.append(el('div', 'mb-hint',
+        `<b>${session.weightOps.length} repair(s):</b> ` + session.weightOps.map(o =>
+          o.rigid ? `rigid→${o.rigid}` : `drop ${o.drop.join('/')}`).join(', ')));
+    }
+  }
+
   // ---- 5 · LIGHTING -------------------------------------------------------
-  const sLook = sec(panel, '5 · LIGHTING — a small lift, not a restyle');
+  const sLook = sec(panel, '6 · LIGHTING — a small lift, not a restyle');
   sLook.append(el('div', 'mb-hint',
     'The model keeps its own materials. <b>Ambient</b> adds back a fraction of ' +
     'its own texture as light, which lifts the shadows and makes the blue read ' +
@@ -379,8 +447,8 @@ export function mountRigBench(root) {
     sLook.append(row);
   }
 
-  // ---- 6 · EXPORT ---------------------------------------------------------
-  const sExp = sec(panel, '6 · EXPORT CHANGES');
+  // ---- 7 · EXPORT ---------------------------------------------------------
+  const sExp = sec(panel, '7 · EXPORT CHANGES');
   const notes = el('textarea', 'mb-notes');
   notes.placeholder = 'What still looks wrong, what you could not fix here, anything the numbers don’t carry…';
   const bExport = el('button', 'mb-btn ac', '<span>Export changes</span>');
@@ -397,7 +465,7 @@ export function mountRigBench(root) {
     'rest pose, trims, look dials and your notes. It is the manifest entry ' +
     '<b>?render3d</b> loads.'));
 
-  function syncAll() { syncMapping(); syncAssign(); syncLandmarks(); syncJoint(); }
+  function syncAll() { syncMapping(); syncAssign(); syncLandmarks(); syncJoint(); syncSkin(); }
   syncAll();
 
   window.__bench = { session, stage, syncAll, loadFrom: (u, l) => session.load(u, l).then(syncAll) };

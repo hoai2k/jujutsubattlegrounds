@@ -290,6 +290,10 @@ export class Retargeter {
     } : null;
   }
 
+  // The constant that maps this bone's procedural world rotation onto the
+  // imported one. Attachments need it: see adoptAttachments in render3d.js.
+  alignOf(canonical) { return this.targets.get(canonical)?.align ?? null; }
+
   apply() {
     // 1. source world rotations (identity rest ⇒ plain quaternion chain)
     const bones = this.srcBones, wq = this.srcWorldQ, par = this.srcParent;
