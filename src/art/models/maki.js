@@ -649,6 +649,15 @@ export function buildMaki() {
           // another. Carried in one hand it HANGS — tip down and slightly
           // forward — and the whole model reads as a person with a weapon
           // instead of a person with a flagpole.
+          // ONE-HANDED, and measurably so: her left hand sits 0.69-0.79 m
+          // from the nearest point on the staff in every clip, against an
+          // arm that reaches 0.53 m. Two-handing her is therefore NOT a
+          // matter of adding a `grip` to this slot — the hand cannot get
+          // there. It needs a second slot that puts the staff where both
+          // hands can be on it, and a stance that agrees with it; the grip
+          // (rig3d/grip.js) then holds the off hand ON the haft for an
+          // imported body, whose proportions otherwise miss it by ~4 cm.
+          // `propSlot` in the manifest is how her model would select it.
           hand: { bone: 'HandR', pos: [0, -0.050 * spec.H, 0.010 * spec.H], rot: [-5, -3, 72] },
           // slung diagonally across the back, butt-down over the left hip
           // PASS 3, solved the same way: slung DIAGONALLY across the back, so

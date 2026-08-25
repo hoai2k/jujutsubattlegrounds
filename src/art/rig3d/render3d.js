@@ -55,7 +55,30 @@
 //                              // every joint. See dqs.js.
 //       "rotOffset": {"UpArmL": [0, 0, -8]},              // degrees, world
 //       "keepProps": true,     // procedural weapons stay in hand (default)
-//       "hideSprings": true    // procedural hair/coat physics hidden (default)
+//       "hideSprings": true,   // procedural hair/coat physics hidden (default)
+//       "propSlot": {"playful_cloud": "twoHand"},
+//                              // pick a different attachment slot for a prop
+//                              // on this model — how an imported body that
+//                              // should carry a weapon differently says so
+//                              // without touching the character's own art.
+//       "grips": {"playful_cloud": {"bone": "HandL", "at": [0, 0.42, 0],
+//                                   "to": [0, 0.66, 0]}},
+//                              // TWO-HANDED. The off hand is re-solved onto
+//                              // this point in the WEAPON'S own space after
+//                              // retargeting (see grip.js) — because rotation
+//                              // transfer alone leaves it floating off the
+//                              // haft by whatever the two bodies' proportions
+//                              // differ by. `to` makes it a segment the hand
+//                              // may slide along. Overrides whatever the
+//                              // attachment authored; authored by clicking on
+//                              // /workbench/?edit=models.
+//       "props": {"playful_cloud": {"url": "./maki_polearm.glb"}}
+//                              // swap the PROCEDURAL weapon for an imported
+//                              // one. It is parented inside the procedural
+//                              // prop's node, so it inherits the attachment
+//                              // transform, the adoption onto the imported
+//                              // hand and the grip maths unchanged, and it is
+//                              // auto-sized to the weapon it replaces.
 //     }
 //   }
 //
@@ -77,6 +100,7 @@ import { guessBoneMap } from './bonemap.js';
 import { Retargeter, captureSourceRest, rerigHierarchy } from './retarget.js';
 import { applyJointEdits, collectSkeletons, modelBindHeight } from './joints.js';
 import { liftMaterials } from './lift.js';
+import { GripSolver } from './grip.js';
 import { applyWeightOps } from './weights.js';
 import { setDualQuaternionSkinning } from './dqs.js';
 import { DEG } from '../../core/mathutil.js';
@@ -286,13 +310,105 @@ function attach(model, srcRest, scene, src, pick) {
   hideProcedural(model, wrapper, src);
   adoptAttachments(model, wrapper, map, retargeter, src);
 
+  // TWO-HANDED WEAPONS. Rotation transfer puts the dominant hand on the
+  // weapon (the weapon is parented to it) and leaves the off hand wherever
+  // this body's proportions land it, which for a hand that should be closed
+  // around a haft is a visible miss. grip.js re-solves that arm onto a point
+  // in the weapon's own space, after the pose is final. Costs nothing on the
+  // characters that have no grips authored.
+  const grips = new GripSolver(model, map, src.grips || {});
+  // slot pick: a weapon this body should carry differently
+  for (const [name, slot] of Object.entries(src.propSlot || {})) model.attachProp(name, slot);
+  // re-read the specs whenever a clip changes hands — a weapon on the back
+  // is not being gripped at all
+  const attach = model.attachProp.bind(model);
+  model.attachProp = (name, slot) => { attach(name, slot); grips.refresh(); };
+  grips.refresh();
+
   // run the transfer after every model update (fighter and viewer both call
   // model.update right after anim.update, so the pose is fresh)
   const orig = model.update.bind(model);
-  model.update = dt => { orig(dt); retargeter.apply(); };
+  model.update = dt => {
+    orig(dt);
+    retargeter.apply();
+    // the grip target is measured off the weapon, which hangs from a bone the
+    // retargeter has just moved, so the world matrices have to be current
+    // before it is read — and only when there is a grip to solve.
+    if (grips.active) { model.group.updateMatrixWorld(true); grips.apply(); }
+  };
   retargeter.apply();
-  model.render3d = { wrapper, retargeter, url: src.url };
+  model.render3d = { wrapper, retargeter, grips, url: src.url };
+
+  // an imported weapon, if the entry names one, replacing the procedural
+  // shape inside the node that already carries the attachment
+  if (src.props) swapPropModels(model, src, pick);
 }
+
+// ---- IMPORTED WEAPONS -----------------------------------------------------
+// A character's weapon is procedural, authored in code (toji_weapons.js and
+// friends) and shared — Maki imports Toji's builders unchanged and only
+// re-solves where they hang. That sharing is worth keeping, so an imported
+// weapon does not REPLACE the prop; it goes INSIDE it.
+//
+// The procedural prop's node is the thing that carries the attachment
+// transform, the adoption onto the imported hand, and the space the grip
+// point is measured in. Parent the loaded weapon under that node and it
+// inherits all three for free, and the grip maths does not know or care that
+// the shape it is measuring against came from a file.
+//
+// Size comes from the weapon it stands in for: the procedural staff is 1.25 m
+// because that is what reads right on this body, so an imported one is fitted
+// to the same longest dimension. `scale`/`pos`/`rot` trim from there.
+function swapPropModels(model, src, pick) {
+  for (const [name, raw] of Object.entries(src.props || {})) {
+    const spec = typeof raw === 'string' ? { url: raw } : raw;
+    const p = model.props?.get(name);
+    if (!p?.node) { console.warn(`[render3d] ${pick}: no prop named "${name}"`); continue; }
+    if (!spec.url) continue;
+    const url = new URL(spec.url, modelsUrl('manifest.json')).href;
+    loadScene(url).then(weapon => {
+      const want = longestSide(localBox(p.node));
+      const have = longestSide(localBox(weapon, true));
+      if (!(have > 1e-6) || !(want > 1e-6)) throw new Error('weapon has no size');
+      const k = (spec.scale ?? 1) * want / have;
+      weapon.scale.setScalar(k);
+      if (spec.pos) weapon.position.fromArray(spec.pos);
+      if (spec.rot) {
+        weapon.rotation.set(spec.rot[0] * DEG, spec.rot[1] * DEG, spec.rot[2] * DEG);
+      }
+      weapon.traverse(o => { if (o.isMesh || o.isSkinnedMesh) o.frustumCulled = false; });
+      if (spec.lift !== false) liftMaterials(weapon, typeof spec.lift === 'object' ? spec.lift : {});
+      // hide the procedural shape, keep its node — that node IS the attachment
+      for (const child of [...p.node.children]) child.visible = false;
+      p.node.add(weapon);
+      console.info(`[render3d] ${pick}: ${name} <- ${spec.url.split('/').pop()} ` +
+        `(fitted ${have.toFixed(2)} -> ${want.toFixed(2)} m)`);
+    }).catch(err => console.warn(`[render3d] ${pick}: ${name} model failed —`, err?.message ?? err));
+  }
+}
+
+// Bounding box of a subtree in its OWN local space — the world box would be
+// an axis-aligned box around a rotated weapon, which over-measures a diagonal
+// blade badly. `fresh` forces a matrix update for a subtree not yet in a scene.
+function localBox(node, fresh = false) {
+  if (fresh) node.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(node.matrixWorld).invert();
+  const box = new THREE.Box3(), sub = new THREE.Box3(), m = new THREE.Matrix4();
+  node.traverse(o => {
+    const g = o.geometry;
+    if (!g?.attributes?.position) return;
+    g.computeBoundingBox();
+    sub.copy(g.boundingBox).applyMatrix4(m.copy(inv).multiply(o.matrixWorld));
+    box.union(sub);
+  });
+  return box;
+}
+
+const longestSide = box => {
+  if (box.isEmpty()) return 0;
+  const s = box.getSize(new THREE.Vector3());
+  return Math.max(s.x, s.y, s.z);
+};
 
 // ---- ATTACHMENTS: props and effects follow the body they belong to --------
 // Everything a character hangs off a bone — Toji's spear, Nobara's hammer,

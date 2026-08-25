@@ -320,6 +320,13 @@ export class CharacterModel {
     const p = this.props.get(name);
     if (!p) return;
     const at = p.attachments[slotKey];
+    // WHICH SLOT IS LIVE, recorded. A weapon in a hand and the same weapon
+    // slung on the back are the same node in different places, and anything
+    // reading the attachment afterwards — the two-handed grip solver in
+    // rig3d/grip.js is the one that does — has to know which of the two it
+    // is looking at. Set even when the slot is missing, so `slot` always
+    // says what was last asked for.
+    p.slot = slotKey;
     if (!at) { p.node.visible = false; return; }
     const bone = this.bones.get(at.bone);
     bone.add(p.node);
@@ -371,7 +378,7 @@ export function finalizeModel(ctx, opts = {}) {
   // props: {name: {node, attachments:{key:{bone,pos,rot}}, default}}
   const props = new Map();
   for (const [name, def] of Object.entries(opts.props || {})) {
-    props.set(name, { node: def.node, attachments: def.attachments });
+    props.set(name, { node: def.node, attachments: def.attachments, slot: null });
   }
 
   // springs from defs: {bone, localOffset, restDir, segments:[{len, mesh}], ...}

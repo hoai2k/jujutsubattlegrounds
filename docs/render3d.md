@@ -82,6 +82,9 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `lift` | `{ambient: 0.22, saturation: 1.18}` | a small lighting lift (see below). `false` leaves the file's materials completely untouched |
 | `rotOffset` | `{}` | `{canonical: [x°,y°,z°]}` world-space trim per bone |
 | `weights` | `[]` | skin repairs (see below) — `{bleed: […]}` as a rule over the surface, or `{at, rigid}` / `{at, drop}` per mesh island |
+| `propSlot` | `{}` | `{propName: slot}` — carry a prop in a different attachment slot on this model |
+| `grips` | `{}` | `{propName: {bone, at, to}}` — where the OFF hand grips a two-handed weapon (see below) |
+| `props` | `{}` | `{propName: {url}}` — an imported weapon model standing in for the procedural one |
 | `keepProps` | `true` | procedural weapons stay visible. Set `false` when the model already has them modelled in — Nobara's hammer is in her mesh, so the procedural one would be a second hammer |
 | `hideSprings` | `true` | procedural hair/coat spring meshes hidden |
 | `skinning` | `"dual"` | `"dual"` blends the bones' rotations (see below), `"linear"` falls back to three.js' stock matrix blend |
@@ -135,6 +138,101 @@ well, because it re-parents onto the drive rig every time a clip changes
 hands.
 
 This is why Jogo needs no `scale` trim to make his plume meet his head.
+
+## Two-handed weapons (`grips`)
+
+One hand on a weapon is solved by the attachment: the prop hangs off a bone,
+that bone gets adopted onto the imported skeleton, done. The SECOND hand is a
+different problem, and it is the one the retargeter cannot answer on its own.
+
+Rotation transfer is the right contract for a body. A clip says "the elbow is
+bent this much", and a differently proportioned arm ends up with its wrist
+somewhere else — as it should. But a hand closed around a haft is a
+**position**, not an angle, and "somewhere else" is a hand floating off the
+weapon. The eye finds it immediately, because it is the one place in the pose
+where two things are supposed to be touching. Measured on a real pair — Maki's
+clips driving an imported body fitted to her height — the miss is about 4 cm.
+
+So the weapon says where the off hand belongs, as a point in **its own local
+space**, and that arm is re-solved onto it with two-bone IK (`ik.js`,
+`grip.js`) after the pose is final:
+
+```json
+"grips": { "playful_cloud": { "bone": "HandL",
+                              "at": [0, 0.42, 0], "to": [0, 0.66, 0] } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `bone` | which hand grips (`HandL` by default) |
+| `at` | the point on the weapon, in the weapon's own space |
+| `to` | optional: makes it a **segment**, and the hand slides along it to whatever spot it can reach — which is what a hand on a long haft actually does, and far more forgiving across models than a fixed point |
+| `weight` | 0..1 authored strength |
+| `only` / `except` | clip names, matched against `model.gripClip` |
+
+Because the point is prop-local it does not care whether the weapon is the
+procedural one or an imported `.glb` standing in the same place, and it
+survives the weapon being re-authored as long as the shape does not move.
+
+Three things it deliberately does not do:
+
+- **It never runs on the procedural body.** Those clips were authored against
+  those proportions, so its hands are already where the animator put them.
+- **It does not choose the weapon's pose.** Where the weapon sits is the
+  attachment's business. The grip only answers "and the other hand goes HERE
+  on it" — so a weapon a character carries one-handed needs a two-handed
+  attachment *first*; a grip point alone will not pull a hand across the body
+  onto a staff hanging at the far hip. `propSlot` picks that slot per model.
+- **It does not invent a hand orientation.** The palm attitude the retargeter
+  chose is captured before the solve and restored after, so only the position
+  changes.
+
+An arm straining at something out of range reads far worse than a hand
+slightly off it, so how far the target sits past the arm's reach is measured
+*before* solving and the correction is faded out over the last 12 cm. That is
+also the automatic answer for clips where the hand genuinely leaves the
+weapon.
+
+Author one by clicking: **WEAPONS** on `/workbench/?edit=models` shows the
+character's props on the imported body during preview, and arming a prop then
+clicking the haft stores that point in the weapon's own space. It exports
+with the rest of the entry.
+
+### Imported weapons (`props`)
+
+A weapon can come from a file too:
+
+```json
+"props": { "playful_cloud": { "url": "./maki_polearm.glb" } }
+```
+
+It does not replace the prop — it goes **inside** it. The procedural prop's
+node is what carries the attachment transform, the adoption onto the imported
+hand, and the space the grip point is measured in; parent the loaded weapon
+under that node and it inherits all three, and the grip maths never learns
+that the shape came from a file. Size comes from the weapon it stands in for
+(longest dimension matched), with `scale`/`pos`/`rot` to trim.
+
+This is worth preferring over modelling the weapon into the character's mesh.
+Weapons move between slots — Maki visibly carries both of hers, Toji's
+inventory curse swallows what he is not holding — and weapons are shared
+code, with Maki importing Toji's builders unchanged. A weapon skinned into
+the body can never be sheathed, swapped, dropped or shared. Where a model
+really does have its weapon modelled in, `keepProps: false` is the answer
+instead — that is how Nobara ships.
+
+### Nobody two-hands anything yet
+
+Worth knowing before authoring the first grip: **no character on the roster
+holds a weapon with two hands.** Every clip set is one-handed. The nearest
+any off hand comes to its own weapon is Nobara at 27 cm, and Maki — the
+obvious candidate, a polearm fighter — poses her left hand 69–79 cm from the
+staff in every clip, which is 16 cm beyond that arm's full reach.
+
+So a two-handed carry is not a grip point away. It needs an attachment slot
+that puts the weapon where both hands can be on it, and a stance that agrees
+with it. The machinery above is what makes that authorable; it is not a
+substitute for authoring it.
 
 ## Skin repairs (`weights`)
 

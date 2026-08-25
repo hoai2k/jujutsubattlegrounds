@@ -43,7 +43,7 @@ export function mountModelBench(root) {
   const sModel = sec(panel, 'MODEL');
   const { box: loaderBox, status } = buildLoaderUI(session, {
     prefs, save,
-    onLoaded: () => { session.select(null); syncBones(); syncFit(); },
+    onLoaded: () => { session.select(null); syncBones(); syncFit(); syncProps(); },
     // a manifest chip names the character it stands in for — follow it, so
     // the model is benched against the fighter it will actually replace
     onReference: pick => {
@@ -53,6 +53,7 @@ export function mountModelBench(root) {
       prefs.char = base; save(prefs);
       clipNames = session.setReference(pick);
       syncClips();
+      syncProps();
     }
   });
   sModel.append(loaderBox);
@@ -72,6 +73,7 @@ export function mountModelBench(root) {
     prefs.char = refSel.value; save(prefs);
     clipNames = session.setReference(refSel.value);
     syncClips();
+    syncProps();
   };
   ghostLab.querySelector('input').onchange = e => session.setGhost(e.target.checked);
 
@@ -180,14 +182,78 @@ export function mountModelBench(root) {
   clipSel.onchange = () => { if (session.preview) session.startPreview(clipSel.value); };
   bStop.onclick = () => session.stopPreview();
 
-  // ---- DISPLAY ------------------------------------------------------------
-  const sDisp = sec(panel, 'DISPLAY');
-  const dispRow = el('div', 'mb-row');
   const mkCheck = (label, checked, fn) => {
     const l = el('label', 'mb-check', `<input type="checkbox"${checked ? ' checked' : ''}><span>${label}</span>`);
     l.querySelector('input').onchange = e => fn(e.target.checked);
     return l;
   };
+
+  // ---- WEAPONS ------------------------------------------------------------
+  // Only in preview: a bind pose is about the rig, and a staff through the
+  // frame is in the way. In a clip or a stress pose the weapon is the point —
+  // for a character whose whole battle stance is built around one, a body
+  // judged without it has not been judged.
+  const sProp = sec(panel, 'WEAPONS — the props, on the imported body');
+  const propRow = el('div', 'mb-chips');
+  const gripStatus = el('div', 'mb-status', '');
+  let gripArmed = null;
+  sProp.append(el('div', 'mb-hint',
+    'Shown in <b>preview</b> and stress poses, hidden in the bind poses. The reference ' +
+    'body keeps its own copy, so the two can be compared holding the same thing.<br>' +
+    'A <b>two-handed</b> weapon needs to say where the OFF HAND goes: arm a prop below, ' +
+    'then click the spot on the weapon. Rotation transfer alone leaves that hand floating ' +
+    'off the haft by whatever the two bodies\' proportions differ by — the grip re-solves ' +
+    'the arm onto the point, and it exports with the model.'),
+    mkCheck('Show weapons in preview', true, on => session.setShowProps(on)),
+    propRow, gripStatus);
+
+  function syncProps() {
+    propRow.innerHTML = '';
+    const names = [...(session.ref?.model.props?.keys() ?? [])];
+    if (!names.length) {
+      propRow.append(el('div', 'mb-hint', 'This character carries nothing.'));
+      gripStatus.textContent = '';
+      return;
+    }
+    for (const name of names) {
+      const has = !!session.gripEdits[name];
+      const b = el('button', 'mb-chip' + (gripArmed === name ? ' on' : has ? '' : ' off'),
+        name + (has ? ' ●' : ''));
+      b.title = has
+        ? `grip at [${session.gripEdits[name].at.join(', ')}] — click to re-place, then click the weapon`
+        : 'click to arm, then click the point on the weapon where the off hand grips';
+      b.onclick = () => {
+        gripArmed = gripArmed === name ? null : name;
+        gripStatus.textContent = gripArmed
+          ? `Click the point on ${gripArmed} where the off hand grips it.`
+          : '';
+        syncProps();
+      };
+      propRow.append(b);
+    }
+    const clear = el('button', 'mb-btn', '<span>Clear grips</span>');
+    clear.onclick = () => {
+      for (const n of names) session.clearGrip(n);
+      gripArmed = null; gripStatus.textContent = 'Grips cleared.'; syncProps();
+    };
+    propRow.append(clear);
+  }
+
+  // grip picking rides the same click-without-orbit rule the joint pickers use
+  stage.canvas.addEventListener('pointerup', e => {
+    if (!gripArmed || !stage.wasClick()) return;
+    const hit = session.pickPropPoint(e);
+    if (!hit) { gripStatus.textContent = 'That did not hit a weapon — preview a clip first, then click the haft.'; return; }
+    if (hit.name !== gripArmed) { gripStatus.textContent = `That is ${hit.name}, not ${gripArmed}.`; return; }
+    const at = session.setGripFromWorld(gripArmed, hit.point);
+    gripStatus.textContent = `${gripArmed}: off hand grips at [${at.join(', ')}] in the weapon's own space.`;
+    gripArmed = null;
+    syncProps();
+  });
+
+  // ---- DISPLAY ------------------------------------------------------------
+  const sDisp = sec(panel, 'DISPLAY');
+  const dispRow = el('div', 'mb-row');
   dispRow.append(
     mkCheck('Lighting lift', true, on => session.setLift(on)),
     mkCheck('Skeleton + joints', true, on => session.setSkeleton(on)),
@@ -234,12 +300,17 @@ export function mountModelBench(root) {
   };
   sExp.append(notes, bExport, el('div', 'mb-hint',
     'Downloads a manifest-entry JSON: bone-map overrides, the rest-pose calibration ' +
-    '(every joint you moved), fit numbers, trim offsets and your notes.'));
+    '(every joint you moved), fit numbers, trim offsets, two-handed grips and your notes.'));
 
   syncBones();
+  syncProps();
 
   // headless drive hook, same pattern as the viewer's window.__viewer
-  window.__bench = { session, stage, loadFrom: (u, l) => session.load(u, l).then(() => { syncBones(); syncFit(); }) };
+  window.__bench = {
+    session, stage,
+    loadFrom: (u, l) => session.load(u, l).then(() => { syncBones(); syncFit(); syncProps(); }),
+    syncProps
+  };
 
   return { title: 'Models', jp: '模型工房' };
 }
