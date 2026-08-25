@@ -636,7 +636,7 @@ export function buildMaki() {
       // carries BOTH tools at once. Two weapons on the body at all times is
       // the read that separates her from his four-weapon wheel at a glance.
       playful_cloud: {
-        node: buildPlayfulCloud(spec.H), default: 'hand',
+        node: buildPlayfulCloud(spec.H, { section: 0.32 }), default: 'twoHand',
         attachments: {
           // SOLVED, not guessed. The rotation is derived by taking the bone's
           // world quaternion under HER OWN stance, inverting it, and asking for
@@ -649,15 +649,36 @@ export function buildMaki() {
           // another. Carried in one hand it HANGS — tip down and slightly
           // forward — and the whole model reads as a person with a weapon
           // instead of a person with a flagpole.
-          // ONE-HANDED, and measurably so: her left hand sits 0.69-0.79 m
-          // from the nearest point on the staff in every clip, against an
-          // arm that reaches 0.53 m. Two-handing her is therefore NOT a
-          // matter of adding a `grip` to this slot — the hand cannot get
-          // there. It needs a second slot that puts the staff where both
-          // hands can be on it, and a stance that agrees with it; the grip
-          // (rig3d/grip.js) then holds the off hand ON the haft for an
-          // imported body, whose proportions otherwise miss it by ~4 cm.
-          // `propSlot` in the manifest is how her model would select it.
+          // THE TWO-HANDED CARRY, and the reason it exists.
+          //
+          // Her whole Cloud clip set is authored around a staff held ACROSS
+          // THE BODY — idleCloud says so in as many words, and the poses back
+          // it: both arms are driven, and her hands sit 0.75-0.96 m apart
+          // through every clip in the set. But the weapon was hanging off one
+          // hand in `hand` below, which meant her left hand was reaching for
+          // something 0.62-0.92 m away from it. The animation and the
+          // attachment disagreed, and the animation was right.
+          //
+          // Solved, not guessed, by the method models/toji.js documents: take
+          // the settled idleCloud pose, aim the staff's local +Y from the left
+          // hand to the right one, and put the butt 0.25 m back beyond the
+          // left. At 0.32·H the three sections come to 1.67 m, which leaves
+          // 0.54 m of staff past her leading hand — the part that reads as a
+          // polearm rather than a bar.
+          //
+          // `grip` is what makes it survive an imported body (rig3d/grip.js):
+          // the retargeter transfers rotations, so a 3D Maki's left hand lands
+          // wherever HER arm reaches and misses the haft by a few centimetres.
+          // The segment, rather than a point, is the grip sliding along the
+          // shaft as her hands open and close through the set.
+          twoHand: {
+            bone: 'HandR',
+            pos: [0.0231 * spec.H, 0.192 * spec.H, -0.5443 * spec.H],
+            rot: [111.7, -44.5, 3.2],
+            grip: { bone: 'HandL', at: [0, 0.05, 0], to: [0, 0.26, 0] }
+          },
+          // the one-handed hang, kept: it is the carry for anything that is
+          // not the Cloud set, and it is what `back` swaps against
           hand: { bone: 'HandR', pos: [0, -0.050 * spec.H, 0.010 * spec.H], rot: [-5, -3, 72] },
           // slung diagonally across the back, butt-down over the left hip
           // PASS 3, solved the same way: slung DIAGONALLY across the back, so
@@ -728,7 +749,9 @@ export function buildMaki() {
   model.setWeapon = key => {
     const held = key === 'split_soul' ? 'split_soul' : 'playful_cloud';
     const other = held === 'split_soul' ? 'playful_cloud' : 'split_soul';
-    model.attachProp(held, 'hand');
+    // the staff goes in BOTH hands — that is the carry its clip set is drawn
+    // for. The katana is a one-handed weapon and keeps `hand`.
+    model.attachProp(held, held === 'playful_cloud' ? 'twoHand' : 'hand');
     model.attachProp(other, 'back');
   };
   model.setWeapon('playful_cloud');

@@ -132,7 +132,19 @@ const OUT = { color: 0x0a0910, thickness: 0.008 };
 // ---------------------------------------------------------------------------
 // PLAYFUL CLOUD
 // ---------------------------------------------------------------------------
-export function buildPlayfulCloud(H = 1.88) {
+// LENGTH IS A PARAMETER, and the default is Toji's.
+//
+// A real three-section staff runs about six feet — three sections of an arm's
+// length each, 60-70 cm, so the whole thing stands about as tall as the person
+// holding it. This one is deliberately shorter for HIM: 0.24 is what survived
+// after 0.285 (1.61 m on his 1.88 m frame) clipped the floor in his low guard
+// and cleared his head in the high one, both while hanging from ONE hand.
+//
+// None of that constrains a TWO-HANDED carry, which is the one Maki's clip set
+// is authored for: held across the body her hands sit 0.75-0.96 m apart, so
+// the weapon needs 1.14 m before it even spans her grip, and at Toji's length
+// there is nothing left over to read as a polearm. She passes 0.32.
+export function buildPlayfulCloud(H = 1.88, { section = 0.24 } = {}) {
   const g = new THREE.Group();
   g.name = 'playfulCloud';
   const shaftMat = MAT.cloth({ vertexColors: false, color: PC.shaft, rimColor: 0xffb08a });
@@ -140,9 +152,7 @@ export function buildPlayfulCloud(H = 1.88) {
   const ferMat = MAT.metal({ vertexColors: false, color: PC.ferrule });
   const linkMat = MAT.metal({ vertexColors: false, color: PC.link });
 
-  // 0.24·H per section: a true three-section staff at 0.285 was 1.6 m and both
-  // clipped the floor in the low guard and cleared his head in the high one.
-  const secLen = 0.24 * H;           // three of these, plus joints
+  const secLen = section * H;        // three of these, plus joints
   const secR = 0.0115 * H;
   // Sections are laid end to end up +Y with a small kink at each joint, so the
   // silhouette reads ARTICULATED at a glance instead of as one straight pole.

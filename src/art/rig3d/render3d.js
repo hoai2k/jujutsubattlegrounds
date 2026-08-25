@@ -436,16 +436,29 @@ function adoptAttachments(model, wrapper, map, retargeter, src) {
   // and are hidden by default anyway — moving them would only break the maths
   for (const chain of model.springs ?? []) for (const p of chain.pivots ?? []) skip.add(p.pivot);
 
+  // A prop's OWN scale, from before the first adoption.
+  //
+  // Position and rotation are safe to transform in place because attachProp
+  // rewrites both from the attachment every time it is called — and the
+  // fighter calls it EVERY FRAME for anything whose slot depends on state
+  // (Maki's weapon toggle, Toji's arsenal, Nobara's hammer, Miwa's saya). It
+  // does not touch scale. So dividing the CURRENT scale by the wrapper's
+  // factor compounded once per frame: a weapon shrank by ~1.7x per frame and
+  // was gone inside a second. Nobody caught it because the benches attach a
+  // prop once and the game's cameras are far enough out that a weapon
+  // vanishing looks like a character who never drew one.
+  const baseScale = new WeakMap();
   const adopt = node => {
     const bone = node.parent;
     if (!bone?.isBone || skip.has(node) || node.isBone) return false;
     const target = map[bone.name];
     const align = retargeter.alignOf(bone.name);
     if (!target || !align) return false;
+    if (!baseScale.has(node)) baseScale.set(node, node.scale.clone());
     const inv = align.clone().invert();
     node.position.applyQuaternion(inv).divideScalar(s);
     node.quaternion.premultiply(inv);
-    node.scale.divideScalar(s);
+    node.scale.copy(baseScale.get(node)).divideScalar(s);
     target.add(node);
     return true;
   };

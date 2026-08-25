@@ -379,7 +379,13 @@ export function applyWeightOps(root, ops, map = {}) {
   }
   if (report.length) {
     console.info('[render3d] weight ops:', report.map(r =>
-      r.bleed ? `bleed ${r.bleed.join('/')} off ${r.islands} islands (${r.changed}v cleaned, ${r.kept}v left to their own bone)`
+      // FIELD NAMES, matched to what the bleed branch actually pushes. It
+      // reported `r.islands` and `r.kept`, neither of which is set, so every
+      // load logged "undefined islands (Nv cleaned, undefinedv left)" — the
+      // one number a reader would use to tell a no-op from a repair was the
+      // one that read as broken.
+      r.bleed ? `bleed ${r.bleed.join('/')} off ${r.bones} bone(s) (${r.changed}v cleaned, ` +
+        `${r.stranded}v left to their own bone)`
         : `${r.rigid ? 'rigid→' + r.rigid : 'drop ' + (r.drop ?? []).join('/')} on ${r.verts}v`
     ).join('; '));
   }

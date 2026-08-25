@@ -82,6 +82,13 @@ export const MAKI_STANCE = {
 
 const K = (t, pose, e) => ({ t, pose, e });
 
+// Both hands on the shaft. See the note on idleCloud below for why every clip
+// in the Cloud set has to state this rather than fall through to MAKI_STANCE.
+const CLOUD_GUARD = {
+  UpArmL: [-42, 22, 14], LoArmL: [-86, 34, 0], HandL: [-14, 78, 0],
+  UpArmR: [-34, -14, -16], LoArmR: [-88, -30, 0], HandR: [-16, -80, 0]
+};
+
 // The three awakened neutrals, expressed as DELTAS applied on top of the pose
 // above by each variant clip. Written out as objects rather than computed so
 // the poses are readable and hand-tunable, which is how every other clip file
@@ -212,42 +219,43 @@ export const MAKI_CLIPS = {
   // HIP ROTATION and the arms follow it. Toji's cloud clips start at the
   // shoulder. That difference is the whole "she swings it differently" note in
   // the brief and it is legible without being told.
-  idleCloud: idleAt({
-    ...MAKI_STANCE,
-    // staff carried across the body, butt low on the left, head high right
-    UpArmL: [-42, 22, 14], LoArmL: [-86, 34, 0], HandL: [-14, 78, 0],
-    UpArmR: [-34, -14, -16], LoArmR: [-88, -30, 0], HandR: [-16, -80, 0]
-  }, 2.2, 0.014),
+  // THE CLOUD GUARD — both hands on the shaft, carried across the body, butt
+  // low on the left and head high right. This is the pose the whole set opens
+  // and closes on, and it has to be written into every clip rather than left
+  // to `K(t, {})`: an empty key falls back to MAKI_STANCE, which is her
+  // EMPTY-HANDED guard, so every staff attack used to begin and end with her
+  // left hand 16 cm off a weapon she is supposed to be holding with it.
+  idleCloud: idleAt({ ...MAKI_STANCE, ...CLOUD_GUARD }, 2.2, 0.014),
 
   punch1Cloud: {
     dur: 0.30, loop: false, keys: [
-      K(0, {}),
+      K(0, CLOUD_GUARD),
       // the WIND-UP. Toji does not have one of these.
-      K(0.07, { Hips: [0, 40, 0], Spine: [6, -16, 0], Chest: [4, -20, 0], UpArmR: [-40, -24, -22], LoArmR: [-96, -34, 0] }, 'in'),
-      K(0.15, { Hips: [0, 4, 0], Spine: [10, 10, 0], Chest: [8, 16, 0], UpArmL: [-58, 14, 20], LoArmL: [-64, 22, 0], UpArmR: [-72, 10, -14], LoArmR: [-40, 8, 0], HandR: [-10, -50, 0], Hips_pos: [0, -0.070, 0], ThighR: [10, 7, 0] }, 'snap'),
-      K(0.21, { Hips: [0, 6, 0], Spine: [9, 8, 0], UpArmR: [-68, 8, -14], LoArmR: [-44, 6, 0] }, 'hold'),
+      K(0.07, { UpArmL: [-48, -6, 6], LoArmL: [-68, 39, 7], Hips: [0, 40, 0], Spine: [6, -16, 0], Chest: [4, -20, 0], UpArmR: [-40, -24, -22], LoArmR: [-96, -34, 0] }, 'in'),
+      K(0.15, { UpArmL: [-51, -7, -39], LoArmL: [-9, 35, 2], Hips: [0, 4, 0], Spine: [10, 10, 0], Chest: [8, 16, 0], UpArmR: [-72, 10, -14], LoArmR: [-40, 8, 0], HandR: [-10, -50, 0], Hips_pos: [0, -0.070, 0], ThighR: [10, 7, 0] }, 'snap'),
+      K(0.21, { UpArmL: [-52, -12, -21], LoArmL: [-16, 55, 4], Hips: [0, 6, 0], Spine: [9, 8, 0], UpArmR: [-68, 8, -14], LoArmR: [-44, 6, 0] }, 'hold'),
       // ...AND THE RESET TO GUARD. Also not something Toji does.
-      K(0.30, {})
+      K(0.30, CLOUD_GUARD)
     ]
   },
   punch2Cloud: {
     dur: 0.32, loop: false, keys: [
-      K(0, {}),
-      K(0.07, { Hips: [0, 2, 0], Spine: [4, 14, 0], Chest: [3, 18, 0], UpArmL: [-40, 26, 18], LoArmL: [-92, 30, 0] }, 'in'),
-      K(0.16, { Hips: [0, 44, 0], Spine: [11, -18, 0], Chest: [9, -22, 0], UpArmL: [-76, -6, 22], LoArmL: [-36, 6, 0], HandL: [-8, 54, 0], UpArmR: [-48, -20, -20], LoArmR: [-72, -26, 0], Hips_pos: [0, -0.068, 0], ThighL: [-26, -5, 0] }, 'snap'),
-      K(0.22, { Hips: [0, 42, 0], UpArmL: [-72, -4, 22], LoArmL: [-40, 6, 0] }, 'hold'),
-      K(0.32, {})
+      K(0, CLOUD_GUARD),
+      K(0.07, { UpArmL: [-16, 32, -1], LoArmL: [-85, 32, 2], Hips: [0, 2, 0], Spine: [4, 14, 0], Chest: [3, 18, 0], LoArmL: [-92, 30, 0] }, 'in'),
+      K(0.16, { UpArmL: [-74, -9, 9], LoArmL: [-5, 13, 4], Hips: [0, 44, 0], Spine: [11, -18, 0], Chest: [9, -22, 0], HandL: [-8, 54, 0], UpArmR: [-48, -20, -20], LoArmR: [-72, -26, 0], Hips_pos: [0, -0.068, 0], ThighL: [-26, -5, 0] }, 'snap'),
+      K(0.22, { UpArmL: [-5, 27, 3], LoArmL: [-89, 2, -10], Hips: [0, 42, 0], LoArmL: [-40, 6, 0] }, 'hold'),
+      K(0.32, CLOUD_GUARD)
     ]
   },
   punch3Cloud: {
     // THE LAUNCHER — an upward staff sweep from low left to high right,
     // finishing with both hands overhead. The biggest hip rotation in the set.
     dur: 0.44, loop: false, keys: [
-      K(0, {}),
-      K(0.10, { Hips: [0, 46, 0], Spine: [16, -20, 0], Chest: [12, -24, 0], Hips_pos: [0, -0.115, 0], UpArmR: [-14, -28, -18], LoArmR: [-104, -36, 0], ThighR: [24, 7, 0], ShinR: [40, 0, 0] }, 'in'),
-      K(0.21, { Hips: [0, -8, 0], Spine: [-16, 12, 0], Chest: [-14, 18, 0], Neck: [-6, -4, 0], Head: [-10, -8, 0], UpArmL: [-146, 18, 26], LoArmL: [-30, 12, 0], UpArmR: [-158, 6, -20], LoArmR: [-24, 4, 0], HandR: [-6, -44, 0], Hips_pos: [0, -0.010, 0], ThighL: [-16, -5, 0], ThighR: [-6, 7, 0] }, 'snap'),
-      K(0.28, { Hips: [0, -6, 0], Spine: [-14, 10, 0], UpArmL: [-142, 16, 26], UpArmR: [-154, 4, -20] }, 'hold'),
-      K(0.44, {})
+      K(0, CLOUD_GUARD),
+      K(0.10, { UpArmL: [-30, 3, 4], LoArmL: [-78, 36, 5], Hips: [0, 46, 0], Spine: [16, -20, 0], Chest: [12, -24, 0], Hips_pos: [0, -0.115, 0], UpArmR: [-14, -28, -18], LoArmR: [-104, -36, 0], ThighR: [24, 7, 0], ShinR: [40, 0, 0] }, 'in'),
+      K(0.21, { UpArmL: [-120, 5, -43], LoArmL: [-5, 17, 3], Hips: [0, -8, 0], Spine: [-16, 12, 0], Chest: [-14, 18, 0], Neck: [-6, -4, 0], Head: [-10, -8, 0], UpArmR: [-158, 6, -20], LoArmR: [-24, 4, 0], HandR: [-6, -44, 0], Hips_pos: [0, -0.010, 0], ThighL: [-16, -5, 0], ThighR: [-6, 7, 0] }, 'snap'),
+      K(0.28, { UpArmL: [-109, 9, -6], LoArmL: [-93, 31, 1], Hips: [0, -6, 0], Spine: [-14, 10, 0], UpArmR: [-154, 4, -20] }, 'hold'),
+      K(0.44, CLOUD_GUARD)
     ]
   },
   ct1Cloud: {
@@ -255,25 +263,25 @@ export const MAKI_CLIPS = {
     // Toji's Cloud Cyclone is a spin AROUND him, hers is a pair of committed
     // level sweeps she steps into: same weapon, different intent.
     dur: 0.72, loop: false, keys: [
-      K(0, {}),
-      K(0.10, { Hips: [0, 54, 0], Spine: [8, -24, 0], Chest: [6, -30, 0], UpArmR: [-30, -30, -24], LoArmR: [-100, -38, 0], Hips_pos: [0, -0.100, 0] }, 'in'),
-      K(0.24, { Hips: [0, -20, 0], Spine: [10, 26, 0], Chest: [8, 32, 0], UpArmL: [-84, 8, 26], LoArmL: [-30, 14, 0], UpArmR: [-92, 22, -12], LoArmR: [-26, 10, 0], Hips_pos: [0, -0.076, 0], ThighL: [-30, -5, 0], ThighR: [18, 7, 0] }, 'snap'),
+      K(0, CLOUD_GUARD),
+      K(0.10, { UpArmL: [-46, -6, 4], LoArmL: [-68, 39, 7], Hips: [0, 54, 0], Spine: [8, -24, 0], Chest: [6, -30, 0], UpArmR: [-30, -30, -24], LoArmR: [-100, -38, 0], Hips_pos: [0, -0.100, 0] }, 'in'),
+      K(0.24, { UpArmL: [-61, -1, -31], LoArmL: [-6, 19, 3], Hips: [0, -20, 0], Spine: [10, 26, 0], Chest: [8, 32, 0], UpArmR: [-92, 22, -12], LoArmR: [-26, 10, 0], Hips_pos: [0, -0.076, 0], ThighL: [-30, -5, 0], ThighR: [18, 7, 0] }, 'snap'),
       K(0.32, { Hips: [0, -18, 0], Spine: [9, 24, 0] }, 'hold'),
       // the return sweep, the other way
-      K(0.46, { Hips: [0, 50, 0], Spine: [8, -22, 0], Chest: [6, -28, 0], UpArmL: [-88, -18, 24], LoArmL: [-28, 4, 0], UpArmR: [-80, -26, -20], LoArmR: [-34, -12, 0], Hips_pos: [0, -0.076, 0], ThighL: [16, -5, 0], ThighR: [-26, 7, 0] }, 'snap'),
+      K(0.46, { UpArmL: [-88, -23, 5], LoArmL: [-4, 9, 4], Hips: [0, 50, 0], Spine: [8, -22, 0], Chest: [6, -28, 0], UpArmR: [-80, -26, -20], LoArmR: [-34, -12, 0], Hips_pos: [0, -0.076, 0], ThighL: [16, -5, 0], ThighR: [-26, 7, 0] }, 'snap'),
       K(0.54, { Hips: [0, 48, 0] }, 'hold'),
-      K(0.72, {})
+      K(0.72, CLOUD_GUARD)
     ]
   },
   ct2Cloud: {
     // THE OVERHEAD. Up high, then straight down through the target and into
     // the deck. Long recovery, and she comes out of it back on guard.
     dur: 0.80, loop: false, keys: [
-      K(0, {}),
-      K(0.16, { Spine: [-22, -6, 0], Chest: [-18, -8, 0], Neck: [-8, -3, 0], Head: [-12, -8, 0], UpArmL: [-166, 12, 22], LoArmL: [-18, 10, 0], UpArmR: [-172, -8, -18], LoArmR: [-14, -6, 0], Hips_pos: [0, -0.006, 0], ThighL: [-8, -5, 0], ThighR: [6, 7, 0] }, 'in'),
-      K(0.30, { Spine: [34, -6, 0], Chest: [24, -9, 0], Neck: [6, -4, 0], Head: [16, -8, 0], UpArmL: [-52, 16, 16], LoArmL: [-46, 20, 0], UpArmR: [-56, -10, -14], LoArmR: [-42, -16, 0], Hips_pos: [0, -0.150, 0], ThighL: [-40, -5, 0], ShinL: [46, 0, 0], ThighR: [30, 7, 0], ShinR: [50, 0, 0] }, 'snap'),
-      K(0.42, { Spine: [32, -6, 0], Chest: [23, -9, 0], Hips_pos: [0, -0.146, 0], UpArmL: [-50, 16, 16], UpArmR: [-54, -10, -14] }, 'hold'),
-      K(0.80, {})
+      K(0, CLOUD_GUARD),
+      K(0.16, { UpArmL: [-161, 12, 11], LoArmL: [-4, 13, 2], Spine: [-22, -6, 0], Chest: [-18, -8, 0], Neck: [-8, -3, 0], Head: [-12, -8, 0], UpArmR: [-172, -8, -18], LoArmR: [-14, -6, 0], Hips_pos: [0, -0.006, 0], ThighL: [-8, -5, 0], ThighR: [6, 7, 0] }, 'in'),
+      K(0.30, { UpArmL: [-68, 5, 11], LoArmL: [-8, 29, 2], Spine: [34, -6, 0], Chest: [24, -9, 0], Neck: [6, -4, 0], Head: [16, -8, 0], UpArmR: [-56, -10, -14], LoArmR: [-42, -16, 0], Hips_pos: [0, -0.150, 0], ThighL: [-40, -5, 0], ShinL: [46, 0, 0], ThighR: [30, 7, 0], ShinR: [50, 0, 0] }, 'snap'),
+      K(0.42, { UpArmL: [-42, 11, 5], LoArmL: [-83, 34, 4], Spine: [32, -6, 0], Chest: [23, -9, 0], Hips_pos: [0, -0.146, 0], UpArmR: [-54, -10, -14] }, 'hold'),
+      K(0.80, CLOUD_GUARD)
     ]
   },
 

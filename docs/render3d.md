@@ -94,7 +94,7 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 
 ## What ships today
 
-Five models are committed and mapped, all of them the same shape of export —
+Seven models are committed and mapped, all of them the same shape of export —
 a Rigify `DEF-` rig, 33 bones, 19 of them canonical:
 
 | Character | File | Rest pose | Triangles | Entry |
@@ -104,6 +104,8 @@ a Rigify `DEF-` rig, 33 bones, 19 of them canonical:
 | Jogo | `jogo.glb` | T-pose | 120k | `weights` bleed |
 | Mahito | `mahito.glb` | as authored | 300k | `weights` bleed |
 | Naoya | `naoya.glb` | as authored | 120k | `weights` bleed |
+| Maki | `maki.glb` | A-pose | 120k | `weights` bleed |
+| Megumi | `megumi.glb` | A-pose | 120k | `weights` bleed |
 
 None of them needed a `pose` calibration, a `boneMap` override or a pivot
 fix: bind alignment absorbs the rest-pose difference (that is what it is for,
@@ -138,6 +140,17 @@ well, because it re-parents onto the drive rig every time a clip changes
 hands.
 
 This is why Jogo needs no `scale` trim to make his plume meet his head.
+
+One trap worth naming, because it cost a weapon: position and rotation can be
+transformed in place on each adoption, since `attachProp` rewrites both from
+the attachment every time — and the fighter calls it EVERY FRAME for anything
+whose slot depends on state (Maki's weapon toggle, Toji's arsenal, Nobara's
+hammer, Miwa's saya). It does not touch scale. Dividing the *current* scale by
+the wrapper's factor therefore compounded once per frame: the weapon shrank by
+~1.7x per frame and was gone inside a second. The adoption now remembers each
+node's own scale and assigns rather than divides. It went unnoticed because
+the benches attach a prop once, and at match camera distance a weapon
+vanishing looks like a character who never drew one.
 
 ## Two-handed weapons (`grips`)
 
@@ -221,18 +234,35 @@ the body can never be sheathed, swapped, dropped or shared. Where a model
 really does have its weapon modelled in, `keepProps: false` is the answer
 instead — that is how Nobara ships.
 
-### Nobody two-hands anything yet
+### The first one: Maki's Playful Cloud
 
-Worth knowing before authoring the first grip: **no character on the roster
-holds a weapon with two hands.** Every clip set is one-handed. The nearest
-any off hand comes to its own weapon is Nobara at 27 cm, and Maki — the
-obvious candidate, a polearm fighter — poses her left hand 69–79 cm from the
-staff in every clip, which is 16 cm beyond that arm's full reach.
+Maki carries the staff two-handed, and the grip above is what holds an
+imported body's off hand on the shaft. Getting there needed the attachment
+first, which is the general lesson: **a grip point does not create a
+two-handed carry, it only keeps one honest.**
 
-So a two-handed carry is not a grip point away. It needs an attachment slot
-that puts the weapon where both hands can be on it, and a stance that agrees
-with it. The machinery above is what makes that authorable; it is not a
-substitute for authoring it.
+Her `*Cloud` clip set was already authored for a two-handed staff — idleCloud
+says so, both arms are driven, and her hands sit 0.75–0.96 m apart through
+every clip in the set. But the weapon was hanging off one hand, so her left
+hand was reaching for something 0.62–0.92 m away from it. The animation and
+the attachment disagreed, and the animation was right. Three things closed it:
+
+- a `twoHand` attachment solved from the settled idleCloud pose — the staff
+  aimed from her left hand to her right, butt 0.12 m beyond the left;
+- the staff lengthened **for her** from 0.24·H to 0.32·H (1.25 m to 1.67 m).
+  Her grip needs 1.14 m before the weapon even spans both hands, and a real
+  three-section staff is about six feet anyway. Toji keeps 0.24 — the length
+  is a parameter now, and his one-handed hang is what it was tuned for;
+- every Cloud clip re-based on the two-handed guard. `K(t, {})` falls through
+  to `MAKI_STANCE`, which is her EMPTY-HANDED guard, so every staff attack
+  used to begin and end with her left hand 16 cm off the weapon.
+
+The mid-swing keys were then re-solved with the same two-bone IK that runs at
+runtime, used as an authoring tool: her left hand was put back on the shaft at
+each key and the arm angles read out. Worst-case divergence across the set
+fell from 0.72 m to 0.20 m, and what is left is the genuinely one-handed
+extreme of each swing — in character for a three-section staff, whose whole
+point is that it can be flung from one hand.
 
 ## Skin repairs (`weights`)
 
