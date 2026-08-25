@@ -412,6 +412,10 @@ export function mountRigBench(root) {
   // ---- 5 · LIGHTING -------------------------------------------------------
   const sLook = sec(panel, '6 · LIGHTING — a small lift, not a restyle');
   sLook.append(el('div', 'mb-hint',
+    '<b>Volume-preserving skinning</b> blends the bones\u2019 rotations rather than ' +
+    'their matrices, so a bent elbow keeps its cross-section instead of pinching ' +
+    'to a straw. Turn it off on the <i>elbows</i> stress pose to see what it is doing.'));
+  sLook.append(el('div', 'mb-hint',
     'The model keeps its own materials. <b>Ambient</b> adds back a fraction of ' +
     'its own texture as light, which lifts the shadows and makes the blue read ' +
     'as blue rather than black — an ambient <i>light</i> would only add grey. ' +
@@ -423,7 +427,10 @@ export function mountRigBench(root) {
   wireChk.querySelector('input').onchange = e => session.setWireframe(e.target.checked);
   const weightChk = el('label', 'mb-check', '<input type="checkbox"><span>Weights</span>');
   weightChk.querySelector('input').onchange = e => session.showWeights(e.target.checked);
-  lookRow.append(liftChk, wireChk, weightChk);
+  // the one toggle worth flipping back and forth on a bent elbow
+  const dqsChk = el('label', 'mb-check', '<input type="checkbox" checked><span>Volume-preserving skinning</span>');
+  dqsChk.querySelector('input').onchange = e => session.setDqs(e.target.checked);
+  lookRow.append(liftChk, dqsChk, wireChk, weightChk);
   sLook.append(lookRow);
   for (const [label, k, min, max, step] of [
     ['ambient', 'ambient', 0, 0.6, 0.01],

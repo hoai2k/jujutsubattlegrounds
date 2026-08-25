@@ -84,6 +84,7 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `weights` | `[]` | skin repairs (see below) — `{bleed: […]}` as a rule, or `{at, rigid}` / `{at, drop}` per mesh island |
 | `keepProps` | `true` | procedural weapons stay visible. Set `false` when the model already has them modelled in — Nobara's hammer is in her mesh, so the procedural one would be a second hammer |
 | `hideSprings` | `true` | procedural hair/coat spring meshes hidden |
+| `skinning` | `"dual"` | `"dual"` blends the bones' rotations (see below), `"linear"` falls back to three.js' stock matrix blend |
 
 `boneMap`/`rotOffset` canonical names are the shared skeleton's:
 `Hips Spine Chest Neck Head ClavL UpArmL LoArmL HandL … ThighR ShinR FootR`.
@@ -247,6 +248,28 @@ So imported models keep their own PBR materials and get two small dials
 Deliberately not a style pass. An earlier version re-shaded imports through
 the game's cel material with an ink outline, and it was far too much — a
 model should look like itself, only lit.
+
+### Skinning: why bent arms used to go thin
+
+three.js skins with **linear blend skinning**: a vertex near the elbow is
+transformed by the weighted average of the upper-arm and forearm *matrices*.
+The average of two rotation matrices is not a rotation — it is a shrunk one —
+so the harder a joint bends the more cross-section it loses. Bend an elbow to
+a right angle and the sleeve pinches to a waist; the classic "candy wrapper".
+
+`src/art/rig3d/dqs.js` patches the two skinning chunks to blend **dual
+quaternions** instead, which interpolate the rotation rather than the matrix,
+so the joint sweeps its arc and keeps its thickness. It is on for every
+imported model, and the rig bench has a *Volume-preserving skinning* toggle to
+see the difference (try it on the `elbows` stress pose).
+
+It is valid because these skin matrices are rigid up to one uniform factor.
+`bone.matrixWorld · boneInverse` cancels the model's own scale, the animation
+only ever writes rotations and the hips' position — and the height-fit factor,
+which is captured after bind and so does *not* cancel, is the same number on
+every bone, blended linearly alongside the rotation and applied to the point.
+Non-uniform or animated scale is the one thing a dual quaternion cannot carry;
+a model that needs it sets `"skinning": "linear"`.
 
 ### Landmarks: pointing at the joints
 
