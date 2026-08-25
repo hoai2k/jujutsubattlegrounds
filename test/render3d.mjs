@@ -25,6 +25,7 @@ import { Retargeter, captureSourceRest } from '../src/art/rig3d/retarget.js';
 import { applyRestPose } from '../src/art/rig3d/render3d.js';
 import { rerigHierarchy } from '../src/art/rig3d/retarget.js';
 import { applyJointEdits, modelBindHeight } from '../src/art/rig3d/joints.js';
+import { setDualQuaternionSkinning } from '../src/art/rig3d/dqs.js';
 
 let failures = 0;
 const check = (label, ok, detail = '') => {
@@ -326,6 +327,82 @@ check('knockdown drops the imported hips to the floor',
   check('the same fix survives a re-export at a different scale',
     Math.abs(moved2.y / 100 - 0.03 * H) < 1e-4,
     `${(moved2.y / 100).toFixed(4)} vs ${(0.03 * H).toFixed(4)}`);
+}
+
+// ---- 4f: dual-quaternion skinning ------------------------------------------
+// DQS blends the bones' ROTATIONS instead of their matrices, which is what
+// stops a bent elbow pinching. The GLSL itself can only run on a GPU, so what
+// is checked here is the two things that can go wrong off it: the PREMISE
+// (blending rotations is only valid if every skin matrix is rigid up to a
+// uniform scale — a shear or a squash would be silently discarded), and the
+// PLUMBING (the patch reaches the material, chains whatever was already there,
+// injects all three chunks, and comes back off cleanly).
+{
+  const bones = Object.values(map);
+  const skel = new THREE.Skeleton(bones);
+  let worstOrtho = 0, worstScale = 0;
+  for (const clip of ['idle', 'punch1', 'launched']) {
+    if (!player.clips.has(clip)) continue;
+    player.play(clip, { fade: 0, restart: true });
+    for (let i = 0; i < 40; i++) {
+      player.update(1 / 60);
+      rt.apply();
+      for (let b = 0; b < bones.length; b++) {
+        const m = new THREE.Matrix4().multiplyMatrices(bones[b].matrixWorld, skel.boneInverses[b]);
+        const e = m.elements;
+        const col = k => new THREE.Vector3(e[k * 4], e[k * 4 + 1], e[k * 4 + 2]);
+        const [x, y, z] = [col(0), col(1), col(2)];
+        const len = [x.length(), y.length(), z.length()];
+        worstOrtho = Math.max(worstOrtho,
+          Math.abs(x.dot(y)) / (len[0] * len[1]),
+          Math.abs(x.dot(z)) / (len[0] * len[2]),
+          Math.abs(y.dot(z)) / (len[1] * len[2]));
+        worstScale = Math.max(worstScale,
+          Math.abs(len[0] - len[1]), Math.abs(len[0] - len[2]));
+      }
+    }
+  }
+  check('skin matrices stay rigid, so rotation blending is lossless',
+    worstOrtho < 1e-5 && worstScale < 1e-5,
+    `shear ${worstOrtho.toExponential(1)}, scale spread ${worstScale.toExponential(1)}`);
+
+  // plumbing, on a stand-in skinned mesh
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+  const mat = new THREE.MeshStandardMaterial();
+  let baseRan = 0;
+  mat.onBeforeCompile = () => { baseRan++; };
+  const mesh = new THREE.SkinnedMesh(geom, mat);
+  mesh.bind(skel);
+  const holder = new THREE.Group(); holder.add(mesh);
+
+  const compile = () => {
+    const shader = {
+      vertexShader: '#include <common>\n#include <skinnormal_vertex>\n#include <skinning_vertex>\n',
+    };
+    mat.onBeforeCompile(shader, null);
+    return shader.vertexShader;
+  };
+  const keyBefore = mat.customProgramCacheKey?.();
+
+  const n = setDualQuaternionSkinning(holder, true);
+  const patched = compile();
+  check('the patch reaches every skinned material', n === 1);
+  check('all three shader chunks are replaced',
+    patched.includes('dqsQuat') && patched.includes('dqsBR') && patched.includes('dqsPoint')
+    && !patched.includes('#include <skinning_vertex>')
+    && !patched.includes('#include <skinnormal_vertex>'));
+  check('an existing onBeforeCompile still runs', baseRan === 1);
+  check('re-applying is a no-op, not a double patch',
+    setDualQuaternionSkinning(holder, true) === 1
+    && (compile().match(/vec4 dqsQuat\(/g) || []).length === 1);
+  check('patched and unpatched need different program cache keys',
+    mat.customProgramCacheKey() !== keyBefore);
+
+  setDualQuaternionSkinning(holder, false);
+  const reverted = compile();
+  check('turning it off restores the stock chunks',
+    reverted.includes('#include <skinning_vertex>') && !reverted.includes('dqsQuat'));
 }
 
 // ---- 5: numerical health across the whole base clip set --------------------

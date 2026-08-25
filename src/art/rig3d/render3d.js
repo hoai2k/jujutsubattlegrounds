@@ -49,6 +49,10 @@
 //                              // piece of clothing. `at` is a point in the
 //                              // model's own axes as a fraction of height.
 //                              // Authored by clicking on /workbench/?edit=rig.
+//       "skinning": "dual",    // "dual" (default) blends bone ROTATIONS, so a
+//                              // bent elbow keeps its thickness; "linear" is
+//                              // three.js's matrix averaging, which pinches
+//                              // every joint. See dqs.js.
 //       "rotOffset": {"UpArmL": [0, 0, -8]},              // degrees, world
 //       "keepProps": true,     // procedural weapons stay in hand (default)
 //       "hideSprings": true    // procedural hair/coat physics hidden (default)
@@ -74,6 +78,7 @@ import { Retargeter, captureSourceRest, rerigHierarchy } from './retarget.js';
 import { applyJointEdits, collectSkeletons, modelBindHeight } from './joints.js';
 import { liftMaterials } from './lift.js';
 import { applyWeightOps } from './weights.js';
+import { setDualQuaternionSkinning } from './dqs.js';
 import { DEG } from '../../core/mathutil.js';
 
 // public/models/ resolved from ANY page — the game at the site root and the
@@ -258,6 +263,9 @@ function attach(model, srcRest, scene, src, pick) {
   if (src.lift !== false) {
     liftMaterials(scene, typeof src.lift === 'object' ? src.lift : {});
   }
+  // ...and dual-quaternion skinning on top, AFTER the lift: it rides on the
+  // material, and the lift swaps materials out from under it
+  if (src.skinning !== 'linear') setDualQuaternionSkinning(scene, true);
   model.group.add(wrapper);
   const retargeter = new Retargeter(model, srcRest, wrapper, map, {
     rotOffset: src.rotOffset

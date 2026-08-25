@@ -20,6 +20,7 @@ import {
   mirrorPairs, modelBindHeight
 } from '../art/rig3d/joints.js';
 import { liftMaterials, LIFT_DEFAULTS } from '../art/rig3d/lift.js';
+import { setDualQuaternionSkinning } from '../art/rig3d/dqs.js';
 import {
   applyWeightOps, meshIslands, restPositions, islandBones, anchorFrame
 } from '../art/rig3d/weights.js';
@@ -258,6 +259,7 @@ export class RigSession {
     this.preview = false;
     this.stress = null;
 
+    this.dqs = true;           // dual-quaternion skinning (see dqs.js)
     this.lift = null;          // ambient-lift handle
     this.liftOpts = { ...LIFT_DEFAULTS };
     this.liftOn = true;
@@ -337,7 +339,7 @@ export class RigSession {
     this.baseModelPos = new Map(this.nodes.map(n =>
       [n, new THREE.Vector3().setFromMatrixPosition(n.matrixWorld).applyMatrix4(toModel)]));
     this.stats = meshStats(scene);
-    this.setLift(this.liftOn);
+    this.setLift(this.liftOn);          // applies setDqs as its last step
     this.setSkeleton(true);
     return this.mapReport;
   }
@@ -362,6 +364,7 @@ export class RigSession {
     this.fit = {
       scale: entry.scale ?? 1, yOffset: entry.yOffset ?? 0, faceYaw: entry.faceYaw ?? 0
     };
+    this.dqs = entry.skinning !== 'linear';
     this.liftOn = entry.lift !== false;
     this.liftOpts = { ...LIFT_DEFAULTS, ...(typeof entry.lift === 'object' ? entry.lift : {}) };
     this.setLift(this.liftOn, this.liftOpts);
@@ -669,7 +672,13 @@ export class RigSession {
     this.lift?.restore();
     this.lift = null;
     if (on) this.lift = liftMaterials(this.model3d, this.liftOpts);
+    this.setDqs(this.dqs);      // the lift swapped the materials the patch was on
     if (this.weightsOn) this.showWeights(true);
+  }
+
+  setDqs(on) {
+    this.dqs = on;
+    if (this.model3d) setDualQuaternionSkinning(this.model3d, on);
   }
 
   setSkeleton(on) {
@@ -772,6 +781,7 @@ export class RigSession {
       colors.needsUpdate = true;
       o.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
     });
+    if (on) setDualQuaternionSkinning(this.model3d, this.dqs);
   }
 
   // ---- landmarks ----------------------------------------------------------
@@ -1013,6 +1023,7 @@ export class RigSession {
       entry.rotOffset = Object.fromEntries(
         Object.entries(this.rotOffset).map(([k, v]) => [k, v.map(x => Math.round(x * 100) / 100)]));
     }
+    if (!this.dqs) entry.skinning = 'linear';
     if (!this.liftOn) entry.lift = false;
     else {
       const diff = {};
