@@ -54,6 +54,10 @@
 //                              // three.js's matrix averaging, which pinches
 //                              // every joint. See dqs.js.
 //       "rotOffset": {"UpArmL": [0, 0, -8]},              // degrees, world
+//       "outline": true,       // the ink outline every procedural body has.
+//                              // false drops it; {color, thickness} tunes it.
+//                              // Without one an imported body dissolves into
+//                              // its own silhouette at fighting distance.
 //       "keepProps": true,     // procedural weapons stay in hand (default)
 //       "hideSprings": true,   // procedural hair/coat physics hidden (default)
 //       "propSlot": {"playful_cloud": "twoHand"},
@@ -100,6 +104,7 @@ import { guessBoneMap } from './bonemap.js';
 import { Retargeter, captureSourceRest, rerigHierarchy } from './retarget.js';
 import { applyJointEdits, collectSkeletons, modelBindHeight } from './joints.js';
 import { liftMaterials } from './lift.js';
+import { makeOutline } from '../shaders/outline.js';
 import { GripSolver } from './grip.js';
 import { applyWeightOps } from './weights.js';
 import { setDualQuaternionSkinning } from './dqs.js';
@@ -290,6 +295,18 @@ function attach(model, srcRest, scene, src, pick) {
   // ...and dual-quaternion skinning on top, AFTER the lift: it rides on the
   // material, and the lift swaps materials out from under it
   if (src.skinning !== 'linear') setDualQuaternionSkinning(scene, true);
+  // ...and the INK OUTLINE, which is not a stylistic flourish here — it is how
+  // this game draws a silhouette. Every procedural body carries an
+  // inverted-hull outline, the arena is lit low and the roster's colours are
+  // dark, and a body without one dissolves: at gameplay camera distance an
+  // imported Yuji read as a single navy mass with no boundary between arm and
+  // torso, which is what "stretched and bendy" turned out to mean. Megumi did
+  // exactly the same, so it was never about one model's weights.
+  //
+  // This is NOT the cel re-shade that was tried and reverted (see the lighting
+  // note in docs/render3d.md). The model keeps its own PBR materials and its
+  // own texture; it gains an edge, and nothing else.
+  if (src.outline !== false) outlineImported(scene, wrapper, src.outline);
   model.group.add(wrapper);
   const retargeter = new Retargeter(model, srcRest, wrapper, map, {
     rotOffset: src.rotOffset
@@ -342,6 +359,32 @@ function attach(model, srcRest, scene, src, pick) {
   // an imported weapon, if the entry names one, replacing the procedural
   // shape inside the node that already carries the attachment
   if (src.props) swapPropModels(model, src, pick);
+}
+
+// Give an imported body the same silhouette the procedural roster has.
+//
+// makeOutline already clones a SkinnedMesh as an inverted hull sharing the
+// geometry and the skeleton, so the hull deforms with the body for free. The
+// one thing that does not carry over is THICKNESS: the outline's growth is in
+// object space, and an imported model lives inside a wrapper scaled to the
+// character's height, so a thickness that reads correctly on a procedural body
+// would come out `s` times too heavy here. Dividing by the fit factor puts the
+// line back in metres.
+function outlineImported(scene, wrapper, opts) {
+  const s = wrapper.scale.x || 1;
+  const o = typeof opts === 'object' && opts ? opts : {};
+  const thickness = (o.thickness ?? 0.0125) / s;
+  const color = o.color ?? 0x06070c;
+  let n = 0;
+  // collect first: adding hulls while traversing would visit them in turn
+  const meshes = [];
+  scene.traverse(m => { if (m.isSkinnedMesh && m.visible) meshes.push(m); });
+  for (const m of meshes) {
+    const hull = makeOutline(m, { color, thickness });
+    m.parent.add(hull);
+    n++;
+  }
+  return n;
 }
 
 // ---- IMPORTED WEAPONS -----------------------------------------------------
