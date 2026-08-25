@@ -97,6 +97,7 @@ const _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3();
 const _target = new THREE.Vector3(), _wrist = new THREE.Vector3();
 const _seg = new THREE.Vector3(), _q = new THREE.Quaternion();
 const _shoulder = new THREE.Vector3(), _slide = new THREE.Vector3();
+const _p2 = new THREE.Vector3();
 
 export class GripSolver {
   /**
@@ -162,16 +163,41 @@ export class GripSolver {
       const upper = this.map[upperN], lower = this.map[lowerN], end = this.map[endN];
       if (!upper || !lower || !end) continue;
 
+      // The arm that has to do the reaching, measured before anything is
+      // chosen — the slide below needs to know what it can actually get to.
+      _p1.setFromMatrixPosition(upper.matrixWorld);
+      _shoulder.setFromMatrixPosition(lower.matrixWorld);
+      _wrist.setFromMatrixPosition(end.matrixWorld);
+      const reach = (_p1.distanceTo(_shoulder) + _shoulder.distanceTo(_wrist)) * 0.99;
+
       // where on the weapon the hand belongs, in world space
       _p0.copy(g.at).applyMatrix4(node.matrixWorld);
       if (g.to) {
-        // slide along the haft to the point nearest where the arm already is
-        _p1.copy(g.to).applyMatrix4(node.matrixWorld);
-        _slide.setFromMatrixPosition(end.matrixWorld).sub(_p0);
-        _seg.copy(_p1).sub(_p0);
+        // SLIDE ALONG THE HAFT — to the spot nearest where the arm already
+        // is, but only as far as the arm can actually get. Choosing purely by
+        // proximity picks the butt end on a long weapon, and on a naginata
+        // that is past the rear shoulder's reach: the grip released and the
+        // hand hung off a shaft it could have held 20 cm further up. So the
+        // reachable stretch is solved for first — the segment's intersection
+        // with the arm's reach sphere, a quadratic in t — and the proximity
+        // choice is clamped into it.
+        _p2.copy(g.to).applyMatrix4(node.matrixWorld);
+        _seg.copy(_p2).sub(_p0);
         const len2 = _seg.lengthSq();
-        const t = len2 > 1e-9
-          ? Math.max(0, Math.min(1, _slide.dot(_seg) / len2)) : 0;
+        let t = 0;
+        if (len2 > 1e-9) {
+          _slide.copy(_wrist).sub(_p0);
+          t = Math.max(0, Math.min(1, _slide.dot(_seg) / len2));
+          _slide.copy(_p0).sub(_p1);
+          const a2 = len2, b2 = 2 * _slide.dot(_seg), c2 = _slide.lengthSq() - reach * reach;
+          const disc = b2 * b2 - 4 * a2 * c2;
+          if (disc > 0) {
+            const r = Math.sqrt(disc);
+            const lo = Math.max(0, (-b2 - r) / (2 * a2));
+            const hi = Math.min(1, (-b2 + r) / (2 * a2));
+            if (lo <= hi) t = Math.max(lo, Math.min(hi, t));
+          }
+        }
         _target.copy(_p0).addScaledVector(_seg, t);
       } else {
         _target.copy(_p0);
@@ -182,10 +208,7 @@ export class GripSolver {
       // haft, so how far the target sits past the arm's reach is measured
       // first and the correction is faded accordingly — one solve, at the
       // weight it deserves, rather than a solve and an undo.
-      _p1.setFromMatrixPosition(upper.matrixWorld);
-      const reach = _p1.distanceTo(_shoulder.setFromMatrixPosition(lower.matrixWorld))
-        + _shoulder.distanceTo(_wrist.setFromMatrixPosition(end.matrixWorld));
-      const over = _p1.distanceTo(_target) - reach * 0.995;
+      const over = _p1.distanceTo(_target) - reach;
       if (over > 0) {
         w *= Math.max(0, 1 - over / RELEASE);
         // a correction this weak is not a grip, it is a twitch — and counting

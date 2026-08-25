@@ -7,6 +7,7 @@ import { latheY, tubeBetween, roundBox, animeHead, almondEye, tGeo, mergeGeos } 
 import { MAT } from '../shaders/toon.js';
 import { makeOutline } from '../shaders/outline.js';
 import { SpringChain } from '../rig/springs.js';
+import { GripSolver } from '../rig3d/grip.js';
 import { v3, DEG } from '../../core/mathutil.js';
 
 export function buildHumanoid(spec) {
@@ -391,6 +392,36 @@ export function finalizeModel(ctx, opts = {}) {
   for (const [name, p] of props) {
     const defKey = (opts.props[name].default) || Object.keys(p.attachments)[0];
     model.attachProp(name, defKey);
+  }
+
+  // ---- TWO-HANDED WEAPONS, ON THIS BODY TOO -------------------------------
+  // A `grip` on an attachment says where the OFF hand belongs on the weapon.
+  // rig3d/grip.js was written to hold an IMPORTED body's hand there, on the
+  // argument that the procedural body needs no help — its clips were authored
+  // against its own proportions.
+  //
+  // That argument does not survive a weapon whose attachment is SOLVED rather
+  // than drawn. Maki's staff and naginata are laid through her hands by a
+  // transform computed from one settled pose; every other frame — the idle's
+  // own breathing bob included — moves the leading hand and swings the far
+  // end, and the rear hand is then as approximate here as it is on an import.
+  // So the same solver runs on the drive rig, over the drive rig's own bones,
+  // and the authored angles become the pose it starts from rather than the
+  // only thing holding the hand on.
+  //
+  // Costs nothing for the characters that declare no grip: the solver reports
+  // itself inactive and the update hook is never installed.
+  const grips = new GripSolver(model, Object.fromEntries(model.bones));
+  if (grips.active) {
+    model.grips = grips;
+    const baseUpdate = model.update.bind(model);
+    model.update = dt => {
+      baseUpdate(dt);
+      model.group.updateMatrixWorld(true);
+      grips.apply();
+    };
+    const baseAttach = model.attachProp.bind(model);
+    model.attachProp = (name, slot) => { baseAttach(name, slot); grips.refresh(); };
   }
   return model;
 }

@@ -211,7 +211,11 @@ export function bleedOff(mesh, boneIndex, graph) {
     held.push(i);
     if (w > most) { most = w; anchor = i; }
   }
-  if (anchor < 0) return { changed: 0, blobs: 0 };
+  // FIELD NAME. This early-out returned `blobs`, which nothing reads, so the
+  // caller's `orphans` came back undefined and poisoned the sum to NaN — and
+  // a bone with no weight at all is the ordinary case (Yuji's hands), so the
+  // report read "NaNv left to their own bone" on nearly every load.
+  if (anchor < 0) return { changed: 0, orphans: 0 };
 
   // flood the bone's own patch, walking only through vertices it influences
   const mine = new Uint8Array(n);          // 1 = influenced, 2 = reached

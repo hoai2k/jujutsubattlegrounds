@@ -211,6 +211,25 @@ character's props on the imported body during preview, and arming a prop then
 clicking the haft stores that point in the weapon's own space. It exports
 with the rest of the entry.
 
+### Grips run on the procedural body too
+
+The original rule was that grip.js only ever touched an IMPORTED body, on the
+argument that the procedural one needs no help: its clips were authored
+against its own proportions.
+
+That argument does not survive a weapon whose attachment is **solved** rather
+than drawn. Maki's staff and naginata are laid through her hands by a
+transform computed from one settled pose; every other frame moves the leading
+hand and swings the far end, and her rear hand is then as approximate on the
+drive rig as it is on an import. So `finalizeModel` wires the same solver over
+the character's own bones whenever any attachment declares a grip. It costs
+nothing for the characters that declare none — the solver reports itself
+inactive and the update hook is never installed.
+
+The authored angles become the pose the solve starts from rather than the only
+thing holding the hand on, which is why the clip files still read as poses
+rather than as a table of solved numbers.
+
 ### Imported weapons (`props`)
 
 A weapon can come from a file too:

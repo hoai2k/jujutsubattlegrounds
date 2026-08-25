@@ -199,6 +199,8 @@ import { latheY, tGeo, roundBox, sphereShell, ribbonShell, mergeGeos, tubeBetwee
 import { MAT } from '../shaders/toon.js';
 import { v3 } from '../../core/mathutil.js';
 import { buildPlayfulCloud, buildSplitSoulKatana } from './toji_weapons.js';
+import { SpringChain } from '../rig/springs.js';
+import { buildNaginata } from './maki_weapons.js';
 
 const SKIN = 0xe8c6a6;
 const HAIR = 0x1f2a24;
@@ -636,7 +638,7 @@ export function buildMaki() {
       // carries BOTH tools at once. Two weapons on the body at all times is
       // the read that separates her from his four-weapon wheel at a glance.
       playful_cloud: {
-        node: buildPlayfulCloud(spec.H, { section: 0.32 }), default: 'twoHand',
+        node: buildPlayfulCloud(spec.H, { section: 0.32, fold: true }), default: 'twoHand',
         attachments: {
           // SOLVED, not guessed. The rotation is derived by taking the bone's
           // world quaternion under HER OWN stance, inverting it, and asking for
@@ -673,9 +675,9 @@ export function buildMaki() {
           // shaft as her hands open and close through the set.
           twoHand: {
             bone: 'HandR',
-            pos: [0.0231 * spec.H, 0.192 * spec.H, -0.5443 * spec.H],
+            pos: [0.0142 * spec.H, 0.1186 * spec.H, -0.3357 * spec.H],
             rot: [111.7, -44.5, 3.2],
-            grip: { bone: 'HandL', at: [0, 0.05, 0], to: [0, 0.26, 0] }
+            grip: { bone: 'HandL', at: [0, 0.02, 0], to: [0, 0.30, 0] }
           },
           // the one-handed hang, kept: it is the carry for anything that is
           // not the Cloud set, and it is what `back` swaps against
@@ -686,6 +688,29 @@ export function buildMaki() {
           // two vertical bars beside her head (pass 1) or a bar across her
           // hips (pass 2).
           back: { bone: 'Chest', pos: [-0.026 * spec.H, 0.030 * spec.H, -0.070 * spec.H], rot: [-156, -12, 8] }
+        }
+      },
+      // ---- THE NAGINATA -------------------------------------------------
+      // Hers, not his — see art/models/maki_weapons.js. The RANGE pick of the
+      // three: 2.0 m of weapon against the staff's 1.67 and the katana's 1.2,
+      // and everything it throws is a circle rather than a line.
+      //
+      // The attachment is solved exactly as the staff's is, and for the same
+      // reason: it is a two-handed weapon, so the pose has to put it where
+      // both hands are rather than hang it off one. The grip band sits over
+      // the cord-wrapped section of the shaft, which is the part of the model
+      // that says "the hands go here" before anyone has seen it held.
+      naginata: {
+        node: buildNaginata(spec.H), default: 'back',
+        attachments: {
+          twoHand: {
+            bone: 'HandR',
+            pos: [0.0191 * spec.H, 0.3421 * spec.H, -0.0121 * spec.H],
+            rot: [-5.5, -47.4, 175.3],
+            grip: { bone: 'HandL', at: [0, 0.02, 0], to: [0, 0.50, 0] }
+          },
+          // slung down the spine when it is not the one in her hands
+          back: { bone: 'Chest', pos: [0, 0.030 * spec.H, -0.082 * spec.H], rot: [-168, 0, 14] }
         }
       },
       split_soul: {
@@ -746,13 +771,45 @@ export function buildMaki() {
 
   // WHICH WEAPON IS IN HAND. Two-way, not a wheel: whichever one is not held
   // goes to the BACK, never to the under-world stow slot.
+  // ---- THE FOLD ----------------------------------------------------------
+  // The outer two sections of the staff ride a spring chain, so they TRAIL the
+  // swing and then snap — which is the whole difference between a
+  // three-section staff and a pole, and the reason the weapon can come round
+  // the side of a guard. Stiff and near-weightless: a slow guard produces no
+  // lag and reads as a straight staff; only speed bends it.
+  //
+  // NOT pushed into `model.springs`. That list is hair and coat tails, and
+  // render3d hides all of it by default (`hideSprings`) and skips it during
+  // attachment adoption — both correct for cloth and both wrong for a weapon.
+  // It gets its own tick instead.
+  {
+    const fold = model.props.get('playful_cloud').node.userData.fold;
+    if (fold) {
+      model.cloudFold = new SpringChain(fold.anchor, {
+        restDir: new THREE.Vector3(0, 1, 0),
+        segments: fold.segments,
+        stiffness: 320,      // it is a steel staff, not a plait of hair
+        damping: 0.55,       // and it settles rather than wobbling
+        gravity: 0.8
+      });
+      const baseUpdate = model.update.bind(model);
+      model.update = dt => { baseUpdate(dt); model.cloudFold.update(dt); };
+      const baseReset = model.resetSprings.bind(model);
+      model.resetSprings = () => { baseReset(); model.cloudFold.reset(); };
+    }
+  }
+
+  // WHICH SLOT EACH WEAPON WANTS WHEN IT IS THE ONE IN HER HANDS. The staff
+  // and the naginata are two-handed and are posed for it; the katana is a
+  // one-handed weapon and keeps `hand`. Everything else she is carrying goes
+  // to her back — she wears all of it, all the time, which is the read that
+  // separates her from Toji's inventory curse.
+  const HELD_SLOT = { playful_cloud: 'twoHand', naginata: 'twoHand', split_soul: 'hand' };
   model.setWeapon = key => {
-    const held = key === 'split_soul' ? 'split_soul' : 'playful_cloud';
-    const other = held === 'split_soul' ? 'playful_cloud' : 'split_soul';
-    // the staff goes in BOTH hands — that is the carry its clip set is drawn
-    // for. The katana is a one-handed weapon and keeps `hand`.
-    model.attachProp(held, held === 'playful_cloud' ? 'twoHand' : 'hand');
-    model.attachProp(other, 'back');
+    const held = HELD_SLOT[key] ? key : 'playful_cloud';
+    for (const name of Object.keys(HELD_SLOT)) {
+      model.attachProp(name, name === held ? HELD_SLOT[name] : 'back');
+    }
   };
   model.setWeapon('playful_cloud');
 
