@@ -166,35 +166,40 @@ export function rigidify(mesh, verts, boneIndex) {
 
 // Remove the named bones' influence and renormalize.
 //
-// A vertex that would be left with (almost) nothing is SKIPPED rather than
-// repaired: it was genuinely driven by the bone being taken away, so
-// renormalizing a sliver or snapping it to a fallback bone tears it off the
-// surface it belongs to. Leaving one stray vertex slightly wrong is always
-// better than opening a hole, and `fallback` remains only for the pathological
-// case where nothing at all is left to keep.
-export function dropInfluence(mesh, verts, boneIndices, fallback, minKeep = 0.05) {
+// BLEED IS A MINORITY, BY DEFINITION — and that has to be judged per VERTEX,
+// not per island. A jacket is often one island covering the torso AND the
+// sleeves: it is dominated by the spine, so it is fair game for the rule, but
+// the vertices at the cuff are genuinely 80% forearm. Taking that away
+// renormalizes them onto whatever scrap of torso weight they had, they snap to
+// the spine while their neighbours follow the arm, and the sleeve opens up.
+// That is what put holes in Naoya's arms when a clip stretched them out.
+//
+// So a vertex is only cleaned when the bones being dropped hold no more than
+// `maxShare` of it. Above that the bone owns the vertex, whatever the island
+// as a whole is doing, and the vertex is left exactly as authored. `fallback`
+// survives only for the pathological case of a vertex with no weight at all.
+export function dropInfluence(mesh, verts, boneIndices, fallback, maxShare = 0.5) {
   const g = mesh.geometry;
   const si = g.getAttribute('skinIndex'), sw = g.getAttribute('skinWeight');
   const drop = new Set(boneIndices);
   let touched = 0, skipped = 0;
   const before = [0, 0, 0, 0];
   for (const i of verts) {
-    let sum = 0, hit = false;
+    let keep = 0, lost = 0;
     for (let k = 0; k < 4; k++) {
       const w = sw.getComponent(i, k);
       before[k] = w;
       if (w <= 0) continue;
-      if (drop.has(si.getComponent(i, k))) { sw.setComponent(i, k, 0); hit = true; }
-      else sum += w;
+      if (drop.has(si.getComponent(i, k))) lost += w; else keep += w;
     }
-    if (!hit) continue;
-    if (sum < minKeep) {                      // it really is that bone's — leave it
-      for (let k = 0; k < 4; k++) sw.setComponent(i, k, before[k]);
-      skipped++;
-      continue;
+    if (lost <= 0) continue;
+    // the bone owns this vertex — leave it exactly as authored
+    if (lost > maxShare * (lost + keep) || keep <= 1e-6) { skipped++; continue; }
+    for (let k = 0; k < 4; k++) {
+      if (drop.has(si.getComponent(i, k))) sw.setComponent(i, k, 0);
     }
     touched++;
-    for (let k = 0; k < 4; k++) sw.setComponent(i, k, sw.getComponent(i, k) / sum);
+    for (let k = 0; k < 4; k++) sw.setComponent(i, k, sw.getComponent(i, k) / keep);
   }
   si.needsUpdate = sw.needsUpdate = true;
   dropInfluence.lastSkipped = skipped;
@@ -242,7 +247,7 @@ export function applyWeightOps(root, ops, map = {}) {
       const guard = Array.isArray(op.protect) && op.protect.length
         ? new RegExp(op.protect.join('|'), 'i') : protectPattern(op.bleed);
       const cap = op.maxShare ?? 0.6;
-      let islandsTouched = 0, vertsTouched = 0;
+      let islandsTouched = 0, vertsTouched = 0, vertsKept = 0;
       for (const c of cache) {
         for (const verts of c.islands) {
           if (verts.length < 8) continue;
@@ -252,11 +257,12 @@ export function applyWeightOps(root, ops, map = {}) {
           if (share <= 1e-4 || share > cap) continue;
           const idxs = bones.filter(b => re.test(b.name)).map(b => b.index);
           const keep = bones.find(b => !idxs.includes(b.index));
-          vertsTouched += dropInfluence(c.mesh, verts, idxs, keep?.index ?? 0);
+          vertsTouched += dropInfluence(c.mesh, verts, idxs, keep?.index ?? 0, op.maxVertexShare);
+          vertsKept += dropInfluence.lastSkipped;
           islandsTouched++;
         }
       }
-      report.push({ bleed: op.bleed, islands: islandsTouched, changed: vertsTouched });
+      report.push({ bleed: op.bleed, islands: islandsTouched, changed: vertsTouched, kept: vertsKept });
       continue;
     }
     if (!Array.isArray(op?.at)) continue;
@@ -292,7 +298,7 @@ export function applyWeightOps(root, ops, map = {}) {
   }
   if (report.length) {
     console.info('[render3d] weight ops:', report.map(r =>
-      r.bleed ? `bleed ${r.bleed.join('/')} off ${r.islands} islands (${r.changed}v)`
+      r.bleed ? `bleed ${r.bleed.join('/')} off ${r.islands} islands (${r.changed}v cleaned, ${r.kept}v left to their own bone)`
         : `${r.rigid ? 'rigid→' + r.rigid : 'drop ' + (r.drop ?? []).join('/')} on ${r.verts}v`
     ).join('; '));
   }
