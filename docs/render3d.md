@@ -162,14 +162,22 @@ connected to a sleeve; a hammer is not connected to a hand.
 the model is exported again, and it is a no-op where there is no bleed (it
 cleans fourteen islands on Nobara, four on Naoya, none on Yuji or Jogo).
 
-**Limb, not bone** — that distinction is the whole correctness of the rule.
-The first version protected only islands the dropped bones *dominated*, which
-sounds equivalent and is not: an arm is usually one island dominated by the
-upper arm with the forearm holding a third of it, so dropping "forearm" there
-tore the forearm off the arm it belongs to. The elbow stopped bending and the
-mesh came apart — holes in Nobara's sleeves, Yuji's hand cut up. The guard is
-now the whole limb chain, and a drop that would leave a vertex with nothing
-skips that vertex rather than snapping it to a fallback bone. `at` is a point
+Two guards keep it honest, and both were learned the hard way:
+
+- **Limb, not bone.** The first version protected only islands the dropped
+  bones *dominated*. An arm is usually one island dominated by the upper arm
+  with the forearm holding a third of it, so dropping "forearm" there tore
+  the forearm off the arm it belongs to — the elbow stopped bending and the
+  mesh came apart. The guard is the whole limb chain.
+- **Per vertex, not per island.** Bleed is a *minority* influence, and that
+  has to be judged vertex by vertex. A jacket is often one island covering
+  torso *and* sleeves: it is dominated by the spine, so the rule fairly
+  applies to it, but the vertices at the cuff are genuinely 80% forearm.
+  Taking that away snapped them to the spine while their neighbours followed
+  the arm, and the sleeve opened up — that was the hole in Naoya's arms. A
+  vertex is only cleaned when the dropped bones hold at most half of it
+  (`maxVertexShare`); above that the bone owns the vertex whatever the island
+  is doing. The load report says how many were left alone for this reason. `at` is a point
 measured from the mesh's own rest bounding box and divided by that box's
 height, so it is scale- and space-invariant — the bench measures a fitted
 model in metres, the game applies ops before the fit in the file's own units,
