@@ -34,48 +34,41 @@
 // bones' influence from one island and renormalizes what is left.
 //
 // `bleed` is the same idea stated as a RULE rather than as a list of places,
-// and it is the one that generalises: remove the named bones' influence from
-// every island that does not belong to their own LIMB. A skirt is dominated
-// by the thigh and the pelvis, so the 15% of it the forearm had acquired —
-// purely because the arm hangs beside the hip in the bind pose — comes off.
-// No anchors, nothing to re-derive when the model is exported again, and it
-// reads as the statement it is: "an arm does not move a dress".
+// and it is the one that generalises. What it rests on:
 //
-// LIMB, not bone, and that distinction is the whole correctness of it. The
-// first version protected only islands the dropped bones DOMINATED, which
-// sounds equivalent and is not: an arm is usually one island dominated by the
-// upper arm, with the forearm holding a third of it. Dropping "forearm" from
-// an island dominated by "upper_arm" therefore tore the forearm off the arm
-// it belongs to — the elbow stopped bending and the mesh came apart, which is
-// what put holes in Nobara's sleeves and cut up Yuji's hand. So the guard is
-// the limb chain: taking a bone's influence off geometry that belongs to that
-// bone's own limb is never the repair being asked for.
+//   A BONE DRIVES ONE PIECE OF SURFACE, NOT TWO.
+//
+// The forearm's real territory is a band of sleeve running down the arm — one
+// connected patch. When an automatic bind also hands it a piece of skirt, that
+// piece is somewhere else entirely on the surface: to walk from the sleeve to
+// the skirt you have to cross the torso, and the forearm has no weight there.
+// So the bone's influence arrives as TWO disconnected blobs, and the one that
+// does not contain the bone is the bleed. Drop it, keep the other, renormalize.
+//
+// No thresholds, no anchors, no list of parts, and nothing to re-derive when
+// the model is exported again — it reads as the statement it is: "an arm does
+// not move a dress", and it says it in the only terms that separate a dress
+// from a sleeve when the two are touching in the bind pose.
+//
+// Two earlier versions got this wrong in instructive ways, and both are why
+// the test suite checks the connectivity directly. Dropping the bone from
+// every island it did not DOMINATE tore the forearm off the arm (an arm is
+// one island dominated by the upper arm), which put holes in Nobara's sleeves
+// and cut up Yuji's hand. Guarding that per VERTEX instead — keep the vertices
+// the bone owns outright — stopped the tearing but only for geometry that was
+// mostly right already: on the skirt it cleaned the weak vertices and kept the
+// strong ones, so one continuous panel ended up half on the hip and half on
+// the wrist, and shards of it flew off with her hand. Connectivity has no such
+// halfway state: a blob goes or it stays, whole.
+//
+// The unit here is the SURFACE, so vertices are welded by position first.
+// Every UV seam duplicates the vertices along it, which chops the index buffer
+// into charts — 46 of them on Nobara — and blobs that are visibly one piece
+// would otherwise count as several.
 //
 // All of it is non-destructive to the file: the in-memory skin attributes are
 // rewritten at load, and the bench replays them from a pristine baseline.
 import * as THREE from 'three';
-
-// The chains a bone can belong to. A `bleed` naming any member protects every
-// member, so "drop the forearm off things that are not the arm" cannot be
-// misread as "drop the forearm off the arm".
-const LIMB_GROUPS = [
-  ['hand', 'finger', 'thumb', 'forearm', 'upper_arm', 'uparm', 'arm', 'shoulder', 'clav'],
-  ['foot', 'toe', 'shin', 'calf', 'leg', 'thigh'],
-  ['head', 'neck', 'jaw', 'eye'],
-  ['spine', 'chest', 'hips', 'pelvis', 'torso', 'waist']
-];
-
-// the protective pattern for a set of dropped-bone patterns: every limb group
-// any of them touches, in full
-function protectPattern(dropPatterns) {
-  const words = new Set(dropPatterns.map(p => String(p).toLowerCase()));
-  for (const group of LIMB_GROUPS) {
-    if (group.some(g => [...words].some(w => g.includes(w) || w.includes(g)))) {
-      for (const g of group) words.add(g);
-    }
-  }
-  return new RegExp([...words].join('|'), 'i');
-}
 
 // ---------------------------------------------------------------- islands --
 // Connected components over the index buffer. Union-find with path halving:
@@ -152,6 +145,107 @@ export function islandBones(mesh, verts) {
     .sort((a, b) => b.share - a.share);
 }
 
+// --------------------------------------------------------------- surface ---
+// The mesh as a graph a flood fill can walk. Vertices are WELDED by position
+// first: an exporter duplicates the vertices along every UV seam, hard edge
+// and material break, so the index buffer alone reports one continuous body as
+// dozens of disconnected charts. Seam duplicates are bit-identical — the
+// exporter copies the position and varies only the attribute that had to split
+// — so an exact hash finds them.
+//
+// `rep[i]` is the representative vertex of i's welded position; edges are
+// stored as CSR (`start` indexes into `list`) because this is walked once per
+// bone and a Map of arrays is an order of magnitude slower to build.
+export function surfaceGraph(mesh, P) {
+  const g = mesh.geometry;
+  const pos = g.getAttribute('position');
+  const n = pos.count;
+  const at = P
+    ? i => P[i * 3] + ',' + P[i * 3 + 1] + ',' + P[i * 3 + 2]
+    : i => pos.getX(i) + ',' + pos.getY(i) + ',' + pos.getZ(i);
+  const rep = new Int32Array(n);
+  const first = new Map();
+  for (let i = 0; i < n; i++) {
+    const key = at(i);
+    const f = first.get(key);
+    if (f === undefined) { first.set(key, i); rep[i] = i; } else rep[i] = f;
+  }
+  const idx = g.index?.array;
+  const start = new Int32Array(n + 1);
+  if (!idx) return { rep, start, list: new Int32Array(0) };
+  const count = new Int32Array(n);
+  const bump = (a, b) => { count[a]++; count[b]++; };
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = rep[idx[i]], b = rep[idx[i + 1]], c = rep[idx[i + 2]];
+    bump(a, b); bump(b, c); bump(c, a);
+  }
+  for (let i = 0; i < n; i++) start[i + 1] = start[i] + count[i];
+  const list = new Int32Array(start[n]);
+  const fill = new Int32Array(n);
+  const put = (a, b) => { list[start[a] + fill[a]++] = b; list[start[b] + fill[b]++] = a; };
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = rep[idx[i]], b = rep[idx[i + 1]], c = rep[idx[i + 2]];
+    put(a, b); put(b, c); put(c, a);
+  }
+  return { rep, start, list };
+}
+
+// Remove one bone's influence from every patch of surface that is not the
+// patch the bone actually sits on, and renormalize what is left.
+//
+// The bone's own patch is the one containing the vertex it holds hardest —
+// not the largest, which would be wrong exactly when a bind is at its worst
+// (a whole skirt outweighing a cuff).
+export function bleedOff(mesh, boneIndex, graph) {
+  const g = mesh.geometry;
+  const si = g.getAttribute('skinIndex'), sw = g.getAttribute('skinWeight');
+  const { rep, start, list } = graph;
+  const n = si.count;
+
+  const held = [];
+  let anchor = -1, most = 0;
+  for (let i = 0; i < n; i++) {
+    let w = 0;
+    for (let k = 0; k < 4; k++) if (si.getComponent(i, k) === boneIndex) w += sw.getComponent(i, k);
+    if (w <= 1e-6) continue;
+    held.push(i);
+    if (w > most) { most = w; anchor = i; }
+  }
+  if (anchor < 0) return { changed: 0, blobs: 0 };
+
+  // flood the bone's own patch, walking only through vertices it influences
+  const mine = new Uint8Array(n);          // 1 = influenced, 2 = reached
+  for (const i of held) mine[rep[i]] = 1;
+  const stack = [rep[anchor]];
+  mine[rep[anchor]] = 2;
+  while (stack.length) {
+    const v = stack.pop();
+    for (let e = start[v]; e < start[v + 1]; e++) {
+      const u = list[e];
+      if (mine[u] === 1) { mine[u] = 2; stack.push(u); }
+    }
+  }
+
+  let changed = 0, orphans = 0;
+  for (const i of held) {
+    if (mine[rep[i]] === 2) continue;      // the bone's own geometry
+    orphans++;
+    let keep = 0;
+    for (let k = 0; k < 4; k++) {
+      if (si.getComponent(i, k) === boneIndex) continue;
+      keep += sw.getComponent(i, k);
+    }
+    if (keep <= 1e-6) continue;            // nothing else holds it — leave it be
+    for (let k = 0; k < 4; k++) {
+      if (si.getComponent(i, k) === boneIndex) sw.setComponent(i, k, 0);
+    }
+    for (let k = 0; k < 4; k++) sw.setComponent(i, k, sw.getComponent(i, k) / keep);
+    changed++;
+  }
+  if (changed) si.needsUpdate = sw.needsUpdate = true;
+  return { changed, orphans };
+}
+
 // ------------------------------------------------------------------- ops ---
 export function rigidify(mesh, verts, boneIndex) {
   const g = mesh.geometry;
@@ -164,21 +258,16 @@ export function rigidify(mesh, verts, boneIndex) {
   return verts.length;
 }
 
-// Remove the named bones' influence and renormalize.
+// Remove the named bones' influence from one island and renormalize.
 //
-// BLEED IS A MINORITY, BY DEFINITION — and that has to be judged per VERTEX,
-// not per island. A jacket is often one island covering the torso AND the
-// sleeves: it is dominated by the spine, so it is fair game for the rule, but
-// the vertices at the cuff are genuinely 80% forearm. Taking that away
-// renormalizes them onto whatever scrap of torso weight they had, they snap to
-// the spine while their neighbours follow the arm, and the sleeve opens up.
-// That is what put holes in Naoya's arms when a clip stretched them out.
-//
-// So a vertex is only cleaned when the bones being dropped hold no more than
-// `maxShare` of it. Above that the bone owns the vertex, whatever the island
-// as a whole is doing, and the vertex is left exactly as authored. `fallback`
-// survives only for the pathological case of a vertex with no weight at all.
-export function dropInfluence(mesh, verts, boneIndices, fallback, maxShare = 0.5) {
+// This is the HAND-AUTHORED form: someone clicked an island in the bench and
+// named the bones that have no business driving it, so it is applied as asked,
+// whole. `maxShare` can hold back the vertices a dropped bone owns outright —
+// useful when aiming a `drop` at an island that is partly legitimate — but the
+// default is to honour the op, because a half-applied drop leaves one surface
+// split between two bones, which tears. The rule form (`bleed`) decides that
+// question by connectivity instead and never needs the dial.
+export function dropInfluence(mesh, verts, boneIndices, fallback, maxShare = 1) {
   const g = mesh.geometry;
   const si = g.getAttribute('skinIndex'), sw = g.getAttribute('skinWeight');
   const drop = new Set(boneIndices);
@@ -240,29 +329,21 @@ export function applyWeightOps(root, ops, map = {}) {
   };
 
   for (const op of ops) {
-    // ---- rule form: drop bones from every island they do not dominate ----
+    // ---- rule form: a bone drives one patch of surface, not two ----
     if (Array.isArray(op?.bleed) && op.bleed.length) {
       const re = new RegExp(op.bleed.join('|'), 'i');
-      // what may NOT be cleaned: anything the dropped bones share a limb with
-      const guard = Array.isArray(op.protect) && op.protect.length
-        ? new RegExp(op.protect.join('|'), 'i') : protectPattern(op.bleed);
-      const cap = op.maxShare ?? 0.6;
-      let islandsTouched = 0, vertsTouched = 0, vertsKept = 0;
+      let bones = 0, vertsTouched = 0, orphans = 0;
       for (const c of cache) {
-        for (const verts of c.islands) {
-          if (verts.length < 8) continue;
-          const bones = islandBones(c.mesh, verts);
-          if (!bones.length || guard.test(bones[0].name)) continue;   // its own limb
-          const share = bones.filter(b => re.test(b.name)).reduce((a, b) => a + b.share, 0);
-          if (share <= 1e-4 || share > cap) continue;
-          const idxs = bones.filter(b => re.test(b.name)).map(b => b.index);
-          const keep = bones.find(b => !idxs.includes(b.index));
-          vertsTouched += dropInfluence(c.mesh, verts, idxs, keep?.index ?? 0, op.maxVertexShare);
-          vertsKept += dropInfluence.lastSkipped;
-          islandsTouched++;
-        }
+        c.graph ??= surfaceGraph(c.mesh, c.P);
+        c.mesh.skeleton.bones.forEach((b, bi) => {
+          if (!re.test(b.name)) return;
+          const r = bleedOff(c.mesh, bi, c.graph);
+          bones++;
+          vertsTouched += r.changed;
+          orphans += r.orphans;
+        });
       }
-      report.push({ bleed: op.bleed, islands: islandsTouched, changed: vertsTouched, kept: vertsKept });
+      report.push({ bleed: op.bleed, bones, changed: vertsTouched, stranded: orphans - vertsTouched });
       continue;
     }
     if (!Array.isArray(op?.at)) continue;
@@ -292,7 +373,7 @@ export function applyWeightOps(root, ops, map = {}) {
       const idxs = op.drop.map(nm => boneIndexOf(c.mesh, nm)).filter(x => x >= 0);
       const keep = bones.find(b => !idxs.includes(b.index));
       entry.drop = op.drop;
-      entry.changed = dropInfluence(c.mesh, verts, idxs, keep?.index ?? 0);
+      entry.changed = dropInfluence(c.mesh, verts, idxs, keep?.index ?? 0, op.maxShare);
     }
     report.push(entry);
   }

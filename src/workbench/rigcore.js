@@ -908,10 +908,13 @@ export class RigSession {
   }
 
   // ---- skin repairs -------------------------------------------------------
-  // Click the model, get the connected piece of geometry under the cursor and
-  // what drives it. A skirt is not connected to a sleeve and a hammer is not
-  // connected to a hand, so the island is exactly the unit a person means by
-  // "this bit".
+  // Click the model, get the piece of geometry under the cursor and what
+  // drives it. The unit is the index-buffer island — deliberately NOT the
+  // welded surface the `bleed` rule works on, because on a model whose props
+  // are modelled into the body (Nobara's hammer is welded to her hand) the
+  // whole character welds into one piece and there is nothing left to point
+  // at. Charts follow UV seams, which mostly follow the parts a person means
+  // by "this bit".
   pickIsland(event) {
     const world = this.pickSurfaceFront(event);
     if (!world || !this.model3d) return null;

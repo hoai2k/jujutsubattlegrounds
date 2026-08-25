@@ -26,6 +26,7 @@ import { applyRestPose } from '../src/art/rig3d/render3d.js';
 import { rerigHierarchy } from '../src/art/rig3d/retarget.js';
 import { applyJointEdits, modelBindHeight } from '../src/art/rig3d/joints.js';
 import { setDualQuaternionSkinning } from '../src/art/rig3d/dqs.js';
+import { surfaceGraph, bleedOff } from '../src/art/rig3d/weights.js';
 
 let failures = 0;
 const check = (label, ok, detail = '') => {
@@ -403,6 +404,67 @@ check('knockdown drops the imported hips to the floor',
   const reverted = compile();
   check('turning it off restores the stock chunks',
     reverted.includes('#include <skinning_vertex>') && !reverted.includes('dqsQuat'));
+}
+
+// ---- 4g: the bleed rule — a bone drives one patch of surface, not two ------
+// The failure this replaces was a dress that swung with an arm, and the two
+// repairs that went wrong trying to fix it: dropping a bone from everything it
+// did not dominate tore sleeves off arms, and holding back the vertices it
+// owned outright split one skirt panel between the hip and the wrist, which
+// threw shards off it. So the properties are stated as the whole-piece claims
+// they have to be — a patch goes, or it stays, entire.
+{
+  // two disconnected strips. `sleeve` is the forearm's real territory and
+  // arrives as TWO charts, split down the middle by a UV seam exactly the way
+  // an exporter splits one; `skirt` is somewhere else and has picked up a
+  // third of the forearm from an automatic bind.
+  const V = [];                              // positions
+  const SI = [], SW = [];                    // skin index / weight
+  const tris = [];
+  const strip = (x0, w) => {                 // 4 verts, 2 triangles, at x0
+    const base = V.length / 3;
+    for (let i = 0; i < 4; i++) {
+      V.push(x0 + (i & 1) * 0.1, (i >> 1) * 0.1, 0);
+      SI.push(...w.map(p => p[0]), ...[0, 0, 0, 0].slice(w.length));
+      SW.push(...w.map(p => p[1]), ...[0, 0, 0, 0].slice(w.length));
+    }
+    tris.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+    return base;
+  };
+  const FORE = 1, ARM = 0, SPINE = 2;
+  const sleeveA = strip(0.0, [[FORE, 0.8], [ARM, 0.2]]);
+  const sleeveB = strip(0.1, [[FORE, 0.8], [ARM, 0.2]]);   // seam: same x as A's far edge
+  const skirt = strip(5.0, [[SPINE, 0.7], [FORE, 0.3]]);
+  // the seam: B's near verts sit exactly on A's far verts, but are separate
+  // entries in the index buffer — which is what welding has to see through
+  V[sleeveB * 3] = V[(sleeveA + 1) * 3]; V[sleeveB * 3 + 1] = V[(sleeveA + 1) * 3 + 1];
+  V[(sleeveB + 2) * 3] = V[(sleeveA + 3) * 3]; V[(sleeveB + 2) * 3 + 1] = V[(sleeveA + 3) * 3 + 1];
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(V, 3));
+  geom.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(SI, 4));
+  geom.setAttribute('skinWeight', new THREE.Float32BufferAttribute(SW, 4));
+  geom.setIndex(tris);
+  const bones = ['arm', 'forearm', 'spine'].map(n => { const b = new THREE.Bone(); b.name = n; return b; });
+  const mesh = new THREE.SkinnedMesh(geom, new THREE.MeshBasicMaterial());
+  mesh.add(bones[0]); bones[0].add(bones[1]); mesh.add(bones[2]);
+  mesh.bind(new THREE.Skeleton(bones));
+  mesh.updateMatrixWorld(true);
+
+  const graph = surfaceGraph(mesh, null);
+  check('a UV seam does not split one surface in two',
+    graph.rep[sleeveB] === graph.rep[sleeveA + 1]);
+
+  const r = bleedOff(mesh, FORE, graph);
+  const sw = geom.getAttribute('skinWeight');
+  const wOf = (v, slot) => sw.getComponent(v, slot);
+  check('the stray patch loses the bone entirely, and renormalizes',
+    wOf(skirt, 1) === 0 && Math.abs(wOf(skirt, 0) - 1) < 1e-6,
+    `${r.changed} verts`);
+  check('the bone keeps every vertex of its own patch',
+    [sleeveA, sleeveA + 3, sleeveB, sleeveB + 3].every(v => Math.abs(wOf(v, 0) - 0.8) < 1e-6));
+  check('the far side of a seam is not mistaken for a stray patch',
+    r.changed === 4, `dropped ${r.changed} of 4`);
 }
 
 // ---- 5: numerical health across the whole base clip set --------------------

@@ -81,7 +81,7 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `joints` | `{}` | `{nodeName: [dx,dy,dz]}` pivot corrections — moves where a bone *rotates* without moving the mesh (inverse-binds are rebuilt). The fix for a shoulder that sits too low. Values are an offset in the model's own axes **as a fraction of its height**, so they survive the model being re-exported or decimated |
 | `lift` | `{ambient: 0.22, saturation: 1.18}` | a small lighting lift (see below). `false` leaves the file's materials completely untouched |
 | `rotOffset` | `{}` | `{canonical: [x°,y°,z°]}` world-space trim per bone |
-| `weights` | `[]` | skin repairs (see below) — `{bleed: […]}` as a rule, or `{at, rigid}` / `{at, drop}` per mesh island |
+| `weights` | `[]` | skin repairs (see below) — `{bleed: […]}` as a rule over the surface, or `{at, rigid}` / `{at, drop}` per mesh island |
 | `keepProps` | `true` | procedural weapons stay visible. Set `false` when the model already has them modelled in — Nobara's hammer is in her mesh, so the procedural one would be a second hammer |
 | `hideSprings` | `true` | procedural hair/coat spring meshes hidden |
 | `skinning` | `"dual"` | `"dual"` blends the bones' rotations (see below), `"linear"` falls back to three.js' stock matrix blend |
@@ -149,40 +149,49 @@ geometry are near each other in the bind pose:
   gets blended across the hand and forearm like flesh, and *bends*.
 
 Neither can be fixed by distance — the skirt really is closer to the forearm
-than to anything else while the arm hangs beside it — so the unit of repair
-is the **mesh island**, a connected component of the geometry. A skirt is not
-connected to a sleeve; a hammer is not connected to a hand.
+than to anything else while the arm hangs beside it. What separates them is
+the **surface**: to walk from the sleeve to the skirt you have to cross the
+torso, where the forearm has no weight at all.
 
 | Op | Meaning |
 | --- | --- |
-| `{"bleed": ["hand", "forearm"]}` | remove those bones' influence from every island that is not part of their own **limb**. A skirt is dominated by thigh and pelvis, so the 15% the forearm had acquired comes off; anything the arm chain owns is left alone |
-| `{"at": […], "rigid": "DEF-handR"}` | bind one island 100% to a bone — the fix for a held prop that bends |
-| `{"at": […], "drop": ["…"]}` | remove named bones from one island |
+| `{"bleed": ["hand", "forearm"]}` | a rule: each named bone keeps the one connected patch of surface it actually sits on and loses every other patch it had picked up |
+| `{"at": […], "rigid": "DEF-handR"}` | bind one mesh island 100% to a bone — the fix for a held prop that bends |
+| `{"at": […], "drop": ["…"]}` | remove named bones from one mesh island |
 
-`bleed` is the one that generalises: no anchors, nothing to re-derive when
-the model is exported again, and it is a no-op where there is no bleed (it
-cleans fourteen islands on Nobara, four on Naoya, none on Yuji or Jogo).
+`bleed` is the one that generalises. **A bone drives one piece of surface, not
+two.** The forearm's real territory is a band of sleeve running down the arm;
+when an automatic bind also hands it a piece of skirt, that piece arrives as a
+second, disconnected blob. Drop the blob that does not contain the bone, keep
+the one that does, renormalize. No thresholds, no anchors, no list of parts,
+and nothing to re-derive when the model is re-exported — it takes 8.7k stray
+vertices off Nobara's skirt, 20 off Mahito, and touches *nothing* on Yuji,
+Jogo or Naoya, whose arms were already clean.
 
-Two guards keep it honest, and both were learned the hard way:
+The unit is the surface, so vertices are welded by position first. Every UV
+seam duplicates the vertices along it, which chops the index buffer into
+charts — 46 of them on Nobara — and a blob that is visibly one piece would
+otherwise count as several. (Welding is for the *rule* only; `at` ops still
+target an index-buffer island, which is what makes them clickable — on a model
+whose prop is modelled into the body, the chart is the only handle there is.)
 
-- **Limb, not bone.** The first version protected only islands the dropped
-  bones *dominated*. An arm is usually one island dominated by the upper arm
-  with the forearm holding a third of it, so dropping "forearm" there tore
-  the forearm off the arm it belongs to — the elbow stopped bending and the
-  mesh came apart. The guard is the whole limb chain.
-- **Per vertex, not per island.** Bleed is a *minority* influence, and that
-  has to be judged vertex by vertex. A jacket is often one island covering
-  torso *and* sleeves: it is dominated by the spine, so the rule fairly
-  applies to it, but the vertices at the cuff are genuinely 80% forearm.
-  Taking that away snapped them to the spine while their neighbours followed
-  the arm, and the sleeve opened up — that was the hole in Naoya's arms. A
-  vertex is only cleaned when the dropped bones hold at most half of it
-  (`maxVertexShare`); above that the bone owns the vertex whatever the island
-  is doing. The load report says how many were left alone for this reason. `at` is a point
-measured from the mesh's own rest bounding box and divided by that box's
-height, so it is scale- and space-invariant — the bench measures a fitted
-model in metres, the game applies ops before the fit in the file's own units,
-and both land on the same island.
+Two earlier versions got this wrong, and the test suite now pins both:
+
+- **Per island, by domination.** Dropping the bone from every island it did
+  not *dominate* tore the forearm off the arm — an arm is one island dominated
+  by the upper arm — so the elbow stopped bending, Nobara's sleeves opened up
+  and Yuji's hand came apart.
+- **Per vertex, by share.** Keeping the vertices the bone owned outright
+  stopped that tearing, but only for geometry that was mostly right already.
+  On the skirt it cleaned the weak vertices and kept the strong ones, so one
+  continuous panel ended up half on the hip and half on the wrist and shards
+  of it flew off with her hand. Connectivity has no halfway state: a blob goes
+  or it stays, whole.
+
+`at` is a point measured from the mesh's own rest bounding box and divided by
+that box's height, so it is scale- and space-invariant — the bench measures a
+fitted model in metres, the game applies ops before the fit in the file's own
+units, and both land on the same island.
 
 Author them by clicking: **5 · SKIN** on `/workbench/?edit=rig` selects the
 island under the cursor, lists what drives it, and offers rigid/drop.
