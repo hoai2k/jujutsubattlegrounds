@@ -24,6 +24,8 @@ import { guessBoneMap } from '../src/art/rig3d/bonemap.js';
 import { Retargeter, captureSourceRest } from '../src/art/rig3d/retarget.js';
 import { applyRestPose } from '../src/art/rig3d/render3d.js';
 import { rerigHierarchy } from '../src/art/rig3d/retarget.js';
+import { GripSolver } from '../src/art/rig3d/grip.js';
+import { solveTwoBone } from '../src/art/rig3d/ik.js';
 import { applyJointEdits, modelBindHeight } from '../src/art/rig3d/joints.js';
 import { setDualQuaternionSkinning } from '../src/art/rig3d/dqs.js';
 import { surfaceGraph, bleedOff } from '../src/art/rig3d/weights.js';
@@ -465,6 +467,107 @@ check('knockdown drops the imported hips to the floor',
     [sleeveA, sleeveA + 3, sleeveB, sleeveB + 3].every(v => Math.abs(wOf(v, 0) - 0.8) < 1e-6));
   check('the far side of a seam is not mistaken for a stray patch',
     r.changed === 4, `dropped ${r.changed} of 4`);
+}
+
+// ---- 4d: two-handed grips ---------------------------------------------------
+// The one thing rotation transfer cannot do. The imported rig here is
+// deliberately built at different proportions from the drive rig, which is
+// the whole point: transferring the clip's elbow angle puts the imported
+// wrist wherever THIS body's arm reaches, and for a hand that is supposed to
+// be closed around a haft that is a visible miss. The grip solver re-solves
+// the arm onto a point in the weapon's own space.
+{
+  const t3 = makeMixamoRig();
+  const m3 = guessBoneMap(t3).map;
+  const w3 = new THREE.Group();
+  w3.scale.setScalar(s);
+  w3.add(t3);
+  t3.position.y -= box.min.y;
+  model.group.add(w3);
+  const rt3 = new Retargeter(model, srcRest, w3, m3);
+
+  // A stand-in weapon held in the right hand, laid out the way a real
+  // two-handed one is: its shaft runs up local +Y, and the grip sits where
+  // the DRIVE rig's left hand already is. That is what "authored on this
+  // body" means — the procedural hands define the hold, and the question the
+  // solver answers is whether the IMPORTED left hand, at its own
+  // proportions, lands on the same spot.
+  const weapon = new THREE.Object3D();
+  weapon.name = 'testStaff';
+  weapon.visible = true;
+  model.getBone('HandR').add(weapon);
+
+  player.play('idle', { fade: 0, restart: true });
+  player.update(0.01);
+  model.update(0.01);
+  model.group.updateMatrixWorld(true);
+
+  const handR = model.getBone('HandR'), handL = model.getBone('HandL');
+  const oW = new THREE.Vector3().setFromMatrixPosition(handR.matrixWorld);
+  const lW = new THREE.Vector3().setFromMatrixPosition(handL.matrixWorld);
+  const span = oW.distanceTo(lW);
+  // aim local +Y at the drive rig's left hand
+  const boneQ = handR.getWorldQuaternion(new THREE.Quaternion());
+  weapon.quaternion.copy(boneQ).invert().multiply(
+    new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0), lW.clone().sub(oW).normalize()));
+  const GRIP_AT = [0, span, 0];
+  model.props = new Map([['staff', {
+    node: weapon,
+    slot: 'hand',
+    attachments: { hand: { bone: 'HandR', grip: { bone: 'HandL', at: GRIP_AT } } }
+  }]]);
+  rt3.apply();
+  model.group.updateMatrixWorld(true);
+
+  const gripWorld = () => new THREE.Vector3().fromArray(GRIP_AT).applyMatrix4(weapon.matrixWorld);
+  const handWorld = () => worldPos(model.group, m3.HandL);
+  const before = handWorld().distanceTo(gripWorld());
+
+  const grips = new GripSolver(model, m3);
+  check('a grip authored on the live attachment is picked up', grips.active,
+    `${grips.grips.size} grip(s)`);
+
+  // the palm attitude the retargeter chose has to survive the solve — the IK
+  // moves the wrist's PARENTS, so without restoring it the hand turns
+  const palmBefore = m3.HandL.getWorldQuaternion(new THREE.Quaternion());
+  grips.apply();
+  model.group.updateMatrixWorld(true);
+  const after = handWorld().distanceTo(gripWorld());
+  const palmAfter = m3.HandL.getWorldQuaternion(new THREE.Quaternion());
+
+  check('the grip is exactly where the procedural left hand holds it',
+    new THREE.Vector3().setFromMatrixPosition(handL.matrixWorld).distanceTo(gripWorld()) < 1e-6);
+  check('without the solver the imported off hand misses the haft', before > 0.02,
+    `${(before * 100).toFixed(1)} cm off — the two bodies' proportions`);
+  check('the solver puts it on the haft', after < 0.001,
+    `${(before * 100).toFixed(1)} cm -> ${(after * 1000).toFixed(2)} mm`);
+  check('the hand keeps the rotation the clip gave it',
+    Math.abs(palmBefore.dot(palmAfter)) > 0.9999);
+  check('the arm did not come apart', !noNaN(t3));
+
+  // a target the arm cannot reach must RELEASE, not lock out straight
+  const far = new THREE.Object3D();
+  model.getBone('HandR').add(far);
+  far.position.set(0, -3, 0);
+  model.props.get('staff').attachments.hand.grip = { bone: 'HandL', at: [0, -3, 0] };
+  grips.refresh();
+  model.group.updateMatrixWorld(true);
+  const restQ = m3.LoArmL.quaternion.clone();
+  grips.apply();
+  check('an out-of-reach grip releases instead of straining',
+    Math.abs(restQ.dot(m3.LoArmL.quaternion)) > 0.9999);
+
+  // `except` takes the hand off the weapon for named clips
+  model.props.get('staff').attachments.hand.grip = { bone: 'HandL', at: GRIP_AT, except: ['knockdown'] };
+  grips.refresh();
+  model.gripClip = 'knockdown';
+  check('a clip named in `except` is left alone', grips.apply() === 0);
+  model.gripClip = 'idle';
+  check('...and every other clip still grips', grips.apply() === 1);
+
+  model.props = new Map();
+  model.group.remove(w3);
 }
 
 // ---- 5: numerical health across the whole base clip set --------------------

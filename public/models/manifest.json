@@ -72,5 +72,27 @@
         ]
       }
     ]
+  },
+  "maki": {
+    "url": "./maki.glb",
+    "weights": [
+      {
+        "bleed": [
+          "hand",
+          "forearm"
+        ]
+      }
+    ]
+  },
+  "megumi": {
+    "url": "./megumi.glb",
+    "weights": [
+      {
+        "bleed": [
+          "hand",
+          "forearm"
+        ]
+      }
+    ]
   }
 }

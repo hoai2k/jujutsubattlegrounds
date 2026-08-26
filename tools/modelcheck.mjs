@@ -47,6 +47,7 @@ const { guessBoneMap } = await import('../src/art/rig3d/bonemap.js');
 const { Retargeter, captureSourceRest, rerigHierarchy } = await import('../src/art/rig3d/retarget.js');
 const { applyRestPose, fitInto, meshStats, TRI_BUDGET } = await import('../src/art/rig3d/render3d.js');
 const { applyJointEdits } = await import('../src/art/rig3d/joints.js');
+const { GripSolver } = await import('../src/art/rig3d/grip.js');
 
 const MODELS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'models');
 const only = process.argv.slice(2).filter(a => !a.startsWith('-'));
@@ -144,6 +145,30 @@ for (const [pick, raw] of entries) {
   }
   check(`every mapped limb tracks the drive rig across all ${clips.size} clips`, worst > 0.99,
     `worst dot=${worst.toFixed(4)}${worstAt ? ` at ${worstAt}` : ''}`);
+
+  // ---- two-handed grips ----------------------------------------------------
+  // A grip that nothing can reach is the failure this catches: it releases
+  // silently at runtime (which is the right behaviour, and invisible), so an
+  // `at` measured against the wrong weapon or in the wrong units looks
+  // exactly like a character who simply does not two-hand anything.
+  {
+    const grips = new GripSolver(model, map, src.grips || {});
+    if (grips.active) {
+      let held = 0, dropped = [];
+      for (const clip of clips.keys()) {
+        player.play(clip, { fade: 0, restart: true });
+        for (let f = 0; f < 20; f++) { player.update(1 / 60); model.update?.(1 / 60, 0); }
+        model.gripClip = clip;
+        model.group.updateMatrixWorld(true);
+        if (grips.apply() > 0) held++; else dropped.push(clip);
+      }
+      check(`the off hand reaches the weapon in at least one clip`, held > 0,
+        held ? `${held}/${clips.size} clips grip` +
+          (dropped.length ? `, released in ${dropped.slice(0, 4).join(' ')}` +
+            (dropped.length > 4 ? ` +${dropped.length - 4}` : '') : '')
+          : 'never in reach — check the `at` point is on the weapon, in its own space');
+    }
+  }
 
   let nan = null;
   wrapper.traverse(n => {

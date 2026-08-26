@@ -82,6 +82,26 @@ export const MAKI_STANCE = {
 
 const K = (t, pose, e) => ({ t, pose, e });
 
+// Both hands on the shaft. See the note on idleCloud below for why every clip
+// in the Cloud set has to state this rather than fall through to MAKI_STANCE.
+// CHUDAN NO KAMAE for the naginata, solved rather than drawn: both hands put
+// where the guard wants them (leading hand forward at chest height, rear hand
+// back at the hip, 0.48 m apart) and the arm angles read out of the IK. The
+// weapon then lies through both of them at 9 degrees of elevation with the tip
+// at the opponent's chest — which is what chudan IS.
+const NAGINATA_GUARD = {
+  UpArmR: [-16, 26, 18], LoArmR: [-89, -31, -5], HandR: [-12, -70, 0],
+  UpArmL: [4, -27, -59], LoArmL: [-16, 55, 4], HandL: [-10, 66, 0]
+};
+
+const CLOUD_GUARD = {
+  // the left arm is SOLVED, not drawn: it is wherever it has to be for the
+  // hand to close on the shaft 0.50 m behind the right one. See the twoHand
+  // attachment in art/models/maki.js for why that number.
+  UpArmL: [-31, -27, -35], LoArmL: [-105, 30, -6], HandL: [-14, 78, 0],
+  UpArmR: [-34, -14, -16], LoArmR: [-88, -30, 0], HandR: [-16, -80, 0]
+};
+
 // The three awakened neutrals, expressed as DELTAS applied on top of the pose
 // above by each variant clip. Written out as objects rather than computed so
 // the poses are readable and hand-tunable, which is how every other clip file
@@ -212,42 +232,43 @@ export const MAKI_CLIPS = {
   // HIP ROTATION and the arms follow it. Toji's cloud clips start at the
   // shoulder. That difference is the whole "she swings it differently" note in
   // the brief and it is legible without being told.
-  idleCloud: idleAt({
-    ...MAKI_STANCE,
-    // staff carried across the body, butt low on the left, head high right
-    UpArmL: [-42, 22, 14], LoArmL: [-86, 34, 0], HandL: [-14, 78, 0],
-    UpArmR: [-34, -14, -16], LoArmR: [-88, -30, 0], HandR: [-16, -80, 0]
-  }, 2.2, 0.014),
+  // THE CLOUD GUARD — both hands on the shaft, carried across the body, butt
+  // low on the left and head high right. This is the pose the whole set opens
+  // and closes on, and it has to be written into every clip rather than left
+  // to `K(t, {})`: an empty key falls back to MAKI_STANCE, which is her
+  // EMPTY-HANDED guard, so every staff attack used to begin and end with her
+  // left hand 16 cm off a weapon she is supposed to be holding with it.
+  idleCloud: idleAt({ ...MAKI_STANCE, ...CLOUD_GUARD }, 2.2, 0.014),
 
   punch1Cloud: {
     dur: 0.30, loop: false, keys: [
-      K(0, {}),
+      K(0, CLOUD_GUARD),
       // the WIND-UP. Toji does not have one of these.
-      K(0.07, { Hips: [0, 40, 0], Spine: [6, -16, 0], Chest: [4, -20, 0], UpArmR: [-40, -24, -22], LoArmR: [-96, -34, 0] }, 'in'),
-      K(0.15, { Hips: [0, 4, 0], Spine: [10, 10, 0], Chest: [8, 16, 0], UpArmL: [-58, 14, 20], LoArmL: [-64, 22, 0], UpArmR: [-72, 10, -14], LoArmR: [-40, 8, 0], HandR: [-10, -50, 0], Hips_pos: [0, -0.070, 0], ThighR: [10, 7, 0] }, 'snap'),
-      K(0.21, { Hips: [0, 6, 0], Spine: [9, 8, 0], UpArmR: [-68, 8, -14], LoArmR: [-44, 6, 0] }, 'hold'),
+      K(0.07, { UpArmL: [-41, -24, -17], LoArmL: [-92, 31, 1], Hips: [0, 40, 0], Spine: [6, -16, 0], Chest: [4, -20, 0], UpArmR: [-40, -24, -22], LoArmR: [-96, -34, 0] }, 'in'),
+      K(0.15, { UpArmL: [-55, -6, -44], LoArmL: [-9, 35, 2], Hips: [0, 4, 0], Spine: [10, 10, 0], Chest: [8, 16, 0], UpArmR: [-72, 10, -14], LoArmR: [-40, 8, 0], HandR: [-10, -50, 0], Hips_pos: [0, -0.070, 0], ThighR: [10, 7, 0] }, 'snap'),
+      K(0.21, { UpArmL: [-53, -12, -23], LoArmL: [-16, 55, 4], Hips: [0, 6, 0], Spine: [9, 8, 0], UpArmR: [-68, 8, -14], LoArmR: [-44, 6, 0] }, 'hold'),
       // ...AND THE RESET TO GUARD. Also not something Toji does.
-      K(0.30, {})
+      K(0.30, CLOUD_GUARD)
     ]
   },
   punch2Cloud: {
     dur: 0.32, loop: false, keys: [
-      K(0, {}),
-      K(0.07, { Hips: [0, 2, 0], Spine: [4, 14, 0], Chest: [3, 18, 0], UpArmL: [-40, 26, 18], LoArmL: [-92, 30, 0] }, 'in'),
-      K(0.16, { Hips: [0, 44, 0], Spine: [11, -18, 0], Chest: [9, -22, 0], UpArmL: [-76, -6, 22], LoArmL: [-36, 6, 0], HandL: [-8, 54, 0], UpArmR: [-48, -20, -20], LoArmR: [-72, -26, 0], Hips_pos: [0, -0.068, 0], ThighL: [-26, -5, 0] }, 'snap'),
-      K(0.22, { Hips: [0, 42, 0], UpArmL: [-72, -4, 22], LoArmL: [-40, 6, 0] }, 'hold'),
-      K(0.32, {})
+      K(0, CLOUD_GUARD),
+      K(0.07, { UpArmL: [0, 10, -29], LoArmL: [-108, 26, -6], Hips: [0, 2, 0], Spine: [4, 14, 0], Chest: [3, 18, 0], LoArmL: [-92, 30, 0] }, 'in'),
+      K(0.16, { UpArmL: [-55, -16, -16], LoArmL: [-52, 3, -1], Hips: [0, 44, 0], Spine: [11, -18, 0], Chest: [9, -22, 0], HandL: [-8, 54, 0], UpArmR: [-48, -20, -20], LoArmR: [-72, -26, 0], Hips_pos: [0, -0.068, 0], ThighL: [-26, -5, 0] }, 'snap'),
+      K(0.22, { UpArmL: [3, 14, -15], LoArmL: [-103, 2, -14], Hips: [0, 42, 0], LoArmL: [-40, 6, 0] }, 'hold'),
+      K(0.32, CLOUD_GUARD)
     ]
   },
   punch3Cloud: {
     // THE LAUNCHER — an upward staff sweep from low left to high right,
     // finishing with both hands overhead. The biggest hip rotation in the set.
     dur: 0.44, loop: false, keys: [
-      K(0, {}),
-      K(0.10, { Hips: [0, 46, 0], Spine: [16, -20, 0], Chest: [12, -24, 0], Hips_pos: [0, -0.115, 0], UpArmR: [-14, -28, -18], LoArmR: [-104, -36, 0], ThighR: [24, 7, 0], ShinR: [40, 0, 0] }, 'in'),
-      K(0.21, { Hips: [0, -8, 0], Spine: [-16, 12, 0], Chest: [-14, 18, 0], Neck: [-6, -4, 0], Head: [-10, -8, 0], UpArmL: [-146, 18, 26], LoArmL: [-30, 12, 0], UpArmR: [-158, 6, -20], LoArmR: [-24, 4, 0], HandR: [-6, -44, 0], Hips_pos: [0, -0.010, 0], ThighL: [-16, -5, 0], ThighR: [-6, 7, 0] }, 'snap'),
-      K(0.28, { Hips: [0, -6, 0], Spine: [-14, 10, 0], UpArmL: [-142, 16, 26], UpArmR: [-154, 4, -20] }, 'hold'),
-      K(0.44, {})
+      K(0, CLOUD_GUARD),
+      K(0.10, { UpArmL: [-18, -19, -20], LoArmL: [-101, 29, -2], Hips: [0, 46, 0], Spine: [16, -20, 0], Chest: [12, -24, 0], Hips_pos: [0, -0.115, 0], UpArmR: [-14, -28, -18], LoArmR: [-104, -36, 0], ThighR: [24, 7, 0], ShinR: [40, 0, 0] }, 'in'),
+      K(0.21, { UpArmL: [-123, 6, -47], LoArmL: [-5, 17, 3], Hips: [0, -8, 0], Spine: [-16, 12, 0], Chest: [-14, 18, 0], Neck: [-6, -4, 0], Head: [-10, -8, 0], UpArmR: [-158, 6, -20], LoArmR: [-24, 4, 0], HandR: [-6, -44, 0], Hips_pos: [0, -0.010, 0], ThighL: [-16, -5, 0], ThighR: [-6, 7, 0] }, 'snap'),
+      K(0.28, { UpArmL: [-109, -3, -16], LoArmL: [-105, 28, -3], Hips: [0, -6, 0], Spine: [-14, 10, 0], UpArmR: [-154, 4, -20] }, 'hold'),
+      K(0.44, CLOUD_GUARD)
     ]
   },
   ct1Cloud: {
@@ -255,25 +276,146 @@ export const MAKI_CLIPS = {
     // Toji's Cloud Cyclone is a spin AROUND him, hers is a pair of committed
     // level sweeps she steps into: same weapon, different intent.
     dur: 0.72, loop: false, keys: [
-      K(0, {}),
-      K(0.10, { Hips: [0, 54, 0], Spine: [8, -24, 0], Chest: [6, -30, 0], UpArmR: [-30, -30, -24], LoArmR: [-100, -38, 0], Hips_pos: [0, -0.100, 0] }, 'in'),
-      K(0.24, { Hips: [0, -20, 0], Spine: [10, 26, 0], Chest: [8, 32, 0], UpArmL: [-84, 8, 26], LoArmL: [-30, 14, 0], UpArmR: [-92, 22, -12], LoArmR: [-26, 10, 0], Hips_pos: [0, -0.076, 0], ThighL: [-30, -5, 0], ThighR: [18, 7, 0] }, 'snap'),
+      K(0, CLOUD_GUARD),
+      K(0.10, { UpArmL: [-36, -26, -21], LoArmL: [-94, 31, 1], Hips: [0, 54, 0], Spine: [8, -24, 0], Chest: [6, -30, 0], UpArmR: [-30, -30, -24], LoArmR: [-100, -38, 0], Hips_pos: [0, -0.100, 0] }, 'in'),
+      K(0.24, { UpArmL: [-63, -1, -33], LoArmL: [-6, 19, 3], Hips: [0, -20, 0], Spine: [10, 26, 0], Chest: [8, 32, 0], UpArmR: [-92, 22, -12], LoArmR: [-26, 10, 0], Hips_pos: [0, -0.076, 0], ThighL: [-30, -5, 0], ThighR: [18, 7, 0] }, 'snap'),
       K(0.32, { Hips: [0, -18, 0], Spine: [9, 24, 0] }, 'hold'),
       // the return sweep, the other way
-      K(0.46, { Hips: [0, 50, 0], Spine: [8, -22, 0], Chest: [6, -28, 0], UpArmL: [-88, -18, 24], LoArmL: [-28, 4, 0], UpArmR: [-80, -26, -20], LoArmR: [-34, -12, 0], Hips_pos: [0, -0.076, 0], ThighL: [16, -5, 0], ThighR: [-26, 7, 0] }, 'snap'),
+      K(0.46, { UpArmL: [-97, -27, -23], LoArmL: [-4, 9, 4], Hips: [0, 50, 0], Spine: [8, -22, 0], Chest: [6, -28, 0], UpArmR: [-80, -26, -20], LoArmR: [-34, -12, 0], Hips_pos: [0, -0.076, 0], ThighL: [16, -5, 0], ThighR: [-26, 7, 0] }, 'snap'),
       K(0.54, { Hips: [0, 48, 0] }, 'hold'),
-      K(0.72, {})
+      K(0.72, CLOUD_GUARD)
     ]
   },
   ct2Cloud: {
     // THE OVERHEAD. Up high, then straight down through the target and into
     // the deck. Long recovery, and she comes out of it back on guard.
     dur: 0.80, loop: false, keys: [
-      K(0, {}),
-      K(0.16, { Spine: [-22, -6, 0], Chest: [-18, -8, 0], Neck: [-8, -3, 0], Head: [-12, -8, 0], UpArmL: [-166, 12, 22], LoArmL: [-18, 10, 0], UpArmR: [-172, -8, -18], LoArmR: [-14, -6, 0], Hips_pos: [0, -0.006, 0], ThighL: [-8, -5, 0], ThighR: [6, 7, 0] }, 'in'),
-      K(0.30, { Spine: [34, -6, 0], Chest: [24, -9, 0], Neck: [6, -4, 0], Head: [16, -8, 0], UpArmL: [-52, 16, 16], LoArmL: [-46, 20, 0], UpArmR: [-56, -10, -14], LoArmR: [-42, -16, 0], Hips_pos: [0, -0.150, 0], ThighL: [-40, -5, 0], ShinL: [46, 0, 0], ThighR: [30, 7, 0], ShinR: [50, 0, 0] }, 'snap'),
-      K(0.42, { Spine: [32, -6, 0], Chest: [23, -9, 0], Hips_pos: [0, -0.146, 0], UpArmL: [-50, 16, 16], UpArmR: [-54, -10, -14] }, 'hold'),
-      K(0.80, {})
+      K(0, CLOUD_GUARD),
+      K(0.16, { UpArmL: [-158, 8, -16], LoArmL: [-12, 11, 0], Spine: [-22, -6, 0], Chest: [-18, -8, 0], Neck: [-8, -3, 0], Head: [-12, -8, 0], UpArmR: [-172, -8, -18], LoArmR: [-14, -6, 0], Hips_pos: [0, -0.006, 0], ThighL: [-8, -5, 0], ThighR: [6, 7, 0] }, 'in'),
+      K(0.30, { UpArmL: [-50, 0, -17], LoArmL: [-42, 21, 0], Spine: [34, -6, 0], Chest: [24, -9, 0], Neck: [6, -4, 0], Head: [16, -8, 0], UpArmR: [-56, -10, -14], LoArmR: [-42, -16, 0], Hips_pos: [0, -0.150, 0], ThighL: [-40, -5, 0], ShinL: [46, 0, 0], ThighR: [30, 7, 0], ShinR: [50, 0, 0] }, 'snap'),
+      K(0.42, { UpArmL: [-34, -7, -15], LoArmL: [-103, 28, -2], Spine: [32, -6, 0], Chest: [23, -9, 0], Hips_pos: [0, -0.146, 0], UpArmR: [-54, -10, -14] }, 'hold'),
+      K(0.80, CLOUD_GUARD)
+    ]
+  },
+
+  // =========================================================================
+  // THE NAGINATA SET — everything is a circle
+  // =========================================================================
+  // The third weapon and the LONG one: 2.0 m against the staff's 1.67 and the
+  // katana's 1.2. The vocabulary is the naginata's own, and it is not the
+  // staff's with a blade on it:
+  //
+  //   CHUDAN NO KAMAE   the guard. Body side-on, weapon near horizontal with
+  //                     the tip slightly raised at the opponent's centre,
+  //                     hands about shoulder width in the rear third. Solved,
+  //                     not drawn — see NAGINATA_GUARD.
+  //   SUNE              the shin strike, and the reason anyone fears a
+  //                     naginata. It comes in UNDER a guard held for the head.
+  //   SOKUMEN           the angled head strike, 15-30 degrees off centre.
+  //   FURIAGE MEN       lift the whole weapon overhead and bring it down the
+  //                     centre line. Her launcher.
+  //   TSUKI             the thrust. One line, no arc, and the furthest thing
+  //                     she can do with anything.
+  //
+  // A naginata is heavy at the wrong end, so the techniques move it WITH the
+  // body in circles rather than muscling it with the arms. Every clip below
+  // therefore starts at the hips like the staff set does — but where the
+  // staff snaps and recovers, these carry through and keep turning. That is
+  // the read that separates the two weapons at a glance.
+  // SLOWER AND SMALLER THAN THE OTHER TWO. Two metres of weapon held out at
+  // arm's length damps breathing rather than riding it — and the arithmetic
+  // agrees: the same bob that moves the staff's tip a few centimetres swings
+  // the naginata's a hand's width, which is the one place her rear hand comes
+  // off the shaft.
+  idleNaginata: idleAt({ ...MAKI_STANCE, ...NAGINATA_GUARD }, 2.8, 0.006),
+
+  punch1Naginata: {
+    // SUNE — the shin cut. Drops low, sweeps the tip across ankle height.
+    dur: 0.32, loop: false, keys: [
+      K(0, NAGINATA_GUARD),
+      K(0.08, { UpArmL: [2, -26, -66], LoArmL: [-16, 55, 4], ...NAGINATA_GUARD, Hips: [0, 30, 0], Spine: [10, -14, 0], Chest: [8, -16, 0],
+        Hips_pos: [0, -0.100, 0], ThighR: [22, 7, 0], ShinR: [30, 0, 0] }, 'in'),
+      K(0.17, { UpArmL: [7, -35, -70], LoArmL: [-41, 48, 8], ...NAGINATA_GUARD, Hips: [0, -14, 0], Spine: [22, 14, 0], Chest: [16, 18, 0],
+        Head: [-8, -10, 0], Hips_pos: [0, -0.180, 0],
+        UpArmR: [-44, 14, 22], LoArmR: [-58, -20, -4],
+        ThighL: [-34, -5, 0], ShinL: [40, 0, 0], ThighR: [26, 7, 0], ShinR: [44, 0, 0] }, 'snap'),
+      K(0.23, { UpArmL: [9, -35, -68], LoArmL: [-41, 48, 9], ...NAGINATA_GUARD, Hips: [0, -12, 0], Spine: [20, 12, 0], Hips_pos: [0, -0.170, 0],
+        UpArmR: [-42, 13, 22], LoArmR: [-60, -20, -4] }, 'hold'),
+      K(0.32, NAGINATA_GUARD)
+    ]
+  },
+  punch2Naginata: {
+    // SOKUMEN — the angled head cut, off the other side. The hips unwind the
+    // way they wound for the sune, which is what makes the two read as one
+    // continuous turn rather than two separate swings.
+    dur: 0.34, loop: false, keys: [
+      K(0, NAGINATA_GUARD),
+      K(0.08, { UpArmL: [-7, -16, -64], LoArmL: [-16, 55, 4], ...NAGINATA_GUARD, Hips: [0, -18, 0], Spine: [4, 18, 0], Chest: [3, 22, 0],
+        UpArmR: [-52, 30, 20], LoArmR: [-84, -24, -4] }, 'in'),
+      K(0.18, { UpArmL: [-12, -17, -83], LoArmL: [-64, 40, 8], ...NAGINATA_GUARD, Hips: [0, 40, 0], Spine: [8, -20, 0], Chest: [6, -24, 0],
+        Neck: [2, -8, 0], Head: [4, -12, 0], Hips_pos: [0, -0.090, 0],
+        UpArmR: [-120, 4, 26], LoArmR: [-40, -16, -2],
+        ThighL: [-24, -5, 0], ThighR: [18, 7, 0] }, 'snap'),
+      K(0.25, { UpArmL: [-11, -18, -81], LoArmL: [-64, 40, 8], ...NAGINATA_GUARD, Hips: [0, 38, 0], Spine: [7, -18, 0],
+        UpArmR: [-116, 3, 26], LoArmR: [-42, -16, -2] }, 'hold'),
+      K(0.34, NAGINATA_GUARD)
+    ]
+  },
+  punch3Naginata: {
+    // FURIAGE MEN — the whole weapon lifted overhead and brought down the
+    // centre. The launcher, and the biggest vertical travel in her three sets.
+    dur: 0.46, loop: false, keys: [
+      K(0, NAGINATA_GUARD),
+      K(0.12, { UpArmL: [-14, -22, -104], LoArmL: [-68, 39, 8], ...NAGINATA_GUARD, Spine: [-20, -4, 0], Chest: [-16, -6, 0], Neck: [-8, -2, 0],
+        Head: [-14, -4, 0], Hips_pos: [0, -0.020, 0],
+        UpArmR: [-168, 10, 20], LoArmR: [-16, -10, -2] }, 'in'),
+      K(0.24, { UpArmL: [10, -40, -73], LoArmL: [-51, 45, 9], ...NAGINATA_GUARD, Spine: [30, -4, 0], Chest: [22, -6, 0], Neck: [6, -2, 0],
+        Head: [14, -6, 0], Hips_pos: [0, -0.130, 0],
+        UpArmR: [-44, 12, 20], LoArmR: [-52, -22, -4],
+        ThighL: [-34, -5, 0], ShinL: [40, 0, 0], ThighR: [26, 7, 0], ShinR: [44, 0, 0] }, 'snap'),
+      K(0.32, { UpArmL: [11, -40, -71], LoArmL: [-51, 45, 9], ...NAGINATA_GUARD, Spine: [28, -4, 0], Hips_pos: [0, -0.126, 0],
+        UpArmR: [-42, 11, 20], LoArmR: [-54, -22, -4] }, 'hold'),
+      K(0.46, NAGINATA_GUARD)
+    ]
+  },
+  ct1Naginata: {
+    // THE TURN — one continuous circle carried all the way round, which is
+    // what a naginata does that nothing else in her kit can. Where the staff's
+    // sweep is two committed arcs she steps into, this one never stops.
+    dur: 0.78, loop: false, keys: [
+      K(0, NAGINATA_GUARD),
+      K(0.12, { UpArmL: [-4, -19, -62], LoArmL: [-16, 55, 4], ...NAGINATA_GUARD, Hips: [0, -30, 0], Spine: [6, 26, 0], Chest: [5, 30, 0],
+        Hips_pos: [0, -0.110, 0], UpArmR: [-40, 34, 22], LoArmR: [-92, -20, -4] }, 'in'),
+      K(0.28, { UpArmL: [-6, -26, -83], LoArmL: [-64, 40, 8], ...NAGINATA_GUARD, Hips: [0, 46, 0], Spine: [12, -24, 0], Chest: [9, -28, 0],
+        Hips_pos: [0, -0.090, 0], UpArmR: [-104, 6, 26], LoArmR: [-34, -14, -2],
+        ThighL: [-28, -5, 0], ThighR: [20, 7, 0] }, 'snap'),
+      K(0.40, { UpArmL: [8, -36, -66], LoArmL: [-89, 31, 3], ...NAGINATA_GUARD, Hips: [0, 96, 0], Spine: [10, -10, 0], Chest: [8, -12, 0],
+        Hips_pos: [0, -0.080, 0], UpArmR: [-90, -22, 24], LoArmR: [-44, -10, -2],
+        ThighL: [10, -5, 0], ThighR: [-22, 7, 0] }, 'snap'),
+      K(0.52, { UpArmL: [22, -37, -48], LoArmL: [-99, 29, 0], ...NAGINATA_GUARD, Hips: [0, 140, 0], Spine: [8, 6, 0], Chest: [6, 8, 0],
+        Hips_pos: [0, -0.096, 0], UpArmR: [-72, -34, 22], LoArmR: [-58, -6, -2] }, 'snap'),
+      K(0.62, { UpArmL: [2, -26, -66], LoArmL: [-16, 55, 4], ...NAGINATA_GUARD, Hips: [0, 150, 0], Hips_pos: [0, -0.090, 0] }, 'hold'),
+      K(0.78, NAGINATA_GUARD)
+    ]
+  },
+  ct2Naginata: {
+    // TSUKI — the thrust, and the furthest-reaching thing in her whole kit.
+    // No arc at all: the hips drive straight forward and the weapon goes with
+    // them, which is the deliberate opposite of everything above it.
+    dur: 0.66, loop: false, keys: [
+      K(0, NAGINATA_GUARD),
+      K(0.14, { UpArmL: [1, -14, -61], LoArmL: [-14, 55, 2], ...NAGINATA_GUARD, Hips: [0, 22, 0], Spine: [-6, -12, 0], Chest: [-5, -14, 0],
+        Hips_pos: [0, -0.070, 0], UpArmR: [-30, 34, 16], LoArmR: [-104, -30, -6],
+        ThighR: [20, 7, 0] }, 'in'),
+      K(0.26, { UpArmL: [-21, -32, -76], LoArmL: [-64, 43, 0], ...NAGINATA_GUARD, Hips: [0, -6, 0], Spine: [12, 6, 0], Chest: [9, 8, 0],
+        Neck: [2, 2, 0], Hips_pos: [0, -0.120, 0],
+        UpArmR: [-74, 2, 14], LoArmR: [-46, -8, -2],
+        
+        ThighL: [-38, -5, 0], ShinL: [30, 0, 0], ThighR: [24, 7, 0], ShinR: [34, 0, 0] }, 'snap'),
+      K(0.36, { UpArmL: [-21, -31, -76], LoArmL: [-64, 43, 0], ...NAGINATA_GUARD, Hips: [0, -6, 0], Spine: [11, 6, 0], Hips_pos: [0, -0.116, 0],
+        UpArmR: [-72, 2, 14], LoArmR: [-48, -8, -2],
+        LoArmL: [-54, 46, 2] }, 'hold'),
+      K(0.66, NAGINATA_GUARD)
     ]
   },
 

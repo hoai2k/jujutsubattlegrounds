@@ -1367,8 +1367,19 @@ export class Fighter {
     // adding a fifth weapon later means adding clips and nothing else. Falls
     // straight through if the clip is absent, which is what makes a
     // half-authored weapon degrade to the shared idle instead of throwing.
-    if (name === 'idle' && this.equipped) {
-      const s = 'idle' + this.equipped.clipSuffix;
+    // ...and it is not only the idle. A weapon changes how everything is
+    // thrown, not just how it is carried, so the suffix is tried for ANY clip
+    // — exactly the way Panda's per-stance suffix is below. Falling straight
+    // through when the clip is absent is what keeps this free for Toji, whose
+    // four tools have their own neutrals and share his strings.
+    //
+    // Maki is the character this was written for and the reason it is a bug
+    // fix rather than a feature: she has had a complete per-weapon attack set
+    // (punch1Cloud through punch3Soul) since her clips were authored, and none
+    // of it ever played. Holding a 1.7 m staff, she threw the empty-handed
+    // punch string.
+    if (this.equipped?.clipSuffix) {
+      const s = name + this.equipped.clipSuffix;
       if (this.anim.clips.has(s)) return s;
     }
     // KASHIMO: from tier 2 upward the neutral cycles are replaced by their

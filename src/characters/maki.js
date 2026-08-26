@@ -207,11 +207,18 @@ export const MAKI = withDefaults({
   },
 
   // =========================================================================
-  // THE TWO WEAPONS — B, and it is a TOGGLE, not a wheel
+  // THE THREE WEAPONS — B, and it is a CYCLE, not a wheel
   // =========================================================================
-  // The deliberate contrast with Toji's four-weapon radial. She carries two
-  // tools and swaps between them; there is no ring, no time dilation, no
-  // stick selection and no `maxHold`. One button, two states.
+  // The deliberate contrast with Toji's four-weapon radial. She carries her
+  // tools and steps through them; there is no ring, no time dilation, no
+  // stick selection and no `maxHold`. One button, one step per press.
+  //
+  // The three are three DISTANCES, which is the whole reason there are three:
+  //
+  //   NAGINATA        2.0 m, all circles, the longest thing in the game she
+  //                   can hold. Slow to start and slow to stop.
+  //   PLAYFUL CLOUD   1.67 m, blunt, and it folds around a guard.
+  //   SPLIT SOUL      1.2 m, fast, a line rather than an arc.
   //
   // The shape below reuses his `arsenal` KEY so that fighter.equipped,
   // fighter._clip's per-weapon idle lookup and hud's arsenal row all work
@@ -220,7 +227,7 @@ export const MAKI = withDefaults({
   arsenal: {
     toggle: true,
     default: 'playful_cloud',
-    order: ['playful_cloud', 'split_soul'],
+    order: ['playful_cloud', 'naginata', 'split_soul'],
     // FASTER THAN HIS, AND STILL PUNISHABLE. 22 frames against his 26,
     // because she is moving something she is already wearing rather than
     // reaching into a curse — but the guard-cancel window is the same 4
@@ -255,6 +262,33 @@ export const MAKI = withDefaults({
           effect: 'maki_cloud_crush', dmg: 19, reach: 2.6, arc: 1.5,
           kb: 5.4, kbY: 0, hitstun: 32, guardBreak: true, step: 2.0,
           destruct: 42, clip: 'ct2Cloud'
+        }
+      },
+      // ---------------------------------------------------------------------
+      // NAGINATA 薙刀 — hers, and the polearm she is drawn with as often as
+      // she is drawn with the staff. art/models/maki_weapons.js.
+      // ---------------------------------------------------------------------
+      naginata: {
+        name: 'NAGINATA', short: 'NAGINATA', jp: '薙刀', clipSuffix: 'Naginata',
+        desc: 'REACH · CIRCLES · SLOW TO STOP',
+        ct1: {
+          // THE TURN. One continuous circle rather than the staff's pair of
+          // committed arcs — it hits everything around her once and keeps
+          // going, which is what the extra length buys and what the long
+          // recovery pays for.
+          name: 'Turning Circle', cost: 0, startup: 18, active: 22, recovery: 30,
+          effect: 'maki_cloud_sweep', dmg: 9, hits: 2, reach: 3.6, arc: 3.0,
+          kb: 3.2, kbY: 0.3, hitstun: 19, guardDamage: 20, clip: 'ct1Naginata'
+        },
+        ct2: {
+          // TSUKI. The furthest-reaching move she has and the only one with
+          // no arc at all. It does not break a guard the way the staff's
+          // overhead does — it simply arrives from somewhere the opponent
+          // cannot answer from.
+          name: 'Tsuki', cost: 0, startup: 19, active: 6, recovery: 30,
+          effect: 'maki_cloud_crush', dmg: 17, reach: 4.2, arc: 0.7,
+          kb: 4.4, kbY: 0, hitstun: 28, step: 3.0,
+          destruct: 30, clip: 'ct2Naginata'
         }
       },
       // ---------------------------------------------------------------------

@@ -21,6 +21,7 @@ import {
 } from '../art/rig3d/joints.js';
 import { liftMaterials, LIFT_DEFAULTS } from '../art/rig3d/lift.js';
 import { setDualQuaternionSkinning } from '../art/rig3d/dqs.js';
+import { GripSolver } from '../art/rig3d/grip.js';
 import {
   applyWeightOps, meshIslands, restPositions, islandBones, anchorFrame
 } from '../art/rig3d/weights.js';
@@ -283,6 +284,21 @@ export class RigSession {
     this.retargeter = null;
     this.preview = false;
     this.stress = null;
+    // WEAPONS ON THE IMPORTED BODY. The reference character's props hang off
+    // the DRIVE rig and are drawn with the ghost; a clone of each rides the
+    // imported bones so the model can be judged the way it will be seen —
+    // which for a character whose battle stance is built around a weapon is
+    // the only way to judge it at all. Bind poses show none of it: T-pose,
+    // A-pose and "as loaded" are about the rig, and a staff through the
+    // frame only gets in the way.
+    this.propClones = [];              // {name, node, from}
+    this.showProps = true;
+    // `keepProps: false` from the manifest entry — a model whose weapon is
+    // modelled into its own mesh (Nobara's hammer) must not also carry the
+    // procedural one, on the bench any more than in the game.
+    this.keepProps = true;
+    this.gripEdits = {};               // prop name -> authored grip spec
+    this.grips = null;                 // GripSolver over the clones
 
     this.dqs = true;           // dual-quaternion skinning (see dqs.js)
     this.lift = null;          // ambient-lift handle
@@ -384,6 +400,8 @@ export class RigSession {
     this.weightOps = Array.isArray(entry.weights) ? entry.weights.map(o => ({ ...o })) : [];
     this._islandCache = null;
     this.poseEdits = { ...(entry.pose || {}) };
+    this.gripEdits = { ...(entry.grips || {}) };
+    this.keepProps = entry.keepProps !== false;
     this.rotOffset = Object.fromEntries(
       Object.entries(entry.rotOffset || {}).map(([k, v]) => [k, [...v]]));
     this.fit = {
@@ -403,6 +421,8 @@ export class RigSession {
     this.lift?.restore();
     this.lift = null;
     if (this.wrapper) this.stage.scene.remove(this.wrapper);
+    this.detachProps();
+    this.keepProps = true;
     this.wrapper = this.model3d = this.baseline = null;
     this.stats = null;
     this.map = {}; this.overrides = {}; this.rotOffset = {};
@@ -630,6 +650,8 @@ export class RigSession {
     if (!this.retargeter) { this.preview = false; return false; }
     this.preview = true;
     if (clip) this.ref.player.play(clip, { fade: 0.12, restart: true });
+    this.ref.model.gripClip = clip || null;
+    this.attachProps();
     return true;
   }
 
@@ -656,7 +678,9 @@ export class RigSession {
     }
     this.preview = true;
     this.stress = name;
+    this.ref.model.gripClip = null;
     this.retargeter.apply();
+    this.attachProps();
     return true;
   }
 
@@ -706,7 +730,9 @@ export class RigSession {
     }
     this.preview = true;
     this.stress = name;
+    this.ref.model.gripClip = null;
     this.retargeter.apply();
+    this.attachProps();
     return true;
   }
 
@@ -778,8 +804,97 @@ export class RigSession {
     return { median: at(0.5), p90: at(0.9), worst: errs.at(-1), samples: errs.length };
   }
 
+  // ---- weapons on the imported body ---------------------------------------
+  // The same move render3d.js makes on the real thing (adoptAttachments), on
+  // a CLONE instead of the original: the ghost keeps its own weapon, so the
+  // two bodies can be compared holding the same thing. The transform is the
+  // adoption identity — the retargeter drives importedWorld = srcWorld ∘
+  // align, so a node sitting at `v` from the drive bone belongs at align⁻¹·v
+  // from the imported one, with the wrapper's metres-to-model-units scale
+  // undone.
+  attachProps() {
+    this.detachProps();
+    if (!this.showProps || !this.keepProps) return 0;
+    if (!this.ref || !this.retargeter || !this.wrapper) return 0;
+    const s = this.wrapper.scale.x || 1;
+    for (const [name, p] of this.ref.model.props ?? []) {
+      const node = p.node;
+      const bone = node?.parent;
+      if (!node?.visible || !bone?.isBone) continue;
+      const target = this.map[bone.name];
+      const align = this.retargeter.alignOf(bone.name);
+      if (!target || !align) continue;
+      const clone = node.clone(true);
+      const inv = align.clone().invert();
+      clone.position.copy(node.position).applyQuaternion(inv).divideScalar(s);
+      clone.quaternion.copy(node.quaternion).premultiply(inv);
+      clone.scale.copy(node.scale).divideScalar(s);
+      target.add(clone);
+      this.propClones.push({ name, node: clone, from: node });
+    }
+    // the solver measures its target off the CLONE, not the original — the
+    // original is on the ghost, in a different place on a different body
+    const byName = new Map(this.propClones.map(c => [c.name, c.node]));
+    this.grips = this.propClones.length
+      ? new GripSolver(this.ref.model, this.map, this.gripEdits,
+        { nodeOf: n => byName.get(n) ?? null })
+      : null;
+    return this.propClones.length;
+  }
+
+  detachProps() {
+    for (const c of this.propClones) c.node.parent?.remove(c.node);
+    this.propClones.length = 0;
+    this.grips = null;
+  }
+
+  setShowProps(on) {
+    this.showProps = !!on;
+    if (this.preview) this.attachProps(); else this.detachProps();
+  }
+
+  // Author the off-hand grip by clicking the weapon: the world point comes
+  // back from the surface pick, and what is stored is that point in the
+  // PROP'S own space, which is what makes it portable to an imported weapon
+  // standing in the same place.
+  setGripFromWorld(name, worldPoint, extra = {}) {
+    const c = this.propClones.find(x => x.name === name);
+    if (!c || !worldPoint) return null;
+    c.node.updateMatrixWorld(true);
+    const local = c.node.worldToLocal(worldPoint.clone());
+    const at = local.toArray().map(v => +v.toFixed(4));
+    this.gripEdits[name] = { bone: 'HandL', ...(this.gripEdits[name] || {}), ...extra, at };
+    this.grips?.refresh();
+    return at;
+  }
+
+  clearGrip(name) {
+    delete this.gripEdits[name];
+    this.grips?.refresh();
+  }
+
+  // the first surface hit on the WEAPONS, for grip picking
+  pickPropPoint(event) {
+    const meshes = [];
+    for (const c of this.propClones) c.node.traverse(o => { if (o.isMesh && o.visible) meshes.push(o); });
+    if (!meshes.length) return null;
+    const r = this.stage.canvas.getBoundingClientRect();
+    this._raycaster.setFromCamera(new THREE.Vector2(
+      ((event.clientX - r.left) / r.width) * 2 - 1,
+      -((event.clientY - r.top) / r.height) * 2 + 1), this.stage.camera);
+    const hit = this._raycaster.intersectObjects(meshes, false)[0];
+    if (!hit) return null;
+    for (const c of this.propClones) {
+      let inside = false;
+      c.node.traverse(o => { if (o === hit.object) inside = true; });
+      if (inside) return { name: c.name, point: hit.point };
+    }
+    return null;
+  }
+
   stopPreview() {
     if (!this.preview) return;
+    this.detachProps();
     this.preview = false;
     this.stress = null;
     this.ref?.player.play('idle', { fade: 0, restart: true });
@@ -801,6 +916,11 @@ export class RigSession {
         this.ref.model.update(dt);
       }
       this.retargeter.apply();
+      if (this.grips?.active) {
+        // the grip target hangs off a bone the retargeter has just moved
+        this.wrapper.updateMatrixWorld(true);
+        this.grips.apply();
+      }
     }
     this._tickMarkers();
   }
@@ -1165,6 +1285,7 @@ export class RigSession {
     if (Object.keys(this.jointEdits).length) entry.joints = this.jointEdits;
     if (this.weightOps.length) entry.weights = this.weightOps;
     if (Object.keys(this.poseEdits).length) entry.pose = this.poseEdits;
+    if (Object.keys(this.gripEdits).length) entry.grips = this.gripEdits;
     if (Object.keys(this.rotOffset).length) {
       entry.rotOffset = Object.fromEntries(
         Object.entries(this.rotOffset).map(([k, v]) => [k, v.map(x => Math.round(x * 100) / 100)]));

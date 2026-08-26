@@ -132,7 +132,19 @@ const OUT = { color: 0x0a0910, thickness: 0.008 };
 // ---------------------------------------------------------------------------
 // PLAYFUL CLOUD
 // ---------------------------------------------------------------------------
-export function buildPlayfulCloud(H = 1.88) {
+// LENGTH IS A PARAMETER, and the default is Toji's.
+//
+// A real three-section staff runs about six feet — three sections of an arm's
+// length each, 60-70 cm, so the whole thing stands about as tall as the person
+// holding it. This one is deliberately shorter for HIM: 0.24 is what survived
+// after 0.285 (1.61 m on his 1.88 m frame) clipped the floor in his low guard
+// and cleared his head in the high one, both while hanging from ONE hand.
+//
+// None of that constrains a TWO-HANDED carry, which is the one Maki's clip set
+// is authored for: held across the body her hands sit 0.75-0.96 m apart, so
+// the weapon needs 1.14 m before it even spans her grip, and at Toji's length
+// there is nothing left over to read as a polearm. She passes 0.32.
+export function buildPlayfulCloud(H = 1.88, { section = 0.24, fold = false } = {}) {
   const g = new THREE.Group();
   g.name = 'playfulCloud';
   const shaftMat = MAT.cloth({ vertexColors: false, color: PC.shaft, rimColor: 0xffb08a });
@@ -140,18 +152,18 @@ export function buildPlayfulCloud(H = 1.88) {
   const ferMat = MAT.metal({ vertexColors: false, color: PC.ferrule });
   const linkMat = MAT.metal({ vertexColors: false, color: PC.link });
 
-  // 0.24·H per section: a true three-section staff at 0.285 was 1.6 m and both
-  // clipped the floor in the low guard and cleared his head in the high one.
-  const secLen = 0.24 * H;           // three of these, plus joints
+  const secLen = section * H;        // three of these, plus joints
   const secR = 0.0115 * H;
-  // Sections are laid end to end up +Y with a small kink at each joint, so the
-  // silhouette reads ARTICULATED at a glance instead of as one straight pole.
+  const gap = 0.022 * H;             // the chain-link bridge between sections
+  // A small kink at each joint, so the silhouette reads ARTICULATED at a
+  // glance instead of as one straight pole. With `fold` on it is the rest
+  // angle the joint springs back to rather than a fixed bend.
   const kinks = [0, 0.10, -0.07];
-  let y = 0;
-  for (let i = 0; i < 3; i++) {
+
+  // one section's worth of geometry, built from y = 0 upward
+  const buildSection = i => {
     const sec = new THREE.Group();
-    sec.position.y = y;
-    sec.rotation.z = kinks[i];
+    sec.name = 'cloudSection' + i;
     const body = new THREE.Mesh(
       new THREE.CylinderGeometry(secR * 0.93, secR, secLen, 10), shaftMat);
     body.position.y = secLen / 2;
@@ -175,20 +187,60 @@ export function buildPlayfulCloud(H = 1.88) {
       b.position.y = by;
       sec.add(b);
     }
-    g.add(sec);
-    y += secLen;
-    // the joint: two short chain links bridging into the next section
-    if (i < 2) {
-      for (let k = 0; k < 2; k++) {
-        const link = new THREE.Mesh(
-          new THREE.TorusGeometry(0.010 * H, 0.0034 * H, 5, 9), linkMat);
-        link.position.set(0, y - 0.004 * H + k * 0.013 * H, 0);
-        link.rotation.set(Math.PI / 2, k * Math.PI / 2, 0);
-        g.add(link);
-      }
-      y += 0.022 * H;
+    return sec;
+  };
+  // the two chain links bridging out of the top of a section
+  const addLinks = parent => {
+    for (let k = 0; k < 2; k++) {
+      const link = new THREE.Mesh(
+        new THREE.TorusGeometry(0.010 * H, 0.0034 * H, 5, 9), linkMat);
+      link.position.set(0, secLen - 0.004 * H + k * 0.013 * H, 0);
+      link.rotation.set(Math.PI / 2, k * Math.PI / 2, 0);
+      parent.add(link);
+    }
+  };
+
+  const sections = [buildSection(0), buildSection(1), buildSection(2)];
+
+  if (fold) {
+    // ---- ARTICULATED. The one thing this weapon does that a pole cannot ----
+    //
+    // A three-section staff strikes AROUND a guard, and it does that because
+    // the outer sections trail the one being driven and then snap. Rigidly
+    // parented they cannot: the whole thing swings as a bar and the joints are
+    // decoration. So the outer two ride a spring chain (rig/springs.js — the
+    // same machinery as hair and coat tails, stiff and near-weightless instead
+    // of soft and heavy), anchored at the top of the section the hands hold.
+    //
+    // Nothing has to be animated for this. The lag comes out of how fast the
+    // grip moves, so every clip the character has — and every one it grows
+    // later — gets the whip for free, and a slow guard reads as a straight
+    // staff because a slow guard produces no lag.
+    g.add(sections[0]);
+    addLinks(sections[0]);
+    addLinks(sections[1]);
+    const anchor = new THREE.Object3D();
+    anchor.name = 'cloudFoldAnchor';
+    anchor.position.y = secLen + gap;
+    sections[0].add(anchor);
+    // the rest kink is baked into each moving section rather than the pivot,
+    // because the pivot's rotation is what the spring owns
+    sections[1].rotation.z = kinks[1];
+    sections[2].rotation.z = kinks[2];
+    g.userData.fold = {
+      anchor,
+      segments: [{ len: secLen + gap, mesh: sections[1] }, { len: secLen + gap, mesh: sections[2] }]
+    };
+  } else {
+    let y = 0;
+    for (let i = 0; i < 3; i++) {
+      sections[i].position.y = y;
+      sections[i].rotation.z = kinks[i];
+      g.add(sections[i]);
+      if (i < 2) { addLinks(sections[i]); y += secLen + gap; }
     }
   }
+
   // the free ring hanging off the butt cap
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(0.016 * H, 0.0038 * H, 6, 12), linkMat);

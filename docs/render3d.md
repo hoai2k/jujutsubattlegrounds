@@ -82,6 +82,9 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `lift` | `{ambient: 0.22, saturation: 1.18}` | a small lighting lift (see below). `false` leaves the file's materials completely untouched |
 | `rotOffset` | `{}` | `{canonical: [x°,y°,z°]}` world-space trim per bone |
 | `weights` | `[]` | skin repairs (see below) — `{bleed: […]}` as a rule over the surface, or `{at, rigid}` / `{at, drop}` per mesh island |
+| `propSlot` | `{}` | `{propName: slot}` — carry a prop in a different attachment slot on this model |
+| `grips` | `{}` | `{propName: {bone, at, to}}` — where the OFF hand grips a two-handed weapon (see below) |
+| `props` | `{}` | `{propName: {url}}` — an imported weapon model standing in for the procedural one |
 | `keepProps` | `true` | procedural weapons stay visible. Set `false` when the model already has them modelled in — Nobara's hammer is in her mesh, so the procedural one would be a second hammer |
 | `hideSprings` | `true` | procedural hair/coat spring meshes hidden |
 | `skinning` | `"dual"` | `"dual"` blends the bones' rotations (see below), `"linear"` falls back to three.js' stock matrix blend |
@@ -91,7 +94,7 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 
 ## What ships today
 
-Five models are committed and mapped, all of them the same shape of export —
+Seven models are committed and mapped, all of them the same shape of export —
 a Rigify `DEF-` rig, 33 bones, 19 of them canonical:
 
 | Character | File | Rest pose | Triangles | Entry |
@@ -101,6 +104,8 @@ a Rigify `DEF-` rig, 33 bones, 19 of them canonical:
 | Jogo | `jogo.glb` | T-pose | 120k | `weights` bleed |
 | Mahito | `mahito.glb` | as authored | 300k | `weights` bleed |
 | Naoya | `naoya.glb` | as authored | 120k | `weights` bleed |
+| Maki | `maki.glb` | A-pose | 120k | `weights` bleed |
+| Megumi | `megumi.glb` | A-pose | 120k | `weights` bleed |
 
 None of them needed a `pose` calibration, a `boneMap` override or a pivot
 fix: bind alignment absorbs the rest-pose difference (that is what it is for,
@@ -135,6 +140,148 @@ well, because it re-parents onto the drive rig every time a clip changes
 hands.
 
 This is why Jogo needs no `scale` trim to make his plume meet his head.
+
+One trap worth naming, because it cost a weapon: position and rotation can be
+transformed in place on each adoption, since `attachProp` rewrites both from
+the attachment every time — and the fighter calls it EVERY FRAME for anything
+whose slot depends on state (Maki's weapon toggle, Toji's arsenal, Nobara's
+hammer, Miwa's saya). It does not touch scale. Dividing the *current* scale by
+the wrapper's factor therefore compounded once per frame: the weapon shrank by
+~1.7x per frame and was gone inside a second. The adoption now remembers each
+node's own scale and assigns rather than divides. It went unnoticed because
+the benches attach a prop once, and at match camera distance a weapon
+vanishing looks like a character who never drew one.
+
+## Two-handed weapons (`grips`)
+
+One hand on a weapon is solved by the attachment: the prop hangs off a bone,
+that bone gets adopted onto the imported skeleton, done. The SECOND hand is a
+different problem, and it is the one the retargeter cannot answer on its own.
+
+Rotation transfer is the right contract for a body. A clip says "the elbow is
+bent this much", and a differently proportioned arm ends up with its wrist
+somewhere else — as it should. But a hand closed around a haft is a
+**position**, not an angle, and "somewhere else" is a hand floating off the
+weapon. The eye finds it immediately, because it is the one place in the pose
+where two things are supposed to be touching. Measured on a real pair — Maki's
+clips driving an imported body fitted to her height — the miss is about 4 cm.
+
+So the weapon says where the off hand belongs, as a point in **its own local
+space**, and that arm is re-solved onto it with two-bone IK (`ik.js`,
+`grip.js`) after the pose is final:
+
+```json
+"grips": { "playful_cloud": { "bone": "HandL",
+                              "at": [0, 0.42, 0], "to": [0, 0.66, 0] } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `bone` | which hand grips (`HandL` by default) |
+| `at` | the point on the weapon, in the weapon's own space |
+| `to` | optional: makes it a **segment**, and the hand slides along it to whatever spot it can reach — which is what a hand on a long haft actually does, and far more forgiving across models than a fixed point |
+| `weight` | 0..1 authored strength |
+| `only` / `except` | clip names, matched against `model.gripClip` |
+
+Because the point is prop-local it does not care whether the weapon is the
+procedural one or an imported `.glb` standing in the same place, and it
+survives the weapon being re-authored as long as the shape does not move.
+
+Three things it deliberately does not do:
+
+- **It never runs on the procedural body.** Those clips were authored against
+  those proportions, so its hands are already where the animator put them.
+- **It does not choose the weapon's pose.** Where the weapon sits is the
+  attachment's business. The grip only answers "and the other hand goes HERE
+  on it" — so a weapon a character carries one-handed needs a two-handed
+  attachment *first*; a grip point alone will not pull a hand across the body
+  onto a staff hanging at the far hip. `propSlot` picks that slot per model.
+- **It does not invent a hand orientation.** The palm attitude the retargeter
+  chose is captured before the solve and restored after, so only the position
+  changes.
+
+An arm straining at something out of range reads far worse than a hand
+slightly off it, so how far the target sits past the arm's reach is measured
+*before* solving and the correction is faded out over the last 12 cm. That is
+also the automatic answer for clips where the hand genuinely leaves the
+weapon.
+
+Author one by clicking: **WEAPONS** on `/workbench/?edit=models` shows the
+character's props on the imported body during preview, and arming a prop then
+clicking the haft stores that point in the weapon's own space. It exports
+with the rest of the entry.
+
+### Grips run on the procedural body too
+
+The original rule was that grip.js only ever touched an IMPORTED body, on the
+argument that the procedural one needs no help: its clips were authored
+against its own proportions.
+
+That argument does not survive a weapon whose attachment is **solved** rather
+than drawn. Maki's staff and naginata are laid through her hands by a
+transform computed from one settled pose; every other frame moves the leading
+hand and swings the far end, and her rear hand is then as approximate on the
+drive rig as it is on an import. So `finalizeModel` wires the same solver over
+the character's own bones whenever any attachment declares a grip. It costs
+nothing for the characters that declare none — the solver reports itself
+inactive and the update hook is never installed.
+
+The authored angles become the pose the solve starts from rather than the only
+thing holding the hand on, which is why the clip files still read as poses
+rather than as a table of solved numbers.
+
+### Imported weapons (`props`)
+
+A weapon can come from a file too:
+
+```json
+"props": { "playful_cloud": { "url": "./maki_polearm.glb" } }
+```
+
+It does not replace the prop — it goes **inside** it. The procedural prop's
+node is what carries the attachment transform, the adoption onto the imported
+hand, and the space the grip point is measured in; parent the loaded weapon
+under that node and it inherits all three, and the grip maths never learns
+that the shape came from a file. Size comes from the weapon it stands in for
+(longest dimension matched), with `scale`/`pos`/`rot` to trim.
+
+This is worth preferring over modelling the weapon into the character's mesh.
+Weapons move between slots — Maki visibly carries both of hers, Toji's
+inventory curse swallows what he is not holding — and weapons are shared
+code, with Maki importing Toji's builders unchanged. A weapon skinned into
+the body can never be sheathed, swapped, dropped or shared. Where a model
+really does have its weapon modelled in, `keepProps: false` is the answer
+instead — that is how Nobara ships.
+
+### The first one: Maki's Playful Cloud
+
+Maki carries the staff two-handed, and the grip above is what holds an
+imported body's off hand on the shaft. Getting there needed the attachment
+first, which is the general lesson: **a grip point does not create a
+two-handed carry, it only keeps one honest.**
+
+Her `*Cloud` clip set was already authored for a two-handed staff — idleCloud
+says so, both arms are driven, and her hands sit 0.75–0.96 m apart through
+every clip in the set. But the weapon was hanging off one hand, so her left
+hand was reaching for something 0.62–0.92 m away from it. The animation and
+the attachment disagreed, and the animation was right. Three things closed it:
+
+- a `twoHand` attachment solved from the settled idleCloud pose — the staff
+  aimed from her left hand to her right, butt 0.12 m beyond the left;
+- the staff lengthened **for her** from 0.24·H to 0.32·H (1.25 m to 1.67 m).
+  Her grip needs 1.14 m before the weapon even spans both hands, and a real
+  three-section staff is about six feet anyway. Toji keeps 0.24 — the length
+  is a parameter now, and his one-handed hang is what it was tuned for;
+- every Cloud clip re-based on the two-handed guard. `K(t, {})` falls through
+  to `MAKI_STANCE`, which is her EMPTY-HANDED guard, so every staff attack
+  used to begin and end with her left hand 16 cm off the weapon.
+
+The mid-swing keys were then re-solved with the same two-bone IK that runs at
+runtime, used as an authoring tool: her left hand was put back on the shaft at
+each key and the arm angles read out. Worst-case divergence across the set
+fell from 0.72 m to 0.20 m, and what is left is the genuinely one-handed
+extreme of each swing — in character for a three-section staff, whose whole
+point is that it can be flung from one hand.
 
 ## Skin repairs (`weights`)
 
