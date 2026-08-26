@@ -20,7 +20,7 @@
 // ===========================================================================
 import { ROSTER_IDS, ROSTER } from '../characters/index.js';
 import {
-  createStage, RigSession, CANONICAL, STRESS_POSES, downloadJson, el, sec, buildLoaderUI
+  createStage, RigSession, CANONICAL, STRESS_POSES, REFERENCE_POSES, downloadJson, el, sec, buildLoaderUI
 } from './rigcore.js';
 
 const KEY = 'jujutsu-battlegrounds.workbench.models';
@@ -161,20 +161,35 @@ export function mountModelBench(root) {
     clipSel.value = clipNames.includes(keep) ? keep : 'idle';
   }
   syncClips();
+  const rowRef = el('div', 'mb-chips');
   const rowStress = el('div', 'mb-chips');
+  const clearPoses = () => [...rowRef.children, ...rowStress.children]
+    .forEach(x => x.classList.remove('on'));
+  for (const name of Object.keys(REFERENCE_POSES)) {
+    const b = el('button', 'mb-chip', name);
+    b.onclick = () => {
+      if (!session.startReference(name)) status.textContent = 'Load a model with a mappable Hips first.';
+      clearPoses(); b.classList.add('on');
+    };
+    rowRef.append(b);
+  }
   for (const name of Object.keys(STRESS_POSES)) {
     const b = el('button', 'mb-chip', name);
     b.onclick = () => {
       if (!session.startStress(name)) status.textContent = 'Load a model with a mappable Hips first.';
-      [...rowStress.children].forEach(x => x.classList.toggle('on', x === b));
+      clearPoses(); b.classList.add('on');
     };
     rowStress.append(b);
   }
   sPrev.append(el('div', 'mb-hint',
-    'STRESS POSES — the rig check rather than the animation check: each drives one ' +
-    'joint group to where a misplaced pivot stops being subtle.'), rowStress);
+    'REFERENCE POSES — limbs straight and both sides mirrored, so anything bent or ' +
+    'lopsided is the rig rather than the pose. The first thing to look at on a new ' +
+    'model. (These pose the rig; the T/A buttons above edit the model\'s own rest.)'), rowRef,
+    el('div', 'mb-hint',
+      'STRESS POSES — the rig check rather than the animation check: each drives one ' +
+      'joint group to where a misplaced pivot stops being subtle.'), rowStress);
   bPlay.onclick = () => {
-    [...rowStress.children].forEach(x => x.classList.remove('on'));
+    clearPoses();
     if (!session.startPreview(clipSel.value)) status.textContent = 'Nothing to preview — load a model with a mappable Hips first.';
   };
   clipSel.onchange = () => { if (session.preview) session.startPreview(clipSel.value); };

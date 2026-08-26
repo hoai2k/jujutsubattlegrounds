@@ -316,10 +316,35 @@ enough to reproduce and improve the fix offline.
 
 **`?edit=rig` — the questions only eyes can answer.** Walk the mapping bone
 by bone with the guessed joint lit in the view (click the right joint in 3D
-to reassign); run the **stress poses** — arms overhead, deep squat, spine
-twist — which is where a misplaced pivot stops being subtle; **measure** the
-skin weights to see where each joint actually is versus where the bone sits;
-and correct pivots and retarget trims with live dials.
+to reassign); stand the rig in a **reference pose** (below) to judge whether
+it is worth shipping at all; run the **stress poses** — arms overhead, deep
+squat, spine twist — which is where a misplaced pivot stops being subtle;
+**measure** the skin weights to see where each joint actually is versus where
+the bone sits; and correct pivots and retarget trims with live dials.
+
+### Reference poses: is this rig viable?
+
+Both benches offer **T-pose** and **A-pose** next to the stress set. They put
+every limb along a straight line with the two sides mirrored, so anything
+bent, short, sagging or lopsided is the rig rather than the pose — the flat
+first question, before any stress pose asks whether a particular joint
+survives an extreme.
+
+They are *driven*, not authored: the drive rig is set to its own bind (its
+bones rest at identity) and each arm segment is then **aimed** along a world
+direction computed from that rig's own rest limb. The game's bind has the arms
+13° off vertical, so a hardcoded angle would be a different pose on a different
+body; aiming makes it the same pose on every one, and genuinely mirrored.
+Nothing is stored — this poses the rig, where `autoPose` (the *T-pose* /
+*Auto game bind* buttons) edits the model's own rest pose and does get exported.
+
+Because the pose is symmetric by construction, the rig bench also reports the
+**mirror mismatch**: the posed mesh reflected in x, measured against itself, as
+a percentage of body height. Under ~1% is an even bind. It is the one defect
+the eye is worst at — a shoulder pivot a few centimetres lower on one side
+reads only as "he looks a bit off". Today: Naoya 0.16%, Nobara 1.8%, Yuji 2.1%
+— though a prop in one hand or a costume that is not itself symmetric raises
+the number on its own, so read it next to the model rather than alone.
 
 Both export one manifest-entry JSON carrying every correction — mapping
 picks, landmarks, pivot fixes, rest-pose calibration, trims, fit numbers,
