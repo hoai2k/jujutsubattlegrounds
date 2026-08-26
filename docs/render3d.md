@@ -85,7 +85,6 @@ Keys are a character id (`"yuji"`), a variant pick (`"gojo:shinjuku"`), or
 | `propSlot` | `{}` | `{propName: slot}` — carry a prop in a different attachment slot on this model |
 | `grips` | `{}` | `{propName: {bone, at, to}}` — where the OFF hand grips a two-handed weapon (see below) |
 | `props` | `{}` | `{propName: {url}}` — an imported weapon model standing in for the procedural one |
-| `outline` | `true` | the ink outline every procedural body carries. `false` drops it; `{color, thickness}` tunes it |
 | `keepProps` | `true` | procedural weapons stay visible. Set `false` when the model already has them modelled in — Nobara's hammer is in her mesh, so the procedural one would be a second hammer |
 | `hideSprings` | `true` | procedural hair/coat spring meshes hidden |
 | `skinning` | `"dual"` | `"dual"` blends the bones' rotations (see below), `"linear"` falls back to three.js' stock matrix blend |
@@ -382,27 +381,6 @@ to the reference's `H`.
 auto game-bind, then per-bone adjustment), check skinning with the per-bone
 weight heatmap, and preview any character's real clips beside the procedural
 body it replaces.
-
-### The outline is not optional
-
-Every procedural body in this game carries an inverted-hull ink outline, the
-arenas are lit low, and most of the roster wears dark colours. An imported
-body without one **dissolves**: at gameplay camera distance Yuji read as a
-single navy mass with no boundary between arm and torso — reported as
-"stretched and bendy", which is exactly what a limb with no edge looks like
-when it moves. Megumi did the same at the same framing, so it was never one
-model's weights; imports simply had no silhouette.
-
-`makeOutline` already clones a `SkinnedMesh` as a hull sharing the geometry
-and skeleton, so it deforms with the body for nothing. The one thing that does
-not carry over is thickness: the growth is in object space and an imported
-model lives inside a wrapper scaled to the character's height, so it is
-divided by the fit factor to put the line back in metres.
-
-This is **not** the cel re-shade described below, which was tried and reverted.
-The model keeps its own PBR materials and its own texture. It gains an edge,
-and nothing else. The cost is a second draw of each skinned mesh, the same
-deal the procedural roster already takes; `outline: false` opts out.
 
 ### Lighting: a lift, not a restyle
 
