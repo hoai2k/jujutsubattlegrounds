@@ -268,6 +268,10 @@ export class RigSession {
     // frame only gets in the way.
     this.propClones = [];              // {name, node, from}
     this.showProps = true;
+    // `keepProps: false` from the manifest entry — a model whose weapon is
+    // modelled into its own mesh (Nobara's hammer) must not also carry the
+    // procedural one, on the bench any more than in the game.
+    this.keepProps = true;
     this.gripEdits = {};               // prop name -> authored grip spec
     this.grips = null;                 // GripSolver over the clones
 
@@ -372,6 +376,7 @@ export class RigSession {
     this._islandCache = null;
     this.poseEdits = { ...(entry.pose || {}) };
     this.gripEdits = { ...(entry.grips || {}) };
+    this.keepProps = entry.keepProps !== false;
     this.rotOffset = Object.fromEntries(
       Object.entries(entry.rotOffset || {}).map(([k, v]) => [k, [...v]]));
     this.fit = {
@@ -392,6 +397,7 @@ export class RigSession {
     this.lift = null;
     if (this.wrapper) this.stage.scene.remove(this.wrapper);
     this.detachProps();
+    this.keepProps = true;
     this.wrapper = this.model3d = this.baseline = null;
     this.stats = null;
     this.map = {}; this.overrides = {}; this.rotOffset = {};
@@ -663,7 +669,8 @@ export class RigSession {
   // undone.
   attachProps() {
     this.detachProps();
-    if (!this.showProps || !this.ref || !this.retargeter || !this.wrapper) return 0;
+    if (!this.showProps || !this.keepProps) return 0;
+    if (!this.ref || !this.retargeter || !this.wrapper) return 0;
     const s = this.wrapper.scale.x || 1;
     for (const [name, p] of this.ref.model.props ?? []) {
       const node = p.node;

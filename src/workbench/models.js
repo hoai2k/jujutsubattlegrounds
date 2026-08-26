@@ -215,6 +215,16 @@ export function mountModelBench(root) {
       gripStatus.textContent = '';
       return;
     }
+    // A model whose weapon is modelled into its own mesh says so with
+    // `keepProps: false`, and then the procedural one must not appear either —
+    // it would be a second hammer, on the bench exactly as in the game.
+    if (!session.keepProps) {
+      propRow.append(el('div', 'mb-hint',
+        'This entry sets <b>keepProps: false</b> — the weapon is modelled into the mesh, ' +
+        'so the procedural one stays off. Nothing to grip here.'));
+      gripStatus.textContent = '';
+      return;
+    }
     for (const name of names) {
       const has = !!session.gripEdits[name];
       const b = el('button', 'mb-chip' + (gripArmed === name ? ' on' : has ? '' : ' off'),

@@ -310,6 +310,22 @@ function attach(model, srcRest, scene, src, pick) {
   hideProcedural(model, wrapper, src);
   adoptAttachments(model, wrapper, map, retargeter, src);
 
+  // ...and keep them hidden. hideProcedural runs ONCE, but `attachProp` ends
+  // with `p.node.visible = true` and the fighter calls it every frame for any
+  // prop whose slot depends on state — which is every one of Nobara's. So a
+  // model that says `keepProps: false` because its weapon is modelled into the
+  // mesh got the procedural one back one frame after load, and shipped with
+  // two hammers. The flag has to be durable, not a single pass.
+  if (src.keepProps === false && model.attachProp) {
+    const base = model.attachProp.bind(model);
+    model.attachProp = (name, slot) => {
+      base(name, slot);
+      const p = model.props?.get(name);
+      if (p?.node) p.node.visible = false;
+    };
+    for (const p of model.props?.values() ?? []) if (p.node) p.node.visible = false;
+  }
+
   // TWO-HANDED WEAPONS. Rotation transfer puts the dominant hand on the
   // weapon (the weapon is parented to it) and leaves the off hand wherever
   // this body's proportions land it, which for a hand that should be closed
