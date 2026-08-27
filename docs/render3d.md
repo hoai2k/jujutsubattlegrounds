@@ -405,7 +405,7 @@ body and gets another.
 
 ## The workbenches
 
-Two pages at `/workbench/` do the model-preparation work, both built on the
+Three pages at `/workbench/` do the model-preparation work, all built on the
 shipped pipeline rather than a parallel implementation — the same
 `guessBoneMap`, `rerigHierarchy`, `Retargeter` and `fitInto` the game runs.
 Models load from the manifest, from a URL, or by dropping a file on the page,
@@ -502,6 +502,49 @@ Two buttons turn marks into fixes:
 The export carries the marks (in model space and normalized by body height),
 the per-bone error in centimetres, and any mapping the marks disagree with —
 enough to reproduce and improve the fix offline.
+
+### `?edit=verification` — the same question, as a queue
+
+The landmark checklist above is the right shape for **inspecting** a rig and
+the wrong shape for **answering** about one. It asks you to decide what to do
+next seventeen times, it assumes you already know what a pelvis pivot is, and
+it does not fit on a phone — which matters more than it sounds, because
+pointing at a shoulder is a thing a touch screen is *better* at than a mouse.
+
+So the verification bench asks instead. One question at a time, with the view
+already orbited to the right side of the body and zoomed to the joint, a
+progress bar, and an **EXPORT DECISIONS** button at the end. The first queue
+is `landmarks`: the same seventeen joints, bracketed by two questions the
+tools cannot answer for themselves —
+
+- **is this bind pose a rest, or a fighting stance?** `symmetry.mjs` decides
+  that from a threshold (see *Intake: the symmetry gate*), and a threshold is
+  a guess about a fact somebody knows.
+- **anything else wrong with it?** free text, carried verbatim.
+
+The export is a decisions file rather than a manifest entry: the answers as
+given, the marks in model space *and* normalized by height, the per-bone error
+in centimetres, any bone the marks say was mis-*mapped* rather than misplaced,
+and a `joints` patch ready to paste into `manifest.json`.
+
+Two things about it are deliberate:
+
+- **The skeleton is hidden by default.** The rig bench draws every joint as a
+  green ball, which is right when the question is *is this the right bone*.
+  Here it is worse than useless: shown a ball near the shoulder, a person
+  points at the ball, and the answer is the rig's own opinion handed back to
+  it. The `◫` tool brings the bones in when they are actually wanted.
+- **The sheet folds away.** On a phone the question sits over the bottom of
+  the screen, which is where four of the seventeen landmarks are. It folds to
+  a single bar that still names the question and still advances the queue, and
+  while it is open the framing pulls back and aims into the *uncovered* band —
+  measured from the sheet's own rectangle, so the desktop rail, which covers
+  nothing, changes nothing.
+
+`node tools/benchcheck.mjs` drives the whole loop in a real browser at both
+sizes. Adding a queue is one entry in `QUEUES` (`src/workbench/verification.js`)
+returning question objects; the four kinds — `point`, `choice`, `note`, `done`
+— already have their framing, persistence and export written.
 
 **`?edit=rig` — the questions only eyes can answer.** Walk the mapping bone
 by bone with the guessed joint lit in the view (click the right joint in 3D

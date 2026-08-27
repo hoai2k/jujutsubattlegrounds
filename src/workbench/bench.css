@@ -247,3 +247,170 @@
   flex-basis: 100%; font-size: 11px; line-height: 1.45; color: var(--bone-dim);
   border-left: 2px solid var(--ac); padding: 4px 0 4px 8px; margin: 2px 0 4px;
 }
+
+/* ============================================================================
+   VERIFICATION BENCH (?edit=verification)
+   ----------------------------------------------------------------------------
+   A different shape from the two inspector benches, because it is a different
+   job. There the panel IS the work and the view is evidence; here the view is
+   the work — the answer is a finger on a shoulder — and the question is an
+   overlay that gets out of the way.
+   ONE layout, two behaviours: a rail down the right on a wide screen, a sheet
+   over the bottom on a narrow one. The sheet folds to a single bar (`.min`),
+   which is the whole reason this works on a phone: the question can never be
+   standing in front of the thing it is asking about.
+   ========================================================================== */
+.vb {
+  position: relative; flex: 1; min-height: 0;
+  margin: 0 calc(clamp(20px, 4vw, 72px) * -1) calc(clamp(18px, 3.2vh, 40px) * -1);
+  display: flex;
+}
+.vb-view { position: relative; flex: 1; min-width: 0; }
+/* pointer events do the orbiting, so the browser must not also scroll on drag */
+.mb-canvas, .vb-view canvas { touch-action: none; }
+
+/* --------------------------------------------------------- viewer tools -- */
+/* Everything the questions need the camera to do, as thumb-sized squares.
+   Orbit and pinch still work; these exist because a one-handed phone can do
+   neither, and because "put it back on the joint" is not a gesture. */
+.vb-tools {
+  position: absolute; top: 10px; left: 10px; z-index: 3;
+  display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 20px);
+}
+.vb-tool {
+  font: inherit; font-size: 15px; line-height: 1; cursor: pointer;
+  width: 42px; height: 42px; color: var(--bone-dim);
+  background: rgba(10, 10, 16, 0.72); border: 1px solid rgba(240, 236, 228, 0.18);
+  backdrop-filter: blur(3px);
+}
+.vb-tool:hover { color: var(--bone); border-color: var(--ac); }
+.vb-tool.on { background: var(--ac); border-color: var(--ac); color: var(--ink); }
+
+/* ---------------------------------------------------------------- sheet -- */
+.vb-card {
+  position: relative; z-index: 4; flex: none;
+  width: clamp(340px, 32vw, 460px);
+  display: flex; flex-direction: column;
+  background: rgba(8, 8, 13, 0.94); border-left: 1px solid rgba(240, 236, 228, 0.12);
+  padding: 16px clamp(14px, 1.6vw, 24px) 0;
+}
+.vb-fold { display: none; }
+.vb-head { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.vb-step { font-size: 11px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--bone-far); }
+.vb-step b { color: var(--ac); font-weight: 700; }
+.vb-step i { color: var(--bone-dim); font-style: normal; }
+.vb-bar { height: 3px; background: rgba(240, 236, 228, 0.12); }
+.vb-bar i { display: block; height: 100%; background: var(--ac); transition: width 0.25s ease; }
+
+.vb-body {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 16px 0;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.vb-title {
+  font-size: clamp(19px, 2.4vw, 26px); font-weight: 800; font-style: italic;
+  letter-spacing: 0.02em; line-height: 1.1; color: var(--bone);
+}
+.vb-ask { font-size: 14px; line-height: 1.55; color: var(--bone-dim); }
+.vb-why {
+  font-size: 12px; line-height: 1.5; color: var(--bone-far);
+  border-left: 2px solid var(--ac); padding: 3px 0 3px 10px;
+}
+.vb-read { font-size: 13px; line-height: 1.5; color: var(--bone-dim); }
+.vb-read b { color: var(--ac); }
+.vb-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* choices are targets, not radio buttons: one thumb, one press, no aiming */
+.vb-opts { display: flex; flex-direction: column; gap: 8px; }
+.vb-opt {
+  font: inherit; text-align: left; cursor: pointer; padding: 13px 15px;
+  color: var(--bone-dim); background: rgba(240, 236, 228, 0.04);
+  border: 1px solid rgba(240, 236, 228, 0.18);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.vb-opt b { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--bone); }
+.vb-opt span { font-size: 12px; line-height: 1.4; color: var(--bone-far); }
+.vb-opt:hover { border-color: var(--ac); }
+.vb-opt.on { background: var(--ac); border-color: var(--ac); }
+.vb-opt.on b, .vb-opt.on span { color: var(--ink); }
+
+.vb-nav {
+  flex: none; display: flex; gap: 8px; align-items: center;
+  padding: 12px 0 max(14px, env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(240, 236, 228, 0.1);
+}
+.vb-go {
+  font: inherit; font-size: 14px; font-weight: 800; font-style: italic;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink);
+  background: var(--ac); border: 0; padding: 14px 22px; cursor: pointer;
+  transform: skewX(var(--skew)); margin-left: auto; min-height: 48px;
+}
+.vb-go > span { display: block; transform: skewX(calc(var(--skew) * -1)); }
+.vb-go:disabled { background: rgba(240, 236, 228, 0.12); color: var(--bone-far); cursor: not-allowed; }
+.vb-ghost {
+  font: inherit; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--bone-dim); background: transparent; cursor: pointer;
+  border: 1px solid rgba(240, 236, 228, 0.18); padding: 13px 16px; min-height: 48px;
+  transform: skewX(var(--skew));
+}
+.vb-ghost > span { display: block; transform: skewX(calc(var(--skew) * -1)); }
+.vb-ghost:hover { color: var(--bone); border-color: var(--ac); }
+.vb-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+.vb-ghost.sm { min-height: 40px; padding: 9px 13px; }
+.vb-card .mb-notes { min-height: 110px; }
+
+/* ---------------------------------------------------------------- phone -- */
+@media (max-width: 880px), (pointer: coarse) and (max-width: 1100px) {
+  /* the page title is a nameplate, and a nameplate is not worth a third of a
+     phone screen when the screen is the tool */
+  .bench.vb-mode { padding: 10px 12px 0; }
+  .bench.vb-mode .bench-head h1 { font-size: 22px; }
+  .bench.vb-mode .bench-head .jp { display: none; }
+  .bench.vb-mode .bench-head .tab { padding: 6px 10px; font-size: 10px; letter-spacing: 0.14em; }
+  .bench.vb-mode .bench-rule { margin: 8px 0 10px; }
+  .vb { margin: 0 -12px -0px; display: block; }
+  .vb-view { position: absolute; inset: 0; }
+  /* a column of nine would run off the bottom of the uncovered band, and the
+     uncovered band is the whole point — so they wrap along the top instead */
+  .vb-tools { top: 8px; left: 8px; right: 8px; gap: 5px; }
+  .vb-tool { width: 42px; height: 42px; font-size: 14px; }
+
+  .vb-card {
+    position: absolute; left: 0; right: 0; bottom: 0; width: auto;
+    max-height: 62vh; border-left: 0; border-top: 2px solid var(--ac);
+    padding: 0 14px 0; box-shadow: 0 -20px 50px rgba(0, 0, 0, 0.6);
+    transition: transform 0.22s ease;
+  }
+  /* FOLDED: everything but the grab bar slides off the bottom, so the body is
+     unobstructed while you point at it. Tapping the bar brings it back. */
+  .vb-card.min { transform: translateY(calc(100% - 52px)); }
+  .vb-fold {
+    display: flex; align-items: stretch; height: 52px; flex: none;
+    margin: 0 -14px; padding: 0 6px 0 14px; gap: 6px;
+  }
+  .vb-handle {
+    flex: 1; min-width: 0; cursor: pointer; text-align: left;
+    background: transparent; border: 0; padding: 0; color: var(--bone-dim);
+    display: flex; flex-direction: column; justify-content: center; gap: 5px;
+  }
+  .vb-handle i { display: block; width: 54px; height: 4px; background: rgba(240, 236, 228, 0.35); }
+  /* the question, one line, while the sheet is folded — so a folded sheet is
+     still a legible queue rather than an anonymous bar */
+  .vb-handle b {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: var(--bone-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+  }
+  .vb-card:not(.min) .vb-handle b { display: none; }
+  .vb-card:not(.min) .vb-handle i { margin: 0 auto; }
+  .vb-card:not(.min) .vb-mininext { display: none; }
+  .vb-mininext {
+    font: inherit; font-size: 12px; font-weight: 800; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink); background: var(--ac);
+    border: 0; padding: 0 16px; margin: 6px 0; cursor: pointer; flex: none;
+    transform: skewX(var(--skew));
+  }
+  .vb-body { padding: 10px 0 4px; }
+  .vb-title { font-size: 19px; }
+  .vb-ask { font-size: 13.5px; }
+  .vb-nav { gap: 6px; }
+  .vb-ghost { padding: 13px 12px; letter-spacing: 0.1em; }
+}

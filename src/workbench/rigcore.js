@@ -62,7 +62,11 @@ export function createStage(canvasHost) {
   scene.background = new THREE.Color(0x14161f);
   scene.fog = new THREE.Fog(0x14161f, 10, 34);
   const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 100);
-  const cam = { yaw: 0.5, pitch: 0.14, dist: 4.4, height: 1.0 };
+  // `tx`/`tz` move what the camera LOOKS AT. The two older benches never
+  // needed it — a whole body centred on the origin is the shot — but a bench
+  // that asks "point at the left elbow" has to be able to put the left elbow
+  // in the middle of the screen and fill the frame with it.
+  const cam = { yaw: 0.5, pitch: 0.14, dist: 4.4, height: 1.0, tx: 0, tz: 0 };
 
   const key = new THREE.DirectionalLight(0xfff0dc, 2.4); key.position.set(4, 7, 5);
   const rim = new THREE.DirectionalLight(0x86b4ff, 1.6); rim.position.set(-5, 6, -6);
@@ -76,18 +80,57 @@ export function createStage(canvasHost) {
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  let dragging = false, px = 0, py = 0, moved = 0;
-  canvas.addEventListener('pointerdown', e => { dragging = true; moved = 0; px = e.clientX; py = e.clientY; });
-  addEventListener('pointerup', () => { dragging = false; });
+  // ORBIT, PINCH, PAN — one pointer set, so the same code serves a mouse and a
+  // phone. Every pointer that went down on the canvas is tracked: one is an
+  // orbit, two are a pinch-zoom plus a pan of the look-at point. That second
+  // gesture is not a luxury on a touch bench — without it a small screen can
+  // orbit around a joint but never get close enough to point at it.
+  const pts = new Map();
+  let px = 0, py = 0, moved = 0, pinch = 0, multi = false;
+  const mid = () => {
+    let x = 0, y = 0;
+    for (const p of pts.values()) { x += p.x; y += p.y; }
+    return { x: x / pts.size, y: y / pts.size };
+  };
+  const spread = () => {
+    const a = [...pts.values()];
+    return a.length < 2 ? 0 : Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+  };
+  canvas.addEventListener('pointerdown', e => {
+    canvas.setPointerCapture?.(e.pointerId);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) { moved = 0; multi = false; }
+    else multi = true;
+    const m = mid(); px = m.x; py = m.y; pinch = spread();
+  });
+  const release = e => {
+    if (!pts.delete(e.pointerId)) return;
+    if (pts.size) { const m = mid(); px = m.x; py = m.y; pinch = spread(); }
+  };
+  addEventListener('pointerup', release);
+  addEventListener('pointercancel', release);
   addEventListener('pointermove', e => {
-    if (!dragging) return;
-    moved += Math.abs(e.clientX - px) + Math.abs(e.clientY - py);
-    cam.yaw -= (e.clientX - px) * 0.008;
-    cam.pitch = Math.max(-0.5, Math.min(1.25, cam.pitch + (e.clientY - py) * 0.005));
-    px = e.clientX; py = e.clientY;
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const m = mid(), dx = m.x - px, dy = m.y - py;
+    moved += Math.abs(dx) + Math.abs(dy);
+    if (pts.size >= 2) {
+      const d = spread();
+      if (pinch > 4 && d > 4) cam.dist = Math.max(0.25, Math.min(20, cam.dist * (pinch / d)));
+      pinch = d;
+      // two fingers also PAN: screen-right in world at this yaw, and plain up
+      const k = cam.dist * 0.0022;
+      cam.tx -= Math.cos(cam.yaw) * dx * k;
+      cam.tz += Math.sin(cam.yaw) * dx * k;
+      cam.height = Math.max(0, Math.min(4, cam.height + dy * k));
+    } else {
+      cam.yaw -= dx * 0.008;
+      cam.pitch = Math.max(-0.5, Math.min(1.25, cam.pitch + dy * 0.005));
+    }
+    px = m.x; py = m.y;
   });
   canvas.addEventListener('wheel', e => {
-    cam.dist = Math.max(1.0, Math.min(20, cam.dist + e.deltaY * 0.005));
+    cam.dist = Math.max(0.25, Math.min(20, cam.dist + e.deltaY * 0.005));
   }, { passive: true });
 
   function resize() {
@@ -102,8 +145,17 @@ export function createStage(canvasHost) {
   const stage = {
     renderer, scene, camera, canvas, cam, resize,
     // true when the pointer went down and came back up without orbiting —
-    // the click-to-pick path uses it to ignore drag-ends
-    wasClick: () => moved < 6,
+    // the click-to-pick path uses it to ignore drag-ends. A finger is less
+    // steady than a mouse, so the slop is wider than it would need to be for
+    // a cursor, and a two-finger gesture is never a pick.
+    wasClick: () => moved < 10 && !multi,
+    /** Put a world point in the middle of the frame. */
+    frameOn(v, dist) {
+      cam.tx = v.x; cam.tz = v.z; cam.height = v.y;
+      if (dist != null) cam.dist = Math.max(0.25, Math.min(20, dist));
+    },
+    /** Named angles, so a bench can ask for "the left side" without maths. */
+    orbit(yaw, pitch = 0.06) { cam.yaw = yaw; cam.pitch = pitch; },
     onFrame: null,
     dispose() { stage.dead = true; removeEventListener('resize', resize); renderer.dispose(); }
   };
@@ -115,10 +167,10 @@ export function createStage(canvasHost) {
     last = now;
     stage.onFrame?.(dt);
     camera.position.set(
-      Math.sin(cam.yaw) * cam.dist * Math.cos(cam.pitch),
+      cam.tx + Math.sin(cam.yaw) * cam.dist * Math.cos(cam.pitch),
       cam.height + Math.sin(cam.pitch) * cam.dist,
-      Math.cos(cam.yaw) * cam.dist * Math.cos(cam.pitch));
-    camera.lookAt(0, cam.height, 0);
+      cam.tz + Math.cos(cam.yaw) * cam.dist * Math.cos(cam.pitch));
+    camera.lookAt(cam.tx, cam.height, cam.tz);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(resize);

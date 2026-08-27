@@ -6,6 +6,7 @@
 //   /workbench/?edit=finishers     the finisher cutscenes
 //   /workbench/?edit=models        imported 3D models: pose, skinning, clips
 //   /workbench/?edit=rig           rig review: mapping + pose feedback export
+//   /workbench/?edit=verification  a queue of questions only a person can answer
 //   /workbench/                    finishers — the default
 //
 // It is a SEPARATE HTML entry rather than a route inside the game (the way
@@ -23,11 +24,13 @@ import './bench.css';
 import { mountFinisherBench } from './finishers.js';
 import { mountModelBench } from './models.js';
 import { mountRigBench } from './rig.js';
+import { mountVerificationBench } from './verification.js';
 
 const BENCHES = {
   finishers: { label: 'Finishers', mount: mountFinisherBench },
   models: { label: 'Models', mount: mountModelBench },
-  rig: { label: 'Rig', mount: mountRigBench }
+  rig: { label: 'Rig', mount: mountRigBench },
+  verification: { label: 'Verify', mount: mountVerificationBench }
 };
 const DEFAULT_BENCH = 'finishers';
 

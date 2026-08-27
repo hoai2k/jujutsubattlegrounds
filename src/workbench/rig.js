@@ -433,7 +433,13 @@ export function mountRigBench(root) {
     if (session.weightOps.length) {
       skinOut.append(el('div', 'mb-hint',
         `<b>${session.weightOps.length} repair(s):</b> ` + session.weightOps.map(o =>
-          o.rigid ? `rigid→${o.rigid}` : `drop ${o.drop.join('/')}`).join(', ')));
+          // three kinds, not two: a `bleed` rule names no island at all, and
+          // reading `o.drop` on one threw hard enough that loading ANY manifest
+          // entry into this bench reported "Failed:" over a model that had in
+          // fact loaded perfectly
+          o.rigid ? `rigid→${o.rigid}`
+            : o.drop ? `drop ${o.drop.join('/')}`
+              : `bleed ${(o.bleed ?? []).join('→')}`).join(', ')));
     }
   }
 

@@ -69,6 +69,20 @@ to check, and both had to be checked for Uraume and Ryu:
       node tools/symmetry.mjs                 # dry run
       node tools/symmetry.mjs --write         # merge into the manifest
 
+- **"the bench a person has to use actually works"** — `benchcheck.mjs` drives
+  the verification bench (`/workbench/?edit=verification`) in a real browser at
+  a desktop size and a phone size: loads a manifest model, answers a question,
+  taps the body to place a landmark, leaves the question by every route there
+  is, and reads the exported decisions back. It exists because that bench's
+  entire output is a human's answer, so nothing about it can be unit-tested —
+  and it caught the two faults that made it useless on a phone: the folded
+  question bar advanced the queue WITHOUT recording the answer, and the
+  question sheet sat on top of the lower half of the body, which is where four
+  of the seventeen landmarks are.
+
+      node tools/benchcheck.mjs             # both viewports
+      node tools/benchcheck.mjs maki        # a different manifest entry
+
 Usage:
 
     node tools/shoot.mjs '[{"kind":"sheet","id":"uraume","name":"out",
