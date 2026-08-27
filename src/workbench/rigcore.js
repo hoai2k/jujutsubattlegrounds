@@ -153,6 +153,31 @@ export const STRESS_POSES = {
   'head turn': { Neck: [0, 52, 0], Head: [-12, 26, 0] }
 };
 
+// -------------------------------------------------------- reference poses --
+// THE TWO STANCES A RIG IS JUDGED IN. A stress pose asks "does this joint
+// survive an extreme?"; a reference pose asks the flatter question first —
+// IS THIS RIG WORTH SHIPPING AT ALL? Both put the body somewhere every
+// deviation is legible against a straight line, which is what makes them the
+// standard: limbs straight, weight even, nothing foreshortened, and the two
+// sides mirror images. Anything bent, twisted, short or lopsided here is the
+// rig, because the pose contains nothing that could excuse it.
+//
+// They are DRIVEN, not authored: the drive rig is set to its own bind (its
+// bones rest at identity, so that is one line) and the arms are then AIMED
+// along a world direction, computed from each rig's own rest limb. That
+// matters — the game's bind has the arms 13° off vertical, so a hardcoded
+// Euler would be a different pose on a different body, and these have to be
+// the same pose on every one.
+//
+// Not to be confused with `autoPose`, one section down: that STANDS THE MODEL
+// UP, editing its stored rest pose so a file authored in some arbitrary pose
+// can be measured. This poses the rig that drives it and stores nothing.
+export const REFERENCE_POSES = {
+  // world direction for the LEFT arm's segments; the right mirrors in x
+  'A-pose': { arms: [0.7, -0.71, 0] },
+  'T-pose': { arms: [1, 0, 0] }
+};
+
 // -------------------------------------------------------------- landmarks --
 // WHAT THE RETARGETER ACTUALLY NEEDS FROM A HUMAN.
 //
@@ -657,6 +682,126 @@ export class RigSession {
     this.retargeter.apply();
     this.attachProps();
     return true;
+  }
+
+  // A reference stance (see REFERENCE_POSES): zero the drive rig back to its
+  // own bind, then aim each arm segment along a world direction. Aiming rather
+  // than setting an angle is what makes the two sides genuinely mirrored and
+  // the pose the same on every body.
+  startReference(name) {
+    const spec = REFERENCE_POSES[name];
+    if (!spec || !this.model3d || !this.ref) return false;
+    this.rebuild();
+    if (!this.retargeter) return false;
+    const { player, model, rest } = this.ref;
+    player.play('idle', { fade: 0, restart: true });
+    player.update(0.001);
+    player.current = null;
+    // the drive rig's bones rest at identity, so this IS its bind pose:
+    // spine upright, legs straight, feet under the hips
+    for (const b of model.boneList) b.quaternion.identity();
+    const hips = model.bones.get('Hips');
+    if (hips) hips.position.copy(rest.get('Hips').localPos);
+
+    // rotation accumulated from the root down to (and excluding) this bone —
+    // with identity rest rotations that product is the bone's world rotation
+    const chainQ = bone => {
+      const q = new THREE.Quaternion();
+      for (let b = bone; b && rest.has(b.name); b = b.parent) q.premultiply(b.quaternion);
+      return q;
+    };
+    const aim = (name2, childName, dir) => {
+      const a = rest.get(name2), c = rest.get(childName);
+      const bone = model.bones.get(name2);
+      if (!a || !c || !bone) return;
+      const bind = c.worldPos.clone().sub(a.worldPos);
+      if (bind.lengthSq() < 1e-12) return;
+      const parentQ = chainQ(bone.parent);
+      const now = bind.normalize().applyQuaternion(parentQ);
+      const arc = new THREE.Quaternion().setFromUnitVectors(now, dir);
+      // world = arc · parent  and  world = parent · local  ⟹  local = parent⁻¹ · arc · parent
+      bone.quaternion.copy(parentQ.clone().invert().multiply(arc).multiply(parentQ));
+    };
+    for (const side of ['L', 'R']) {
+      const m = side === 'L' ? 1 : -1;
+      const dir = new THREE.Vector3(spec.arms[0] * m, spec.arms[1], spec.arms[2]).normalize();
+      aim('UpArm' + side, 'LoArm' + side, dir);      // parent first: the
+      aim('LoArm' + side, 'Hand' + side, dir);       // forearm inherits it
+    }
+    this.preview = true;
+    this.stress = name;
+    this.ref.model.gripClip = null;
+    this.retargeter.apply();
+    this.attachProps();
+    return true;
+  }
+
+  // THE NUMBER A REFERENCE POSE EXISTS TO PRODUCE.
+  //
+  // A T-pose or A-pose is mirror-symmetric by construction — the drive rig is
+  // symmetric and both arms are aimed at mirrored directions — so whatever
+  // asymmetry comes out the far end is the rig or the bind, not the pose. That
+  // is the one defect the eye is worst at: a shoulder pivot 4 cm lower on one
+  // side reads as "he looks a bit off" and nothing more.
+  //
+  // So: mirror the posed mesh in x about its own centre and measure how far
+  // each mirrored point lands from the real surface. Reported as a percentage
+  // of body height, which makes it comparable across models. Under about 1% is
+  // a symmetric character; a few percent is a rig worth looking at; the number
+  // is only meaningful in a reference pose.
+  poseSymmetry(sample = 4000) {
+    if (!this.model3d) return null;
+    let mesh = null;
+    this.model3d.traverse(o => {
+      if (o.isSkinnedMesh && o.geometry?.getAttribute('skinIndex') && !mesh) mesh = o;
+    });
+    if (!mesh) return null;
+    // the retargeter has written quaternions but nothing has rendered yet, so
+    // the world matrices restPositions skins from are a frame stale
+    this.wrapper?.updateMatrixWorld(true);
+    const P = restPositions(mesh);
+    const n = P.length / 3;
+    const box = new THREE.Box3();
+    const v = new THREE.Vector3();
+    for (let i = 0; i < n; i++) box.expandByPoint(v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]));
+    const size = box.getSize(new THREE.Vector3());
+    const h = Math.max(1e-6, size.y);
+    const midX = (box.min.x + box.max.x) / 2;
+    // uniform grid over every vertex, so the mirrored samples have something
+    // to be near; one cell per 1% of height keeps the buckets small
+    const cell = h * 0.01;
+    const key = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
+    const grid = new Map();
+    for (let i = 0; i < n; i++) {
+      const k = key(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+      const b = grid.get(k);
+      if (b) b.push(i); else grid.set(k, [i]);
+    }
+    const step = Math.max(1, Math.floor(n / sample));
+    const errs = [];
+    for (let i = 0; i < n; i += step) {
+      const x = 2 * midX - P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
+      const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell);
+      let best = Infinity;
+      // widen the search until something is found; 3 rings is 6% of height,
+      // past which the mirrored point has no counterpart worth reporting
+      for (let r = 1; r <= 3 && best === Infinity; r++) {
+        for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) for (let c = -r; c <= r; c++) {
+          if (r > 1 && Math.max(Math.abs(a), Math.abs(b), Math.abs(c)) < r) continue;
+          const bucket = grid.get(`${cx + a},${cy + b},${cz + c}`);
+          if (!bucket) continue;
+          for (const j of bucket) {
+            const d = (P[j * 3] - x) ** 2 + (P[j * 3 + 1] - y) ** 2 + (P[j * 3 + 2] - z) ** 2;
+            if (d < best) best = d;
+          }
+        }
+      }
+      if (best < Infinity) errs.push(Math.sqrt(best) / h);
+    }
+    if (!errs.length) return null;
+    errs.sort((a, b) => a - b);
+    const at = f => errs[Math.min(errs.length - 1, Math.floor(f * errs.length))];
+    return { median: at(0.5), p90: at(0.9), worst: errs.at(-1), samples: errs.length };
   }
 
   // ---- weapons on the imported body ---------------------------------------

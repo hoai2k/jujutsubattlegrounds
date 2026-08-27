@@ -7,10 +7,12 @@
 //   1 MAPPING   every canonical bone the game animates, as chips. Selecting
 //               one lights its guessed joint; wrong guess, click the right
 //               joint in 3D. Green mapped, amber selected, red core-and-missing.
-//   2 POSES     clips AND the stress set — arms overhead, deep squat, spine
-//               twist. A clip shows whether the rig animates; a stress pose
-//               shows whether it is BUILT right, because that is where a
-//               misplaced pivot stops being subtle.
+//   2 POSES     clips, the stress set AND the two reference stances. A clip
+//               shows whether the rig animates; a stress pose shows whether it
+//               is BUILT right, because that is where a misplaced pivot stops
+//               being subtle; a T-pose or A-pose asks the flatter question
+//               first — is this rig viable? — and comes with the one number
+//               the eye cannot produce, how symmetric the result is.
 //   3 LANDMARKS the part only a person can do: POINT AT THE JOINTS. Every
 //               alignment the retargeter builds comes from where the bones
 //               sit inside the mesh, so a bone in the wrong place aims its
@@ -32,7 +34,7 @@
 // ===========================================================================
 import { ROSTER_IDS, ROSTER } from '../characters/index.js';
 import {
-  createStage, RigSession, CANONICAL, CORE, STRESS_POSES, LANDMARKS,
+  createStage, RigSession, CANONICAL, CORE, STRESS_POSES, REFERENCE_POSES, LANDMARKS,
   downloadJson, el, sec, buildLoaderUI
 } from './rigcore.js';
 
@@ -152,25 +154,51 @@ export function mountRigBench(root) {
   const sVer = sec(panel, '2 · POSES — does the body move like the game?');
   sVer.append(el('div', 'mb-hint',
     'Stand the model into the game bind first (models rarely ship in one). ' +
-    '<b>Stress poses</b> are the rig check — arms overhead finds a low shoulder ' +
-    'faster than any clip. <b>Clips</b> are the shipped retargeter, live.'));
+    '<b>Reference poses</b> come first: a T-pose or A-pose puts every limb along ' +
+    'a straight line with the two sides mirrored, so anything bent, short or ' +
+    'lopsided is the rig rather than the pose. <b>Stress poses</b> then push one ' +
+    'joint group to an extreme — arms overhead finds a low shoulder faster than ' +
+    'any clip. <b>Clips</b> are the shipped retargeter, live.'));
   const rowBind = el('div', 'mb-row');
   const bBind = el('button', 'mb-btn', '<span>Auto game bind</span>');
   const bLoaded = el('button', 'mb-btn', '<span>As loaded</span>');
   const bStop = el('button', 'mb-btn', '<span>Stop</span>');
   rowBind.append(bBind, bLoaded, bStop);
+  const rowRef = el('div', 'mb-chips');
+  const refRead = el('div', 'mb-hint', '');
   const rowStress = el('div', 'mb-chips');
   const rowClips = el('div', 'mb-chips');
-  sVer.append(rowBind, el('div', 'mb-hint', 'STRESS'), rowStress,
+  sVer.append(rowBind, el('div', 'mb-hint', 'REFERENCE'), rowRef, refRead,
+    el('div', 'mb-hint', 'STRESS'), rowStress,
     el('div', 'mb-hint', 'CLIPS'), rowClips);
 
-  const clearActive = () => [...rowStress.children, ...rowClips.children]
+  const clearActive = () => [...rowRef.children, ...rowStress.children, ...rowClips.children]
     .forEach(x => x.classList.remove('on'));
+  for (const name of Object.keys(REFERENCE_POSES)) {
+    const b = el('button', 'mb-chip', name);
+    b.onclick = () => {
+      if (!session.startReference(name)) { status.textContent = 'Load a model with a mappable Hips first.'; return; }
+      clearActive(); b.classList.add('on');
+      // the pose is mirror-symmetric by construction, so what is left is the rig
+      const sym = session.poseSymmetry();
+      refRead.innerHTML = sym
+        ? `Mirror mismatch: <b>${(sym.median * 100).toFixed(2)}%</b> of height typical, ` +
+          `${(sym.p90 * 100).toFixed(2)}% at the 90th percentile. ` +
+          (sym.median < 0.01
+            ? 'Symmetric — the bind is even.'
+            : 'One side sits differently from the other: check the shoulder and hip ' +
+              'pivots in <b>4 · PIVOTS</b>. (A prop in one hand or a costume that is ' +
+              'not itself symmetric will raise this on its own — read it next to ' +
+              'the model, not alone.)')
+        : '';
+    };
+    rowRef.append(b);
+  }
   for (const name of Object.keys(STRESS_POSES)) {
     const b = el('button', 'mb-chip', name);
     b.onclick = () => {
       if (!session.startStress(name)) { status.textContent = 'Load a model with a mappable Hips first.'; return; }
-      clearActive(); b.classList.add('on');
+      clearActive(); b.classList.add('on'); refRead.innerHTML = '';
     };
     rowStress.append(b);
   }
@@ -178,11 +206,11 @@ export function mountRigBench(root) {
     const b = el('button', 'mb-chip', clip);
     b.onclick = () => {
       if (!session.startPreview(clip)) { status.textContent = 'Load a model with a mappable Hips first.'; return; }
-      clearActive(); b.classList.add('on');
+      clearActive(); b.classList.add('on'); refRead.innerHTML = '';
     };
     rowClips.append(b);
   }
-  bBind.onclick = () => { session.autoPose('A'); clearActive(); syncAll(); };
+  bBind.onclick = () => { session.autoPose('A'); clearActive(); refRead.innerHTML = ''; syncAll(); };
   bLoaded.onclick = () => { session.stopPreview(); session.restoreLoadedPose(); clearActive(); syncAll(); };
   bStop.onclick = () => { session.stopPreview(); clearActive(); };
 
