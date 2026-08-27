@@ -253,12 +253,14 @@
    ----------------------------------------------------------------------------
    A different shape from the two inspector benches, because it is a different
    job. There the panel IS the work and the view is evidence; here the view is
-   the work — the answer is a finger on a shoulder — and the question is an
-   overlay that gets out of the way.
-   ONE layout, two behaviours: a rail down the right on a wide screen, a sheet
-   over the bottom on a narrow one. The sheet folds to a single bar (`.min`),
-   which is the whole reason this works on a phone: the question can never be
-   standing in front of the thing it is asking about.
+   the work — the answer is a finger on a shoulder — and everything else is a
+   panel that opens over it.
+
+   ONE set of panels, shown one at a time, in a card that is a rail down the
+   right on a wide screen and a modal sheet on a phone. On a phone the whole
+   bench is a FIXED layer sized in dvh: it owes nothing to the page's scroll
+   position or to a browser toolbar that grows and shrinks, which is what put
+   the viewer off the bottom of a real phone while an emulator showed it fine.
    ========================================================================== */
 .vb {
   position: relative; flex: 1; min-height: 0;
@@ -268,34 +270,36 @@
 .vb-view { position: relative; flex: 1; min-width: 0; }
 /* pointer events do the orbiting, so the browser must not also scroll on drag */
 .mb-canvas, .vb-view canvas { touch-action: none; }
+.vb-dock { display: none; }
+.vb-close { display: none; }
 
-/* --------------------------------------------------------- viewer tools -- */
-/* Everything the questions need the camera to do, as thumb-sized squares.
-   Orbit and pinch still work; these exist because a one-handed phone can do
-   neither, and because "put it back on the joint" is not a gesture. */
-.vb-tools {
-  position: absolute; top: 10px; left: 10px; z-index: 3;
-  display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 20px);
-}
-.vb-tool {
-  font: inherit; font-size: 15px; line-height: 1; cursor: pointer;
-  width: 42px; height: 42px; color: var(--bone-dim);
-  background: rgba(10, 10, 16, 0.72); border: 1px solid rgba(240, 236, 228, 0.18);
-  backdrop-filter: blur(3px);
-}
-.vb-tool:hover { color: var(--bone); border-color: var(--ac); }
-.vb-tool.on { background: var(--ac); border-color: var(--ac); color: var(--ink); }
-
-/* ---------------------------------------------------------------- sheet -- */
+/* ---------------------------------------------------------------- panels -- */
 .vb-card {
   position: relative; z-index: 4; flex: none;
   width: clamp(340px, 32vw, 460px);
   display: flex; flex-direction: column;
   background: rgba(8, 8, 13, 0.94); border-left: 1px solid rgba(240, 236, 228, 0.12);
-  padding: 16px clamp(14px, 1.6vw, 24px) 0;
+  padding: 0 clamp(14px, 1.6vw, 24px);
 }
-.vb-fold { display: none; }
-.vb-head { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.vb-panel { display: flex; flex-direction: column; gap: 12px; }
+
+/* the panel switcher: the whole navigation model, four buttons wide */
+.vb-tabs {
+  flex: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+  margin: 0 clamp(-14px, -1.6vw, -24px); padding: 8px clamp(14px, 1.6vw, 24px);
+  border-bottom: 1px solid rgba(240, 236, 228, 0.1);
+}
+.vb-tab {
+  font: inherit; cursor: pointer; padding: 8px 4px; min-height: 44px;
+  color: var(--bone-far); background: transparent; border: 1px solid transparent;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.vb-tab em { font-style: normal; font-size: 15px; line-height: 1; }
+.vb-tab span { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; }
+.vb-tab:hover { color: var(--bone); }
+.vb-tab.on { color: var(--ink); background: var(--ac); border-color: var(--ac); }
+
+.vb-head { display: flex; flex-direction: column; gap: 8px; flex: none; padding-top: 14px; }
 .vb-step { font-size: 11px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--bone-far); }
 .vb-step b { color: var(--ac); font-weight: 700; }
 .vb-step i { color: var(--bone-dim); font-style: normal; }
@@ -303,8 +307,8 @@
 .vb-bar i { display: block; height: 100%; background: var(--ac); transition: width 0.25s ease; }
 
 .vb-body {
-  flex: 1; min-height: 0; overflow-y: auto; padding: 16px 0;
-  display: flex; flex-direction: column; gap: 12px;
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 16px 0; display: flex; flex-direction: column; gap: 12px;
 }
 .vb-title {
   font-size: clamp(19px, 2.4vw, 26px); font-weight: 800; font-style: italic;
@@ -318,6 +322,13 @@
 .vb-read { font-size: 13px; line-height: 1.5; color: var(--bone-dim); }
 .vb-read b { color: var(--ac); }
 .vb-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.vb-links { display: flex; gap: 14px; flex-wrap: wrap; }
+.vb-links a {
+  font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--bone-far); text-decoration: none; border-bottom: 1px solid transparent;
+  padding: 8px 0;
+}
+.vb-links a:hover { color: var(--ac); border-color: var(--ac); }
 
 /* choices are targets, not radio buttons: one thumb, one press, no aiming */
 .vb-opts { display: flex; flex-direction: column; gap: 8px; }
@@ -333,11 +344,42 @@
 .vb-opt.on { background: var(--ac); border-color: var(--ac); }
 .vb-opt.on b, .vb-opt.on span { color: var(--ink); }
 
+/* the queue, as a list you can jump around in */
+.vb-list { display: flex; flex-direction: column; gap: 3px; }
+.vb-listrow {
+  font: inherit; cursor: pointer; text-align: left; min-height: 44px;
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  color: var(--bone-far); background: rgba(240, 236, 228, 0.03);
+  border: 1px solid rgba(240, 236, 228, 0.1);
+}
+.vb-listrow i { font-style: normal; width: 12px; flex: none; }
+.vb-listrow b { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; }
+.vb-listrow span { font-size: 11px; color: var(--ac); }
+.vb-listrow.ok { color: var(--bone); border-color: rgba(255, 95, 200, 0.4); }
+.vb-listrow.ok i { color: #ff5fc8; }
+.vb-listrow.skipped i { color: var(--bone-far); }
+.vb-listrow.on { border-color: var(--ac); color: var(--bone); background: rgba(185, 143, 255, 0.12); }
+
+/* the camera controls, as a grid of real targets rather than a gesture */
+.vb-toolgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.vb-tool {
+  font: inherit; font-size: 15px; line-height: 1; cursor: pointer;
+  min-width: 44px; min-height: 44px; color: var(--bone-dim);
+  background: rgba(240, 236, 228, 0.05); border: 1px solid rgba(240, 236, 228, 0.18);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.vb-tool em { font-style: normal; }
+.vb-tool span { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+.vb-tool.wide { flex-direction: column; gap: 4px; padding: 8px 4px; }
+.vb-tool:hover { color: var(--bone); border-color: var(--ac); }
+.vb-tool.on { background: var(--ac); border-color: var(--ac); color: var(--ink); }
+
 .vb-nav {
   flex: none; display: flex; gap: 8px; align-items: center;
   padding: 12px 0 max(14px, env(safe-area-inset-bottom));
   border-top: 1px solid rgba(240, 236, 228, 0.1);
 }
+.vb-nav:empty { display: none; }
 .vb-go {
   font: inherit; font-size: 14px; font-weight: 800; font-style: italic;
   letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink);
@@ -346,6 +388,7 @@
 }
 .vb-go > span { display: block; transform: skewX(calc(var(--skew) * -1)); }
 .vb-go:disabled { background: rgba(240, 236, 228, 0.12); color: var(--bone-far); cursor: not-allowed; }
+.vb-go.sm { min-height: 44px; padding: 10px 16px; font-size: 12px; margin-left: 0; }
 .vb-ghost {
   font: inherit; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--bone-dim); background: transparent; cursor: pointer;
@@ -355,62 +398,78 @@
 .vb-ghost > span { display: block; transform: skewX(calc(var(--skew) * -1)); }
 .vb-ghost:hover { color: var(--bone); border-color: var(--ac); }
 .vb-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.vb-ghost.sm { min-height: 40px; padding: 9px 13px; }
+.vb-ghost.sm { min-height: 44px; padding: 10px 13px; }
 .vb-card .mb-notes { min-height: 110px; }
 
-/* ---------------------------------------------------------------- phone -- */
+/* ============================================================================
+   …and the same panels on a phone: a modal sheet over a full-screen viewer.
+   ========================================================================== */
 @media (max-width: 880px), (pointer: coarse) and (max-width: 1100px) {
-  /* the page title is a nameplate, and a nameplate is not worth a third of a
-     phone screen when the screen is the tool */
-  .bench.vb-mode { padding: 10px 12px 0; }
-  .bench.vb-mode .bench-head h1 { font-size: 22px; }
-  .bench.vb-mode .bench-head .jp { display: none; }
-  .bench.vb-mode .bench-head .tab { padding: 6px 10px; font-size: 10px; letter-spacing: 0.14em; }
-  .bench.vb-mode .bench-rule { margin: 8px 0 10px; }
-  .vb { margin: 0 -12px -0px; display: block; }
+  /* The page around the bench stops existing. A workbench nameplate and a page
+     that scrolls are both luxuries at 390px, and the scroll was actively
+     harmful: the viewer ended up below the fold on a real phone. */
+  .bench.vb-mode {
+    position: fixed; inset: 0; height: 100dvh; padding: 0; overflow: hidden;
+  }
+  .bench.vb-mode .bench-head, .bench.vb-mode .bench-rule { display: none; }
+  .vb { position: fixed; inset: 0; height: 100dvh; margin: 0; display: block; }
   .vb-view { position: absolute; inset: 0; }
-  /* a column of nine would run off the bottom of the uncovered band, and the
-     uncovered band is the whole point — so they wrap along the top instead */
-  .vb-tools { top: 8px; left: 8px; right: 8px; gap: 5px; }
-  .vb-tool { width: 42px; height: 42px; font-size: 14px; }
 
+  /* the sheet: over the viewer, or gone — never a strip of both */
   .vb-card {
-    position: absolute; left: 0; right: 0; bottom: 0; width: auto;
-    max-height: 62vh; border-left: 0; border-top: 2px solid var(--ac);
-    padding: 0 14px 0; box-shadow: 0 -20px 50px rgba(0, 0, 0, 0.6);
-    transition: transform 0.22s ease;
+    position: absolute; left: 0; right: 0; bottom: 0; top: auto; width: auto;
+    max-height: calc(100dvh - 96px);
+    border-left: 0; border-top: 2px solid var(--ac);
+    background: rgba(8, 8, 13, 0.97); box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.7);
+    padding: 0 14px; display: none;
   }
-  /* FOLDED: everything but the grab bar slides off the bottom, so the body is
-     unobstructed while you point at it. Tapping the bar brings it back. */
-  .vb-card.min { transform: translateY(calc(100% - 52px)); }
-  .vb-fold {
-    display: flex; align-items: stretch; height: 52px; flex: none;
-    margin: 0 -14px; padding: 0 6px 0 14px; gap: 6px;
+  .vb-card.open { display: flex; }
+  .vb-tabs { grid-template-columns: repeat(4, 1fr); margin: 0 -14px; padding: 6px 52px 6px 14px; }
+  .vb-close {
+    display: block; position: absolute; top: 4px; right: 4px; z-index: 2;
+    width: 44px; height: 44px; font: inherit; font-size: 16px; cursor: pointer;
+    color: var(--bone-dim); background: transparent; border: 0;
   }
-  .vb-handle {
-    flex: 1; min-width: 0; cursor: pointer; text-align: left;
-    background: transparent; border: 0; padding: 0; color: var(--bone-dim);
-    display: flex; flex-direction: column; justify-content: center; gap: 5px;
-  }
-  .vb-handle i { display: block; width: 54px; height: 4px; background: rgba(240, 236, 228, 0.35); }
-  /* the question, one line, while the sheet is folded — so a folded sheet is
-     still a legible queue rather than an anonymous bar */
-  .vb-handle b {
-    font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: var(--bone-dim);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
-  }
-  .vb-card:not(.min) .vb-handle b { display: none; }
-  .vb-card:not(.min) .vb-handle i { margin: 0 auto; }
-  .vb-card:not(.min) .vb-mininext { display: none; }
-  .vb-mininext {
-    font: inherit; font-size: 12px; font-weight: 800; letter-spacing: 0.12em;
-    text-transform: uppercase; color: var(--ink); background: var(--ac);
-    border: 0; padding: 0 16px; margin: 6px 0; cursor: pointer; flex: none;
-    transform: skewX(var(--skew));
-  }
-  .vb-body { padding: 10px 0 4px; }
+  .vb-head { padding-top: 10px; }
+  .vb-body { padding: 12px 0 4px; }
   .vb-title { font-size: 19px; }
   .vb-ask { font-size: 13.5px; }
-  .vb-nav { gap: 6px; }
-  .vb-ghost { padding: 13px 12px; letter-spacing: 0.1em; }
+  .vb-nav { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .vb-toolgrid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .vb-tool.wide { min-height: 58px; }
+  /* the loader is shared with the two inspector benches, where it is driven
+     with a mouse — inside this sheet it is driven with a thumb */
+  .vb-card .mb-btn, .vb-card .mb-chip, .vb-card .mb-input, .vb-card .mb-select {
+    min-height: 44px; padding-top: 10px; padding-bottom: 10px;
+  }
+  .vb-card .mb-chip { padding-left: 14px; padding-right: 14px; font-size: 13px; }
+
+  /* THE ONE THING ALWAYS ON SCREEN: which question, how far through, and the
+     two presses that move. Tapping the title opens the question itself. */
+  .vb-dock {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+    background: linear-gradient(to top, rgba(6, 6, 10, 0.96), rgba(6, 6, 10, 0.82));
+    border-top: 1px solid rgba(240, 236, 228, 0.14);
+    padding: 6px 10px max(8px, env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 6px;
+    backdrop-filter: blur(4px);
+  }
+  .vb-dockq {
+    font: inherit; text-align: left; cursor: pointer; width: 100%;
+    background: transparent; border: 0; padding: 4px 2px; min-height: 34px;
+    display: flex; align-items: baseline; gap: 8px; color: var(--bone);
+  }
+  .vb-dockq i {
+    font-style: normal; font-size: 11px; letter-spacing: 0.16em; color: var(--ac);
+    font-weight: 700; flex: none;
+  }
+  .vb-dockq b {
+    font-size: 14px; font-weight: 600; letter-spacing: 0.02em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .vb-dockrow { display: flex; gap: 6px; align-items: stretch; }
+  .vb-dockbtns { display: flex; gap: 6px; flex: none; }
+  .vb-dockbtns .vb-tool { width: 56px; min-height: 46px; }
+  .vb-docknav { display: flex; gap: 6px; flex: 1; justify-content: flex-end; }
+  .vb-docknav .vb-ghost.sm { padding: 10px 16px; }
 }

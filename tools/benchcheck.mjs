@@ -55,18 +55,26 @@ async function run(label, viewport, isMobile) {
     /pose is this model/.test(await page.textContent('.vb-title')));
 
   await page.click('.vb-opt >> nth=0');                         // a choice answers and advances
-  await page.waitForTimeout(450);
-  check('a choice answers and moves on', (await page.textContent('.vb-title')) === 'Pelvis centre');
+  await page.waitForTimeout(500);
+  check('a choice answers and moves on', (await page.textContent('.vb-dockq b') ||
+    await page.textContent('.vb-title')) === 'Pelvis centre');
 
-  // Tap only where the sheet is NOT: on a phone that is the top of the view,
-  // and it is exactly the band the framing is supposed to aim into.
+  // THE COMPLAINT THIS SECTION EXISTS FOR: on a phone the viewer must be the
+  // page. A pointing question leaves the sheet shut, and what is left of the
+  // view after the dock has to be most of the screen.
   const box = await page.evaluate(() => {
     const r = document.querySelector('.vb-view canvas').getBoundingClientRect();
-    const c = document.querySelector('.vb-card').getBoundingClientRect();
-    const bottom = c.left < r.right - 1 && c.right > r.left + 1 ? Math.min(r.bottom, c.top) : r.bottom;
-    return { x: r.x, y: r.y, w: r.width, h: bottom - r.y };
+    const covers = e => {
+      if (!e || !e.getBoundingClientRect().height || getComputedStyle(e).display === 'none') return r.bottom;
+      const c = e.getBoundingClientRect();
+      return c.left < r.right - 1 && c.right > r.left + 1 ? Math.min(r.bottom, c.top) : r.bottom;
+    };
+    const bottom = Math.min(covers(document.querySelector('.vb-card.open')),
+      covers(document.querySelector('.vb-dock')));
+    return { x: r.x, y: r.y, w: r.width, h: bottom - r.y, view: r.height };
   });
-  check('the sheet leaves the viewer usable', box.h > 220, `${Math.round(box.h)}px of view uncovered`);
+  check('a pointing question leaves the viewer the screen', box.h > box.view * 0.7,
+    `${Math.round(box.h)}px of ${Math.round(box.view)}px clear`);
   let read = '';
   for (const [fx, fy] of [[0.5, 0.5], [0.5, 0.35], [0.45, 0.65]]) {
     await page.mouse.click(box.x + box.w * fx, box.y + box.h * fy);
@@ -77,32 +85,53 @@ async function run(label, viewport, isMobile) {
   check('a tap in the framed band lands on the body', /\d+ cm/.test(read),
     read.replace(/\s+/g, ' ').slice(0, 64));
 
-  // THE BUG THIS FILE WAS WRITTEN FOR: leave the question by the folded bar,
-  // not the Next button, and the mark must still be in the export.
   if (isMobile) {
-    const top = () => page.$eval('.vb-card', c => c.getBoundingClientRect().top);
-    const before = await top();
-    await page.click('.vb-handle');
-    await page.waitForTimeout(400);
-    const after = await top();
-    check('the sheet folds away', after > before + 200, `${Math.round(before)} -> ${Math.round(after)}`);
-    check('a folded sheet still says what the question is',
-      (await page.textContent('.vb-handle b')) === 'Pelvis centre');
-    await page.click('.vb-mininext');
+    const shown = sel => page.evaluate(s => {
+      const e = document.querySelector(s);
+      return !!e && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().height > 0;
+    }, sel);
+    check('the sheet is shut while pointing', !(await shown('.vb-card.open')));
+    check('the dock says which question this is',
+      (await page.textContent('.vb-dockq b')) === 'Pelvis centre');
+
+    // THE BUG THIS FILE WAS WRITTEN FOR: leave the question by the dock, not
+    // the Next button, and the mark must still be in the export.
+    await page.click('.vb-docknav .vb-go');
     await page.waitForTimeout(300);
-    check('a folded sheet still advances', (await page.textContent('.vb-handle b')) === 'Waist');
-    await page.click('.vb-handle');                             // unfold for the rest
+    check('the dock advances the queue', (await page.textContent('.vb-dockq b')) === 'Waist');
+
+    // panels open one at a time, over the viewer, and give it back
+    for (const [icon, sel] of [['Queue', '.vb-list'], ['View', '.vb-toolgrid'], ['Setup', '.mb-input']]) {
+      await page.click(`.vb-dockbtns .vb-tool:has-text("${icon}")`);
+      await page.waitForTimeout(250);
+      check(`the ${icon} panel opens over the viewer`, await shown(sel) && !(await shown('.vb-dock')));
+      await page.click('.vb-close');
+      await page.waitForTimeout(250);
+      check(`closing ${icon} gives the viewer back`, !(await shown('.vb-card.open')) && await shown('.vb-dock'));
+    }
+    // and the queue list can jump straight back
+    await page.click('.vb-dockbtns .vb-tool:has-text("Queue")');
+    await page.waitForTimeout(250);
+    await page.click('.vb-listrow >> nth=1');
     await page.waitForTimeout(300);
+    check('the queue jumps to a question', (await page.textContent('.vb-dockq b')) === 'Pelvis centre');
   }
 
-  for (let i = 0; i < 25; i++) {
-    const t = await page.$eval('.vb-go', b => b.textContent);
-    if (/Export/.test(t)) break;
-    await page.click('.vb-go');
-    await page.waitForTimeout(80);
+  // Walk to the end the way a person would: whichever Next is actually on
+  // screen — the sheet's when it is open, the dock's when it is not.
+  for (let i = 0; i < 30; i++) {
+    const nextSel = await page.evaluate(() => {
+      const vis = e => e && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().height > 0;
+      const card = document.querySelector('.vb-card.open .vb-nav .vb-go');
+      if (vis(card)) return card.textContent.includes('Export') ? 'export' : '.vb-card .vb-nav .vb-go';
+      return vis(document.querySelector('.vb-dock')) ? '.vb-docknav .vb-go' : null;
+    });
+    if (!nextSel || nextSel === 'export') break;
+    await page.click(nextSel);
+    await page.waitForTimeout(110);
   }
   const dl = page.waitForEvent('download', { timeout: 8000 });
-  await page.click('.vb-go');
+  await page.click('.vb-card .vb-nav .vb-go');
   const json = JSON.parse(fs.readFileSync(await (await dl).path(), 'utf8'));
   const point = json.answers.find(a => a.kind === 'point');
   check('the export carries the mark, however the question was left',
@@ -116,7 +145,7 @@ async function run(label, viewport, isMobile) {
     h: document.documentElement.scrollWidth - window.innerWidth,
     v: document.documentElement.scrollHeight - window.innerHeight,
     navIn: document.querySelector('.vb-nav').getBoundingClientRect().bottom <= window.innerHeight + 1,
-    small: [...document.querySelectorAll('.vb-tool, .vb-go, .vb-ghost, .vb-opt')]
+    small: [...document.querySelectorAll('.vb-tool, .vb-go, .vb-ghost, .vb-opt, .vb-tab, .vb-listrow')]
       .filter(e => e.offsetParent !== null)
       .filter(e => e.getBoundingClientRect().height < 40 || e.getBoundingClientRect().width < 40).length
   }));

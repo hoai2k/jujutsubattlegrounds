@@ -527,19 +527,42 @@ given, the marks in model space *and* normalized by height, the per-bone error
 in centimetres, any bone the marks say was mis-*mapped* rather than misplaced,
 and a `joints` patch ready to paste into `manifest.json`.
 
-Two things about it are deliberate:
+**On a phone the viewer is the page.** Not a pane in it: a fixed layer sized
+in `dvh`, owing nothing to the page's scroll or to a browser toolbar that grows
+and shrinks — which is what put the viewer below the fold on a real phone while
+an emulator showed it fine. Everything else is a panel that opens over it, one
+at a time, from a dock along the bottom: **QUEUE** (every question and its
+answer, jump to any), **VIEW** (the camera controls as buttons, for a hand that
+cannot pinch), **SETUP** (the model, the fighter it stands in for, the way out),
+and the question itself, which opens by tapping the dock's own title. Nothing is
+ever half-visible — a panel is either over the viewer or gone.
+
+The rule that makes it work: **a question you answer IN a panel opens it; a
+question you answer by POINTING leaves the screen clear.** Fifteen of the
+nineteen are pointing questions, so most of the queue is a full-screen model
+with one bar under it saying which joint this is, how far through you are, and
+back/next. On a wide screen the same panels are a rail down the right and the
+viewer is left alone — one set of panels and one runner, not two benches that
+drift apart.
+
+Three more things are deliberate:
 
 - **The skeleton is hidden by default.** The rig bench draws every joint as a
   green ball, which is right when the question is *is this the right bone*.
   Here it is worse than useless: shown a ball near the shoulder, a person
   points at the ball, and the answer is the rig's own opinion handed back to
-  it. The `◫` tool brings the bones in when they are actually wanted.
-- **The sheet folds away.** On a phone the question sits over the bottom of
-  the screen, which is where four of the seventeen landmarks are. It folds to
-  a single bar that still names the question and still advances the queue, and
-  while it is open the framing pulls back and aims into the *uncovered* band —
-  measured from the sheet's own rectangle, so the desktop rail, which covers
-  nothing, changes nothing.
+  it. VIEW → *see the bones* brings them in when they are actually wanted.
+- **The framing answers to the screen it will be seen on.** The camera's field
+  of view is vertical, so the distance that frames a shoulder on a 16:9
+  desktop crops to an anonymous patch of dark cloth on a portrait phone; and
+  whatever chrome is over the viewer is measured, not assumed, so the shot
+  pulls back and aims above it. The desktop rail covers nothing and changes
+  nothing.
+- **Leaving a question is what records it.** There are five ways out of one —
+  the panel's Next, the dock's, an arrow key, Back, a jump from the queue list
+  — and putting the commit on any one button loses answers through the other
+  four. It did: the phone dock once advanced the queue without recording, and
+  the export came out a mark short of what was plainly on the screen.
 
 `node tools/benchcheck.mjs` drives the whole loop in a real browser at both
 sizes. Adding a queue is one entry in `QUEUES` (`src/workbench/verification.js`)

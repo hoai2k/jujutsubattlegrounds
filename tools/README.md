@@ -75,10 +75,12 @@ to check, and both had to be checked for Uraume and Ryu:
   taps the body to place a landmark, leaves the question by every route there
   is, and reads the exported decisions back. It exists because that bench's
   entire output is a human's answer, so nothing about it can be unit-tested —
-  and it caught the two faults that made it useless on a phone: the folded
-  question bar advanced the queue WITHOUT recording the answer, and the
-  question sheet sat on top of the lower half of the body, which is where four
-  of the seventeen landmarks are.
+  and it caught the faults that made it useless on a phone: the question sheet
+  sat on top of the body it was asking about, and the bar that was supposed to
+  make up for that advanced the queue WITHOUT recording the answer. It now
+  asserts the things a screenshot cannot: that a pointing question leaves the
+  viewer at least 70% of the screen, that each panel opens over the viewer and
+  gives it back, and that every control is at least 40px.
 
       node tools/benchcheck.mjs             # both viewports
       node tools/benchcheck.mjs maki        # a different manifest entry
