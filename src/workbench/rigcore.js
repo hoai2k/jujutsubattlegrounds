@@ -1197,8 +1197,15 @@ export class RigSession {
     const mean = () => s.reduce((a, v) => a.add(v.point), new THREE.Vector3())
       .multiplyScalar(1 / s.length);
     const rays = s.filter(x => x.dir);
-    if (rays.length < 2 || this.landmarkSpread(key) < 15) return mean();
-    // A = Σ (I - d dᵀ), b = Σ (I - d dᵀ) o
+    if (rays.length < 2 || this.landmarkQuality(key) < 0.06) return mean();
+    const { A, b } = this._landmarkSystem(rays);
+    const x = b.applyMatrix3(A.invert());
+    // a solve that lands far from every sample is a solve that has gone wrong
+    return x.distanceTo(mean()) > 0.5 ? mean() : x;
+  }
+
+  /** A = Σ (I - d dᵀ), b = Σ (I - d dᵀ) o — the normal equations of the fit. */
+  _landmarkSystem(rays) {
     const A = new THREE.Matrix3().set(0, 0, 0, 0, 0, 0, 0, 0, 0);
     const b = new THREE.Vector3();
     for (const r of rays) {
@@ -1210,18 +1217,37 @@ export class RigSession {
       for (let i = 0; i < 9; i++) A.elements[i] += m.elements[i];
       b.add(r.origin.clone().applyMatrix3(m));
     }
-    const det = A.determinant();
-    if (!isFinite(det) || Math.abs(det) < 1e-6) return mean();
-    const x = b.applyMatrix3(A.clone().invert());
-    // a solve that lands far from every sample is a solve that has gone wrong
-    return x.distanceTo(mean()) > 0.5 ? mean() : x;
+    return { A, b };
   }
 
   /**
-   * The widest angle between any two of a landmark's rays, in degrees. This is
-   * the number that says whether the marks are a measurement or a guess: near
-   * zero and every sample looked from the same place, so the depth error they
-   * share is still in there.
+   * HOW WELL THE RAYS PIN THE POINT, 0 to 1 — the conditioning of the solve
+   * above, not a count of samples and not the angle between them.
+   *
+   * It has to be the conditioning, because the angle is misleading at exactly
+   * the place a person's instinct sends them. "Tap it again from the other
+   * side" sounds like the strongest possible second look, and it is the
+   * WEAKEST: two opposite rays are the same line, they constrain nothing along
+   * it, and the solve is singular. det(A) = 2sin²θ for a pair says so — zero at
+   * 0° and at 180°, largest at a quarter turn. Measured on a real model with a
+   * few pixels of aim error, a second tap 90-135° round lands within 0.6-1.4 cm
+   * while one at 180° is 3-6 cm, no better than not bothering.
+   *
+   * Normalized against the best N rays could do (isotropic, A = 2N/3 · I), so
+   * the number means the same thing for two samples and for five.
+   */
+  landmarkQuality(key) {
+    const rays = (this.landmarks[key] ?? []).filter(x => x.dir);
+    if (rays.length < 2) return 0;
+    const det = this._landmarkSystem(rays).A.determinant();
+    if (!isFinite(det) || det <= 0) return 0;
+    return Math.min(1, det / Math.pow(2 * rays.length / 3, 3));
+  }
+
+  /**
+   * The widest angle between any two of a landmark's rays, in degrees. Useful
+   * to report; `landmarkQuality` is what should be trusted, because 175° is a
+   * wide angle and a useless one.
    */
   landmarkSpread(key) {
     const rays = (this.landmarks[key] ?? []).filter(x => x.dir);
@@ -1413,6 +1439,7 @@ export class RigSession {
                 .toArray().map(v => +v.toFixed(5)),
               samples: this.landmarks[d.key].length,
               spreadDeg: Math.round(this.landmarkSpread(d.key)),
+              qualityPct: Math.round(this.landmarkQuality(d.key) * 100),
               errorCm: bp ? w.clone().sub(bp).toArray().map(v => +(v * k).toFixed(1)) : null,
               distCm: bp ? +(w.distanceTo(bp) * k).toFixed(1) : null
             }];

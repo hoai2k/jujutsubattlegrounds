@@ -15,9 +15,12 @@
 //   wrong by centimetres ALONG THE LINE OF SIGHT. On that first export every
 //   one of seventeen marks was 2.7% of height to one side and 3-6 cm behind
 //   the bones — on a model whose mesh and bones both centre on x = 0.000. So
-//   only the vertical component is taken, unless the mark was triangulated
-//   from two angles far enough apart (`spreadDeg`), which removes the depth
-//   error outright.
+//   only the vertical component is taken, unless the mark was properly
+//   triangulated (`qualityPct`, the conditioning of the ray intersection),
+//   which removes the depth error outright. Note what that is NOT: two taps
+//   from opposite sides. Those are the same line and settle nothing along it —
+//   a quarter turn is the angle that works, measured at 0.6-1.4 cm against
+//   3-6 cm for 180°.
 // · SMALL DISAGREEMENTS ARE NOISE. Under ~2% of height (3 cm on a 1.6 m
 //   fighter) a mark and a bone agree as well as a person can point. Applying
 //   those made every already-correct joint slightly worse.
@@ -59,9 +62,11 @@ if (!FILE) { console.error('usage: node tools/landmarks.mjs <decisions.json> [--
 
 // Below this a mark and a bone agree as well as a person can point.
 const NOISE_PT = 2.0;
-// Two rays this far apart or more intersect properly, and the depth is
-// measured rather than guessed — see RigSession.landmarkModel.
-const TRIANGULATED_DEG = 40;
+// How well the rays have to pin a landmark before its sideways and front-back
+// components are worth anything. This is the CONDITIONING of the intersection
+// (RigSession.landmarkQuality), not the angle: 175° is a wide angle and a
+// useless one, because two opposite rays are the same line.
+const TRIANGULATED_Q = 50;
 
 const decisions = JSON.parse(fs.readFileSync(FILE, 'utf8'));
 const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
@@ -164,7 +169,7 @@ const line = (label, s) => console.log(`  ${label.padEnd(30)} joint height ${s.h
 
 console.log(`\n${FILE}\n  ${decisions.model} standing in for ${charId}, ` +
   `${Object.keys(byKey).length} marks, ` +
-  `${Object.values(byKey).filter(a => (a.spreadDeg ?? 0) >= TRIANGULATED_DEG).length} triangulated`);
+  `${Object.values(byKey).filter(a => (a.qualityPct ?? 0) >= TRIANGULATED_Q).length} triangulated`);
 
 console.log('\nWHAT THE MARKS SAY  (points of body height; + means the mark is above the bone)');
 const rows = [];
@@ -173,12 +178,12 @@ for (const [k, bone] of KEYS) {
   if (!a || !b) continue;
   const markY = (a.model[1] - before._lo) / before._mh;
   const dPt = (markY - b.y) * 100;
-  const tri = (a.spreadDeg ?? 0) >= TRIANGULATED_DEG;
+  const tri = (a.qualityPct ?? 0) >= TRIANGULATED_Q;
   const clash = contradictory.has(k);
   const use = !clash && Math.abs(dPt) >= NOISE_PT;
   rows.push({ k, bone, node: b.node, dPt, tri, use });
   console.log(`  ${k.padEnd(11)} ${bone.padEnd(8)} ${dPt.toFixed(1).padStart(6)} pt ` +
-    `${(a.spreadDeg == null ? '   ?' : a.spreadDeg + '°').padStart(5)}  ` +
+    `${(a.qualityPct == null ? '   ?' : a.qualityPct + '%').padStart(5)}  ` +
     `${clash ? 'CONTRADICTS its neighbour — skipped'
       : use ? (tri ? 'apply (triangulated)' : 'apply (height only)') : 'noise — left alone'}`);
 }

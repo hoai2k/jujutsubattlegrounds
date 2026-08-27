@@ -306,7 +306,7 @@ export function mountVerificationBench(root) {
   };
   tool('◀', 'Turn left', () => { stage.cam.yaw -= 0.6; });
   tool('▶', 'Turn right', () => { stage.cam.yaw += 0.6; });
-  tool('⟲', 'Other side', () => { stage.cam.yaw += Math.PI; });
+  tool('⟲', 'Quarter turn', () => { stage.cam.yaw += Math.PI / 2; });
   tool('F', 'Face on', () => stage.orbit(0, 0.05));
   tool('＋', 'Closer', () => { stage.cam.dist = Math.max(0.25, stage.cam.dist * 0.7); });
   tool('－', 'Further', () => { stage.cam.dist = Math.min(20, stage.cam.dist * 1.4); });
@@ -462,6 +462,7 @@ export function mountVerificationBench(root) {
       answer(q.id, {
         kind: 'point', key: q.key, bone: q.bone, node: bone?.name ?? null, samples: n,
         spreadDeg: Math.round(session.landmarkSpread(q.key)),
+        qualityPct: Math.round(session.landmarkQuality(q.key) * 100),
         model: m.toArray().map(v => +v.toFixed(6)),
         norm: m.clone().divideScalar(session.modelHeight || 1).toArray().map(v => +v.toFixed(5)),
         distCm: bp ? +(session.landmarkWorld(q.key).distanceTo(bp) * 100).toFixed(1) : null
@@ -613,16 +614,26 @@ export function mountVerificationBench(root) {
       // is worth saying plainly: a single ray puts the point inside the body
       // with a depth heuristic that is wrong by centimetres ALONG THE LINE OF
       // SIGHT — the one direction the person tapping cannot see. A second tap
-      // from elsewhere intersects the first and the guess drops out entirely.
+      // from elsewhere crosses the first and the guess drops out.
+      //
+      // NOT from the opposite side, though, however much that sounds like the
+      // strongest second look: two opposite rays are the same line and settle
+      // nothing along it. A quarter turn is the good angle, and this says so
+      // in the one place someone is in a position to act on it.
       const spread = Math.round(session.landmarkSpread(q.key));
+      const qual = session.landmarkQuality(q.key);
       read = `<b>${n} mark${n > 1 ? 's' : ''}</b> — the bone currently sits ` +
         `<b>${cm} cm</b> from where you pointed. ` +
-        (spread >= 40
-          ? `Marks <b>${spread}°</b> apart: the depth is measured, not guessed.`
-          : spread >= 15
-            ? `Marks only <b>${spread}°</b> apart — turn further and tap once more.`
-            : '<b>Turn the model and tap the same joint again.</b> One angle cannot ' +
-              'tell how deep the joint is; two angles cross, and settle it.');
+        (n < 2
+          ? '<b>Turn a quarter of the way round and tap the same joint again.</b> ' +
+            'One angle cannot tell how deep the joint is; two that cross can.'
+          : qual >= 0.5
+            ? `Marks <b>${spread}°</b> apart: the depth is measured, not guessed.`
+            : spread > 150
+              ? `Marks <b>${spread}°</b> apart — nearly opposite, which is the one ` +
+                'angle that adds nothing. <b>Turn back a quarter turn</b> and tap again.'
+              : `Marks only <b>${spread}°</b> apart — turn further, to about a ` +
+                'quarter turn, and tap once more.');
     }
     questionPanel.append(el('div', 'vb-read', read));
 
@@ -635,9 +646,12 @@ export function mountVerificationBench(root) {
       else session._refreshLandmarks();
       persist(); render();
     };
-    const other = el('button', 'vb-ghost sm', '<span>Other side</span>');
-    other.title = 'Spin to the opposite side of the body, same joint';
-    other.onclick = () => { stage.cam.yaw += Math.PI; if (isPhone()) setOpen(false); };
+    // A QUARTER TURN, NOT THE OTHER SIDE. This button used to spin 180°, which
+    // is the one rotation that gives a second tap nothing to say — see
+    // RigSession.landmarkQuality.
+    const other = el('button', 'vb-ghost sm', '<span>Quarter turn</span>');
+    other.title = 'Turn 90° — the angle at which a second tap pins the depth';
+    other.onclick = () => { stage.cam.yaw += Math.PI / 2; if (isPhone()) setOpen(false); };
     const back = el('button', 'vb-go sm', '<span>Point at it ▸</span>');
     back.title = 'Put the model back on screen';
     back.onclick = () => setOpen(false);
@@ -734,7 +748,7 @@ export function mountVerificationBench(root) {
       // direction carries an unmeasured depth error along that direction;
       // saying so here is what stops it being read as a number.
       triangulated: LANDMARKS.filter(d => session.landmarks[d.key]?.length &&
-        session.landmarkSpread(d.key) >= 40).length,
+        session.landmarkQuality(d.key) >= 0.5).length,
       marked: LANDMARKS.filter(d => session.landmarks[d.key]?.length).length,
       notes
     };
@@ -779,13 +793,14 @@ export function mountVerificationBench(root) {
      * the landmark solver recovers. One angle is a guess with a depth error;
      * two that are far enough apart are an intersection.
      */
-    triangulate(bone, key, yaws, pitch = 0.06) {
+    triangulate(bone, key, yaws, pitch = 0.06, jitterPx = 0) {
       const n = session.map[bone];
       session.wrapper.updateMatrixWorld(true);
       const truth = new THREE.Vector3().setFromMatrixPosition(n.matrixWorld);
       session.clearLandmark(key);
       const r = stage.canvas.getBoundingClientRect();
       const per = [];
+      let k = 0;
       for (const yaw of yaws) {
         stage.frameOn(truth, 1.6);
         stage.cam.yaw = yaw; stage.cam.pitch = pitch;
@@ -796,18 +811,28 @@ export function mountVerificationBench(root) {
         stage.camera.lookAt(stage.cam.tx, stage.cam.height, stage.cam.tz);
         stage.camera.updateMatrixWorld(true);
         const p = truth.clone().project(stage.camera);
+        // AIM ERROR. A synthetic tap that lands exactly on the projected joint
+        // makes every ray pass exactly through the answer, and then even a
+        // degenerate pair of rays "recovers" it perfectly. Nobody taps like
+        // that, so the harness can ask for a few pixels of miss — deterministic,
+        // spun around a small circle so the runs are comparable.
+        const a = k * 2.399963, j = jitterPx;
+        k++;
         const hit = session.pickSurface({
-          clientX: r.left + (p.x * 0.5 + 0.5) * r.width,
-          clientY: r.top + (-p.y * 0.5 + 0.5) * r.height
+          clientX: r.left + (p.x * 0.5 + 0.5) * r.width + Math.cos(a) * j,
+          clientY: r.top + (-p.y * 0.5 + 0.5) * r.height + Math.sin(a) * j
         });
         if (!hit) { per.push(null); continue; }
         per.push(+(hit.point.distanceTo(truth) * 100).toFixed(1));
         session.addLandmarkSample(key, hit);
       }
       const got = session.landmarkWorld(key);
-      session.clearLandmark(key);
-      return { bone, perSampleCm: per, spreadDeg: Math.round(session.landmarkSpread(key)),
+      const out = { bone, perSampleCm: per,
+        spreadDeg: Math.round(session.landmarkSpread(key)),
+        qualityPct: Math.round(session.landmarkQuality(key) * 100),
         errorCm: got ? +(got.distanceTo(truth) * 100).toFixed(1) : null };
+      session.clearLandmark(key);
+      return out;
     }
   };
 

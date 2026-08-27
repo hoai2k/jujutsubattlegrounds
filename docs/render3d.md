@@ -602,7 +602,7 @@ Three more things are deliberate:
   four. It did: the phone dock once advanced the queue without recording, and
   the export came out a mark short of what was plainly on the screen.
 
-#### Two angles, not two taps
+#### A quarter turn, not the other side
 
 A tap is a *ray*. The bench turns it into a point inside the body by averaging
 where the ray enters and leaves — which is most of what is wanted, and leaves a
@@ -610,23 +610,38 @@ depth error **along the line of sight**, the one direction the person tapping
 cannot see. Measured on Nobara it is 2–11 cm depending on the joint, and it does
 not average away: two taps from the same viewpoint share it exactly.
 
-So a sample now stores its ray, and two rays from different angles are not two
+So a sample stores its ray, and rays from different angles are not several
 guesses but an intersection — least squares over the lines, no depth heuristic
-involved. Driving the real bench and clicking exactly where a known bone
-projects:
+involved. The question is then which second angle, and the intuitive answer is
+wrong. **"Tap it again from the other side" is the one rotation that adds
+nothing**: two opposite rays are the same line, and they constrain nothing along
+it. For a pair of rays `det(A) = 2sin²θ` — zero at 0° *and* at 180°, largest at
+a quarter turn.
 
-| how it was sampled | recovered error |
-| --- | --- |
-| one tap | 1.8 – 10.9 cm |
-| two taps, same view (6° apart) | 1.6 – 11.2 cm |
-| two taps, 90° apart | **0.0 cm** |
-| two taps, opposite sides | **0.0 cm** |
+Driving the real bench, clicking where a known bone projects with four pixels of
+aim error (a careful finger), median over four joints × four viewpoints:
 
-The bench therefore says how far apart your marks are in degrees and asks for
-another angle until they cross, the export carries `spreadDeg` per landmark and
-a `triangulated` count, and `tools/landmarks.mjs` uses only the vertical
-component of a landmark that was never triangulated. (`tools/benchcheck.mjs`
-asserts the table above, so the picking cannot quietly regress.)
+| angle between the two taps | median error | worst |
+| --- | --- | --- |
+| one tap only | 4.7 cm | 17 cm |
+| 15° | 3.7 cm | 9 cm |
+| 45° | 1.3 cm | 16 cm |
+| **90°** | **0.7 cm** | 17 cm |
+| **135°** | **0.6 cm** | 0.6 cm |
+| 165° | 1.2 cm | 1.2 cm |
+| 180° | 3.1 cm | 3.1 cm |
+
+(Without the aim error every angle past 30° reads 0.0 cm, because a perfect tap
+puts every ray exactly through the answer and even a degenerate pair recovers
+it. That is why the first version of this table said 180° was fine, and it is
+why `benchcheck` now jitters.)
+
+So the bench asks for **a quarter turn**, its turn button is 90° rather than
+180°, and what it reports is not the angle but `landmarkQuality` — the
+conditioning of the intersection, normalized so it means the same for two
+samples and for five. 84% at a quarter turn, 1% at the opposite side. The
+export carries it per landmark, and `tools/landmarks.mjs` will only use a
+landmark's sideways and front-back components when it is above 50%.
 
 Two of the questions were also *wrong*, which the first real answers proved:
 "pelvis centre, level with the top of the hip bones" reads at the navel, about

@@ -142,26 +142,33 @@ async function run(label, viewport, isMobile) {
 
   // PICKING, MEASURED RATHER THAN EYEBALLED. A tap is a ray, and turning it
   // into a point inside the body leaves an error along the line of sight —
-  // which is the one direction a person looking at the screen cannot judge, so
-  // it can only be caught here. Two rays from different angles intersect and
-  // the error goes away; this asserts that it does.
+  // the one direction a person looking at the screen cannot judge, so it can
+  // only be caught here. A second tap that CROSSES the first removes it; a
+  // second tap from the opposite side does not, because two opposite rays are
+  // the same line. Both halves are asserted, because the second is the
+  // counter-intuitive one and the bench used to advise it.
+  //
+  // The jitter matters: with a tap that lands exactly on the projected joint
+  // every ray passes through the answer and even a degenerate pair "recovers"
+  // it perfectly. Four pixels is a careful finger.
   const tri = await page.evaluate(() => {
     const P = Math.PI, out = [];
     for (const bone of ['Hips', 'ThighL', 'Chest']) {
-      out.push({ bone,
-        one: window.__vb.triangulate(bone, 'hips', [0.45]),
-        same: window.__vb.triangulate(bone, 'hips', [0.45, 0.55]),
-        cross: window.__vb.triangulate(bone, 'hips', [0.45, 0.45 + P / 2]),
-        opposite: window.__vb.triangulate(bone, 'hips', [0.45, 0.45 + P]) });
+      const at = (deg, j) => window.__vb.triangulate(
+        bone, 'hips', deg == null ? [0.45] : [0.45, 0.45 + deg * P / 180], 0.06, j);
+      out.push({ bone, one: at(null, 4), quarter: at(90, 4), opposite: at(180, 4) });
     }
     return out;
   });
   for (const t of tri) {
-    const ok = t.cross.errorCm != null && t.cross.errorCm < 1.0 &&
-      t.opposite.errorCm != null && t.opposite.errorCm < 1.0;
-    check(`two angles pin ${t.bone} that one angle cannot`, ok,
-      `one ${t.one.errorCm} cm, same view ${t.same.errorCm} cm, ` +
-      `90° apart ${t.cross.errorCm} cm, opposite ${t.opposite.errorCm} cm`);
+    check(`a quarter turn pins ${t.bone}`,
+      t.quarter.errorCm != null && t.quarter.errorCm < 2.0 &&
+      t.quarter.errorCm < t.one.errorCm - 1.0,
+      `one tap ${t.one.errorCm} cm -> 90° apart ${t.quarter.errorCm} cm`);
+    check(`and the opposite side does not — as the geometry says`,
+      t.opposite.errorCm != null && t.opposite.errorCm > t.quarter.errorCm,
+      `180° apart ${t.opposite.errorCm} cm, quality ` +
+      `${t.opposite.qualityPct}% against ${t.quarter.qualityPct}% at 90°`);
   }
 
   // layout, on the viewport it actually has

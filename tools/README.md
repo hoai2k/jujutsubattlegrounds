@@ -80,7 +80,12 @@ to check, and both had to be checked for Uraume and Ryu:
   make up for that advanced the queue WITHOUT recording the answer. It now
   asserts the things a screenshot cannot: that a pointing question leaves the
   viewer at least 70% of the screen, that each panel opens over the viewer and
-  gives it back, and that every control is at least 40px.
+  gives it back, that every control is at least 40px — and the geometry of the
+  picking itself, by tapping exactly where a known bone projects, with a few
+  pixels of aim error, from angles it chooses. That last one overturned the
+  bench's own advice: a second tap a quarter turn round lands within 1 cm,
+  while one from the OPPOSITE side is no better than not bothering, because
+  two opposite rays are the same line.
 
       node tools/benchcheck.mjs             # both viewports
       node tools/benchcheck.mjs maki        # a different manifest entry
