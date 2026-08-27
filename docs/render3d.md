@@ -121,6 +121,48 @@ Verify a model before it lands:
     node tools/modelcheck.mjs              # every manifest entry
     node tools/modelcheck.mjs jogo         # one
 
+## Intake: the symmetry gate
+
+A humanoid rig should be a mirror of itself, and where a left/right pair is
+not, one of the two is misplaced. This is the **only** bone-placement fault
+that can be judged without anatomy, without trusting the skin weights, and
+without anybody looking at it — so it runs in intake rather than in someone's
+eye.
+
+Why it is worth having as a rule of its own: the weight-band estimator
+(`analyzeJoints`) can only report where the MESH thinks a joint is, which is
+useless when the mesh is the thing that is wrong. On a model with a smeared
+elbow it will confidently point 18 cm up the forearm. Asymmetry has no such
+failure mode — it is a fact about two numbers.
+
+    node tools/symmetry.mjs                 # dry run, every manifest entry
+    node tools/symmetry.mjs --write         # merge the fixes in as `joints`
+
+`modelcheck` runs the same measurement as a gate, at BIND — it has to be read
+before the retargeter poses anything, or every model reports as asymmetric
+because it is mid-clip.
+
+**A posed bind is refused, not averaged.** A model whose bind pose is a
+fighting stance has legitimately unmirrored bones, and mirroring them would
+average the pose away rather than repair the rig. The split turns out to be
+unusually clean: across the shipped models every pair is either under 1.7 cm
+or over 20 cm, with nothing in between. A rigger's slip is a centimetre; a
+stance with one foot forward is half a metre. Yuji is the one refused —
+71 cm at the foot.
+
+Result on the current set: six of seven are already mirrors to within 0.34 cm,
+which is a fact about the exporter rather than about this pass. Only Nobara
+and Mahito needed anything, and both were sub-centimetre at the hands. The
+value here is the gate, not the repair.
+
+One trap, recorded because it measured as a clean success: the offset for the
+right side is **not** the mirror of the left's. Meeting in the middle means
+`dL = (m(R) - L)/2` and `dR = -m(dL)`, i.e. `(dL.x, -dL.y, -dL.z)`. Mirroring
+the offset instead moves both bones the same distance toward the mid-plane,
+which preserves the difference in their `|x|` exactly — the bones move, the
+report says it worked, and the asymmetry does not budge. Measuring *after*
+applying is what caught it, and is why the pass is idempotent by design.
+
 ## Props and effects follow the body
 
 Everything a character hangs off a bone — Toji's spear, the particle emitter

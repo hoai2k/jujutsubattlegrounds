@@ -57,6 +57,18 @@ to check, and both had to be checked for Uraume and Ryu:
       node tools/modelcheck.mjs              # every manifest entry
       node tools/modelcheck.mjs jogo         # one
 
+- **"the rig is a mirror of itself"** — `symmetry.mjs` is the one bone-placement
+  correction that needs no human. It measures each left/right pair about the
+  model's own mid-plane and writes the offsets that make them meet, as
+  `joints` entries — so nothing is re-exported and the numbers survive a
+  re-export later. A bind pose that is a fighting STANCE is refused rather
+  than averaged, and the split is clean enough to detect: every pair on the
+  shipped models is either under 1.7 cm or over 20 cm. `modelcheck` runs the
+  same measurement as an intake gate.
+
+      node tools/symmetry.mjs                 # dry run
+      node tools/symmetry.mjs --write         # merge into the manifest
+
 Usage:
 
     node tools/shoot.mjs '[{"kind":"sheet","id":"uraume","name":"out",

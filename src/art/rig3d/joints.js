@@ -257,6 +257,64 @@ export function worldToLocalPos(node, world) {
 // mid-plane fixes both at once and is the single highest-value automatic
 // correction available — it also cancels the left/right disagreement the
 // weight estimator itself produces on an asymmetric costume.
+// How far each left/right pair is from being a mirror of the other, in the
+// MODEL's own frame and about the MESH's own mid-plane (an exporter that left
+// the body off-origin would otherwise read as a whole-body asymmetry).
+//
+// Returned in metres-on-a-1.75-m-body via `cm`, so the numbers mean the same
+// thing across exports of different scale. `dL`/`dR` are the offsets that
+// would make the pair meet in the middle, ready to be written as `joints`.
+//
+// This is the measurement both the intake check (tools/modelcheck.mjs) and the
+// repair (tools/symmetry.mjs) run, so a model can never pass one and fail the
+// other.
+export function symmetryGaps(root, map, THREE_ = THREE) {
+  root.updateMatrixWorld(true);
+  const box = new THREE_.Box3();
+  root.traverse(o => { if (o.isSkinnedMesh || o.isMesh) box.expandByObject(o); });
+  const midX = (box.min.x + box.max.x) / 2;
+  const H = modelBindHeight(root) || (box.max.y - box.min.y) || 1;
+  const toCm = 175 / H;
+  const inv = new THREE_.Matrix4().copy(root.matrixWorld).invert();
+  const pos = node => {
+    const p = new THREE_.Vector3().setFromMatrixPosition(node.matrixWorld).applyMatrix4(inv);
+    p.x -= midX;
+    return p;
+  };
+  const mirror = v => new THREE_.Vector3(-v.x, v.y, v.z);
+  const pairs = [];
+  for (const [l, r] of mirrorPairs(map)) {
+    const pL = pos(map[l]), pR = pos(map[r]);
+    const gap = mirror(pR).sub(pL);
+    // Meet in the middle: L' = (L + m(R))/2 and R' = m(L').
+    //
+    //   dL = (m(R) - L)/2 = gap/2
+    //   dR = (m(L) - R)/2 = -m(gap)/2 = -m(dL)
+    //
+    // dR is NOT m(dL), and getting that wrong is silent: mirroring the offset
+    // moves both bones the same distance TOWARD the mid-plane, which preserves
+    // the difference in their |x| exactly and leaves the pair as unmirrored as
+    // it started. It measured as a clean no-op — the offsets applied, the bones
+    // moved, and the asymmetry did not budge.
+    const dL = gap.clone().multiplyScalar(0.5);
+    const dR = new THREE_.Vector3(dL.x, -dL.y, -dL.z);
+    pairs.push({
+      l, r, nodeL: map[l].name, nodeR: map[r].name,
+      cm: gap.length() * toCm, dL, dR
+    });
+  }
+  return { pairs, worstCm: Math.max(0, ...pairs.map(p => p.cm)), H, midX };
+}
+
+// A pair further apart than this is not mis-rigged, it is POSED. The split
+// measured across the shipped models is unusually clean: every pair is either
+// under 1.7 cm or over 20 cm, with nothing in between. A rigger's slip is a
+// centimetre; a fighting stance with one foot forward is half a metre.
+export const POSED_CM = 5.0;
+// ...and below this a pair is already a mirror. Half a centimetre on a 1.75 m
+// body is inside any exporter's noise.
+export const MIRRORED_CM = 0.5;
+
 export function mirrorPairs(map) {
   const out = [];
   for (const base of ['Clav', 'UpArm', 'LoArm', 'Hand', 'Thigh', 'Shin', 'Foot']) {

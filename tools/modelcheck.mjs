@@ -46,7 +46,7 @@ const { AnimPlayer } = await import('../src/art/anim/player.js');
 const { guessBoneMap } = await import('../src/art/rig3d/bonemap.js');
 const { Retargeter, captureSourceRest, rerigHierarchy } = await import('../src/art/rig3d/retarget.js');
 const { applyRestPose, fitInto, meshStats, TRI_BUDGET } = await import('../src/art/rig3d/render3d.js');
-const { applyJointEdits } = await import('../src/art/rig3d/joints.js');
+const { applyJointEdits, symmetryGaps, POSED_CM, MIRRORED_CM } = await import('../src/art/rig3d/joints.js');
 const { GripSolver } = await import('../src/art/rig3d/grip.js');
 
 const MODELS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'models');
@@ -112,6 +112,29 @@ for (const [pick, raw] of entries) {
   const moved = rerigHierarchy(scene, map);
   applyJointEdits(scene, src.joints);
   applyRestPose(scene, src.pose);
+  // ---- symmetry -------------------------------------------------------------
+  // A humanoid rig should be a mirror of itself, and where it is not, one side
+  // is misplaced. This is the only bone-placement fault that can be judged
+  // without anatomy, without trusting the skin weights and without anyone
+  // looking — so it belongs in intake rather than in somebody's eye.
+  //
+  // A bind pose that is a STANCE rather than a rest has legitimately unmirrored
+  // bones, and is reported instead of failed.
+  {
+    const sym = symmetryGaps(scene, map, THREE);
+    const worst = sym.pairs.slice().sort((a, b) => b.cm - a.cm)[0];
+    if (sym.worstCm > POSED_CM) {
+      console.log(`  --   bind pose is POSED, not a rest (${worst.l}/${worst.r} differ by ` +
+        `${sym.worstCm.toFixed(0)} cm) — symmetry not checked`);
+    } else {
+      check('the rig is a mirror of itself', sym.worstCm < MIRRORED_CM,
+        sym.worstCm < MIRRORED_CM
+          ? `worst pair ${worst.l}/${worst.r} within ${sym.worstCm.toFixed(2)} cm`
+          : `${worst.l}/${worst.r} differ by ${sym.worstCm.toFixed(1)} cm — ` +
+            'run `node tools/symmetry.mjs --write`');
+    }
+  }
+
   const wrapper = new THREE.Group();
   fitInto(wrapper, scene, model.H, src);
   model.group.add(wrapper);
