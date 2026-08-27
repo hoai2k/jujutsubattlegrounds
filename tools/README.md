@@ -104,6 +104,21 @@ to check, and both had to be checked for Uraume and Ryu:
       node tools/landmarks.mjs tools/landmarks/nobara.json
       node tools/landmarks.mjs tools/landmarks/nobara.json --write
 
+- **"the joints bend where joints bend"** — `bands.mjs` measures the only
+  rigging defect here that is invisible at rest and unmissable in motion: how
+  much of a limb the hand-over between two bones is spread across. Rigify
+  splits every limb into a bone and a twist bone, automatic weighting smears
+  influence across all four, and the constraints that would sort it out in
+  Blender cannot travel in a `.glb`. Shipped models measured 13% of the limb
+  (Maki, Mahito — correct) to 52% (Yuji's right elbow, 14 cm of a 30 cm arm).
+  Both of the models past 45% had been reported as "long and loopy" and
+  "stretched and bendy" months apart, and I had misdiagnosed one of them as a
+  lighting problem. `weights: [{ "tighten": "limbs" }]` is the repair;
+  `modelcheck` now names any joint past 30% or 9 cm.
+
+      node tools/bands.mjs             # every model, every limb joint
+      node tools/bands.mjs --raw       # ignoring the entries' own repairs
+
 Usage:
 
     node tools/shoot.mjs '[{"kind":"sheet","id":"uraume","name":"out",

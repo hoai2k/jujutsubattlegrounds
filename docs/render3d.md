@@ -423,6 +423,52 @@ units, and both land on the same island.
 Author them by clicking: **5 · SKIN** on `/workbench/?edit=rig` selects the
 island under the cursor, lists what drives it, and offers rigid/drop.
 
+### Joint sharpness (`tighten`) — the defect that only shows in motion
+
+A limb bends where two bones swap influence. Spread that swap over half the
+limb and nothing bends *at* the joint: the whole limb curves, and the eye reads
+an arm that is too long and made of rubber. At rest it is invisible, which is
+how it survived every pass of looking at these models — and one wrong diagnosis
+of mine, which blamed the missing ink outline.
+
+It is not a rigging mistake either. Rigify splits every limb into a bone and a
+**twist** bone that is a rigid child of it (`DEF-upper_armR` + `DEF-upper_armR001`),
+automatic weighting spreads influence smoothly across all four, and the
+constraints that drive the twists in Blender cannot travel in a `.glb`. The
+mapper names only the first of each pair, so what matters is the hand-over
+between **groups**: everything riding with the parent against everything riding
+with the child.
+
+    node tools/bands.mjs             # every model, every limb joint
+    node tools/bands.mjs nobara      # one
+
+Measured as they shipped, the hand-over ran from 13% of the limb (Maki, Mahito
+— what this pipeline produces when it goes right) to **49-52%** on Nobara's
+elbows and Yuji's right, which is 14-15 cm of an arm that is 30 cm long. Both
+were reported as "long and loopy" / "stretched and bendy", months apart.
+
+    "weights": [{ "tighten": "limbs" }]
+
+re-ramps the parent group's total against the child group's over a band centred
+on the joint — 28% wide, which measures out at the 17% the clean exports
+already have. What it deliberately does **not** touch is the split *within* a
+group: how the upper arm shares a vertex with its own twist bone is what keeps
+a shoulder from collapsing, and it stays exactly as authored.
+
+Two things it has to get right, both learned the hard way:
+
+- **Along the bones, not along the straight line between their ends.** On a
+  model whose bind pose is a fighting stance the arm is already bent, and a
+  chord from shoulder to wrist passes outside it. Projecting onto that chord
+  put the band in the wrong place on Yuji and tore his hand into shards.
+  Arclength along shoulder → elbow → wrist is right whatever the bind is doing.
+- **Stay on the limb.** A sleeve hanging away from a bent arm is nearer this
+  chain than to anything else and is not part of the joint, so a radius bound
+  goes with the arclength one.
+
+`modelcheck` measures it on every entry and names any joint past 30% of the
+limb or 9 cm, so a future model arrives with this already asked about.
+
 ## Where the swap applies
 
 Every place a character's body is built: the match, summons, the select

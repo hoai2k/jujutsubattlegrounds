@@ -48,6 +48,8 @@ const { Retargeter, captureSourceRest, rerigHierarchy } = await import('../src/a
 const { applyRestPose, fitInto, meshStats, TRI_BUDGET } = await import('../src/art/rig3d/render3d.js');
 const { applyJointEdits, symmetryGaps, POSED_CM, MIRRORED_CM } = await import('../src/art/rig3d/joints.js');
 const { GripSolver } = await import('../src/art/rig3d/grip.js');
+const { applyWeightOps, handoverBand, restPositions, LIMB_JOINTS } =
+  await import('../src/art/rig3d/weights.js');
 
 const MODELS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'models');
 const only = process.argv.slice(2).filter(a => !a.startsWith('-'));
@@ -111,6 +113,9 @@ for (const [pick, raw] of entries) {
 
   const moved = rerigHierarchy(scene, map);
   applyJointEdits(scene, src.joints);
+  // the entry's skin repairs, in render3d.js's own order — this used to be
+  // skipped, so every measurement below described a file the game never loads
+  applyWeightOps(scene, src.weights, map);
   applyRestPose(scene, src.pose);
   // ---- symmetry -------------------------------------------------------------
   // A humanoid rig should be a mirror of itself, and where it is not, one side
@@ -132,6 +137,33 @@ for (const [pick, raw] of entries) {
           ? `worst pair ${worst.l}/${worst.r} within ${sym.worstCm.toFixed(2)} cm`
           : `${worst.l}/${worst.r} differ by ${sym.worstCm.toFixed(1)} cm — ` +
             'run `node tools/symmetry.mjs --write`');
+    }
+  }
+
+  // ---- joint sharpness ------------------------------------------------------
+  // Where two bones hand over to each other IS the bend. Spread that over half
+  // the limb and nothing bends at the joint: the whole limb curves, and the eye
+  // reads an arm that is too long and made of rubber. It is invisible at rest —
+  // which is how it survived every pass of looking at these models, and one
+  // wrong diagnosis — and unmissable in a punch. See tools/bands.mjs.
+  {
+    const meshes = [];
+    scene.traverse(o => { if (o.isSkinnedMesh) meshes.push(o); });
+    const mesh = meshes.sort((a, b) =>
+      b.geometry.attributes.position.count - a.geometry.attributes.position.count)[0];
+    if (mesh) {
+      const P = restPositions(mesh);
+      const bad = [];
+      for (const j of LIMB_JOINTS) {
+        const r = handoverBand(mesh, P, map, j);
+        if (r && (r.band > 0.30 || r.band * r.limbCm > 9)) {
+          bad.push(`${j} ${(r.band * 100).toFixed(0)}% (${(r.band * r.limbCm).toFixed(0)} cm)`);
+        }
+      }
+      if (bad.length) {
+        console.log(`  --   ${bad.length} joint(s) blend over too much of the limb: ` +
+          `${bad.join(', ')} — add \`{ "tighten": "limbs" }\` to this entry's weights`);
+      }
     }
   }
 

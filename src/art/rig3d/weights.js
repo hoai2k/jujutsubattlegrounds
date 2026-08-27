@@ -299,6 +299,186 @@ export function dropInfluence(mesh, verts, boneIndices, fallback, maxShare = 1) 
   return touched;
 }
 
+// --------------------------------------------------------------- tighten ---
+// A THIRD DEFECT, and the one that shows in motion rather than at rest: the
+// hand-over between two bones spread along most of the limb.
+//
+// A bend happens where two bones swap influence. If that swap takes 15 cm of a
+// 30 cm forearm, the arm does not bend at the elbow — it curves along its whole
+// length, and the eye reads that as an arm that is too long and made of rubber.
+// It is invisible in a bind pose and unmissable in a punch.
+//
+// It is not a rigging mistake either. Rigify splits every limb into a bone and
+// a TWIST bone that is a rigid child of it, automatic weighting spreads the
+// influence smoothly across all four, and in Blender the twists are driven by
+// constraints that a `.glb` cannot carry. Measured across the seven models
+// shipped here the hand-over runs from 13% of the limb (Maki, Mahito — which
+// is what it should look like) to 51% and 64% (Nobara's elbows, Yuji's right).
+//
+// WHAT THIS DOES NOT DO. It does not touch the split WITHIN a group: how the
+// upper arm shares a vertex with its own twist bone is what keeps a shoulder
+// from collapsing, and it is left exactly as authored. Only the parent group's
+// total against the child group's total is re-ramped, over a band centred on
+// the joint. So a vertex 2 cm past the elbow ends up driven by the forearm and
+// its twist in the proportions the exporter chose, and simply stops being
+// driven by the upper arm.
+const JOINT_CHAINS = {
+  LoArmL: ['UpArmL', 'LoArmL', 'HandL'], LoArmR: ['UpArmR', 'LoArmR', 'HandR'],
+  ShinL: ['ThighL', 'ShinL', 'FootL'], ShinR: ['ThighR', 'ShinR', 'FootR']
+};
+export const LIMB_JOINTS = Object.keys(JOINT_CHAINS);
+
+const _wp = new THREE.Vector3();
+const worldOf = n => { n.updateWorldMatrix(true, false); return new THREE.Vector3().setFromMatrixPosition(n.matrixWorld); };
+
+/**
+ * The frame one joint's hand-over happens in: which bones ride with the parent,
+ * which with the child, and where along the limb each vertex sits. Shared by
+ * the measurement and the repair so they cannot disagree about what a "band" is.
+ */
+function jointFrame(mesh, map, joint) {
+  const chain = JOINT_CHAINS[joint];
+  if (!chain) return null;
+  const [pn, cn, tn] = chain;
+  if (!map[pn] || !map[cn] || !map[tn]) return null;
+  const bones = mesh.skeleton.bones;
+  const mapped = new Set(Object.values(map));
+  // a mapped bone plus every descendant that is NOT itself mapped: Rigify's
+  // twists, which are rigid children and so move exactly as their parent does
+  const groupOf = canon => {
+    const set = new Set();
+    (function walk(n) {
+      const i = bones.indexOf(n);
+      if (i >= 0) set.add(i);
+      for (const ch of n.children) if (!mapped.has(ch)) walk(ch);
+    })(map[canon]);
+    return set;
+  };
+  const G1 = groupOf(pn), G2 = groupOf(cn);
+  if (!G1.size || !G2.size) return null;
+  const A = worldOf(map[pn]), B = worldOf(map[cn]), C = worldOf(map[tn]);
+  const l1 = A.distanceTo(B), l2 = B.distanceTo(C);
+  const len = l1 + l2;
+  if (len < 1e-6) return null;
+  // ALONG THE BONES, not along the straight line between their ends. On a
+  // model whose bind pose is a fighting stance the arm is ALREADY bent, and a
+  // chord from shoulder to wrist passes outside it: every projection is then
+  // wrong, the band lands somewhere unintended, and on Yuji it reached the
+  // hand and tore it into shards. Arclength along shoulder->elbow->wrist is
+  // right whatever the bind pose is doing.
+  return { G1, G2, A, B, C, l1, l2, len, jointT: l1 / len,
+    lead1: bones.indexOf(map[pn]), lead2: bones.indexOf(map[cn]) };
+}
+
+/** Where a point sits along the bone polyline, 0 at the parent, 1 at the tip. */
+const _q = new THREE.Vector3(), _d = new THREE.Vector3(), _r = new THREE.Vector3();
+function alongChain(f, p) {
+  let bestD = Infinity, bestS = 0;
+  for (const [P0, P1, base] of [[f.A, f.B, 0], [f.B, f.C, f.l1]]) {
+    _d.copy(P1).sub(P0);
+    const L2 = _d.lengthSq();
+    if (L2 < 1e-12) continue;
+    const t = Math.max(0, Math.min(1, _r.copy(p).sub(P0).dot(_d) / L2));
+    _q.copy(P0).addScaledVector(_d, t);
+    const dist = _q.distanceTo(p);
+    if (dist < bestD) { bestD = dist; bestS = (base + t * Math.sqrt(L2)) / f.len; }
+  }
+  return { t: bestS, radius: bestD };
+}
+
+/** Per-vertex: how far along the limb, and the two group weights. */
+function* limbVerts(mesh, P, f, minShare = 0.55) {
+  const g = mesh.geometry;
+  const si = g.getAttribute('skinIndex'), sw = g.getAttribute('skinWeight');
+  const v = new THREE.Vector3();
+  for (let i = 0; i < si.count; i++) {
+    let w1 = 0, w2 = 0;
+    for (let k = 0; k < 4; k++) {
+      const w = sw.getComponent(i, k);
+      if (w <= 0) continue;
+      const b = si.getComponent(i, k);
+      if (f.G1.has(b)) w1 += w; else if (f.G2.has(b)) w2 += w;
+    }
+    if (w1 + w2 < minShare) continue;
+    v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+    const { t, radius } = alongChain(f, v);
+    if (t < f.jointT - 0.28 || t > f.jointT + 0.28) continue;
+    // and stay on the limb: a sleeve hanging away from a bent arm is nearer
+    // this chain than to anything else, and is not part of the joint
+    if (radius > 0.22 * f.len) continue;
+    yield { i, t, w1, w2 };
+  }
+}
+
+/**
+ * How wide the hand-over is, as a fraction of the limb: where the child's
+ * share of the pair passes 10% and where it passes 90%, smoothed. Null when
+ * too little of the limb is dominated by the pair to say.
+ */
+export function handoverBand(mesh, P, map, joint) {
+  const f = jointFrame(mesh, map, joint);
+  if (!f) return null;
+  const pts = [...limbVerts(mesh, P, f)].map(v => ({ t: v.t, s: v.w2 / (v.w1 + v.w2) }));
+  if (pts.length < 40) return null;
+  pts.sort((a, b) => a.t - b.t);
+  const W = Math.max(8, Math.round(pts.length / 40));
+  const cross = target => {
+    for (let i = 0; i < pts.length; i++) {
+      const lo = Math.max(0, i - W), hi = Math.min(pts.length, i + W);
+      let sum = 0;
+      for (let j = lo; j < hi; j++) sum += pts[j].s;
+      if (sum / (hi - lo) >= target) return pts[i].t;
+    }
+    return null;
+  };
+  const lo = cross(0.1), mid = cross(0.5), hi = cross(0.9);
+  if (lo == null || hi == null) return null;
+  return { joint, n: pts.length, lo, mid, hi, jointT: f.jointT, band: hi - lo, limbCm: f.len * 100 };
+}
+
+/**
+ * Re-ramp one joint's hand-over to `band` (a fraction of the limb), centred on
+ * the joint. Returns the number of vertices changed.
+ */
+export function tightenJoint(mesh, P, map, joint, band = 0.28) {
+  const f = jointFrame(mesh, map, joint);
+  if (!f) return 0;
+  const g = mesh.geometry;
+  const si = g.getAttribute('skinIndex'), sw = g.getAttribute('skinWeight');
+  const half = Math.max(0.015, band / 2);
+  let changed = 0;
+  for (const { i, t, w1, w2 } of limbVerts(mesh, P, f)) {
+    let u = (t - (f.jointT - half)) / (2 * half);
+    u = u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u);          // smoothstep
+    const total = w1 + w2;
+    const n1 = total * (1 - u), n2 = total * u;
+    if (Math.abs(n1 - w1) < 0.01) continue;
+    // rebuild this vertex's influences: everything outside the pair untouched,
+    // each group rescaled as a whole so its internal split survives
+    const acc = new Map();
+    for (let k = 0; k < 4; k++) {
+      const w = sw.getComponent(i, k);
+      if (w <= 0) continue;
+      const b = si.getComponent(i, k);
+      const scaled = f.G1.has(b) ? (w1 > 1e-6 ? w * n1 / w1 : 0)
+        : f.G2.has(b) ? (w2 > 1e-6 ? w * n2 / w2 : 0) : w;
+      if (scaled > 0) acc.set(b, (acc.get(b) ?? 0) + scaled);
+    }
+    // a vertex past the joint with no child influence at all has to gain some
+    if (w1 <= 1e-6 && n1 > 0) acc.set(f.lead1, (acc.get(f.lead1) ?? 0) + n1);
+    if (w2 <= 1e-6 && n2 > 0) acc.set(f.lead2, (acc.get(f.lead2) ?? 0) + n2);
+    const top = [...acc].sort((a, b) => b[1] - a[1]).slice(0, 4);
+    const sum = top.reduce((s, x) => s + x[1], 0) || 1;
+    for (let k = 0; k < 4; k++) {
+      si.setComponent(i, k, top[k] ? top[k][0] : 0);
+      sw.setComponent(i, k, top[k] ? top[k][1] / sum : 0);
+    }
+    changed++;
+  }
+  if (changed) { si.needsUpdate = true; sw.needsUpdate = true; }
+  return changed;
+}
+
 // --------------------------------------------------------------- manifest --
 // Each op names a point; the island containing the vertex nearest that point
 // is the target. `at` is measured from the mesh's own rest bounding box and
@@ -350,6 +530,33 @@ export function applyWeightOps(root, ops, map = {}) {
       report.push({ bleed: op.bleed, bones, changed: vertsTouched, stranded: orphans - vertsTouched });
       continue;
     }
+    // ---- tighten a joint's hand-over ----
+    if (op?.tighten) {
+      const joints = op.tighten === 'limbs' ? LIMB_JOINTS
+        : Array.isArray(op.tighten) ? op.tighten : [op.tighten];
+      // The smoothstep's width, which measures out at roughly 0.6 of itself on
+      // the 10-90 crossing this reports — so 0.28 lands at the 17% the two
+      // cleanly-exported models (Maki, Mahito) already have. Deliberately not
+      // tighter: a hard edge at an elbow creases.
+      const band = op.band ?? 0.28;
+      const done = [];
+      for (const c of cache) {
+        for (const j of joints) {
+          // measured for the log only — a joint the measurement cannot read
+          // (too little of the limb dominated by the pair, which on Nobara is
+          // a skirt over a thigh) is still repaired, on the same vertices the
+          // measurement would have used
+          const was = handoverBand(c.mesh, c.P, map, j);
+          const n = tightenJoint(c.mesh, c.P, map, j, band);
+          if (!n) continue;
+          const now = handoverBand(c.mesh, c.P, map, j);
+          const pct = r => r ? (r.band * 100).toFixed(0) + '%' : '?';
+          done.push(`${j} ${pct(was)}->${pct(now)} (${n}v)`);
+        }
+      }
+      report.push({ tighten: joints, band, done });
+      continue;
+    }
     if (!Array.isArray(op?.at)) continue;
     // nearest vertex, across every skinned mesh
     let best = null, bestD = Infinity;
@@ -390,7 +597,8 @@ export function applyWeightOps(root, ops, map = {}) {
       // one that read as broken.
       r.bleed ? `bleed ${r.bleed.join('/')} off ${r.bones} bone(s) (${r.changed}v cleaned, ` +
         `${r.stranded}v left to their own bone)`
-        : `${r.rigid ? 'rigid→' + r.rigid : 'drop ' + (r.drop ?? []).join('/')} on ${r.verts}v`
+        : r.tighten ? `tighten to ${(r.band * 100).toFixed(0)}%: ${r.done.join(', ')}`
+          : `${r.rigid ? 'rigid→' + r.rigid : 'drop ' + (r.drop ?? []).join('/')} on ${r.verts}v`
     ).join('; '));
   }
   return report;

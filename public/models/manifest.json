@@ -7,6 +7,9 @@
           "hand",
           "forearm"
         ]
+      },
+      {
+        "tighten": "limbs"
       }
     ]
   },
@@ -36,6 +39,9 @@
           0.1935
         ],
         "rigid": "DEF-handR"
+      },
+      {
+        "tighten": "limbs"
       }
     ],
     "joints": {
@@ -96,6 +102,9 @@
           "hand",
           "forearm"
         ]
+      },
+      {
+        "tighten": "limbs"
       }
     ]
   },
@@ -130,6 +139,9 @@
           "hand",
           "forearm"
         ]
+      },
+      {
+        "tighten": "limbs"
       }
     ]
   },
