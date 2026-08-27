@@ -163,6 +163,44 @@ which preserves the difference in their `|x|` exactly — the bones move, the
 report says it worked, and the asymmetry does not budge. Measuring *after*
 applying is what caught it, and is why the pass is idempotent by design.
 
+## Landmarks into a rig fix (`tools/landmarks.mjs`)
+
+The verification bench hands back where a person says each joint is. This turns
+that into a manifest entry — and, more often than not, refuses to.
+
+    node tools/landmarks.mjs tools/landmarks/nobara.json           # score it
+    node tools/landmarks.mjs tools/landmarks/nobara.json --write   # merge it
+
+Nobara's first export is why the rules exist. Read literally it asked to move
+her hips pivot **22% of body height**, and applying it whole would have been a
+disaster. Read against the model it was mostly right and specifically wrong:
+
+- **A mark's height is a measurement; its depth is a guess.** All seventeen of
+  her marks were 2.7% of height to one side and 3–6 cm behind the bones — on a
+  model whose mesh *and* bones both centre on x = 0.000. That is the
+  single-angle depth error above, not a fact about the rig, so only the
+  vertical component is taken unless the landmark was triangulated.
+- **Small disagreements are noise.** Under 2% of height (3 cm on a 1.6 m
+  fighter) a mark and a bone agree as well as a person can point; applying
+  those made every already-correct joint slightly worse.
+- **A symmetric rig deserves a symmetric fix.** Her two thigh marks differed by
+  0.5 cm — fine as aim, and rejected by modelcheck's symmetry gate as a rig.
+  L/R pairs are averaged.
+- **Two names, one answer.** Pelvis and waist landed 2 mm apart, which is one
+  point answered twice. A contradictory pair is named and neither is applied.
+- **"Better" means closer to the drive rig.** The score is the joint's height
+  against the procedural character the model stands in for, plus the bone
+  directions the bind alignment reads. A rule that improves one and wrecks the
+  other is visible, and `--write` refuses when the result is not an improvement.
+
+What it found on Nobara, and what shipped: her spine and thigh pivots sat 5–13
+points of body height **below** the drive rig's, while her arms were already
+within a point. Seven pivots moved; mean joint-height error against the drive
+rig **4.40 → 2.65 points**, mean bone direction 9.4° → 8.3°. On the bench's
+squat stress pose she went from standing nearly straight to actually crouching.
+The entry records what produced it, so it can be regenerated rather than
+guessed at.
+
 ## Props and effects follow the body
 
 Everything a character hangs off a bone — Toji's spear, the particle emitter
@@ -563,6 +601,39 @@ Three more things are deliberate:
   — and putting the commit on any one button loses answers through the other
   four. It did: the phone dock once advanced the queue without recording, and
   the export came out a mark short of what was plainly on the screen.
+
+#### Two angles, not two taps
+
+A tap is a *ray*. The bench turns it into a point inside the body by averaging
+where the ray enters and leaves — which is most of what is wanted, and leaves a
+depth error **along the line of sight**, the one direction the person tapping
+cannot see. Measured on Nobara it is 2–11 cm depending on the joint, and it does
+not average away: two taps from the same viewpoint share it exactly.
+
+So a sample now stores its ray, and two rays from different angles are not two
+guesses but an intersection — least squares over the lines, no depth heuristic
+involved. Driving the real bench and clicking exactly where a known bone
+projects:
+
+| how it was sampled | recovered error |
+| --- | --- |
+| one tap | 1.8 – 10.9 cm |
+| two taps, same view (6° apart) | 1.6 – 11.2 cm |
+| two taps, 90° apart | **0.0 cm** |
+| two taps, opposite sides | **0.0 cm** |
+
+The bench therefore says how far apart your marks are in degrees and asks for
+another angle until they cross, the export carries `spreadDeg` per landmark and
+a `triangulated` count, and `tools/landmarks.mjs` uses only the vertical
+component of a landmark that was never triangulated. (`tools/benchcheck.mjs`
+asserts the table above, so the picking cannot quietly regress.)
+
+Two of the questions were also *wrong*, which the first real answers proved:
+"pelvis centre, level with the top of the hip bones" reads at the navel, about
+10% of body height above the bone it fixes — the first person to answer it
+marked the pelvis 2 mm from where they then marked the waist — and "head centre,
+the middle of the skull" sits above the joint the head actually turns on. Both
+now ask for the pivot.
 
 `node tools/benchcheck.mjs` drives the whole loop in a real browser at both
 sizes. Adding a queue is one entry in `QUEUES` (`src/workbench/verification.js`)

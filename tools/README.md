@@ -85,6 +85,20 @@ to check, and both had to be checked for Uraume and Ryu:
       node tools/benchcheck.mjs             # both viewports
       node tools/benchcheck.mjs maki        # a different manifest entry
 
+- **"the person's answer is worth applying"** — `landmarks.mjs` scores a
+  verification-bench decisions file against the procedural rig the retargeter
+  aims at, and merges the part of it that is a measurement. It exists because
+  the first real export, read literally, asked to move a hips pivot 22% of body
+  height. Its rules are all scar tissue: a mark's HEIGHT is a measurement and
+  its depth is a guess unless it was triangulated from two angles; a
+  disagreement under 2% of height is noise; a symmetric rig gets a symmetric
+  fix; two landmarks that land on the same point are one question answered
+  twice and neither is applied. `--write` refuses if the result would not
+  improve the rig, and records in the entry what produced it.
+
+      node tools/landmarks.mjs tools/landmarks/nobara.json
+      node tools/landmarks.mjs tools/landmarks/nobara.json --write
+
 Usage:
 
     node tools/shoot.mjs '[{"kind":"sheet","id":"uraume","name":"out",

@@ -140,6 +140,30 @@ async function run(label, viewport, isMobile) {
   check('the export carries the choice', json.answers[0]?.value === 'rest');
   check('every question is accounted for', json.answers.length === 19, json.answers.length + ' answers');
 
+  // PICKING, MEASURED RATHER THAN EYEBALLED. A tap is a ray, and turning it
+  // into a point inside the body leaves an error along the line of sight —
+  // which is the one direction a person looking at the screen cannot judge, so
+  // it can only be caught here. Two rays from different angles intersect and
+  // the error goes away; this asserts that it does.
+  const tri = await page.evaluate(() => {
+    const P = Math.PI, out = [];
+    for (const bone of ['Hips', 'ThighL', 'Chest']) {
+      out.push({ bone,
+        one: window.__vb.triangulate(bone, 'hips', [0.45]),
+        same: window.__vb.triangulate(bone, 'hips', [0.45, 0.55]),
+        cross: window.__vb.triangulate(bone, 'hips', [0.45, 0.45 + P / 2]),
+        opposite: window.__vb.triangulate(bone, 'hips', [0.45, 0.45 + P]) });
+    }
+    return out;
+  });
+  for (const t of tri) {
+    const ok = t.cross.errorCm != null && t.cross.errorCm < 1.0 &&
+      t.opposite.errorCm != null && t.opposite.errorCm < 1.0;
+    check(`two angles pin ${t.bone} that one angle cannot`, ok,
+      `one ${t.one.errorCm} cm, same view ${t.same.errorCm} cm, ` +
+      `90° apart ${t.cross.errorCm} cm, opposite ${t.opposite.errorCm} cm`);
+  }
+
   // layout, on the viewport it actually has
   const layout = await page.evaluate(() => ({
     h: document.documentElement.scrollWidth - window.innerWidth,

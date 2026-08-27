@@ -253,16 +253,26 @@ export const REFERENCE_POSES = {
 // to be answerable without anatomy training, and always describes the
 // INTERIOR joint centre rather than the surface bump above it.
 export const LANDMARKS = [
+  // "level with the TOP of the hip bones" was the first wording, and it is
+  // wrong by about 10% of body height: it reads at the iliac crest, up by the
+  // navel, while the bone this fixes sits level with the hip joints. The first
+  // person to answer it marked the pelvis 2 mm from where they then marked the
+  // waist, which is what a question asking twice for the same point looks like.
   { key: 'hips', bone: 'Hips', label: 'Pelvis centre',
-    hint: 'Inside the body, level with the top of the hip bones — the point the whole body pivots around when he leans.' },
+    hint: 'Deep inside the pelvis, level with the two hip joints and midway between ' +
+      'them — the point the whole body swings around. NOT the waist, and not the ' +
+      'top of the hip bones: lower than both.' },
   { key: 'waist', bone: 'Spine', label: 'Waist',
     hint: 'The narrowest part of the waist, roughly the navel. This is where the torso is meant to BEND.' },
   { key: 'chest', bone: 'Chest', label: 'Chest / ribcage',
     hint: 'The middle of the ribcage, level with the armpits — not the collarbone.' },
   { key: 'neckBase', bone: 'Neck', label: 'Neck base',
     hint: 'Where the neck meets the shoulders — the notch at the top of the breastbone, in the middle.' },
-  { key: 'headCentre', bone: 'Head', label: 'Head centre',
-    hint: 'The middle of the SKULL, roughly between the ears. Ignore the hair entirely.' },
+  // and this one asks for the middle of the skull, which is a few centimetres
+  // above the joint the head actually turns on
+  { key: 'headCentre', bone: 'Head', label: 'Head pivot',
+    hint: 'Where the head turns on the neck: between the ears, level with the ear ' +
+      'canals — lower than the middle of the skull. Ignore the hair entirely.' },
   { key: 'shoulderL', bone: 'UpArmL', label: 'Shoulder · left', side: 'L',
     hint: 'The ball joint INSIDE the shoulder where the arm swings from — not the top of the shoulder, and not the sleeve seam.' },
   { key: 'shoulderR', bone: 'UpArmR', label: 'Shoulder · right', side: 'R',
@@ -1123,25 +1133,105 @@ export class RigSession {
     const first = hits[0];
     let last = first;
     for (const h of hits) if (h.distance - first.distance <= maxDepth) last = h;
-    return first.point.clone().lerp(last.point, 0.5);
+    // A GUESS, AND KNOWN TO BE ONE. Averaging the ray's entry and exit puts the
+    // point inside the body rather than on its skin, which is most of what is
+    // wanted — but the residue is a depth error along the camera's own axis,
+    // measured at 3-10 cm on Nobara, and depth along the view axis is exactly
+    // what the person looking at the screen cannot judge. Two other rules were
+    // tried (furthest hit inside a fixed span; the first back-facing surface)
+    // and each is worse somewhere: one swallows the far arm and the hair, the
+    // other stops at the inside of a jacket. So the ray itself is kept, and a
+    // second sample from another angle replaces the guess with an
+    // intersection — see `landmarkModel`.
+    return {
+      point: first.point.clone().lerp(last.point, 0.5),
+      origin: this._raycaster.ray.origin.clone(),
+      dir: this._raycaster.ray.direction.clone()
+    };
   }
 
-  // stored in MODEL space, so a landmark survives refitting and rescaling
-  addLandmarkSample(key, world) {
-    if (!this.model3d || !world) return;
+  /**
+   * Store a sample in MODEL space, so a landmark survives refitting and
+   * rescaling — and store the RAY it came from, not just the point, because
+   * the ray is what makes a second sample worth anything.
+   *
+   * Accepts either a bare Vector3 (the point, no ray — a restored sample from
+   * before this existed) or a `pickSurface` result.
+   */
+  addLandmarkSample(key, hit) {
+    if (!this.model3d || !hit) return;
     this.model3d.updateMatrixWorld(true);
-    const local = world.clone().applyMatrix4(
-      new THREE.Matrix4().copy(this.model3d.matrixWorld).invert());
-    (this.landmarks[key] ??= []).push(local);
+    const inv = new THREE.Matrix4().copy(this.model3d.matrixWorld).invert();
+    const point = (hit.point ?? hit).clone().applyMatrix4(inv);
+    const s = { point };
+    if (hit.origin && hit.dir) {
+      s.origin = hit.origin.clone().applyMatrix4(inv);
+      // a direction transforms without the translation, and the fit is a
+      // uniform scale, so normalizing afterwards is enough
+      s.dir = hit.dir.clone().transformDirection(inv).normalize();
+    }
+    (this.landmarks[key] ??= []).push(s);
     this._refreshLandmarks();
   }
   clearLandmark(key) { delete this.landmarks[key]; this._refreshLandmarks(); }
   clearLandmarks() { this.landmarks = {}; this._refreshLandmarks(); }
 
+  /**
+   * WHERE THE JOINT IS, from however many samples there are.
+   *
+   * One sample is a guess: a point on a ray, put inside the body by a depth
+   * heuristic that is right to a few centimetres and wrong along the camera's
+   * axis. Two samples from DIFFERENT ANGLES are not a better guess, they are a
+   * measurement — the joint is where the two rays pass closest, and no depth
+   * heuristic enters into it. That is why the bench asks for the same joint
+   * from the other side, and why it now says so in numbers.
+   *
+   * Least squares over N rays: minimise the summed squared distance to each
+   * line, which is a 3x3 solve, and degenerates gracefully — rays from nearly
+   * the same direction make the matrix ill-conditioned, which is detected and
+   * falls back to averaging the points.
+   */
   landmarkModel(key) {
     const s = this.landmarks[key];
     if (!s?.length) return null;
-    return s.reduce((a, v) => a.add(v), new THREE.Vector3()).multiplyScalar(1 / s.length);
+    const mean = () => s.reduce((a, v) => a.add(v.point), new THREE.Vector3())
+      .multiplyScalar(1 / s.length);
+    const rays = s.filter(x => x.dir);
+    if (rays.length < 2 || this.landmarkSpread(key) < 15) return mean();
+    // A = Σ (I - d dᵀ), b = Σ (I - d dᵀ) o
+    const A = new THREE.Matrix3().set(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    const b = new THREE.Vector3();
+    for (const r of rays) {
+      const d = r.dir;
+      const m = new THREE.Matrix3().set(
+        1 - d.x * d.x, -d.x * d.y, -d.x * d.z,
+        -d.y * d.x, 1 - d.y * d.y, -d.y * d.z,
+        -d.z * d.x, -d.z * d.y, 1 - d.z * d.z);
+      for (let i = 0; i < 9; i++) A.elements[i] += m.elements[i];
+      b.add(r.origin.clone().applyMatrix3(m));
+    }
+    const det = A.determinant();
+    if (!isFinite(det) || Math.abs(det) < 1e-6) return mean();
+    const x = b.applyMatrix3(A.clone().invert());
+    // a solve that lands far from every sample is a solve that has gone wrong
+    return x.distanceTo(mean()) > 0.5 ? mean() : x;
+  }
+
+  /**
+   * The widest angle between any two of a landmark's rays, in degrees. This is
+   * the number that says whether the marks are a measurement or a guess: near
+   * zero and every sample looked from the same place, so the depth error they
+   * share is still in there.
+   */
+  landmarkSpread(key) {
+    const rays = (this.landmarks[key] ?? []).filter(x => x.dir);
+    let worst = 0;
+    for (let i = 0; i < rays.length; i++) {
+      for (let j = i + 1; j < rays.length; j++) {
+        worst = Math.max(worst, rays[i].dir.angleTo(rays[j].dir) * 180 / Math.PI);
+      }
+    }
+    return worst;
   }
   landmarkWorld(key) {
     const m = this.landmarkModel(key);
@@ -1322,6 +1412,7 @@ export class RigSession {
               norm: this.landmarkModel(d.key).divideScalar(this.modelHeight || 1)
                 .toArray().map(v => +v.toFixed(5)),
               samples: this.landmarks[d.key].length,
+              spreadDeg: Math.round(this.landmarkSpread(d.key)),
               errorCm: bp ? w.clone().sub(bp).toArray().map(v => +(v * k).toFixed(1)) : null,
               distCm: bp ? +(w.distanceTo(bp) * k).toFixed(1) : null
             }];

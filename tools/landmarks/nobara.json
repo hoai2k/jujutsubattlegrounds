@@ -1,0 +1,542 @@
+{
+  "tool": "verification-bench",
+  "queue": "landmarks",
+  "model": "nobara.glb",
+  "reference": "nobara",
+  "modelHeightM": 0.9997,
+  "exported": "2026-08-27T19:44:38.824Z",
+  "answers": [
+    {
+      "id": "bindPose",
+      "question": "What kind of pose is this model standing in?",
+      "kind": "choice",
+      "value": "rest",
+      "label": "Rest pose",
+      "at": "2026-08-27T19:35:17.913Z"
+    },
+    {
+      "id": "lm:hips",
+      "question": "Pelvis centre",
+      "kind": "point",
+      "key": "hips",
+      "bone": "Hips",
+      "node": "DEF-spine",
+      "samples": 2,
+      "model": [
+        0.030407,
+        0.128562,
+        -0.005828
+      ],
+      "norm": [
+        0.03041,
+        0.1286,
+        -0.00583
+      ],
+      "distCm": 35.8,
+      "at": "2026-08-27T19:36:27.312Z"
+    },
+    {
+      "id": "lm:waist",
+      "question": "Waist",
+      "kind": "point",
+      "key": "waist",
+      "bone": "Spine",
+      "node": "DEF-spine001",
+      "samples": 2,
+      "model": [
+        0.027147,
+        0.130415,
+        -0.006341
+      ],
+      "norm": [
+        0.02715,
+        0.13045,
+        -0.00634
+      ],
+      "distCm": 24.8,
+      "at": "2026-08-27T19:38:13.094Z"
+    },
+    {
+      "id": "lm:chest",
+      "question": "Chest / ribcage",
+      "kind": "point",
+      "key": "chest",
+      "bone": "Chest",
+      "node": "DEF-spine003",
+      "samples": 2,
+      "model": [
+        0.028053,
+        0.25596,
+        -0.016758
+      ],
+      "norm": [
+        0.02806,
+        0.25603,
+        -0.01676
+      ],
+      "distCm": 21.4,
+      "at": "2026-08-27T19:38:36.260Z"
+    },
+    {
+      "id": "lm:neckBase",
+      "question": "Neck base",
+      "kind": "point",
+      "key": "neckBase",
+      "bone": "Neck",
+      "node": "DEF-spine004",
+      "samples": 2,
+      "model": [
+        0.027442,
+        0.331628,
+        -0.038468
+      ],
+      "norm": [
+        0.02745,
+        0.33172,
+        -0.03848
+      ],
+      "distCm": 21.5,
+      "at": "2026-08-27T19:39:13.827Z"
+    },
+    {
+      "id": "lm:headCentre",
+      "question": "Head centre",
+      "kind": "point",
+      "key": "headCentre",
+      "bone": "Head",
+      "node": "DEF-spine006",
+      "samples": 3,
+      "model": [
+        0.023923,
+        0.419044,
+        -0.027746
+      ],
+      "norm": [
+        0.02393,
+        0.41915,
+        -0.02775
+      ],
+      "distCm": 15.1,
+      "at": "2026-08-27T19:40:30.260Z"
+    },
+    {
+      "id": "lm:shoulderL",
+      "question": "Shoulder · left",
+      "kind": "point",
+      "key": "shoulderL",
+      "bone": "UpArmL",
+      "node": "DEF-upper_armL",
+      "samples": 2,
+      "model": [
+        0.112568,
+        0.286818,
+        -0.043701
+      ],
+      "norm": [
+        0.1126,
+        0.28689,
+        -0.04371
+      ],
+      "distCm": 10,
+      "at": "2026-08-27T19:41:23.176Z"
+    },
+    {
+      "id": "lm:shoulderR",
+      "question": "Shoulder · right",
+      "kind": "point",
+      "key": "shoulderR",
+      "bone": "UpArmR",
+      "node": "DEF-upper_armR",
+      "samples": 2,
+      "model": [
+        -0.061591,
+        0.286057,
+        -0.04387
+      ],
+      "norm": [
+        -0.06161,
+        0.28613,
+        -0.04388
+      ],
+      "distCm": 12.7,
+      "at": "2026-08-27T19:41:37.426Z"
+    },
+    {
+      "id": "lm:elbowL",
+      "question": "Elbow · left",
+      "kind": "point",
+      "key": "elbowL",
+      "bone": "LoArmL",
+      "node": "DEF-forearmL",
+      "samples": 2,
+      "model": [
+        0.161273,
+        0.152135,
+        -0.046405
+      ],
+      "norm": [
+        0.16132,
+        0.15217,
+        -0.04642
+      ],
+      "distCm": 9.6,
+      "at": "2026-08-27T19:42:02.458Z"
+    },
+    {
+      "id": "lm:elbowR",
+      "question": "Elbow · right",
+      "kind": "point",
+      "key": "elbowR",
+      "bone": "LoArmR",
+      "node": "DEF-forearmR",
+      "samples": 2,
+      "model": [
+        -0.107727,
+        0.152852,
+        -0.046324
+      ],
+      "norm": [
+        -0.10775,
+        0.15289,
+        -0.04634
+      ],
+      "distCm": 13.9,
+      "at": "2026-08-27T19:42:12.492Z"
+    },
+    {
+      "id": "lm:wristL",
+      "question": "Wrist · left",
+      "kind": "point",
+      "key": "wristL",
+      "bone": "HandL",
+      "node": "DEF-handL",
+      "samples": 2,
+      "model": [
+        0.226514,
+        0.017406,
+        -0.03768
+      ],
+      "norm": [
+        0.22657,
+        0.01741,
+        -0.03769
+      ],
+      "distCm": 8.1,
+      "at": "2026-08-27T19:42:35.642Z"
+    },
+    {
+      "id": "lm:wristR",
+      "question": "Wrist · right",
+      "kind": "point",
+      "key": "wristR",
+      "bone": "HandR",
+      "node": "DEF-handR",
+      "samples": 2,
+      "model": [
+        -0.172289,
+        0.019434,
+        -0.042444
+      ],
+      "norm": [
+        -0.17233,
+        0.01944,
+        -0.04246
+      ],
+      "distCm": 11.5,
+      "at": "2026-08-27T19:42:50.492Z"
+    },
+    {
+      "id": "lm:hipL",
+      "question": "Hip joint · left",
+      "kind": "point",
+      "key": "hipL",
+      "bone": "ThighL",
+      "node": "DEF-thighL",
+      "samples": 2,
+      "model": [
+        0.083079,
+        0.018673,
+        -0.019972
+      ],
+      "norm": [
+        0.0831,
+        0.01868,
+        -0.01998
+      ],
+      "distCm": 16.2,
+      "at": "2026-08-27T19:43:31.258Z"
+    },
+    {
+      "id": "lm:hipR",
+      "question": "Hip joint · right",
+      "kind": "point",
+      "key": "hipR",
+      "bone": "ThighR",
+      "node": "DEF-thighR",
+      "samples": 2,
+      "model": [
+        -0.023735,
+        0.023575,
+        -0.020515
+      ],
+      "norm": [
+        -0.02374,
+        0.02358,
+        -0.02052
+      ],
+      "distCm": 17.1,
+      "at": "2026-08-27T19:43:46.791Z"
+    },
+    {
+      "id": "lm:kneeL",
+      "question": "Knee · left",
+      "kind": "point",
+      "key": "kneeL",
+      "bone": "ShinL",
+      "node": "DEF-shinL",
+      "samples": 2,
+      "model": [
+        0.123626,
+        -0.223704,
+        -0.033341
+      ],
+      "norm": [
+        0.12366,
+        -0.22376,
+        -0.03335
+      ],
+      "distCm": 12.8,
+      "at": "2026-08-27T19:43:56.258Z"
+    },
+    {
+      "id": "lm:kneeR",
+      "question": "Knee · right",
+      "kind": "point",
+      "key": "kneeR",
+      "bone": "ShinR",
+      "node": "DEF-shinR",
+      "samples": 2,
+      "model": [
+        -0.069019,
+        -0.223605,
+        -0.033759
+      ],
+      "norm": [
+        -0.06904,
+        -0.22366,
+        -0.03377
+      ],
+      "distCm": 12.3,
+      "at": "2026-08-27T19:44:04.025Z"
+    },
+    {
+      "id": "lm:ankleL",
+      "question": "Ankle · left",
+      "kind": "point",
+      "key": "ankleL",
+      "bone": "FootL",
+      "node": "DEF-footL",
+      "samples": 2,
+      "model": [
+        0.160971,
+        -0.453455,
+        -0.032022
+      ],
+      "norm": [
+        0.16101,
+        -0.45357,
+        -0.03203
+      ],
+      "distCm": 8.2,
+      "at": "2026-08-27T19:44:19.524Z"
+    },
+    {
+      "id": "lm:ankleR",
+      "question": "Ankle · right",
+      "kind": "point",
+      "key": "ankleR",
+      "bone": "FootR",
+      "node": "DEF-footR",
+      "samples": 2,
+      "model": [
+        -0.10706,
+        -0.4538,
+        -0.043632
+      ],
+      "norm": [
+        -0.10709,
+        -0.45392,
+        -0.04364
+      ],
+      "distCm": 9.2,
+      "at": "2026-08-27T19:44:32.091Z"
+    },
+    {
+      "id": "notes",
+      "question": "Anything else wrong with this model?",
+      "unanswered": true
+    }
+  ],
+  "landmarkMapping": [
+    {
+      "key": "hips",
+      "bone": "Hips",
+      "current": "DEF-spine",
+      "currentCm": 35.8,
+      "nearest": "DEF-spine003",
+      "nearestCm": 5.7,
+      "agrees": false
+    },
+    {
+      "key": "waist",
+      "bone": "Spine",
+      "current": "DEF-spine001",
+      "currentCm": 24.8,
+      "nearest": "DEF-spine003",
+      "nearestCm": 5.3,
+      "agrees": false
+    },
+    {
+      "key": "chest",
+      "bone": "Chest",
+      "current": "DEF-spine003",
+      "currentCm": 21.4,
+      "nearest": "DEF-shoulderL",
+      "nearestCm": 8.1,
+      "agrees": false
+    },
+    {
+      "key": "neckBase",
+      "bone": "Neck",
+      "current": "DEF-spine004",
+      "currentCm": 21.5,
+      "nearest": "DEF-spine006",
+      "nearestCm": 12.3,
+      "agrees": false
+    },
+    {
+      "key": "hipL",
+      "bone": "ThighL",
+      "current": "DEF-thighL",
+      "currentCm": 16.2,
+      "nearest": "DEF-spine001",
+      "nearestCm": 15.3,
+      "agrees": false
+    },
+    {
+      "key": "hipR",
+      "bone": "ThighR",
+      "current": "DEF-thighR",
+      "currentCm": 17.1,
+      "nearest": "DEF-spine002",
+      "nearestCm": 7.7,
+      "agrees": false
+    },
+    {
+      "key": "kneeL",
+      "bone": "ShinL",
+      "current": "DEF-shinL",
+      "currentCm": 12.8,
+      "nearest": "DEF-thighL001",
+      "nearestCm": 12.2,
+      "agrees": false
+    },
+    {
+      "key": "kneeR",
+      "bone": "ShinR",
+      "current": "DEF-shinR",
+      "currentCm": 12.3,
+      "nearest": "DEF-thighR001",
+      "nearestCm": 9.2,
+      "agrees": false
+    }
+  ],
+  "notes": "",
+  "joints": {
+    "DEF-spine": [
+      0.030415,
+      0.21862,
+      -0.005829
+    ],
+    "DEF-spine001": [
+      0.027154,
+      0.150454,
+      -0.008343
+    ],
+    "DEF-spine003": [
+      0.02806,
+      0.125993,
+      -0.028766
+    ],
+    "DEF-spine004": [
+      0.027449,
+      0.116659,
+      -0.056482
+    ],
+    "DEF-spine006": [
+      0.023929,
+      0.069062,
+      -0.057762
+    ],
+    "DEF-upper_armL": [
+      0.002569,
+      0.001819,
+      -0.061718
+    ],
+    "DEF-upper_armR": [
+      0.048421,
+      0.001058,
+      -0.061887
+    ],
+    "DEF-forearmL": [
+      -0.008729,
+      0.007136,
+      -0.058421
+    ],
+    "DEF-forearmR": [
+      0.06229,
+      0.007854,
+      -0.058339
+    ],
+    "DEF-handL": [
+      0.006516,
+      0.012409,
+      -0.047693
+    ],
+    "DEF-handR": [
+      0.042722,
+      0.014438,
+      -0.052458
+    ],
+    "DEF-thighL": [
+      0.028086,
+      0.093698,
+      -0.019977
+    ],
+    "DEF-thighR": [
+      0.031273,
+      0.098601,
+      -0.020521
+    ],
+    "DEF-shinL": [
+      0.031634,
+      0.061312,
+      -0.038351
+    ],
+    "DEF-shinR": [
+      0.022987,
+      0.061412,
+      -0.038769
+    ],
+    "DEF-footL": [
+      0.030979,
+      0.001545,
+      -0.040032
+    ],
+    "DEF-footR": [
+      0.022946,
+      0.0012,
+      -0.051645
+    ]
+  }
+}

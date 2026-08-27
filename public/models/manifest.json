@@ -48,8 +48,44 @@
         -0.0024,
         0,
         0
+      ],
+      "DEF-spine003": [
+        0,
+        0.125993,
+        0
+      ],
+      "DEF-spine004": [
+        0,
+        0.116659,
+        0
+      ],
+      "DEF-spine006": [
+        0,
+        0.069062,
+        0
+      ],
+      "DEF-thighL": [
+        0,
+        0.096149,
+        0
+      ],
+      "DEF-thighR": [
+        0,
+        0.096149,
+        0
+      ],
+      "DEF-shinL": [
+        0,
+        0.061361,
+        0
+      ],
+      "DEF-shinR": [
+        0,
+        0.061361,
+        0
       ]
-    }
+    },
+    "_joints": "7 pivots from the landmark queue (nobara.json), height only, L/R averaged. Joint height against the drive rig 4.40 -> 2.65 pt. Reproduce: node tools/landmarks.mjs <file> --write"
   },
   "jogo": {
     "url": "./jogo.glb",

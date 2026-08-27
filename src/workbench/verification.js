@@ -345,8 +345,12 @@ export function mountVerificationBench(root) {
   const slot = () => 'ans:' + (session.sourceLabel || '?');
   function persist() {
     const lm = {};
+    const r5 = v => v.toArray().map(x => +x.toFixed(5));
     for (const [k, v] of Object.entries(session.landmarks)) {
-      lm[k] = v.map(p => p.toArray().map(x => +x.toFixed(5)));
+      // the RAY is the valuable half of a sample — two of them from different
+      // angles are a measurement rather than two guesses — so it survives the
+      // phone locking as well as the point does
+      lm[k] = v.map(s => s.dir ? [r5(s.point), r5(s.origin), r5(s.dir)] : [r5(s.point)]);
     }
     prefs[slot()] = { decisions, landmarks: lm, notes, queue: queueId };
     save(prefs);
@@ -357,7 +361,15 @@ export function mountVerificationBench(root) {
     Object.assign(decisions, saved.decisions || {});
     notes = saved.notes || '';
     for (const [k, arr] of Object.entries(saved.landmarks || {})) {
-      session.landmarks[k] = arr.map(a => new THREE.Vector3().fromArray(a));
+      session.landmarks[k] = arr.map(a => {
+        if (typeof a[0] === 'number') return { point: new THREE.Vector3().fromArray(a) };
+        const s = { point: new THREE.Vector3().fromArray(a[0]) };
+        if (a[1] && a[2]) {
+          s.origin = new THREE.Vector3().fromArray(a[1]);
+          s.dir = new THREE.Vector3().fromArray(a[2]);
+        }
+        return s;
+      });
     }
     session._refreshLandmarks();
   }
@@ -449,6 +461,7 @@ export function mountVerificationBench(root) {
       const bp = bone && new THREE.Vector3().setFromMatrixPosition(bone.matrixWorld);
       answer(q.id, {
         kind: 'point', key: q.key, bone: q.bone, node: bone?.name ?? null, samples: n,
+        spreadDeg: Math.round(session.landmarkSpread(q.key)),
         model: m.toArray().map(v => +v.toFixed(6)),
         norm: m.clone().divideScalar(session.modelHeight || 1).toArray().map(v => +v.toFixed(5)),
         distCm: bp ? +(session.landmarkWorld(q.key).distanceTo(bp) * 100).toFixed(1) : null
@@ -596,10 +609,20 @@ export function mountVerificationBench(root) {
     } else {
       const bp = new THREE.Vector3().setFromMatrixPosition(bone.matrixWorld);
       const cm = (w.distanceTo(bp) * 100).toFixed(1);
+      // ONE TAP IS A GUESS AND TWO ANGLES ARE A MEASUREMENT, and the difference
+      // is worth saying plainly: a single ray puts the point inside the body
+      // with a depth heuristic that is wrong by centimetres ALONG THE LINE OF
+      // SIGHT — the one direction the person tapping cannot see. A second tap
+      // from elsewhere intersects the first and the guess drops out entirely.
+      const spread = Math.round(session.landmarkSpread(q.key));
       read = `<b>${n} mark${n > 1 ? 's' : ''}</b> — the bone currently sits ` +
-        `<b>${cm} cm</b> from where you pointed.` +
-        (n === 1 ? ' Turn the model around and tap the same joint from the other ' +
-          'side: the two average, and that is worth more than aiming carefully once.' : '');
+        `<b>${cm} cm</b> from where you pointed. ` +
+        (spread >= 40
+          ? `Marks <b>${spread}°</b> apart: the depth is measured, not guessed.`
+          : spread >= 15
+            ? `Marks only <b>${spread}°</b> apart — turn further and tap once more.`
+            : '<b>Turn the model and tap the same joint again.</b> One angle cannot ' +
+              'tell how deep the joint is; two angles cross, and settle it.');
     }
     questionPanel.append(el('div', 'vb-read', read));
 
@@ -707,6 +730,12 @@ export function mountVerificationBench(root) {
         ...(decisions[q.id] ?? { unanswered: true })
       })),
       landmarkMapping: session.suggestFromLandmarks().filter(r => !r.agrees),
+      // How much of this is a measurement. A landmark sampled from one
+      // direction carries an unmeasured depth error along that direction;
+      // saying so here is what stops it being read as a number.
+      triangulated: LANDMARKS.filter(d => session.landmarks[d.key]?.length &&
+        session.landmarkSpread(d.key) >= 40).length,
+      marked: LANDMARKS.filter(d => session.landmarks[d.key]?.length).length,
       notes
     };
     // The joints patch, ready to paste into public/models/manifest.json. Same
@@ -733,6 +762,54 @@ export function mountVerificationBench(root) {
     if (e.key === 'ArrowRight' || e.key === 'Enter') { go(1); e.preventDefault(); }
     if (e.key === 'ArrowLeft') { go(-1); e.preventDefault(); }
   });
+
+  render();
+  requestAnimationFrame(() => { stage.resize(); frameBody(); });
+
+  // THE HARNESS HOOK. `tools/benchcheck.mjs` drives this bench in a real
+  // browser, and the one thing it cannot do from outside is aim: a synthetic
+  // tap has to land exactly where a known joint projects, or the round trip
+  // measures the test's aim rather than the bench's maths. Same practice as
+  // `window.__viewer` and `__skipSelect` elsewhere; it costs a few lines and
+  // it is how the picking regression below stays fixed.
+  window.__vb = {
+    session, stage, view,
+    /**
+     * Tap exactly where `bone` projects, from each of `yaws`, and report what
+     * the landmark solver recovers. One angle is a guess with a depth error;
+     * two that are far enough apart are an intersection.
+     */
+    triangulate(bone, key, yaws, pitch = 0.06) {
+      const n = session.map[bone];
+      session.wrapper.updateMatrixWorld(true);
+      const truth = new THREE.Vector3().setFromMatrixPosition(n.matrixWorld);
+      session.clearLandmark(key);
+      const r = stage.canvas.getBoundingClientRect();
+      const per = [];
+      for (const yaw of yaws) {
+        stage.frameOn(truth, 1.6);
+        stage.cam.yaw = yaw; stage.cam.pitch = pitch;
+        stage.camera.position.set(
+          stage.cam.tx + Math.sin(yaw) * stage.cam.dist * Math.cos(pitch),
+          stage.cam.height + Math.sin(pitch) * stage.cam.dist,
+          stage.cam.tz + Math.cos(yaw) * stage.cam.dist * Math.cos(pitch));
+        stage.camera.lookAt(stage.cam.tx, stage.cam.height, stage.cam.tz);
+        stage.camera.updateMatrixWorld(true);
+        const p = truth.clone().project(stage.camera);
+        const hit = session.pickSurface({
+          clientX: r.left + (p.x * 0.5 + 0.5) * r.width,
+          clientY: r.top + (-p.y * 0.5 + 0.5) * r.height
+        });
+        if (!hit) { per.push(null); continue; }
+        per.push(+(hit.point.distanceTo(truth) * 100).toFixed(1));
+        session.addLandmarkSample(key, hit);
+      }
+      const got = session.landmarkWorld(key);
+      session.clearLandmark(key);
+      return { bone, perSampleCm: per, spreadDeg: Math.round(session.landmarkSpread(key)),
+        errorCm: got ? +(got.distanceTo(truth) * 100).toFixed(1) : null };
+    }
+  };
 
   render();
   requestAnimationFrame(() => { stage.resize(); frameBody(); });
