@@ -399,6 +399,8 @@
 .vb-ghost:hover { color: var(--bone); border-color: var(--ac); }
 .vb-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 .vb-ghost.sm { min-height: 44px; padding: 10px 13px; }
+.vb-ghost.on { color: var(--ink); background: var(--ac); border-color: var(--ac); }
+.vb-card .mb-hint { font-size: 12px; line-height: 1.5; color: var(--bone-far); }
 .vb-card .mb-notes { min-height: 110px; }
 
 /* ============================================================================

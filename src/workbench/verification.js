@@ -115,6 +115,71 @@ function landmarkQueue() {
   return q;
 }
 
+/**
+ * THE POSES QUEUE — "does this read?"
+ *
+ * The landmarks queue asks about a body standing still, and everything it can
+ * fix is a fact about the bind pose. It cannot see the fault that took the
+ * longest to find here, because that fault only exists in motion: Nobara's
+ * elbow at the end of her punch, which the bones place correctly to the degree
+ * and which still reads as a rubber hose rather than an arm.
+ *
+ * Finding that took measuring five theories and discarding four. What would
+ * have found it in one tap is this: hold the frame, show the imported body and
+ * the procedural one it stands in for at the SAME camera, and ask which of a
+ * short list of failures is on screen. The list is the value — "it looks
+ * wrong" cannot be acted on, while "the limb curves where it should be
+ * straight" and "the two segments merge into one shape" point at different
+ * repairs and rule each other out.
+ *
+ * Each question names a clip, a frame and the joint to frame on. The frames
+ * are the extremes: that is where a rig fails, and where nobody looks.
+ */
+const POSE_CHECKS = [
+  { clip: 'punch3', frame: 38, bone: 'LoArmR', dist: 0.85, label: 'End of the punch — right elbow' },
+  { clip: 'punch3', frame: 12, bone: 'LoArmR', dist: 0.95, label: 'Punch fully extended — right elbow' },
+  { clip: 'run', frame: 14, bone: 'ShinR', dist: 1.0, label: 'Mid-stride — right knee' },
+  { clip: 'block', frame: 20, bone: 'LoArmL', dist: 0.9, label: 'Guard up — left elbow' },
+  { clip: 'knockdown', frame: 40, bone: 'Hips', dist: 1.6, label: 'On the floor — hips and spine' },
+  { clip: 'getup', frame: 26, bone: 'ThighR', dist: 1.3, label: 'Getting up — right hip' },
+  { clip: 'hitHeavy', frame: 18, bone: 'Chest', dist: 1.4, label: 'Taking a heavy hit — torso' }
+];
+
+// What can be wrong with a limb in motion, in the words of what you can SEE —
+// and each one points somewhere different.
+const POSE_FAULTS = [
+  { value: 'ok', label: 'Reads fine', hint: 'The pose is legible and the joints are where joints go.' },
+  { value: 'curved', label: 'Curves where it should be straight',
+    hint: 'The segment between two joints bows like a hose instead of staying rigid. → skin weights (tighten).' },
+  { value: 'wrongPlace', label: 'Bends in the wrong place',
+    hint: 'It does bend, but not at the joint — above or below it. → the pivot, so the landmarks queue.' },
+  { value: 'merged', label: 'Two parts merge into one shape',
+    hint: 'The fold closes up and the limb stops reading as two segments. → the pose is past what this body can hold: a bend limit.' },
+  { value: 'collapsed', label: 'Pinches, collapses or spikes',
+    hint: 'Volume is lost at the joint, or geometry flies off. → skinning mode, or a weight repair.' },
+  { value: 'through', label: 'Passes through the body',
+    hint: 'A limb or a prop intersects something it should not. → a bend limit, or the attachment.' },
+  { value: 'other', label: 'Something else', hint: 'Say what in the notes at the end.' }
+];
+
+function poseQueue() {
+  const q = POSE_CHECKS.map(c => ({
+    id: `pose:${c.clip}:${c.frame}`, kind: 'pose', ...c,
+    title: c.label,
+    ask: 'Look at the joint in the middle of the frame. <b>COMPARE</b> swaps to the ' +
+      'procedural body the clip was authored on, at the same camera — if that one ' +
+      'reads and this one does not, the clip is fine and the model is not.',
+    options: POSE_FAULTS
+  }));
+  q.push({
+    id: 'notes', kind: 'note',
+    title: 'Anything else about how it moves?',
+    ask: 'Free text — it goes into the export verbatim.'
+  });
+  q.push({ id: 'done', kind: 'done', title: 'Done' });
+  return q;
+}
+
 export const QUEUES = {
   landmarks: {
     label: 'Landmarks',
@@ -123,6 +188,15 @@ export const QUEUES = {
       'place aims its limb somewhere the clip never asked for — and nothing in ' +
       'the file says where the shoulder really is.',
     build: landmarkQueue
+  },
+  poses: {
+    label: 'Poses',
+    blurb: 'Does the body read at the extremes of each clip? The landmarks queue ' +
+      'asks about a rig standing still; this one asks about the only place a rig ' +
+      'actually fails. Every answer names a fault that points at a different ' +
+      'repair, and COMPARE puts the procedural body in the same frame so the ' +
+      'answer can be "that one reads and this one does not".',
+    build: poseQueue
   }
 };
 
@@ -139,7 +213,9 @@ const PANELS = {
 
 export function mountVerificationBench(root) {
   const prefs = { char: 'yuji', url: '', queue: 'landmarks', ...load() };
-  const queueId = QUEUES[prefs.queue] ? prefs.queue : 'landmarks';
+  // the URL names the queue, so a link can hand someone a specific job
+  const wanted = new URLSearchParams(location.search).get('queue') || prefs.queue;
+  const queueId = QUEUES[wanted] ? wanted : 'landmarks';
   const queueDef = QUEUES[queueId];
 
   root.classList.add('vb-mode');
@@ -225,7 +301,6 @@ export function mountVerificationBench(root) {
   const questionPanel = el('div', 'vb-panel');
 
   // ---- SETUP ---------------------------------------------------------------
-  setupPanel.append(el('div', 'vb-why', queueDef.blurb));
   const sModel = sec(setupPanel, 'MODEL');
   const { box: loaderBox } = buildLoaderUI(session, {
     prefs, save,
@@ -250,6 +325,19 @@ export function mountVerificationBench(root) {
   });
   sModel.append(loaderBox);
 
+  const sQueue = sec(setupPanel, 'QUEUE');
+  const queueRow = el('div', 'vb-row');
+  for (const [key, def] of Object.entries(QUEUES)) {
+    const b = el('button', 'vb-ghost sm' + (key === queueId ? ' on' : ''), `<span>${def.label}</span>`);
+    b.onclick = () => {
+      if (key === queueId) return;
+      prefs.queue = key; save(prefs);
+      location.search = `?edit=verification&queue=${key}`;
+    };
+    queueRow.append(b);
+  }
+  sQueue.append(queueRow, el('div', 'vb-hint', queueDef.blurb));
+
   const sRef = sec(setupPanel, 'STANDS IN FOR');
   const refSel = el('select', 'mb-select');
   for (const id of ROSTER_IDS) {
@@ -267,7 +355,9 @@ export function mountVerificationBench(root) {
     if (!session.model3d) return;
     started = true;
     idx = firstUnanswered();
-    session.setGhost(false);
+    // the landmarks queue is about one body; the poses queue is about two
+    session.setGhost(queueId === 'poses');
+    session.showOnly('both');
     setPanel('question');
   };
   const bClear = el('button', 'vb-ghost', '<span>Clear answers</span>');
@@ -395,6 +485,7 @@ export function mountVerificationBench(root) {
    */
   function frameQuestion(keepAngle = false) {
     const q = questions[idx];
+    if (started && q?.kind === 'pose') { framePose(q, keepAngle); return; }
     if (!started || !q || q.kind !== 'point') { frameBody(); return; }
     if (!keepAngle) {
       stage.orbit(q.side === 'L' ? 1.15 : q.side === 'R' ? -1.15 : 0.45, 0.06);
@@ -422,6 +513,36 @@ export function mountVerificationBench(root) {
       stage.cam.height = at.y - f * halfH;
     }
   }
+  /**
+   * Hold a clip at one frame and put its joint in the middle of what is
+   * visible. The seek is idempotent — re-entering the same question does not
+   * re-run the clip — because a question that jumped every time the panel
+   * opened would be a question about a different pose each time it was asked.
+   */
+  function framePose(q, keepAngle = false) {
+    const held = session.heldClip;
+    if (!held || held.clip !== q.clip || held.frame !== q.frame) {
+      if (!session.seekClip(q.clip, q.frame)) { frameBody(); return; }
+    }
+    const bone = session.map[q.bone];
+    if (!bone) { frameBody(); return; }
+    session.wrapper?.updateMatrixWorld(true);
+    session.ref?.model.group.updateMatrixWorld(true);
+    // frame on whichever body is on screen, so COMPARE does not swap the
+    // subject out of shot
+    const node = session.compare === 'reference'
+      ? session.ref?.model.getBone(q.bone) ?? bone : bone;
+    const at = new THREE.Vector3().setFromMatrixPosition(node.matrixWorld);
+    if (!keepAngle) stage.orbit(q.bone.endsWith('L') ? 1.1 : -1.1, 0.05);
+    const f = occlusion();
+    const wide = Math.min(2.4, Math.max(1, 1.2 / (stage.camera.aspect || 1)));
+    stage.frameOn(at, (q.dist ?? 1) * wide / Math.max(0.4, 1 - f));
+    if (f > 0.02) {
+      const halfH = Math.tan(stage.camera.fov * Math.PI / 360) * stage.cam.dist;
+      stage.cam.height = at.y - f * halfH;
+    }
+  }
+
   /** Fraction of the view's HEIGHT that the chrome is sitting over. */
   function occlusion() {
     const v = view.getBoundingClientRect();
@@ -578,6 +699,7 @@ export function mountVerificationBench(root) {
     if (q.why) questionPanel.append(el('div', 'vb-why', q.why));
     if (q.kind === 'point') renderPoint(q);
     else if (q.kind === 'choice') renderChoice(q);
+    else if (q.kind === 'pose') renderPose(q);
     else if (q.kind === 'note') renderNote(q);
     else renderDone();
   }
@@ -659,6 +781,39 @@ export function mountVerificationBench(root) {
     if (isPhone()) row.append(back);
     questionPanel.append(row);
     navRow();
+  }
+
+  // ---- kind: pose ---------------------------------------------------------
+  function renderPose(q) {
+    const cur = decisions[q.id]?.value;
+    const row = el('div', 'vb-row');
+    const both = el('button', 'vb-ghost sm' + (session.compare === 'both' ? ' on' : ''), '<span>Both</span>');
+    const model = el('button', 'vb-ghost sm' + (session.compare === 'model' ? ' on' : ''), '<span>This model</span>');
+    const ref = el('button', 'vb-ghost sm' + (session.compare === 'reference' ? ' on' : ''), '<span>Compare</span>');
+    ref.title = 'The procedural body the clip was authored on, same camera';
+    for (const [b, which] of [[both, 'both'], [model, 'model'], [ref, 'reference']]) {
+      b.onclick = () => { session.showOnly(which); render(); if (isPhone()) setOpen(false); };
+      row.append(b);
+    }
+    questionPanel.append(row);
+    questionPanel.append(el('div', 'vb-read',
+      `<b>${q.clip}</b>, frame ${q.frame} — held still. Orbit and zoom freely; ` +
+      'the pose stays put.'));
+
+    const box = el('div', 'vb-opts');
+    for (const o of q.options) {
+      const b = el('button', 'vb-opt' + (cur === o.value ? ' on' : ''),
+        `<b>${o.label}</b><span>${o.hint ?? ''}</span>`);
+      b.onclick = () => {
+        answer(q.id, { kind: 'pose', clip: q.clip, frame: q.frame, bone: q.bone,
+          value: o.value, label: o.label });
+        render();
+        if (o.value === 'ok') setTimeout(() => go(1), 180);
+      };
+      box.append(b);
+    }
+    questionPanel.append(box);
+    navRow('Next', !!cur);
   }
 
   function renderChoice(q) {

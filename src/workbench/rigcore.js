@@ -22,6 +22,7 @@ import {
 import { liftMaterials, LIFT_DEFAULTS } from '../art/rig3d/lift.js';
 import { setDualQuaternionSkinning } from '../art/rig3d/dqs.js';
 import { GripSolver } from '../art/rig3d/grip.js';
+import { normalizeLimits, applyBendLimits } from '../art/rig3d/limits.js';
 import {
   applyWeightOps, meshIslands, restPositions, islandBones, anchorFrame
 } from '../art/rig3d/weights.js';
@@ -360,6 +361,8 @@ export class RigSession {
     // procedural one, on the bench any more than in the game.
     this.keepProps = true;
     this.gripEdits = {};               // prop name -> authored grip spec
+    this.limits = [];                  // bend limits from the entry — a pose
+                                       // this body's own volume cannot hold
     this.grips = null;                 // GripSolver over the clones
 
     this.dqs = true;           // dual-quaternion skinning (see dqs.js)
@@ -463,6 +466,7 @@ export class RigSession {
     this._islandCache = null;
     this.poseEdits = { ...(entry.pose || {}) };
     this.gripEdits = { ...(entry.grips || {}) };
+    this.limits = normalizeLimits(entry.limits, 'bench:limits');
     this.keepProps = entry.keepProps !== false;
     this.rotOffset = Object.fromEntries(
       Object.entries(entry.rotOffset || {}).map(([k, v]) => [k, [...v]]));
@@ -954,6 +958,40 @@ export class RigSession {
     return null;
   }
 
+  /**
+   * HOLD ONE FRAME OF A CLIP. The preview loops, which is right for watching a
+   * clip and useless for judging one moment of it — and the moment is usually
+   * the whole question ("the arm at the end of the punch"). This plays from the
+   * start, steps to the frame asked for, and freezes there: `preview` goes
+   * false so the tick stops advancing, and the pose stays exactly where the
+   * retargeter, the limits and the grip left it.
+   */
+  seekClip(clip, frame, fps = 60) {
+    if (!this.startPreview(clip)) return false;
+    this.ref.player.play(clip, { fade: 0, restart: true });
+    for (let i = 0; i < frame; i++) {
+      this.ref.player.update(1 / fps);
+      this.ref.model.update?.(1 / fps, 0);
+      this.retargeter.apply();
+      if (this.limits?.length) applyBendLimits(this.map, this.limits);
+    }
+    this.wrapper.updateMatrixWorld(true);
+    if (this.grips?.active) this.grips.apply();
+    this.preview = false;
+    this.heldClip = { clip, frame };
+    return true;
+  }
+
+  /**
+   * Show one body or the other at the same camera — the A/B the eye needs to
+   * answer "is this the model or is this the clip".
+   */
+  showOnly(which) {
+    this.compare = which;
+    if (this.model3d) this.model3d.visible = which !== 'reference';
+    if (this.ref?.model?.group) this.ref.model.group.visible = which !== 'model';
+  }
+
   stopPreview() {
     if (!this.preview) return;
     this.detachProps();
@@ -978,6 +1016,7 @@ export class RigSession {
         this.ref.model.update(dt);
       }
       this.retargeter.apply();
+      if (this.limits?.length) applyBendLimits(this.map, this.limits);
       if (this.grips?.active) {
         // the grip target hangs off a bone the retargeter has just moved
         this.wrapper.updateMatrixWorld(true);

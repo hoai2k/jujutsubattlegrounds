@@ -363,6 +363,33 @@ fell from 0.72 m to 0.20 m, and what is left is the genuinely one-handed
 extreme of each swing — in character for a three-section staff, whose whole
 point is that it can be flung from one hand.
 
+## Bend limits (`limits`)
+
+The retargeter transfers rotations, which is what lets one clip play on every
+rig. It is also why a pose can be impossible: the same rotation on a body with
+different FLESH is not the same picture. Nobara's punch3 ends with her elbow
+folded 145°; on the procedural body — slim tapered limbs, hard edges, an ink
+outline — that is a bent arm with a pointed elbow, and on hers it is two thick
+sleeves pressed together.
+
+    "limits": { "LoArmL": 120, "LoArmR": 120 }
+
+caps the bend in degrees (0 straight, 180 folded flat), applied after the
+retargeter and before the grip solver, about the joint's own current bend axis
+so the limb's swing and twist are untouched. It is exact — asked for 120 it
+delivers 120.0 — which took one correction worth knowing about: the retargeter
+writes local rotations and does not refresh world matrices, so reading them raw
+measures the pose a frame late and the correction chases a moving target
+(asked for 120 it settled at 129).
+
+**Nothing ships with limits set, and Nobara's elbow is why.** A limit is real
+and it works, and on the case it was written for it did not help: at 120° her
+sleeve still reads as a hairpin, because the shape is set by the sleeve's own
+thickness rather than by the angle. It is here for the fault it does fix — a
+limb that folds through its own body, or a pose whose extreme is past what a
+particular model can hold — and enabling it costs the pose a few centimetres,
+so use the smallest limit that opens the silhouette.
+
 ## Skin repairs (`weights`)
 
 Two defects turn up in nearly every imported character, and neither is really
@@ -708,6 +735,32 @@ it is worth shipping at all; run the **stress poses** — arms overhead, deep
 squat, spine twist — which is where a misplaced pivot stops being subtle;
 **measure** the skin weights to see where each joint actually is versus where
 the bone sits; and correct pivots and retarget trims with live dials.
+
+#### The second queue: `poses` — does it read in motion?
+
+`?edit=verification&queue=poses` asks the other half of the question. The
+landmarks queue is about a body standing still, and everything it can fix is a
+fact about the bind pose. It cannot see the fault that has taken longest to
+find here twice, because that fault only exists in motion: an elbow the bones
+place correctly to the degree, which still reads as a hose rather than an arm.
+
+Each question holds one frame of one clip — the extremes, which is where a rig
+fails and where nobody looks — frames the joint, and offers a short list of
+FAULTS rather than a rating:
+
+| what you see | what it points at |
+| --- | --- |
+| curves where it should be straight | skin weights — `tighten` |
+| bends in the wrong place | the pivot — the landmarks queue |
+| two parts merge into one shape | the pose is past what this body can hold — `limits` |
+| pinches, collapses or spikes | skinning mode, or a weight repair |
+| passes through the body | a limit, or the attachment |
+
+The list is the whole value: "it looks wrong" cannot be acted on, while those
+five point at five different repairs and rule each other out. **COMPARE** swaps
+to the procedural body the clip was authored on, at the same camera, so the
+answer can be the one that matters — *that* one reads and this one does not,
+which means the clip is fine and the model is not.
 
 ### Reference poses: is this rig viable?
 

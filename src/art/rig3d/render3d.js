@@ -102,6 +102,7 @@ import { applyJointEdits, collectSkeletons, modelBindHeight } from './joints.js'
 import { liftMaterials } from './lift.js';
 import { GripSolver } from './grip.js';
 import { applyWeightOps } from './weights.js';
+import { normalizeLimits, applyBendLimits } from './limits.js';
 import { setDualQuaternionSkinning } from './dqs.js';
 import { DEG } from '../../core/mathutil.js';
 
@@ -343,16 +344,22 @@ function attach(model, srcRest, scene, src, pick) {
 
   // run the transfer after every model update (fighter and viewer both call
   // model.update right after anim.update, so the pose is fresh)
+  // BEND LIMITS run between the two: after the transfer, because they correct
+  // what the transfer produced, and before the grip, because a hand on a haft
+  // should be solved against the arm as it will actually be seen.
+  const limits = normalizeLimits(src.limits, `${pick}:limits`);
   const orig = model.update.bind(model);
   model.update = dt => {
     orig(dt);
     retargeter.apply();
+    if (limits.length) applyBendLimits(map, limits);
     // the grip target is measured off the weapon, which hangs from a bone the
     // retargeter has just moved, so the world matrices have to be current
     // before it is read — and only when there is a grip to solve.
     if (grips.active) { model.group.updateMatrixWorld(true); grips.apply(); }
   };
   retargeter.apply();
+  if (limits.length) applyBendLimits(map, limits);
   model.render3d = { wrapper, retargeter, grips, url: src.url };
 
   // an imported weapon, if the entry names one, replacing the procedural
