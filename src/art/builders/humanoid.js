@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { createRig, PartBag } from '../rig/rig.js';
 import { latheY, tubeBetween, roundBox, animeHead, almondEye, tGeo, mergeGeos } from './geo.js';
+import { sculptHead } from './head2.js';
 import { MAT } from '../shaders/toon.js';
 import { makeOutline } from '../shaders/outline.js';
 import { SpringChain } from '../rig/springs.js';
@@ -130,15 +131,20 @@ export function buildHumanoid(spec) {
     });
   }
 
-  // neck
+  // neck. `neck` scales the radius: a thick-necked build (Yuji, Todo) says so
+  // here instead of hiding it under a collar.
+  const nk = spec.neck ?? 1;
   bag.add('skin', tubeBetween(v3(0, y.neck - 0.012 * H, 0.004 * H), v3(0, y.headBase + 0.015 * H, 0.009 * H),
-    [0.023 * H, 0.021 * H], { radial: 10, hSeg: 2 }), { bone: 'Neck', color: spec.skinTone });
+    [0.023 * H * nk, 0.021 * H * nk], { radial: 10, hSeg: 2 }), { bone: 'Neck', color: spec.skinTone });
 
-  // head
-  bag.add('skin', tGeo(animeHead(headR, spec.face || {}), { pos: [headC.x, headC.y, headC.z] }),
+  // head. `head: 'sculpt'` opts into the second-generation head (head2.js):
+  // brow ridge, sockets, cheekbones and nose in the mesh, with the face then
+  // placed ON the skin by addFace2. It draws its own ears.
+  const sculpt = spec.head === 'sculpt';
+  bag.add('skin', tGeo(sculpt ? sculptHead(headR, spec.face || {}) : animeHead(headR, spec.face || {}), { pos: [headC.x, headC.y, headC.z] }),
     { bone: 'Head', color: spec.skinTone });
   // ears
-  if (spec.ears !== false) {
+  if (spec.ears !== false && !sculpt) {
     for (const s of [1, -1]) {
       bag.add('skin', tGeo(new THREE.SphereGeometry(headR * 0.16, 8, 6), {
         scale: [0.45, 1, 0.7], pos: [s * headR * 0.94 * (spec.face?.width ?? 1), headC.y - headR * 0.08, headC.z - headR * 0.12]

@@ -837,6 +837,7 @@ export function startViewer() {
         if (state.mask != null) model.setMask?.(state.mask);
         if (state.stock != null) model.setStock?.(state.stock);
         if (state.beastTint != null) model.setBeastTint?.(state.beastTint);
+        if (state.sukuna != null) model.setSukuna?.(state.sukuna);
       }
       const names = clips || (creature ? Object.keys(creature.states)
         : player ? [...player.clips.keys()] : ['idle']);
