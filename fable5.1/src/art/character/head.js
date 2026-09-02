@@ -104,7 +104,7 @@ export function addFace2(ctx, o = {}) {
   const { bag } = ctx;
   const { headR } = ctx.m;
   const skin = ctx.spec.skinTone;
-  const eyeW = headR * (o.eyeW ?? 0.50), eyeH = headR * (o.eyeH ?? 0.26);
+  const eyeW = headR * (o.eyeW ?? 0.56), eyeH = headR * (o.eyeH ?? 0.30);
   const white = o.scleraColor ?? 0xf3f5f9;
   const ink = o.lashColor ?? 0x14121a;
   const iris = o.eyeColor ?? 0x6a4630;
@@ -127,7 +127,7 @@ export function addFace2(ctx, o = {}) {
     bag.add('flat', place(tGeo(new THREE.CircleGeometry(ir * 0.42, 10), { scale: [0.85, 1.15, 1] }), 0.024, -s * eyeW * 0.04, eyeH * 0.0), { bone: 'Head', color: 0x120c0c });
     bag.add('flat', place(new THREE.CircleGeometry(ir * 0.26, 8), 0.028, -s * eyeW * 0.10, eyeH * 0.16), { bone: 'Head', color: 0xffffff });
     // upper lid / lash line, thick toward the outer corner
-    bag.add('flat', place(lidShape(eyeW, eyeH * 0.55, s), 0.030, 0, eyeH * 0.30), { bone: 'Head', color: ink });
+    bag.add('flat', place(lidShape(eyeW * 1.06, eyeH * 0.72, s), 0.030, 0, eyeH * 0.30), { bone: 'Head', color: ink });
     // lower lid crease, outer half only
     bag.add('flat', place(tGeo(roundBox(eyeW * 0.46, eyeH * 0.07, 0.003, 0.001), { rot: [0, 0, s * -6] }), 0.026, s * eyeW * 0.14, -eyeH * 0.50), { bone: 'Head', color: o.lowerLidColor ?? 0x6b4a44 });
     // brow, riding the brow ridge

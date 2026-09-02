@@ -11,7 +11,7 @@ import { v3, rand, mulberry32 } from '../../core/math.js';
 const rngFor = ctx => mulberry32((ctx.spec.id || 'x').split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0);
 
 // skull cap — the base every style sits on. `low` pulls the hairline down.
-function cap(ctx, color, { low = 0, thick = 1.09, back = 1.0, sides = 1.0 } = {}) {
+function cap(ctx, color, { low = 0, thick = 1.11, back = 1.02, sides = 1.0 } = {}) {
   const { headR, headC } = ctx.m;
   const th = Math.PI * (0.52 + low * 0.3);
   const g = sphereShell(headR * thick, { thetaLength: th, seg: 28, rings: 14, scale: [sides, 1.0, back] });

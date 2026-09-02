@@ -9,7 +9,7 @@ const globalRoot = process.env.PW_ROOT || execSync('npm root -g').toString().tri
 const { chromium } = createRequire(import.meta.url)(globalRoot + '/playwright');
 const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const opt = (k, d) => { const i = process.argv.indexOf(k); return i >= 0 ? process.argv[i + 1] : d; };
-const p1 = args[0] || 'yuji', p2 = args[1] || 'megumi', map = args[2] || 'shibuya_crossing', mode = opt('--mode', 'cpu');
+const p1 = args[0] || 'yuji', p2 = args[1] || 'megumi', map = args[2] || 'shibuya_crossing', mode = opt('--mode', 'cpu'), p3 = opt('--p3', null);
 const shot = opt('--shot', null), frames = +opt('--frames', 900), script = opt('--script', 'brawl'), evalSrc = opt('--eval', null), training = process.argv.includes('--training');
 
 const server = await createServer({ server: { port: 5241, strictPort: true, hmr: false }, logLevel: 'error' });
@@ -21,9 +21,9 @@ page.on('pageerror', e => errs.push(e.message + '\n' + String(e.stack || '').spl
 page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
 await page.goto('http://localhost:5241/fable5.1/?quality=' + opt('--quality', 'medium'), { waitUntil: 'networkidle' });
 await page.waitForFunction(() => !!window.__skipSelect, null, { timeout: 20000 });
-const out = await page.evaluate(async ({ p1, p2, map, frames, script, mode, evalSrc, training }) => {
+const out = await page.evaluate(async ({ p1, p2, p3, map, frames, script, mode, evalSrc, training }) => {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  window.__skipSelect({ mode, picks: [p1, p2], map, rounds: 1, training });
+  window.__skipSelect({ mode, picks: p3 ? [p1, p2, p3] : [p1, p2], map, rounds: 1, training });
   const t0 = Date.now();
   while (!window.__match && Date.now() - t0 < 20000) await sleep(100);
   const m = window.__match; if (!m) return { error: 'no match' };
@@ -48,7 +48,7 @@ const out = await page.evaluate(async ({ p1, p2, map, frames, script, mode, eval
   const u = window.__game.stage._eyes[0].post.look.uniforms; const look = Object.fromEntries(Object.entries(u).filter(([k,v])=>typeof v.value==='number').map(([k,v])=>[k,+v.value.toFixed(3)]));
   const L = window.__game.stage.lights; const lights = { key: L.key.intensity, rim: L.rim.intensity, hemi: L.hemi.intensity, fill: L.fill.intensity, exposure: window.__game.stage.renderer.toneMappingExposure, bg: window.__game.stage.scene.background?.getHexString?.() };
   return { look, lights, tick: m.tick, phase: m.phase, fighters: f, ents: m.effects.ents.length, particles: m.fx.particles.n, calls: info.render.calls, tris: info.render.triangles, log };
-}, { p1, p2, map, frames, script, mode, evalSrc, training });
+}, { p1, p2, p3, map, frames, script, mode, evalSrc, training });
 if (shot) await page.screenshot({ path: shot });
 console.log(JSON.stringify({ result: out, errors: errs.slice(0, 12) }, null, 1));
 await browser.close(); await server.close();

@@ -6,13 +6,13 @@ export class Nav {
   constructor(sfx, { cols = 1, wrap = true, onConfirm, onBack, onMove, onExtra } = {}) {
     this.sfx = sfx; this.items = []; this.cols = cols; this.wrap = wrap; this.index = 0;
     this.onConfirm = onConfirm; this.onBack = onBack; this.onMove = onMove; this.onExtra = onExtra;
-    this.repeatT = 0; this.held = null; this.enabled = true;
+    this.repeatT = 0; this.held = null; this.enabled = true; this.focusClass = 'focus';
   }
   set(items, cols = this.cols, keep = false) {
     this.items = items; this.cols = cols;
     if (!keep) this.index = 0; this.index = Math.min(this.index, Math.max(0, items.length - 1));
     items.forEach((el, i) => {
-      el.classList.toggle('focus', i === this.index);
+      el.classList.toggle(this.focusClass, i === this.index);
       el.onmouseenter = () => { if (this.enabled && this.index !== i) { this.index = i; this._apply(); } };
       el.onclick = (e) => { if (!this.enabled) return; this.index = i; this._apply(); this.onConfirm?.(this.items[i], i); e.stopPropagation(); };
     });
@@ -20,7 +20,7 @@ export class Nav {
   }
   focus(i) { this.index = Math.max(0, Math.min(this.items.length - 1, i)); this._apply(); }
   get current() { return this.items[this.index]; }
-  _apply() { this.items.forEach((el, i) => el.classList.toggle('focus', i === this.index)); this.onMove?.(this.items[this.index], this.index); this.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }
+  _apply() { this.items.forEach((el, i) => el.classList.toggle(this.focusClass, i === this.index)); this.onMove?.(this.items[this.index], this.index); this.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }
   move(dx, dy) {
     if (!this.items.length) return;
     const n = this.items.length, cols = this.cols;

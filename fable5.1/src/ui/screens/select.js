@@ -30,6 +30,7 @@ export class SelectScreen {
       const isCpu = (data.mode === 'cpu' && i >= 1) || (data.mode === 'ffa' && i >= Math.max(1, S.G.input.livePads));
       const seat = { i, locked: false, cpu: isCpu, variant: 0, nav: null, pick: null };
       seat.nav = new Nav(S.G.sfx, { cols: COLS, onConfirm: () => this.lock(seat), onBack: () => this.back(seat), onMove: (el) => this.focusTile(seat, el), onExtra: f => this.extra(seat, f) });
+      seat.nav.focusClass = 'f' + i;   // per-seat cursors, not the shared focus ring
       seat.nav.set(this.tiles, COLS, true);
       const li = last[i] ? ROSTER_IDS.indexOf(splitPick(last[i]).charId) : -1;
       seat.nav.focus(li >= 0 ? li : (i * 5) % ROSTER_IDS.length);
@@ -46,7 +47,7 @@ export class SelectScreen {
   _pickOf(seat) { const id = seat.nav.current.dataset.id; const vs = variantsOf(ROSTER[id], id); const v = vs[seat.variant % vs.length]; return joinPick(id, v.id); }
   focusTile(seat, el) {
     for (const t of this.tiles) t.classList.remove('f' + seat.i);
-    el.classList.add('f' + seat.i);
+    if (!seat.cpu) el.classList.add('f' + seat.i);
     if (seat === this.seats.find(s => !s.locked && !s.cpu) || seat.i === 0) { this._hero(seat); this._showPreview(seat); }
   }
   _hero(seat) {
@@ -88,8 +89,8 @@ export class SelectScreen {
   update(dt, f) {
     const frames = this.S.G.input.frames;
     this.preview?.update(dt);
-    this.seats.forEach((s, i) => { if (s.cpu) return; const fr = frames[i]; if (!fr) return; if (i === 1 && this.S.G.input.livePads === 0 && this.data.mode === 'cpu') return; s.nav.update(dt, fr); });
-    // seat 0 also drives with the merged menu frame when there is one keyboard
-    if (this.data.mode === 'cpu' && this.S.G.input.livePads === 0) { /* seat 0 keyboard only */ }
+    // a solo player (VS CPU / training, no pads) drives seat 0 with either keyboard cluster
+    const solo = this.data.mode === 'cpu' && this.S.G.input.livePads === 0;
+    this.seats.forEach((s, i) => { if (s.cpu) return; const fr = (solo && i === 0) ? this.S.G.input.menuFrame() : frames[i]; if (!fr) return; s.nav.update(dt, fr); });
   }
 }

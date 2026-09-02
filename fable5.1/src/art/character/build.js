@@ -85,7 +85,7 @@ export function buildCharacter(spec) {
   // per-character materials: the archetype cache keys on the palette, so two
   // characters with the same rim share programs and materials
   ctx.materials = materialsFor(spec.palette);
-  ctx.outline = { color: spec.palette?.outline ?? 0x07080e, thickness: spec.outline ?? 0.011 };
+  ctx.outline = { color: spec.palette?.outline ?? 0x07080e, thickness: spec.outline ?? 0.0125 };
   for (const f of spec.features || []) addFeature(ctx, f);
   addHair(ctx, spec.hair);
   for (const g of spec.outfit || []) addGarment(ctx, g);
