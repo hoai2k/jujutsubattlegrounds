@@ -1,0 +1,18 @@
+/* fable5.1 base styles — the full UI language lives in ui/screens/*.css-in-js
+   sections appended below by each screen module. */
+:root {
+  --ink: #07080d;
+  --paper: #f3efe6;
+  --accent: #7fd0ff;
+  --p1: #ff5f74;
+  --p2: #7fd0ff;
+  --font-display: "Bebas Neue", "Oswald", "Arial Narrow", "Impact", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --safe: 4vmin;
+}
+html, body { margin: 0; padding: 0; height: 100%; background: var(--ink); color: var(--paper); overflow: hidden; font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+#app { position: fixed; inset: 0; }
+#game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#ui-root { position: absolute; inset: 0; pointer-events: none; }
+#ui-root > * { pointer-events: auto; }
+button { font: inherit; }

@@ -35,7 +35,7 @@ export default defineConfig({
   plugins: [shotSink()],
   build: {
     target: 'es2020', chunkSizeWarningLimit: 1200,
-    // THREE PAGES. The game at /, the developer workbench at /workbench/
+    // FOUR PAGES. The game at /, the developer workbench at /workbench/
     // (src/workbench), and the visitor dashboard at /stats/ (src/stats). All
     // three are listed explicitly because Vite only walks from the root
     // index.html otherwise, and the other two would never be built — they are
@@ -44,7 +44,10 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         workbench: fileURLToPath(new URL('./workbench/index.html', import.meta.url)),
-        stats: fileURLToPath(new URL('./stats/index.html', import.meta.url))
+        stats: fileURLToPath(new URL('./stats/index.html', import.meta.url)),
+        // FOURTH PAGE: the fable5.1 redesign at /fable5.1/ (fable5.1/src),
+        // a self-contained second build of the game — see docs/fable5.1-direction.md.
+        fable51: fileURLToPath(new URL('./fable5.1/index.html', import.meta.url))
       }
     }
   }
