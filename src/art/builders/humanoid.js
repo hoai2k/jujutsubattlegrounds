@@ -153,15 +153,30 @@ export function buildHumanoid(spec) {
       { bone: 'UpArm' + s, point: sh }, { bone: 'LoArm' + s, point: el }, { bone: 'Hand' + s, point: wr }
     ];
     const armColor = spec.sleeveColor ?? spec.clothColor ?? 0x333333;
-    bag.add(armSlot, tubeBetween(sh.clone().add(v3(0, 0.012 * H, 0)), el, [0.031 * H * muscle, 0.0235 * H], { bulge: 0.12, hSeg: 5 }),
+    // MUSCLE, NOT SAUSAGE. The swell of each tube peaks where the muscle
+    // belly sits — bicep above mid-arm, forearm just under the elbow — rather
+    // than dead centre, which is what made every limb read as a balloon.
+    bag.add(armSlot, tubeBetween(sh.clone().add(v3(0, 0.012 * H, 0)), el, [0.031 * H * muscle, 0.0235 * H], { bulge: 0.12, bulgeAt: 0.42, hSeg: 7 }),
       { chain: armChain, color: armColor, blend: 0.09 });
     // forearm sleeve runs slightly past the wrist so the hand tucks into it
     const wrExt = wr.clone().addScaledVector(wr.clone().sub(el).normalize(), 0.014 * H);
-    bag.add(foreSlot, tubeBetween(el, wrExt, [0.0235 * H * muscle, 0.0165 * H], { bulge: 0.08, hSeg: 5 }),
+    bag.add(foreSlot, tubeBetween(el, wrExt, [0.0235 * H * muscle, 0.0165 * H], { bulge: 0.10, bulgeAt: 0.28, hSeg: 7 }),
       { chain: armChain, color: foreColor, blend: 0.09 });
-    // shoulder cap
+    // ELBOW. A ball on the joint, weighted half to each bone by the chain, so
+    // a bent arm has a rounded elbow instead of two tube ends shearing past
+    // each other with the upper-arm cap poking out of the crook. Colour of
+    // the upper sleeve: a sleeve that stops mid-forearm still covers it.
+    if (spec.jointBalls !== false) {
+      bag.add(armSlot, tGeo(new THREE.SphereGeometry(0.0245 * H * muscle, 10, 8), { scale: [1, 1.05, 0.96], pos: [el.x, el.y, el.z] }),
+        { chain: armChain, color: armColor, blend: 0.09 });
+    }
+    // DELTOID, not a pad. An ellipsoid laid along the upper arm and tucked
+    // onto the joint reads as the muscle that wraps the shoulder; the sphere
+    // it replaces sat ON the shoulder like an epaulette.
     if (spec.shoulderCap !== false) {
-      bag.add(armSlot, tGeo(new THREE.SphereGeometry(0.034 * H * muscle, 10, 8), { pos: [sh.x, sh.y + 0.006 * H, sh.z] }),
+      const m = s === 'L' ? 1 : -1;
+      bag.add(armSlot, tGeo(new THREE.SphereGeometry(0.034 * H * muscle, 12, 9),
+        { scale: [0.97, 1.22, 0.92], rot: [0, 0, m * 13], pos: [sh.x + m * 0.002 * H, sh.y - 0.001 * H, sh.z] }),
         { bone: 'UpArm' + s, color: armColor });
     }
     // hand
@@ -204,10 +219,18 @@ export function buildHumanoid(spec) {
     // like fabric. Defaults to 'cloth', so every existing model is
     // bit-identical.
     const legSlot = spec.legSlot ?? 'cloth';
-    bag.add(legSlot, tubeBetween(hp.clone().add(v3(0, 0.03 * H, 0)), kn, [0.049 * H * lb, 0.031 * H * lb], { bulge: 0.05, hSeg: 5 }),
+    bag.add(legSlot, tubeBetween(hp.clone().add(v3(0, 0.03 * H, 0)), kn, [0.049 * H * lb, 0.031 * H * lb], { bulge: 0.06, bulgeAt: 0.40, hSeg: 7 }),
       { chain: legChain, color: legColor, blend: 0.07 });
-    bag.add(legSlot, tubeBetween(kn, an.clone().add(v3(0, 0.008 * H, 0)), [0.031 * H * lb, 0.019 * H], { hSeg: 5 }),
+    // the calf sits high on the shin; the straight taper this replaces made
+    // every lower leg a cone
+    bag.add(legSlot, tubeBetween(kn, an.clone().add(v3(0, 0.008 * H, 0)), [0.031 * H * lb, 0.019 * H], { bulge: 0.09, bulgeAt: 0.30, hSeg: 7 }),
       { chain: legChain, color: legColor, blend: 0.07 });
+    // KNEE — see the elbow above; the same fault, more visible, because every
+    // stance in the roster has the knees bent
+    if (spec.jointBalls !== false) {
+      bag.add(legSlot, tGeo(new THREE.SphereGeometry(0.0325 * H * lb, 10, 8), { scale: [1, 1.08, 0.96], pos: [kn.x, kn.y, kn.z] }),
+        { chain: legChain, color: legColor, blend: 0.07 });
+    }
     // SHOE. `shoe: false` omits it entirely — the barefoot case, where the
     // block under a bare ankle reads as a sock however small it is scaled.
     if (spec.shoe !== false) {
@@ -219,16 +242,50 @@ export function buildHumanoid(spec) {
   return { spec, m, rig, bag, group };
 }
 
-// Simplified anime mitt: palm + curled finger block + thumb, authored at the wrist.
+// THE FIST. Was a palm block, a finger block and a thumb block — three boxes,
+// and the seam between the first two was visible from behind at fighting
+// distance. Now the finger block is SCULPTED rather than assembled: one
+// surface with four knuckles raised along its top edge and three grooves
+// pressed into its face, a second block folded under for the middle
+// phalanges, and a thumb in two segments whose tip lies across the fingers.
+//
+// One surface, not four fingers, on purpose. The outline pass is an inverted
+// hull grown ~12 mm along every normal, and a hand built from separate
+// fingers puts each finger's hull inside its neighbour and paints black
+// speckle across the whole fist — that was tried first and shot. Displacing
+// one block gives the silhouette the knuckle ridge and the shading the
+// grooves with nothing to poke through anything else.
+//
+// Same frame and footprint as the mitt (fingers end at the same depth, thumb
+// on the same side, curl toward -Z), so every weapon attachment authored
+// against the old hand still lands in the grip.
 function buildHand(H, side, wrist, elbow) {
   const dir = wrist.clone().sub(elbow).normalize();
   const parts = [];
-  const palm = tGeo(roundBox(0.034 * H, 0.045 * H, 0.02 * H, 0.007 * H), { pos: [0, -0.023 * H, 0.001 * H] });
-  const fingers = tGeo(roundBox(0.032 * H, 0.036 * H, 0.018 * H, 0.007 * H), { rot: [18, 0, 0], pos: [0, -0.058 * H, 0.004 * H] });
-  const thumbSide = side === 'L' ? -1 : 1;
-  const thumb = tGeo(roundBox(0.012 * H, 0.028 * H, 0.012 * H, 0.005 * H),
-    { rot: [10, 0, thumbSide * -35], pos: [thumbSide * -0.02 * H, -0.026 * H, 0.008 * H] });
-  parts.push(palm, fingers, thumb);
+  const tx = side === 'L' ? 1 : -1;            // thumb side, unchanged from the mitt
+  const pitch = 0.0090 * H;                    // finger spacing
+  // palm
+  parts.push(tGeo(roundBox(0.036 * H, 0.040 * H, 0.021 * H, 0.007 * H), { pos: [0, -0.022 * H, 0.001 * H] }));
+  // proximal phalanges: one block, knuckles raised on the top edge, grooves
+  // pressed into the back of the hand between them
+  {
+    const g = roundBox(0.037 * H, 0.024 * H, 0.017 * H, 0.004 * H, 6);
+    const pos = g.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const k = Math.cos(2 * Math.PI * (x / pitch - 0.5));   // +1 on a knuckle, -1 between
+      const top = Math.max(0, Math.min(1, (y - 0.004 * H) / (0.008 * H)));
+      const back = Math.max(0, Math.min(1, (z - 0.003 * H) / (0.005 * H)));
+      pos.setY(i, y + 0.0030 * H * Math.max(0, k) * top);
+      pos.setZ(i, z - 0.0016 * H * Math.max(0, -k) * back);
+    }
+    parts.push(tGeo(g, { rot: [26, 0, 0], pos: [0, -0.049 * H, -0.001 * H] }));
+  }
+  // middle phalanges folded under toward the palm
+  parts.push(tGeo(roundBox(0.036 * H, 0.015 * H, 0.013 * H, 0.004 * H, 3), { rot: [82, 0, 0], pos: [0, -0.0635 * H, -0.0105 * H] }));
+  // thumb: base down the side of the palm, tip folded across the fingers
+  parts.push(tGeo(roundBox(0.011 * H, 0.024 * H, 0.012 * H, 0.004 * H), { rot: [10, 0, tx * 35], pos: [tx * 0.020 * H, -0.030 * H, 0.004 * H] }));
+  parts.push(tGeo(roundBox(0.017 * H, 0.010 * H, 0.011 * H, 0.004 * H), { rot: [0, 0, tx * 12], pos: [tx * 0.009 * H, -0.050 * H, -0.011 * H] }));
   const geo = mergeGeos(parts);
   // orient down the forearm axis and place at the wrist
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);

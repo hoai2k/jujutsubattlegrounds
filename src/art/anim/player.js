@@ -19,13 +19,27 @@ const EASE = {
 
 // def: { dur, loop, keys: [{ t, e?, pose: {Bone:[rx,ry,rz], Hips_pos:[x,y,z]} }] }
 // stance: base pose merged under every key so all bones are always defined.
+// RELATIVE KEYS. `Hips+: [0, -8, 0]` in a key ADDS to whatever the bone would
+// otherwise hold at that key (the key's own absolute value, or the stance).
+// Exists for the shared locomotion clips: a walk's pelvis swing is an offset
+// on top of the character's own stance yaw, and the ten characters that play
+// the base walk hold that yaw anywhere between 16 and 40 degrees — an absolute
+// key would square every one of them up to the same number. A key without the
+// `+` entry contributes zero offset, so the offset eases in and out between
+// keys like any other track.
 export function compileClip(name, def, stance) {
-  const boneNames = new Set(Object.keys(stance).filter(k => !k.endsWith('_pos')));
-  for (const k of def.keys) for (const b of Object.keys(k.pose)) if (!b.endsWith('_pos')) boneNames.add(b);
+  const isMeta = b => b.endsWith('_pos') || b.endsWith('+');
+  const boneNames = new Set(Object.keys(stance).filter(k => !isMeta(k)));
+  for (const k of def.keys) for (const b of Object.keys(k.pose)) {
+    if (!isMeta(b)) boneNames.add(b);
+    else if (b.endsWith('+')) boneNames.add(b.slice(0, -1));
+  }
   const keys = def.keys.map(k => {
     const q = new Map(), pos = new Map();
     for (const b of boneNames) {
-      const rot = k.pose[b] ?? stance[b] ?? [0, 0, 0];
+      const base = k.pose[b] ?? stance[b] ?? [0, 0, 0];
+      const d = k.pose[b + '+'];
+      const rot = d ? [base[0] + d[0], base[1] + d[1], base[2] + d[2]] : base;
       _e.set(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG, 'XYZ');
       q.set(b, new THREE.Quaternion().setFromEuler(_e));
     }

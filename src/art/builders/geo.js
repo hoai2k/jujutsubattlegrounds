@@ -52,7 +52,14 @@ export function latheY(profile, seg = 22, zScale = 1) {
 
 // Tapered elliptical tube from point a to point b. radii: [rTop, rBottom] or fn(t).
 export function tubeBetween(a, b, radii, opts = {}) {
-  const { radial = 12, hSeg = 5, zScale = 1, capA = true, capB = true, bulge = 0 } = opts;
+  // `bulge` swells the tube by that fraction at its widest, and `bulgeAt` says
+  // where along the tube (0 = a, 1 = b) the swell peaks. The default 0.5 is the
+  // old symmetric sine exactly; a bicep peaks above the middle of the upper
+  // arm, a calf sits high on the shin, and a forearm is thickest just below
+  // the elbow — none of them are symmetric.
+  const { radial = 12, hSeg = 5, zScale = 1, capA = true, capB = true, bulge = 0, bulgeAt = 0.5 } = opts;
+  const pk = Math.min(0.95, Math.max(0.05, bulgeAt));
+  const hump = t => t <= pk ? Math.sin(Math.PI * 0.5 * t / pk) : Math.sin(Math.PI * 0.5 * (1 - t) / (1 - pk));
   const dir = b.clone().sub(a);
   const len = dir.length();
   dir.normalize();
@@ -60,7 +67,7 @@ export function tubeBetween(a, b, radii, opts = {}) {
   const u = ref.clone().sub(dir.clone().multiplyScalar(ref.dot(dir))).normalize();
   const w = dir.clone().cross(u).normalize();
   const rf = typeof radii === 'function' ? radii
-    : t => (radii[0] + (radii[1] - radii[0]) * t) * (1 + bulge * Math.sin(Math.PI * t));
+    : t => (radii[0] + (radii[1] - radii[0]) * t) * (1 + bulge * hump(t));
 
   const posArr = [], idxArr = [];
   for (let i = 0; i <= hSeg; i++) {

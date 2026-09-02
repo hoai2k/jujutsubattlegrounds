@@ -23,31 +23,50 @@ const S = STANCE;
 const K = (t, pose, e) => ({ t, pose, e });
 
 export const BASE_CLIPS = {
+  // idle: the breath, and under it a slow shift of weight onto the lead hip —
+  // a body standing still is never still on both feet at once
   idle: {
     dur: 2.8, loop: true, keys: [
       K(0, {}),
-      K(1.4, { Chest: [5, -10, 0], Spine: [5, -7, 0], Hips_pos: [0, -0.055, 0], UpArmL: [-49, 10, 16], UpArmR: [-37, -8, -18], Head: [3, -7, 0] }),
+      K(1.4, { Chest: [5, -10, 0], Spine: [5, -7, 0], Hips_pos: [0.010, -0.055, 0], 'Hips+': [0, 0, 1.5], 'Chest+': [0, 0, -1], UpArmL: [-49, 10, 16], UpArmR: [-37, -8, -18], Head: [3, -7, 0] }),
       K(2.8, {})
     ]
   },
 
+  // WALK. The legs were the whole walk before; the rest of the body was bolted
+  // to the pelvis. What a walk actually is, above the knee:
+  //   pelvis yaw     the hip of the leading leg swings forward (`Hips+` ry,
+  //                  relative — see player.js — so it rides each character's
+  //                  own stance angle instead of squaring them up)
+  //   counter-twist  the chest turns the other way, which is where arm swing
+  //                  comes from even with the guard up
+  //   hip drop       at mid-stance the free side of the pelvis sags and the
+  //                  chest levels against it
+  //   sway           the whole body shifts a centimetre over the planted foot
+  //   foot roll      heel strike with the toe up, toe-off with the heel up,
+  //                  flat only when the foot is under the body
+  // Head counters the chest so the eyes stay on the opponent.
   walk: {
     dur: 0.86, loop: true, keys: [
-      K(0, { ThighL: [-30, -4, 0], ShinL: [12, 0, 0], FootL: [-8, -8, 0], ThighR: [22, 6, 0], ShinR: [30, 0, 0], FootR: [14, 8, 0], Hips_pos: [0, -0.05, 0], UpArmL: [-44, 10, 14], UpArmR: [-48, -8, -16], Spine: [6, -7, 0] }),
-      K(0.215, { ThighL: [-6, -4, 0], ShinL: [22, 0, 0], ThighR: [4, 6, 0], ShinR: [16, 0, 0], Hips_pos: [0, -0.028, 0] }),
-      K(0.43, { ThighL: [24, -4, 0], ShinL: [28, 0, 0], FootL: [12, -8, 0], ThighR: [-28, 6, 0], ShinR: [14, 0, 0], FootR: [-8, 8, 0], Hips_pos: [0, -0.05, 0], UpArmL: [-58, 10, 14], UpArmR: [-34, -8, -16], Spine: [6, -7, 0] }),
-      K(0.645, { ThighL: [2, -4, 0], ShinL: [18, 0, 0], ThighR: [-8, 6, 0], ShinR: [24, 0, 0], Hips_pos: [0, -0.028, 0] }),
-      K(0.86, { ThighL: [-30, -4, 0], ShinL: [12, 0, 0], FootL: [-8, -8, 0], ThighR: [22, 6, 0], ShinR: [30, 0, 0], FootR: [14, 8, 0], Hips_pos: [0, -0.05, 0], UpArmL: [-44, 10, 14], UpArmR: [-48, -8, -16] })
+      K(0, { ThighL: [-30, -4, 0], ShinL: [12, 0, 0], FootL: [-14, -8, 0], ThighR: [22, 6, 0], ShinR: [30, 0, 0], FootR: [24, 8, 0], Hips_pos: [0, -0.05, 0], 'Hips+': [0, -7, 0], 'Chest+': [0, 6, 0], 'Head+': [0, -3, 0], UpArmL: [-44, 10, 14], UpArmR: [-48, -8, -16], Spine: [6, -7, 0] }),
+      K(0.215, { ThighL: [-6, -4, 0], ShinL: [22, 0, 0], FootL: [2, -8, 0], ThighR: [4, 6, 0], ShinR: [16, 0, 0], FootR: [8, 8, 0], Hips_pos: [0.012, -0.028, 0], 'Hips+': [0, 0, 3], 'Chest+': [0, 0, -2] }),
+      K(0.43, { ThighL: [24, -4, 0], ShinL: [28, 0, 0], FootL: [24, -8, 0], ThighR: [-28, 6, 0], ShinR: [14, 0, 0], FootR: [-14, 8, 0], Hips_pos: [0, -0.05, 0], 'Hips+': [0, 7, 0], 'Chest+': [0, -6, 0], 'Head+': [0, 3, 0], UpArmL: [-58, 10, 14], UpArmR: [-34, -8, -16], Spine: [6, -7, 0] }),
+      K(0.645, { ThighL: [2, -4, 0], ShinL: [18, 0, 0], FootL: [8, -8, 0], ThighR: [-8, 6, 0], ShinR: [24, 0, 0], FootR: [2, 8, 0], Hips_pos: [-0.012, -0.028, 0], 'Hips+': [0, 0, -3], 'Chest+': [0, 0, 2] }),
+      K(0.86, { ThighL: [-30, -4, 0], ShinL: [12, 0, 0], FootL: [-14, -8, 0], ThighR: [22, 6, 0], ShinR: [30, 0, 0], FootR: [24, 8, 0], Hips_pos: [0, -0.05, 0], 'Hips+': [0, -7, 0], 'Chest+': [0, 6, 0], 'Head+': [0, -3, 0], UpArmL: [-44, 10, 14], UpArmR: [-48, -8, -16] })
     ]
   },
 
+  // RUN. Same anatomy as the walk, bigger: the pelvis swings twice as far and
+  // the chest twists hard against it, which is what makes the arms pump
+  // instead of merely alternate. The head holds level against the forward
+  // lean of the spine so he runs AT the opponent rather than at the floor.
   run: {
     dur: 0.52, loop: true, keys: [
-      K(0, { Spine: [16, -4, 0], Chest: [10, -6, 0], Hips: [4, 12, 0], ThighL: [-52, -2, 0], ShinL: [24, 0, 0], FootL: [-14, -6, 0], ThighR: [34, 4, 0], ShinR: [66, 0, 0], FootR: [30, 6, 0], UpArmL: [-20, 8, 10], LoArmL: [-108, 0, 4], UpArmR: [-72, -6, -12], LoArmR: [-96, 0, -4], Hips_pos: [0, -0.03, 0] }),
-      K(0.13, { Spine: [14, -4, 0], ThighL: [-10, -2, 0], ShinL: [30, 0, 0], ThighR: [-16, 4, 0], ShinR: [40, 0, 0], Hips_pos: [0, -0.065, 0] }),
-      K(0.26, { Spine: [16, -4, 0], Chest: [10, -6, 0], Hips: [4, 12, 0], ThighL: [34, -2, 0], ShinL: [66, 0, 0], FootL: [30, -6, 0], ThighR: [-52, 4, 0], ShinR: [24, 0, 0], FootR: [-14, 6, 0], UpArmL: [-72, 8, 10], LoArmL: [-96, 0, 4], UpArmR: [-20, -6, -12], LoArmR: [-108, 0, -4], Hips_pos: [0, -0.03, 0] }),
-      K(0.39, { Spine: [14, -4, 0], ThighL: [-16, -2, 0], ShinL: [40, 0, 0], ThighR: [-10, 4, 0], ShinR: [30, 0, 0], Hips_pos: [0, -0.065, 0] }),
-      K(0.52, { Spine: [16, -4, 0], Chest: [10, -6, 0], Hips: [4, 12, 0], ThighL: [-52, -2, 0], ShinL: [24, 0, 0], FootL: [-14, -6, 0], ThighR: [34, 4, 0], ShinR: [66, 0, 0], FootR: [30, 6, 0], UpArmL: [-20, 8, 10], LoArmL: [-108, 0, 4], UpArmR: [-72, -6, -12], LoArmR: [-96, 0, -4] })
+      K(0, { Spine: [16, -4, 0], Chest: [10, -6, 0], Hips: [4, 12, 0], 'Hips+': [0, -12, 0], 'Chest+': [0, 11, 0], 'Head+': [-8, -4, 0], ThighL: [-52, -2, 0], ShinL: [24, 0, 0], FootL: [-14, -6, 0], ThighR: [34, 4, 0], ShinR: [66, 0, 0], FootR: [34, 6, 0], UpArmL: [-20, 8, 10], LoArmL: [-108, 0, 4], UpArmR: [-72, -6, -12], LoArmR: [-96, 0, -4], Hips_pos: [0, -0.03, 0] }),
+      K(0.13, { Spine: [14, -4, 0], 'Hips+': [0, 0, 3], 'Chest+': [0, 0, -2], 'Head+': [-7, 0, 0], ThighL: [-10, -2, 0], ShinL: [30, 0, 0], FootL: [4, -6, 0], ThighR: [-16, 4, 0], ShinR: [40, 0, 0], Hips_pos: [0.008, -0.065, 0] }),
+      K(0.26, { Spine: [16, -4, 0], Chest: [10, -6, 0], Hips: [4, 12, 0], 'Hips+': [0, 12, 0], 'Chest+': [0, -11, 0], 'Head+': [-8, 4, 0], ThighL: [34, -2, 0], ShinL: [66, 0, 0], FootL: [34, -6, 0], ThighR: [-52, 4, 0], ShinR: [24, 0, 0], FootR: [-14, 6, 0], UpArmL: [-72, 8, 10], LoArmL: [-96, 0, 4], UpArmR: [-20, -6, -12], LoArmR: [-108, 0, -4], Hips_pos: [0, -0.03, 0] }),
+      K(0.39, { Spine: [14, -4, 0], 'Hips+': [0, 0, -3], 'Chest+': [0, 0, 2], 'Head+': [-7, 0, 0], ThighL: [-16, -2, 0], ShinL: [40, 0, 0], ThighR: [-10, 4, 0], ShinR: [30, 0, 0], FootR: [4, 6, 0], Hips_pos: [-0.008, -0.065, 0] }),
+      K(0.52, { Spine: [16, -4, 0], Chest: [10, -6, 0], Hips: [4, 12, 0], 'Hips+': [0, -12, 0], 'Chest+': [0, 11, 0], 'Head+': [-8, -4, 0], ThighL: [-52, -2, 0], ShinL: [24, 0, 0], FootL: [-14, -6, 0], ThighR: [34, 4, 0], ShinR: [66, 0, 0], FootR: [34, 6, 0], UpArmL: [-20, 8, 10], LoArmL: [-108, 0, 4], UpArmR: [-72, -6, -12], LoArmR: [-96, 0, -4] })
     ]
   },
 
