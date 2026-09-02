@@ -40,6 +40,8 @@ export function createStage(canvas = document.getElementById('game-canvas')) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.autoClear = true;
+  // counters survive to the next frame so the perf overlay / harnesses can read them
+  renderer.info.autoReset = false;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x1a2036);
@@ -298,6 +300,7 @@ export function createStage(canvas = document.getElementById('game-canvas')) {
       fx.zoom = Math.max(0, fx.zoom - dt * 0.24);
       fx.desat = damp(fx.desat, fx.desatTarget, 6, dt);
       if (fx.impactFrames > 0) { fx.impactFrames -= dt * 60; if (fx.impactFrames <= 0) { fx.impact = 0; fx.impactFrames = 0; } }
+      renderer.info.reset();
       followShadow();
       collectBillboards(dt);
 
