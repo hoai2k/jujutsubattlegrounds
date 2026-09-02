@@ -13,9 +13,10 @@ const page = await browser.newPage({ viewport: { width: 1024, height: 620 } });
 const errs = [];
 page.on('pageerror', e => errs.push(e.message));
 await page.goto('http://localhost:5261/', { waitUntil: 'networkidle' });
-await page.waitForTimeout(900);
-await page.keyboard.press('Enter');
-await page.waitForFunction(() => !!window.__skipSelect, null, { timeout: 30000 });
+// the old bundle is large and SwiftShader is slow: keep pressing until the
+// title has handed over to the select screen
+const t0 = Date.now();
+while (Date.now() - t0 < 120000 && !(await page.evaluate(() => !!window.__skipSelect))) { await page.keyboard.press('Enter'); await page.waitForTimeout(1000); }
 const r = await page.evaluate(async () => { const sleep = ms => new Promise(r => setTimeout(r, ms)); window.__skipSelect({ mode: 'cpu', chars: ['yuji', 'megumi'], p1: 'yuji', p2: 'megumi', map: 'shibuya_crossing' }); const t0 = Date.now(); while (!window.__game?.match && Date.now() - t0 < 40000) await sleep(200); for (let i = 0; i < 20; i++) await sleep(100); const m = window.__game?.match; return m ? { phase: m.phase, fighters: m.fighters.map(f => f.cfg.id), tick: m.tick } : 'no match'; });
 await page.screenshot({ path: process.argv[2] || 'old.png' });
 console.log(JSON.stringify({ r, errs: errs.slice(0, 5) }));

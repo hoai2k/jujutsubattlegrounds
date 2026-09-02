@@ -81,18 +81,18 @@ Measured with `fable5.1/tools/mapperf.mjs` in headless Chromium on
 SwiftShader (a software rasteriser, so the numbers are relative, not what a
 GPU will see). Per-map median frame time, 1100×620, a CPU match in progress:
 
-| map | LOW median ms | HIGH median ms | draw calls | triangles |
+| map | LOW median ms | HIGH median ms | draw calls (HIGH) | triangles |
 |---|---|---|---|---|
-| shibuya_underground | 82 | (pending) | 42 | 86k |
-| shibuya_crossing | 97.7 | (pending) | 34 | 87k |
-| sendai_school | 87.7 | (pending) | 34 | 89k |
-| jujutsu_high | 164.6 | (pending) | 29 | 92k |
-| detention | 313.2 | (pending) | 30 | 88k |
-| shinjuku | 181.4 | (pending) | 32 | 86k |
-| kyoto_grounds | 231.3 | (pending) | 33 | 93k |
-| star_tomb | 149.2 | (pending) | 27 | 87k |
-| yasohachi_bridge | 126.9 | (pending) | 30 | 88k |
-| sewer_lair | 112.5 | (pending) | 30 | 86k |
+| shibuya_underground | 82 | 335.6 | 73 | 86k |
+| shibuya_crossing | 97.7 | 337.2 | 69 | 87k |
+| sendai_school | 87.7 | 250.2 | 68 | 89k |
+| jujutsu_high | 164.6 | 258.7 | 59 | 92k |
+| detention | 313.2 | 333.2 | 59 | 88k |
+| shinjuku | 181.4 | 252.3 | 60 | 86k |
+| kyoto_grounds | 231.3 | 307.2 | 66 | 93k |
+| star_tomb | 149.2 | 349.1 | 53 | 87k |
+| yasohachi_bridge | 126.9 | 298.8 | 56 | 88k |
+| sewer_lair | 112.5 | 300.6 | 57 | 86k |
 
 The tiers do what they say: LOW drops the composer and the shadow map, and on
 a software rasteriser that is worth roughly the difference above. On a
