@@ -251,8 +251,10 @@ export const GARMENTS = {
   // KASAYA / monk's sash (Geto): a band across one shoulder
   kasaya(ctx, o) {
     const { H, torsoChain } = ctx.m;
-    const g = new THREE.TorusGeometry(0.095 * H, 0.03 * H, 8, 24, Math.PI * 1.2);
-    ctx.bag.add('cloth', tGeo(g, { rot: [90, 0, -35], pos: [0.01 * H, 0.70 * H, 0.0] }), { chain: torsoChain, color: o.color, blend: 0.05 });
+    // a full ring laid flat round the chest, then tilted so it runs from the
+    // right shoulder down to the left hip
+    const g = tGeo(new THREE.TorusGeometry(0.092 * H, 0.028 * H, 8, 28), { rot: [90, 0, 0], scale: [1, 1, 0.82] });
+    ctx.bag.add('cloth', tGeo(g, { rot: [0, 0, -42], pos: [0.0, 0.66 * H, 0.0] }), { chain: torsoChain, color: o.color, blend: 0.05 });
   },
   // bandage wraps on forearms
   wraps(ctx, o) {
