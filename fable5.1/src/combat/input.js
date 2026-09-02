@@ -43,6 +43,8 @@ export const MAX_PLAYERS = 4;
 export class InputManager {
   constructor() {
     this.keys = new Set();
+    // a key that went down and up between two polls still counts for one poll
+    this.latched = new Set();
     this.prev = Array.from({ length: MAX_PLAYERS }, emptyFrame);
     this.frames = Array.from({ length: MAX_PLAYERS }, emptyFrame);
     this.onToggle = {};
@@ -51,7 +53,7 @@ export class InputManager {
     loadControls();
     addEventListener('keydown', e => {
       if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
-      if (!e.repeat) { this.keys.add(e.code); this.onToggle[e.code]?.(); this.anyKey?.(e.code); this.lastDevice = 'keyboard'; }
+      if (!e.repeat) { this.keys.add(e.code); this.latched.add(e.code); this.onToggle[e.code]?.(); this.anyKey?.(e.code); this.lastDevice = 'keyboard'; }
     });
     addEventListener('keyup', e => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
@@ -76,14 +78,14 @@ export class InputManager {
     if (any || Math.hypot(mv.x, mv.z) > 0.5) this.lastDevice = 'pad';
   }
   _readKeys(f, map, { menuNav = true } = {}) {
-    const k = c => this.keys.has(map[c]);
+    const k = c => this.keys.has(map[c]) || this.latched.has(map[c]);
     const mx = (k('moveRight') ? 1 : 0) - (k('moveLeft') ? 1 : 0), mz = (k('moveDown') ? 1 : 0) - (k('moveUp') ? 1 : 0);
     if (mx || mz) { const m = Math.hypot(mx, mz); f.move.x += mx / m; f.move.z += mz / m; }
     if (map.camLeft) { f.cam.x += (k('camRight') ? 1 : 0) - (k('camLeft') ? 1 : 0); }
     for (const a of ACTIONS) f[a] ||= k(a);
     f.pause ||= k('start');
     if (menuNav) { f.left ||= k('moveLeft'); f.right ||= k('moveRight'); f.up ||= k('moveUp'); f.down ||= k('moveDown'); }
-    f.back ||= k('special') || this.keys.has('Backspace');
+    f.back ||= k('special') || this.keys.has('Backspace') || this.latched.has('Backspace');
   }
   poll(i) {
     const f = emptyFrame();
@@ -96,7 +98,7 @@ export class InputManager {
     if (i === 0 && pad && pads.length >= 1) this._readKeys(f, controls.keys[0], { menuNav: false });
     if (i === 1 && pad) this._readKeys(f, controls.keys[1], { menuNav: false });
     // menu confirm/back: A / Enter / punch
-    f.confirm = f.jump || f.punch || this.keys.has('Enter') || this.keys.has('NumpadEnter');
+    f.confirm = f.jump || f.punch || this.keys.has('Enter') || this.latched.has('Enter') || this.keys.has('NumpadEnter');
     const m = Math.hypot(f.move.x, f.move.z);
     if (m > 1) { f.move.x /= m; f.move.z /= m; }
     const p = this.prev[i];
@@ -110,7 +112,7 @@ export class InputManager {
   // ONE POLL PER RENDER FRAME. Edges are computed here, so anything that
   // polled twice in a frame would eat the other consumer's presses — the game
   // loop polls once and every screen / the match reads `frames`.
-  pollAll() { for (let i = 0; i < MAX_PLAYERS; i++) this.poll(i); return this.frames; }
+  pollAll() { for (let i = 0; i < MAX_PLAYERS; i++) this.poll(i); this.latched.clear(); return this.frames; }
   menuFrame() { return mergeMenu(this.frames[0], this.frames[1]); }
   // strip the edge flags after a logic tick has consumed them, so a second
   // tick in the same render frame does not replay the press

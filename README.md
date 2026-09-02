@@ -6,6 +6,27 @@ animations, VFX, textures (canvas-generated), and all SFX (Web Audio
 synthesis). No external media except the background music tracks — see
 [Music](#music).
 
+## The redesign — `/fable5.1/`
+
+A second build of the game lives in [`fable5.1/`](fable5.1/) and is served
+at **http://localhost:5173/fable5.1/** (and at `/jujutsubattlegrounds/fable5.1/`
+on the Pages deploy). Same roster, same ten maps, same controls; a rebuilt
+render pipeline (painted cel, fight-following shadows, a real post stack with
+quality tiers), a character authoring layer where every fighter is a
+description rather than a hand-built model, a new front end with full gamepad
+navigation, and a combat layer a tenth the size with node tests.
+
+- Direction: [docs/fable5.1-direction.md](docs/fable5.1-direction.md)
+- What it does differently, what it costs, and what is still missing against
+  the game at `/`: [docs/fable5.1-summary.md](docs/fable5.1-summary.md)
+- Benches: `/fable5.1/#viewer` (turntable, clip switching) and
+  `/fable5.1/?bench=lineup` (the whole roster at gameplay distance)
+- Tests: `node fable5.1/test/run.mjs` · perf: `node fable5.1/tools/mapperf.mjs`
+- `?quality=low|medium|high|ultra`, `?perf` for the frame-time overlay, F2 for
+  a screenshot, F3 perf, F4 to cycle quality
+
+The old game at `/` is untouched and stays the reference.
+
 ## Run it
 
 **Easiest — the launcher.** Double-click **`play.cmd`** (Windows) or run

@@ -57,8 +57,9 @@ export class PreviewStage {
     this.t += dt; if (!this.ch) return;
     this.ch.anim.update(dt); this.ch.model.group.updateMatrixWorld(true); this.ch.model.update(dt);
     if (this._back > 0) { this._back -= dt; if (this._back <= 0 || this.ch.anim.done) { this._back = 0; this.ch.anim.play('idle'); } }
+    // the character stands on the RIGHT third of the frame, beside the hero panel
     const a = 0.35 + Math.sin(this.t * 0.4) * 0.35;
-    this.stage.camera.position.set(Math.sin(a) * 3.6, 1.5, Math.cos(a) * 3.6); this.stage.camera.lookAt(0, 1.0, 0); this.stage.camera.fov = 38; this.stage.camera.updateProjectionMatrix();
+    this.stage.camera.position.set(Math.sin(a) * 3.6 - 1.5, 1.5, Math.cos(a) * 3.6); this.stage.camera.lookAt(-1.5, 1.0, 0); this.stage.camera.fov = 38; this.stage.camera.updateProjectionMatrix();
   }
   dispose() { this.stage.scene.remove(this.grp); for (const c of this.cache.values()) c.model.dispose?.(); this.cache.clear(); }
 }

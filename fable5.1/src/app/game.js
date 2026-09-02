@@ -13,6 +13,7 @@ import { buildArena, MAP_IDS, randomMapId } from '../stage/index.js';
 import { cycleQuality, quality } from '../render/quality.js';
 import { Screens } from '../ui/screens/index.js';
 import { loadSettings, applySettings, settings } from '../ui/screens/settings.js';
+import { Training } from '../ui/training.js';
 
 export function startGame() {
   const stage = createStage();
@@ -24,7 +25,7 @@ export function startGame() {
   const hud = new HUD(ui);
   const G = { stage, input, sfx, music, announcer, ui, hud, match: null, arena: null, opts: null };
   loadSettings(); applySettings(G);
-  const screens = new Screens(G);
+  const screens = new Screens(G); G.screens = screens;
   addEventListener('blur', () => { if (settings.muteOnBlur) sfx.setVolume('master', 0); });
   addEventListener('focus', () => { sfx.setVolume('master', settings.master); });
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -35,10 +36,11 @@ export function startGame() {
     G.arena = buildArena(opts.map || randomMapId(), stage);
     G.match = new Match({ stage, input, sfx, music, announcer, hud, arena: G.arena, opts: { ...opts, reducedMotion: reduced } });
     G.match.on('result', d => screens.result(d));
+    if (opts.training) { G.match.training = true; G.training = new Training(ui, G.match, input, sfx); }
     window.__match = G.match;
     return G.match;
   };
-  G.endMatch = () => { if (G.match) { G.match.destroy(); G.match = null; } if (G.arena) { G.arena.dispose(); G.arena = null; } hud.unbind(); stage.setViews(1); };
+  G.endMatch = () => { if (G.training) { G.training.destroy(); G.training = null; } if (G.match) { G.match.destroy(); G.match = null; } if (G.arena) { G.arena.dispose(); G.arena = null; } hud.unbind(); stage.setViews(1); };
 
   input.onToggle['F4'] = () => { const q = cycleQuality(); screens.toast('QUALITY: ' + q.name); };
   input.onToggle['F3'] = () => screens.togglePerf();
@@ -55,7 +57,7 @@ export function startGame() {
     const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
     input.pollAll();
     screens.update(dt);
-    if (G.match) { G.match.update(dt); G.arena?.update(dt, now / 1000); }
+    if (G.match) { G.match.update(dt); G.arena?.update(dt, now / 1000); G.training?.update(dt, input.frames[0]); }
     else { music.update(dt); }
     stage.render(dt);
     requestAnimationFrame(loop);

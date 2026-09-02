@@ -38,6 +38,8 @@ export function build(k) {
   k.box(cell, 0, 7.9, 0, 4, 3, 4, { floor: false, wall: false });
   // roof with a broken hole, and a shaft of light (a glow plane)
   k.box(surface('droof', 0x2a2e38, { arch: 'stone' }), 0, 13, 0, 60, 0.5, 60, { floor: false, wall: false });
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(3, 6, 13, 24, 1, true), glow(0xc0d8ff, 0.08)); shaft.position.set(2, 6.5, -3); shaft.material.side = THREE.DoubleSide; shaft.material.depthWrite = false; k.add(shaft);
+  // the shaft is additive and front-faced, so standing inside it adds a faint
+  // haze rather than lifting the whole frame
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(3, 6, 13, 24, 1, true), glow(0xc0d8ff, 0.05)); shaft.position.set(2, 6.5, -3); shaft.material.blending = THREE.AdditiveBlending; shaft.material.depthWrite = false; k.add(shaft);
   for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 + 0.2; const l = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 0.3), glow(0xa0c0ff)); l.position.set(Math.sin(a) * 12, 4.0, Math.cos(a) * 12); l.rotation.y = a; k.add(l); }
 }

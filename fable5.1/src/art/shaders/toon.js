@@ -136,8 +136,8 @@ export function energyMaterial({ color = 0x8fd4ff, opacity = 0.9, additive = tru
       void main() {
         float f = pow(1.0 - clamp(dot(normalize(vN), normalize(vV)), 0.0, 1.0), uFresnel);
         float p = 1.0 + uPulse * sin(uTime * 14.0);
-        vec3 c = uColor * (0.55 + f * 1.4) * p + vec3(f * f * 0.6);
-        gl_FragColor = vec4(c, uOpacity * (0.45 + f * 0.7));
+        vec3 c = uColor * (0.5 + f * 0.9) * p + vec3(f * f * 0.35);
+        gl_FragColor = vec4(c, uOpacity * (0.4 + f * 0.6));
       }`,
     transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, side: THREE.DoubleSide
   });
