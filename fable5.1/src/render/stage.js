@@ -36,7 +36,7 @@ export function createStage(canvas = document.getElementById('game-canvas')) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  renderer.toneMappingExposure = 1.18;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.autoClear = true;
@@ -61,9 +61,9 @@ export function createStage(canvas = document.getElementById('game-canvas')) {
   key.target = keyTarget;
   const rim = new THREE.DirectionalLight(0x86b4ff, 1.9);
   rim.position.set(-7, 7, -8);
-  const fill = new THREE.DirectionalLight(0x8fa6d8, 0.35);
+  const fill = new THREE.DirectionalLight(0x8fa6d8, 0.55);
   fill.position.set(-4, 3, 6);
-  const hemi = new THREE.HemisphereLight(0x8ea0d6, 0x4a4036, 0.7);
+  const hemi = new THREE.HemisphereLight(0x8ea0d6, 0x4a4036, 0.95);
   scene.add(key, rim, fill, hemi);
 
   // The shadow frustum follows the fight: `focus` is where the fighters are.
@@ -244,7 +244,7 @@ export function createStage(canvas = document.getElementById('game-canvas')) {
   }
 
   const api = {
-    renderer, scene, camera, lights: { key, rim, fill, hemi }, focus, fx,
+    renderer, scene, camera, lights: { key, rim, fill, hemi }, focus, fx, _eyes: eyes,
     preRender: null,
     cameraFor(i) { return eyeAt(i).camera; },
     get isSplit() { return views > 1; },
@@ -284,6 +284,9 @@ export function createStage(canvas = document.getElementById('game-canvas')) {
       return { x: p.x * 0.5 + 0.5, y: p.y * 0.5 + 0.5 };
     },
     render(dt) {
+      // a rAF timestamp can trail performance.now() on a throttled tab; a
+      // negative dt would GROW every decaying effect below
+      dt = Math.max(0, Math.min(0.1, dt || 0));
       gradeState.vignette = damp(gradeState.vignette, gradeTarget.vignette, 5, dt);
       gradeState.lift = damp(gradeState.lift, gradeTarget.lift, 5, dt);
       gradeState.sat = damp(gradeState.sat, gradeTarget.sat, 5, dt);

@@ -97,13 +97,13 @@ export function toonMaterial(opts = {}) {
 
 // Archetypes: a shading RESPONSE, not a hue.
 export const ARCH = {
-  skin: { bands: [{ value: 0.46 }, { at: 0.42, value: 0.78, soft: 0.16 }, { at: 0.62, value: 1.0, soft: 0.06 }], rim: 0.18, rimStart: 0.76, warm: 0x3a2418, cool: 0x16203a, shade: 0xb08aa0 },
-  cloth: { bands: [{ value: 0.30 }, { at: 0.46, value: 0.66, soft: 0.03 }, { at: 0.66, value: 1.0, soft: 0.02 }], rim: 0.28, rimStart: 0.70, warm: 0x2a1d12, cool: 0x0e1626, shade: 0x8478b0 },
-  hair: { bands: [{ value: 0.34 }, { at: 0.45, value: 0.70, soft: 0.02 }, { at: 0.70, value: 1.0, soft: 0.02 }], rim: 0.46, rimStart: 0.64, gloss: 0.40, warm: 0x2a2016, cool: 0x121a30, shade: 0x8070b8 },
-  metal: { bands: [{ value: 0.18 }, { at: 0.35, value: 0.55, soft: 0.02 }, { at: 0.72, value: 1.0, soft: 0.01 }], rim: 0.6, rimStart: 0.58, gloss: 0.85, warm: 0x1c1812, cool: 0x0c1220, shade: 0x606890 },
-  fur: { bands: [{ value: 0.42 }, { at: 0.3, value: 0.6, soft: 0.2 }, { at: 0.6, value: 0.85, soft: 0.2 }, { at: 0.85, value: 1.0, soft: 0.1 }], rim: 0.55, rimStart: 0.5, gloss: 0, warm: 0x33261a, cool: 0x14192a, shade: 0x9088a8 },
-  leather: { bands: [{ value: 0.22 }, { at: 0.5, value: 0.62, soft: 0.05 }, { at: 0.75, value: 1.0, soft: 0.02 }], rim: 0.4, rimStart: 0.62, gloss: 0.5, warm: 0x2a1d12, cool: 0x0e1626, shade: 0x706090 },
-  stone: { bands: [{ value: 0.36 }, { at: 0.48, value: 0.72, soft: 0.05 }, { at: 0.72, value: 1.0, soft: 0.04 }], rim: 0.2, rimStart: 0.72, warm: 0x2a2420, cool: 0x101826, shade: 0x8a88a0 }
+  skin: { bands: [{ value: 0.46 }, { at: 0.42, value: 0.78, soft: 0.16 }, { at: 0.62, value: 1.0, soft: 0.06 }], rim: 0.18, rimStart: 0.76, warm: 0x3a2418, cool: 0x16203a, shade: 0xd8b8c8 },
+  cloth: { bands: [{ value: 0.40 }, { at: 0.44, value: 0.72, soft: 0.03 }, { at: 0.66, value: 1.0, soft: 0.02 }], rim: 0.28, rimStart: 0.70, warm: 0x2a1d12, cool: 0x0e1626, shade: 0xc0b0e0 },
+  hair: { bands: [{ value: 0.34 }, { at: 0.45, value: 0.70, soft: 0.02 }, { at: 0.70, value: 1.0, soft: 0.02 }], rim: 0.46, rimStart: 0.64, gloss: 0.40, warm: 0x2a2016, cool: 0x121a30, shade: 0xb8a8e0 },
+  metal: { bands: [{ value: 0.18 }, { at: 0.35, value: 0.55, soft: 0.02 }, { at: 0.72, value: 1.0, soft: 0.01 }], rim: 0.6, rimStart: 0.58, gloss: 0.85, warm: 0x1c1812, cool: 0x0c1220, shade: 0xa0a8c8 },
+  fur: { bands: [{ value: 0.42 }, { at: 0.3, value: 0.6, soft: 0.2 }, { at: 0.6, value: 0.85, soft: 0.2 }, { at: 0.85, value: 1.0, soft: 0.1 }], rim: 0.55, rimStart: 0.5, gloss: 0, warm: 0x33261a, cool: 0x14192a, shade: 0xc8c0d8 },
+  leather: { bands: [{ value: 0.22 }, { at: 0.5, value: 0.62, soft: 0.05 }, { at: 0.75, value: 1.0, soft: 0.02 }], rim: 0.4, rimStart: 0.62, gloss: 0.5, warm: 0x2a1d12, cool: 0x0e1626, shade: 0xb0a0c8 },
+  stone: { bands: [{ value: 0.36 }, { at: 0.48, value: 0.72, soft: 0.05 }, { at: 0.72, value: 1.0, soft: 0.04 }], rim: 0.2, rimStart: 0.72, warm: 0x2a2420, cool: 0x101826, shade: 0xc0bcd0 }
 };
 
 const matCache = new Map();

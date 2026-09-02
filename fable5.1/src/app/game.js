@@ -27,7 +27,7 @@ export function startGame() {
   let t = 0, last = performance.now();
   addEventListener('keydown', e => { if (e.code === 'F4') console.log(cycleQuality().name); if (e.code === 'KeyH') { stage.punch(1, { x: 0.5, y: 0.5 }); stage.impactFrame(4); stage.flash(0.6); } });
   const loop = (now) => {
-    const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; t += dt;
     bodies.forEach((b, i) => { b.m.position.y = 0.9 + Math.abs(Math.sin(t * 2 + i)) * (i === 1 ? 1.5 : 0); b.cs.update(b.m.position.clone().setY(b.m.position.y - 0.9), 0); });
     stage.render(dt);
     requestAnimationFrame(loop);
