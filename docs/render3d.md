@@ -20,6 +20,14 @@ body take the whole library.
 Models load at runtime — nothing is bundled, a missing file or an unusable
 rig warns once in the console and leaves the procedural model standing.
 
+**Shipping a character on its model by default.** The faces bench
+(`/workbench/?edit=faces`) offers the imported model as a third choice next
+to the two procedural heads. Choosing it writes `model` for that character
+into `HEAD_STYLE` (`src/art/builders/headstyle.js`), and the game then loads
+that character's manifest entry without the URL parameter — only that
+character; everyone else stays procedural. Nobody ships that way unless the
+table says so.
+
 ## How the mapping works (`src/art/rig3d/`)
 
 The game's animation system stays the single source of truth. Clips are

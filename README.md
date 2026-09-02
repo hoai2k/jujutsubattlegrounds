@@ -43,7 +43,16 @@ location and, if you want a specific one, the finisher itself; press **SHOW
 FINISHER** and the cutscene plays full screen and hands the page back when it
 is done. **Esc** returns early. It runs the shipped director against a real
 match on a real map, so what you see there is what the game plays. `?edit=`
-selects the bench; `finishers` is the default and currently the only one.
+selects the bench; `finishers` is the default.
+
+**http://localhost:5173/workbench/?edit=faces** — every character built on
+the classic head and on the sculpted head (and on its imported `?render3d`
+model where `public/models/manifest.json` has one), standing in a row at head
+height and playing the same clip. Pick per character which one ships; the
+bench exports the `HEAD_STYLE` table in `src/art/builders/headstyle.js`,
+which is the one place the roster reads it from. Reverting a face is one
+line there. `?head=classic` / `?head=sculpt` on any URL forces a style for
+that page.
 
 Visitor stats (who is playing, and from where):
 **http://localhost:5173/stats/** — a live dashboard over the anonymous visit

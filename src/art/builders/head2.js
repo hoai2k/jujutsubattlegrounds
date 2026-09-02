@@ -30,9 +30,11 @@ export function headShape(n, o = {}) {
   // shade flatter
   if (z < 0) z *= 1 + 0.12 * (-z) * sm((y + 0.35) / 0.7);
   if (y > 0.72) y = 0.72 + (y - 0.72) * 0.90;
-  // face: flattened from the brow down, but only from 0.56 out — the
-  // forehead keeps its curve above the brow
-  if (z > 0.56) z = 0.56 + (z - 0.56) * 0.34;
+  // face plane. Flattened to the SAME depth as the classic head (front at
+  // ~0.61 r): every character file places something at that plane — a scar,
+  // a mask, a blindfold, a second pair of eyes — and those have to stay
+  // proud of the skin. The anatomy below is pushed out from it.
+  if (z > 0.44) z = 0.44 + (z - 0.44) * 0.30;
   // jaw taper below the eye line, chin drawn down and forward
   if (y < -0.05) {
     const u = clamp01((-y - 0.05) / 0.95), k = Math.pow(u, 1.45);
@@ -45,7 +47,7 @@ export function headShape(n, o = {}) {
   const front = sm(n.z / 0.55);
   let b = 0;
   b += 0.030 * brow * g(n.y, 0.16, 0.09) * front * sm(1 - Math.abs(n.x) / 0.85);        // brow ridge
-  b -= 0.040 * socket * (g(n.x, 0.40, 0.17) + g(n.x, -0.40, 0.17)) * g(n.y, -0.05, 0.11) * front; // eye sockets
+  b -= 0.032 * socket * (g(n.x, 0.40, 0.17) + g(n.x, -0.40, 0.17)) * g(n.y, -0.05, 0.11) * front; // eye sockets
   b += 0.040 * cheek * (g(n.x, 0.74, 0.20) + g(n.x, -0.74, 0.20)) * g(n.y, -0.30, 0.16) * sm(n.z / 0.35) * (1 - front * 0.4); // cheekbones
   b += 0.035 * nose * g(n.x, 0, 0.09) * g(n.y, -0.14, 0.14) * front;                       // bridge
   b += 0.095 * nose * g(n.x, 0, 0.11) * g(n.y, -0.34, 0.11) * sm((n.z - 0.6) / 0.35);       // tip

@@ -57,4 +57,7 @@ One sanctioned exception: the opt-in `?render3d` URL parameter
 a rigged humanoid model loaded **at runtime** from `public/models/` (or any
 URL). Model files in `public/models/` are user-supplied `.glb`s, committed to
 the repo but never imported into the bundle, and the default game path stays
-fully procedural.
+fully procedural — unless a character is deliberately set to `model` in
+`HEAD_STYLE` (`src/art/builders/headstyle.js`), the table the faces bench
+(`/workbench/?edit=faces`) exports, which makes that one character load its
+manifest model by default.

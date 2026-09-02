@@ -28,7 +28,7 @@ export function buildGojo(opts = {}) {
   const TOP = shinjuku ? 0x14151b : JACKET;
   const BOTTOM = shinjuku ? 0xd8d4c8 : JACKET_DK;
   const spec = {
-    id: 'gojo', name: 'Gojo', H: 1.92, headScale: 0.98, head: 'sculpt',
+    id: 'gojo', name: 'Gojo', H: 1.92, headScale: 0.98,
     shoulder: 0.099, hip: 0.05, muscle: shinjuku ? 1.04 : 0.98, bulk: 0.94, legBulk: 0.9,
     skinTone: SKIN, clothColor: TOP, pantColor: BOTTOM, shoeColor: 0x0d0e14,
     torsoShape: { chest: 1.04, waist: 0.90, hip: 0.92 },

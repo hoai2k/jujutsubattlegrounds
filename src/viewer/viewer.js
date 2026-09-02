@@ -825,7 +825,10 @@ export function startViewer() {
     async sheet(name, { clips = null, yaws = [0, Math.PI * 0.75], cw = 300, ch = 380, t = 0.45, cols = 0, dist = null, height = null, state = null } = {}) {
       const camWas = [camDist, camHeight];
       if (dist != null) camDist = dist;
-      if (height != null) camHeight = height;
+      // `height: 'head'` frames on the model's own head centre, so one job
+      // list can shoot every character's face at the same tightness
+      if (height === 'head') camHeight = model?.m?.headC?.y ?? camHeight;
+      else if (height != null) camHeight = height;
       // `state` applies model-level toggles for the duration of the sheet —
       // things that are not clips and cannot be reached from the clip bar.
       // Added for Ino, whose ski mask is a piece of geometry with two states

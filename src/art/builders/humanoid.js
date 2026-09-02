@@ -4,7 +4,8 @@
 import * as THREE from 'three';
 import { createRig, PartBag } from '../rig/rig.js';
 import { latheY, tubeBetween, roundBox, animeHead, almondEye, tGeo, mergeGeos } from './geo.js';
-import { sculptHead } from './head2.js';
+import { sculptHead, addFace2 } from './head2.js';
+import { headStyleFor } from './headstyle.js';
 import { MAT } from '../shaders/toon.js';
 import { makeOutline } from '../shaders/outline.js';
 import { SpringChain } from '../rig/springs.js';
@@ -137,10 +138,12 @@ export function buildHumanoid(spec) {
   bag.add('skin', tubeBetween(v3(0, y.neck - 0.012 * H, 0.004 * H), v3(0, y.headBase + 0.015 * H, 0.009 * H),
     [0.023 * H * nk, 0.021 * H * nk], { radial: 10, hSeg: 2 }), { bone: 'Neck', color: spec.skinTone });
 
-  // head. `head: 'sculpt'` opts into the second-generation head (head2.js):
+  // head. Which builder is the roster's decision in headstyle.js (or a
+  // runtime override): `sculpt` is the second-generation head (head2.js) —
   // brow ridge, sockets, cheekbones and nose in the mesh, with the face then
-  // placed ON the skin by addFace2. It draws its own ears.
-  const sculpt = spec.head === 'sculpt';
+  // placed ON the skin by addFace2, which draws its own ears.
+  const sculpt = headStyleFor(spec.id, spec) === 'sculpt';
+  m.sculpt = sculpt;
   bag.add('skin', tGeo(sculpt ? sculptHead(headR, spec.face || {}) : animeHead(headR, spec.face || {}), { pos: [headC.x, headC.y, headC.z] }),
     { bone: 'Head', color: spec.skinTone });
   // ears
@@ -322,6 +325,20 @@ function buildShoe(H, ankle, style) {
 // Stylized anime face: sclera + iris + lash line + brows + mouth (flat slot),
 // nose wedge (skin slot). Opts control shape/color per character.
 export function addFace(ctx, o = {}) {
+  // ON A SCULPTED HEAD, the same call lands on the skin. The classic options
+  // translate directly except `browUp`, which was eyeH-multiples above the
+  // eye line and is now eyeH-multiples above the brow RIDGE, 0.20 head-radii
+  // higher — so the brow ends up where the character file put it.
+  if (ctx.m.sculpt) {
+    const eyeH = o.eyeH ?? 0.30;
+    return addFace2(ctx, {
+      ...o,
+      eyeH: Math.min(eyeH, 0.30), eyeW: o.eyeW ?? 0.52,
+      browUp: (o.browUp ?? 1.05) - 0.20 / eyeH,
+      browTilt: o.browTilt ?? 10,
+      mouthCorner: o.mouthCorner ?? -10
+    });
+  }
   const { bag } = ctx;
   const { headR, headC } = ctx.m;
   const faceZ = headC.z + headR * 0.615; // proud of the flattened face plane

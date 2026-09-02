@@ -46,7 +46,7 @@ export function buildYuji(opts = {}) {
   // showing, trousers cropped over black socks, white high-tops. Proportions
   // hold at ~7 heads, 173 cm, thick neck, broad shoulders.
   const spec = {
-    id: 'yuji', name: 'Yuji', H: 1.75, headScale: 1.05, head: 'sculpt', neck: 1.12,
+    id: 'yuji', name: 'Yuji', H: 1.75, headScale: 1.05, neck: 1.12,
     shoulder: aged ? 0.112 : 0.106, hip: 0.054,
     muscle: aged ? 1.22 : shinjuku ? 1.16 : 1.14, bulk: aged ? 1.12 : shinjuku ? 1.08 : 1.06, legBulk: 1.10,
     // the base wears the jacket built below; the variants keep the fitted lathe

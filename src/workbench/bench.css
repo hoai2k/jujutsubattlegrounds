@@ -475,3 +475,42 @@
   .vb-docknav { display: flex; gap: 6px; flex: 1; justify-content: flex-end; }
   .vb-docknav .vb-ghost.sm { padding: 10px 16px; }
 }
+
+/* ------------------------------------------------------------- faces bench -- */
+.fb-roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.fb-chip {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 8px 9px; min-height: 40px; cursor: pointer; text-align: left;
+  font: inherit; font-size: 12px; letter-spacing: 0.04em; color: var(--ink, #e6e1d6);
+  background: rgba(240, 236, 228, 0.05); border: 1px solid rgba(240, 236, 228, 0.12);
+}
+.fb-chip:hover { border-color: rgba(240, 236, 228, 0.35); }
+.fb-chip.on { border-color: var(--ac); background: rgba(240, 236, 228, 0.1); }
+.fb-chip .fb-badge {
+  flex: none; font-size: 10px; letter-spacing: 0.12em; padding: 3px 5px;
+  border: 1px solid rgba(240, 236, 228, 0.25); color: rgba(240, 236, 228, 0.7);
+}
+.fb-chip .fb-badge.sculpt { color: #ffd86b; border-color: #ffd86b; }
+.fb-chip .fb-badge.model { color: #8fd4ff; border-color: #8fd4ff; }
+.fb-chip .fb-badge.classic { color: #c9c2b4; }
+.fb-choice { display: flex; gap: 6px; flex-wrap: wrap; }
+.fb-choice .mb-btn.on { border-color: #ffd86b; color: #ffd86b; }
+.fb-choice .mb-btn[disabled] { opacity: 0.35; cursor: not-allowed; }
+.fb-labels {
+  position: absolute; left: 0; right: 0; bottom: 14px; display: grid; gap: 10px;
+  padding: 0 14px; pointer-events: none;
+}
+.fb-label {
+  pointer-events: auto; cursor: pointer; text-align: center; font-size: 11px; letter-spacing: 0.3em;
+  text-transform: uppercase; color: rgba(240, 236, 228, 0.75); padding: 9px 6px; min-height: 40px;
+  background: rgba(9, 11, 20, 0.7); border: 1px solid rgba(240, 236, 228, 0.15);
+}
+.fb-label.on { color: #ffd86b; border-color: #ffd86b; }
+.fb-label small { display: block; letter-spacing: 0.08em; text-transform: none; color: rgba(240, 236, 228, 0.5); font-size: 11px; margin-top: 3px; }
+.fb-sheet { display: flex; flex-direction: column; gap: 8px; }
+.fb-sheet img { width: 100%; display: block; border: 1px solid rgba(240, 236, 228, 0.12); background: #0b0d14; }
+.fb-sheet .fb-sheet-name { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(240, 236, 228, 0.6); }
+.fb-code {
+  width: 100%; min-height: 120px; resize: vertical; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  color: #e6e1d6; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(240, 236, 228, 0.15); padding: 8px;
+}
