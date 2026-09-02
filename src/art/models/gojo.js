@@ -2,6 +2,7 @@
 // hair. Silhouette: vertical, sharp, crowned by the spike halo.
 import * as THREE from 'three';
 import { buildHumanoid, addFace, finalizeModel, makeFlapMesh } from '../builders/humanoid.js';
+import { addFace2 } from '../builders/head2.js';
 import { latheY, tGeo, coneSpike, sphereShell, roundBox } from '../builders/geo.js';
 import { MAT } from '../shaders/toon.js';
 import { v3, DEG } from '../../core/mathutil.js';
@@ -31,7 +32,9 @@ export function buildGojo(opts = {}) {
     shoulder: 0.099, hip: 0.05, muscle: shinjuku ? 1.04 : 0.98, bulk: 0.94, legBulk: 0.9,
     skinTone: SKIN, clothColor: TOP, pantColor: BOTTOM, shoeColor: 0x0d0e14,
     torsoShape: { chest: 1.04, waist: 0.90, hip: 0.92 },
-    face: { jaw: 1.05, chin: 1.0, width: 0.98 },
+    // sculpted head (head2.js): a long, narrow face with a fine nose and a
+    // strong jaw line — the reference is all vertical lines
+    face: { jaw: 1.08, chin: 1.05, width: 0.94, brow: 0.8, cheek: 0.7, nose: 0.9, socket: 0.8 },
     shoe: { len: 0.118, hgt: shinjuku ? 0.038 : 0.055 },
     palette: shinjuku
       ? { rim: 0xc6a8ff, hairRim: 0xe8dcff, outline: 0x0a0810, accent: 0xb47fff, energy: 0xb47fff }
@@ -120,8 +123,8 @@ export function buildGojo(opts = {}) {
   // matches the rest of the roster, then given an additive inner glow that the
   // blindfolded build does not have — at fighting distance the read is "those
   // are lit from inside", which is the entire point of taking the fold off.
-  addFace(ctx, blindfold
-    ? { noEyes: true, mouthW: 0.22 }
+  (blindfold ? addFace2 : addFace)(ctx, blindfold
+    ? { noEyes: true, mouthW: 0.22, mouthCorner: 6, noseShadow: 0xd8bfae }
     : {
       noEyes: false, mouthW: 0.22, eyeW: 0.56, eyeH: 0.34,
       eyeColor: shinjuku ? 0x9fd8ff : 0x6fc8ff, eyeTilt: 4, lashTilt: 6,

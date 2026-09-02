@@ -90,6 +90,7 @@
 // every existing pose/clip stay authoritative — and retarget.js maps that
 // pose onto the imported skeleton every frame. See retarget.js for how new
 // models inherit every pose the game has.
+import { HEAD_STYLE } from '../builders/headstyle.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // gltfpack-optimized models (the recommended way to shrink one) require the
@@ -117,19 +118,43 @@ export function modelsUrl(rel) {
 
 // ---- request parsing (once) ------------------------------------------------
 let _request;   // undefined = unparsed, null = off, {url|manifest} = on
+let _force = false;
+// The faces bench turns the path on for the page it runs in, so it can stand
+// a character's imported body next to the two procedural heads.
+export function forceRender3D(on) { _force = !!on; _request = undefined; }
 function request() {
   if (_request !== undefined) return _request;
   _request = null;
   try {
+    if (_force) { _request = { manifest: true }; return _request; }
     if (typeof location === 'undefined') return _request;   // node (tests)
     const sp = new URLSearchParams(location.search);
-    if (!sp.has('render3d')) return _request;
-    const v = (sp.get('render3d') || '').trim();
-    _request = v ? { url: v } : { manifest: true };
+    if (sp.has('render3d')) {
+      const v = (sp.get('render3d') || '').trim();
+      _request = v ? { url: v } : { manifest: true };
+      return _request;
+    }
+    // THE ROSTER'S OWN DECISION. A character whose head style in
+    // headstyle.js is 'model' plays on its imported body by default, without
+    // the URL parameter — that is the third answer the faces bench can give.
+    // Nobody ships that way unless the table says so, so the default game
+    // path stays procedural until someone chooses otherwise.
+    const only = Object.keys(HEAD_STYLE).filter(k => HEAD_STYLE[k] === 'model');
+    if (only.length) _request = { manifest: true, only: new Set(only) };
   } catch { /* off */ }
   return _request;
 }
 export function render3dEnabled() { return !!request(); }
+
+// Does the manifest carry a model for this pick? Answered regardless of
+// whether the path is on — the faces bench asks before offering the choice.
+export async function importedModelFor(pick) {
+  const m = await loadManifest();
+  const base = String(pick).split(':')[0];
+  let entry = m[pick] ?? m[base] ?? null;
+  if (typeof entry === 'string') entry = { url: entry };
+  return entry?.url ? entry : null;
+}
 
 let _manifest = null;
 function loadManifest() {
@@ -144,6 +169,7 @@ async function resolveSource(pick) {
   const req = request();
   if (!req) return null;
   const base = pick.split(':')[0];
+  if (req.only && !req.only.has(base)) return null;
   const m = req.manifest ? await loadManifest() : {};
   let entry = m[pick] ?? m[base] ?? m['*'] ?? null;
   if (typeof entry === 'string') entry = { url: entry };

@@ -5,7 +5,8 @@
 // a second pair of eye slits, red-glow irises (model.setSukuna).
 import * as THREE from 'three';
 import { buildHumanoid, addFace, finalizeModel, makeFlapMesh } from '../builders/humanoid.js';
-import { latheY, tGeo, coneSpike, sphereShell, roundBox, almondEye } from '../builders/geo.js';
+import { addFace2, skinPoint } from '../builders/head2.js';
+import { latheY, tGeo, coneSpike, sphereShell, roundBox, almondEye, tubeBetween } from '../builders/geo.js';
 import { MAT } from '../shaders/toon.js';
 import { v3 } from '../../core/mathutil.js';
 
@@ -19,8 +20,13 @@ const NAVY_DK = 0x151a26;
 const HOOD = 0xa8323c;      // the red hoodie showing above the collar
 const HOOD_DK = 0x74222b;   // its shaded roll / the tail at the upper back
 const TRIM = 0xc23b4a;      // red zip / drawstring accents
-const HAIR = 0xef9c96;      // salmon pink
-const SKIN = 0xf0d2b2;      // warmer than the others
+const HAIR = 0xe9968e;      // salmon pink
+const HAIR_DK = 0x2c1b20;   // the shaved undercut showing below the pink
+const SKIN = 0xf1cfae;      // warmer than the others
+const GOLD = 0xd8a840;      // the hood and jacket buttons
+const SOCK = 0x17181f;
+const SNEAKER = 0xefeeea;   // white high-tops, as on the canon idle sheet
+const SOLE = 0xb9b6ad;
 const MARK = 0x2a1016;      // sukuna engraving lines
 
 // VARIANTS. `opts.aged` builds the MODULO version — sixty-eight years on,
@@ -33,18 +39,27 @@ export function buildYuji(opts = {}) {
   // so it still reads as the same jacket.
   const TOP_C = aged ? 0x2a2028 : shinjuku ? 0x1a1d28 : NAVY;
   const BOT_C = aged ? 0x1c1620 : shinjuku ? 0x12141c : NAVY_DK;
+  // THE BASE MODEL IS REBUILT AGAINST THE CANON IDLE SHEET (2026-09). Head on
+  // the sculpted builder (brow, sockets, cheekbones, nose in the mesh), a
+  // boxy gakuran that hangs straight to the hip instead of a fitted lathe,
+  // the hood as a real buttoned collar mass, sleeves with the red hoodie cuff
+  // showing, trousers cropped over black socks, white high-tops. Proportions
+  // hold at ~7 heads, 173 cm, thick neck, broad shoulders.
   const spec = {
-    id: 'yuji', name: 'Yuji', H: 1.75, headScale: 1.05,
-    shoulder: aged ? 0.110 : 0.102, hip: 0.053,
-    muscle: aged ? 1.22 : shinjuku ? 1.16 : 1.10, bulk: aged ? 1.12 : shinjuku ? 1.08 : 1.05, legBulk: 1.02,
-    // red shoes are canon too, and they are the only warm note below the waist.
-    // The aged/Shinjuku versions keep dark footwear: Modulo is out of uniform
+    id: 'yuji', name: 'Yuji', H: 1.75, headScale: 1.05, neck: 1.12,
+    shoulder: aged ? 0.112 : 0.106, hip: 0.054,
+    muscle: aged ? 1.22 : shinjuku ? 1.16 : 1.14, bulk: aged ? 1.12 : shinjuku ? 1.08 : 1.06, legBulk: 1.10,
+    // the base wears the jacket built below; the variants keep the fitted lathe
+    torso: !(aged || shinjuku) ? false : true,
+    // footwear: the canon idle sheet has white high-tops over black socks. The
+    // aged/Shinjuku versions keep dark footwear: Modulo is out of uniform
     // entirely and the Shinjuku one is caked in soot.
     skinTone: aged ? 0xe0c0a6 : SKIN, clothColor: TOP_C, pantColor: BOT_C,
-    shoeColor: (aged || shinjuku) ? 0x0f1016 : 0x9c2f38,
+    shoeColor: (aged || shinjuku) ? 0x0f1016 : SNEAKER,
     torsoShape: { chest: aged ? 1.14 : 1.07, waist: 0.99, hip: 0.95 },
-    face: { jaw: aged ? 1.08 : 1.02, chin: 0.94, width: 1.03 },
-    shoe: { len: 0.115, hgt: 0.052 },
+    // the face: a teenager's rounder jaw, a strong brow, small chin
+    face: { jaw: aged ? 1.0 : 0.92, chin: 0.85, width: 0.98, brow: 1.2, cheek: 0.9, nose: 1.0, socket: 1.0 },
+    shoe: { len: 0.125, hgt: 0.070, wid: 0.048 },
     palette: aged
       ? { rim: 0xd8a8a0, hairRim: 0xe8d8d4, outline: 0x120a0e, accent: 0xb04a5a, energy: 0xc0505e }
       : shinjuku
@@ -63,36 +78,70 @@ export function buildYuji(opts = {}) {
   // these pieces, which left an eighty-year-old special grade wearing a
   // repainted school jacket — a palette swap wearing a reference sheet's
   // clothes, and exactly what Part 2 of the brief is about.
-  if (!aged) {
-  // high collar
+  if (!aged && !shinjuku) {
+  // ---- THE GAKURAN, as a garment rather than a body -----------------------
+  // A jacket does not follow the waist. It hangs from the shoulders, straight
+  // down past the hip, and the only shaping is the slight drape outward at
+  // the hem. Built on the torso chain so it still bends with the spine.
+  const jk = 1.0;
   bag.add('cloth', latheY([
-    [0.038 * H, y.neck - 0.013 * H], [0.044 * H, y.neck + 0.013 * H], [0.048 * H, y.headBase + 0.02 * H]
+    [0.086 * H * jk, 0.425 * H], [0.084 * H * jk, 0.47 * H], [0.082 * H * jk, 0.53 * H],
+    [0.081 * H * jk, 0.60 * H], [0.084 * H * jk, 0.68 * H], [0.088 * H * jk, 0.74 * H],
+    [0.086 * H * jk, 0.785 * H], [0.072 * H, 0.822 * H], [0.040 * H, 0.845 * H], [0.030 * H, y.neck + 0.004 * H]
+  ], 26, 0.72), { chain: torsoChain, color: NAVY, blend: 0.05 });
+  // the hem is open: a dark disc closes it so the inside never shows from below
+  bag.add('cloth', tGeo(new THREE.CircleGeometry(0.086 * H, 24), { scale: [1, 0.72, 1], rot: [90, 0, 0], pos: [0, 0.426 * H, 0] }), { bone: 'Hips', color: NAVY_DK });
+  // the trousers under it — the tube the jacket hangs over, so the hem reads
+  // as a hem and not as a skirt on a thigh
+  bag.add('cloth', latheY([
+    [0.062 * H, 0.40 * H], [0.070 * H, 0.44 * H], [0.074 * H, 0.50 * H], [0.070 * H, 0.54 * H]
+  ], 20, 0.78), { chain: torsoChain, color: BOT_C, blend: 0.05 });
+  // front closure: the gakuran fastens off-centre on the wearer's right, a
+  // raised placket edge with one gold button at the chest
+  bag.add('cloth', tGeo(roundBox(0.010 * H, 0.33 * H, 0.006 * H, 0.002), { pos: [-0.018 * H, 0.61 * H, 0.062 * H] }),
+    { chain: torsoChain, color: NAVY_DK, blend: 0.05 });
+  bag.add('metal', tGeo(new THREE.SphereGeometry(0.0065 * H, 8, 6), { scale: [1, 1, 0.5], pos: [-0.012 * H, 0.745 * H, 0.068 * H] }),
+    { chain: torsoChain, color: GOLD, blend: 0.05 });
+  // stand collar of the jacket, inside the hood
+  bag.add('cloth', latheY([
+    [0.040 * H, y.neck - 0.010 * H], [0.044 * H, y.neck + 0.014 * H], [0.046 * H, y.headBase + 0.016 * H]
   ], 16, 0.87), { bone: 'Neck', color: NAVY });
-  // hood bundle: chunky folded crescent over the shoulders
-  bag.add('cloth', tGeo(new THREE.TorusGeometry(0.06 * H, 0.03 * H, 8, 14, Math.PI * 1.15),
-    { rot: [80, 0, 180], pos: [0, 0.822 * H, -0.058 * H] }), { bone: 'Chest', color: HOOD });
-  bag.add('cloth', tGeo(new THREE.TorusGeometry(0.043 * H, 0.022 * H, 8, 12, Math.PI),
-    { rot: [68, 0, 180], pos: [0, 0.845 * H, -0.05 * H] }), { bone: 'Chest', color: HOOD_DK });
-  // zip line down the front — muted red so it reads as trim, not stripes
-  const ZIP = 0x7e2833;
-  for (const [cy, cz, ch] of [[0.77 * H, 0.055 * H, 0.09 * H], [0.68 * H, 0.048 * H, 0.09 * H], [0.595 * H, 0.042 * H, 0.08 * H]]) {
-    bag.add('cloth', tGeo(roundBox(0.009 * H, ch, 0.005 * H, 0.002),
-      { pos: [0, cy, cz] }), { chain: torsoChain, color: ZIP, blend: 0.05 });
+  // ---- THE HOOD: a big soft collar around the neck, buttoned at the front --
+  // Canon wears the hoodie under the jacket and its hood bunches outside the
+  // collar as one rounded mass, thickest at the back, with two gold buttons
+  // where the halves meet under the chin.
+  bag.add('cloth', tGeo(new THREE.TorusGeometry(0.058 * H, 0.036 * H, 10, 18), { scale: [1, 1, 0.92], rot: [84, 0, 0], pos: [0, 0.826 * H, -0.012 * H] }),
+    { bone: 'Chest', color: HOOD });
+  // the hood proper, folded at the back of the neck
+  bag.add('cloth', tGeo(new THREE.SphereGeometry(0.060 * H, 14, 10), { scale: [1.15, 0.72, 0.85], pos: [0, 0.832 * H, -0.060 * H] }),
+    { bone: 'Chest', color: HOOD });
+  bag.add('cloth', tGeo(new THREE.SphereGeometry(0.046 * H, 12, 9), { scale: [1.1, 0.6, 0.8], pos: [0, 0.858 * H, -0.052 * H] }),
+    { bone: 'Chest', color: HOOD_DK });
+  // the two front buttons
+  for (const [bx, by] of [[0.004, 0.842], [0.004, 0.818]]) {
+    bag.add('metal', tGeo(new THREE.SphereGeometry(0.0072 * H, 8, 6), { scale: [1, 1, 0.5], pos: [bx * H, by * H, 0.062 * H] }), { bone: 'Chest', color: GOLD });
   }
-  // hood drawstrings hanging from the collar
-  for (const s of [1, -1]) {
-    bag.add('cloth', tGeo(roundBox(0.006 * H, 0.075 * H, 0.006 * H, 0.002),
-      { rot: [6, 0, s * 5], pos: [s * 0.022 * H, 0.775 * H, 0.062 * H] }), { bone: 'Chest', color: TRIM });
-  }
-  // jacket hem over the hips
-  bag.add('cloth', latheY([
-    [0.078 * H, 0.42 * H], [0.0765 * H, 0.465 * H], [0.073 * H, 0.505 * H]
-  ], 20, 0.79), { bone: 'Hips', color: NAVY });
-  // sleeve cuffs
+  // sleeves: the jacket cuff, and the red hoodie cuff showing under it
   for (const s of ['L', 'R']) {
-    const wr = joints.get('Hand' + s);
-    bag.add('cloth', tGeo(new THREE.CylinderGeometry(0.022 * H, 0.0245 * H, 0.04 * H, 10),
-      { pos: [wr.x, wr.y + 0.02 * H, wr.z] }), { bone: 'LoArm' + s, color: NAVY_DK });
+    const wr = joints.get('Hand' + s), el = joints.get('LoArm' + s);
+    const d = wr.clone().sub(el).normalize();
+    const c0 = wr.clone().addScaledVector(d, -0.055 * H), c1 = wr.clone().addScaledVector(d, -0.012 * H);
+    const c2 = wr.clone().addScaledVector(d, 0.002 * H);
+    bag.add('cloth', tubeBetween(c0, c1, [0.0262 * H, 0.0255 * H], { radial: 12, hSeg: 1 }), { bone: 'LoArm' + s, color: NAVY_DK });
+    bag.add('cloth', tubeBetween(c1, c2, [0.0215 * H, 0.0205 * H], { radial: 12, hSeg: 1 }), { bone: 'LoArm' + s, color: HOOD });
+  }
+  // trousers: loose to the shin, cropped above the ankle over a black sock
+  for (const s of ['L', 'R']) {
+    const kn = joints.get('Shin' + s), an = joints.get('Foot' + s);
+    const d = an.clone().sub(kn).normalize();
+    const hem = kn.clone().addScaledVector(d, 0.145 * H);
+    bag.add('cloth', tubeBetween(kn.clone().addScaledVector(d, -0.02 * H), hem, [0.036 * H, 0.033 * H], { radial: 14, hSeg: 3 }),
+      { chain: [{ bone: 'Shin' + s, point: kn }, { bone: 'Foot' + s, point: an }], color: BOT_C, blend: 0.05 });
+    bag.add('cloth', tubeBetween(hem, an.clone().add(v3(0, 0.012 * H, 0)), [0.0215 * H, 0.020 * H], { radial: 10, hSeg: 2 }),
+      { chain: [{ bone: 'Shin' + s, point: kn }, { bone: 'Foot' + s, point: an }], color: SOCK, blend: 0.05 });
+    // sneaker: sole strip and toe cap over the base shoe block
+    bag.add('cloth', tGeo(roundBox(0.050 * H, 0.012 * H, 0.128 * H, 0.004 * H), { pos: [an.x, an.y - 0.006 * H, an.z + 0.02 * H] }), { bone: 'Foot' + s, color: SOLE });
+    bag.add('cloth', tGeo(new THREE.SphereGeometry(0.024 * H, 10, 8), { scale: [1, 0.55, 0.9], pos: [an.x, an.y + 0.004 * H, an.z + 0.070 * H] }), { bone: 'Foot' + s, color: SOLE });
   }
   }
 
@@ -160,6 +209,21 @@ export function buildYuji(opts = {}) {
   // a clean lathe. Same treatment Shinjuku Gojo already gets, for the reason
   // that made it right there — a tear you can only see face-on is a texture.
   if (shinjuku) {
+    // the old uniform kit: collar, hood crescent, hem and cuffs (the base
+    // model now builds a different jacket above)
+    bag.add('cloth', latheY([
+      [0.038 * H, y.neck - 0.013 * H], [0.044 * H, y.neck + 0.013 * H], [0.048 * H, y.headBase + 0.02 * H]
+    ], 16, 0.87), { bone: 'Neck', color: NAVY });
+    bag.add('cloth', tGeo(new THREE.TorusGeometry(0.06 * H, 0.03 * H, 8, 14, Math.PI * 1.15),
+      { rot: [80, 0, 180], pos: [0, 0.822 * H, -0.058 * H] }), { bone: 'Chest', color: HOOD });
+    bag.add('cloth', latheY([
+      [0.078 * H, 0.42 * H], [0.0765 * H, 0.465 * H], [0.073 * H, 0.505 * H]
+    ], 20, 0.79), { bone: 'Hips', color: NAVY });
+    for (const s of ['L', 'R']) {
+      const wr = joints.get('Hand' + s);
+      bag.add('cloth', tGeo(new THREE.CylinderGeometry(0.022 * H, 0.0245 * H, 0.04 * H, 10),
+        { pos: [wr.x, wr.y + 0.02 * H, wr.z] }), { bone: 'LoArm' + s, color: NAVY_DK });
+    }
     // TORN OPENINGS. Each one is TWO pieces: a dark ragged frame sitting a
     // hair proud of the jacket, and the skin showing through inside it. Pass 1
     // used a bare skin-coloured box and the result read as a sticking plaster
@@ -207,9 +271,13 @@ export function buildYuji(opts = {}) {
   }
 
   // ---- face: steady brown eyes, heavy brows, blank set mouth ---------------
-  addFace(ctx, {
-    eyeW: 0.5, eyeH: 0.3, eyeColor: 0x7a4a34, browTilt: 14, browUp: 1.15,
-    browColor: 0x8f5a54, lashColor: 0x181018, mouthW: 0.2
+  // Canon: narrow, sharp-cornered eyes under a heavy brow set low and angled
+  // in, brown irises, a small set mouth. Brows the colour of the hair's
+  // shadow, not black.
+  addFace2(ctx, {
+    eyeW: 0.50, eyeH: 0.25, eyeColor: 0x6e4530, limbalColor: 0x2a1610, eyeTilt: 3, eyeWrap: 14,
+    browTilt: 14, browUp: 0.05, browW: 1.05, browH: 0.60, browColor: 0x5a3038, lashColor: 0x16121a,
+    mouthW: 0.19, mouthCorner: -8, noseShadow: 0xd4ab8e
   });
 
   // ---- spiked pink hair: short, dense, swept up and back -------------------
@@ -248,36 +316,85 @@ export function buildYuji(opts = {}) {
     // and the temples stay BARE — no spike here at all, which is the actual
     // difference between an old man's head and a teenager's
   } else {
-  // crown: fat upright tufts — Gojo's construction at two-thirds length so it
-  // reads spiky-but-short at distance
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2 + 0.3;
-    addSpike(v3(Math.sin(a) * 0.36, 1, Math.cos(a) * 0.32), headR * (0.58 + (i % 2) * 0.12), headR * 0.4, 0.22);
-  }
-  // mid ring: flared out
+  // ---- CANON HAIR: a dense pink mass of short spikes over a dark undercut --
+  // The reference has the pink as one body of hair — many short, fat spikes
+  // pushed up and back from a fringe that sits just off the brow — and a
+  // shaved dark band showing under it at the temples and the nape. Spikes are
+  // seeded from the sculpted skin (`skinPoint`), so they grow out of the head
+  // rather than out of a sphere that no longer exists.
+  const rnd = (i, k) => (Math.sin(i * 12.9898 + k * 78.233) * 43758.5453) % 1;   // deterministic jitter
+  let si = 0;
+  const seed = (dir, len, rBase, bend, jitter = 0.10) => {
+    const d = v3(dir[0] + (rnd(si, 1) - 0.5) * jitter, dir[1] + (rnd(si, 2) - 0.5) * jitter, dir[2] + (rnd(si, 3) - 0.5) * jitter).normalize();
+    const base = skinPoint(ctx, [d.x, d.y, d.z], -0.06);
+    const L = headR * len * (0.9 + 0.2 * rnd(si, 4));
+    const geo = coneSpike(headR * rBase, L, new THREE.Vector3(bend[0] * L, bend[1] * L, bend[2] * L), { radial: 6, hSeg: 4 });
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
+    geo.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q));
+    geo.translate(base.x, base.y, base.z);
+    geo.computeVertexNormals();
+    geo.userData.shade = rnd(si, 9) < 0.45;
+    spikes.push(geo);
+    si++;
+  };
+  // crown: upright, leaning back
   for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + 0.6;
-    addSpike(v3(Math.sin(a) * 0.82, 0.82, Math.cos(a) * 0.78), headR * (0.44 + (i % 2) * 0.12), headR * 0.36, 0.32);
+    const a = (i / 7) * Math.PI * 2 + 0.2;
+    seed([Math.sin(a) * 0.30, 1, Math.cos(a) * 0.30 - 0.1], 0.46 + (i % 2) * 0.10, 0.38, [0, 0.25, -0.30]);
   }
-  // jagged fringe pushed down toward the brows — no bald band
-  addSpike(v3(0.14, 0.34, 1), headR * 0.42, headR * 0.32, 0.6);
-  addSpike(v3(-0.2, 0.32, 0.96), headR * 0.4, headR * 0.3, 0.6);
-  addSpike(v3(0.52, 0.3, 0.82), headR * 0.38, headR * 0.28, 0.55);
-  addSpike(v3(-0.55, 0.3, 0.8), headR * 0.38, headR * 0.28, 0.55);
-  // temples + nape, angled down to close the hairline all the way around
-  for (const s of [1, -1]) {
-    addSpike(v3(s * 0.98, 0.18, 0.2), headR * 0.36, headR * 0.3, 0.25);
-    addSpike(v3(s * 0.55, 0.05, -0.9), headR * 0.4, headR * 0.32, -0.3);
+  seed([0, 1, -0.05], 0.50, 0.38, [0, 0.2, -0.2]);
+  // upper ring: flared, still leaning back
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + 0.35;
+    seed([Math.sin(a) * 0.70, 0.78, Math.cos(a) * 0.70], 0.42 + (i % 3) * 0.06, 0.36, [Math.sin(a) * 0.15, 0.30, Math.cos(a) * 0.1 - 0.25]);
   }
-  addSpike(v3(0, 0.08, -1), headR * 0.44, headR * 0.34, -0.35);
+  // lower ring: the side and back mass, pointing outward and down-back
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 + 0.1;
+    const back = Math.cos(a) < 0;
+    seed([Math.sin(a) * 0.92, 0.42, Math.cos(a) * 0.92], back ? 0.38 : 0.32, 0.34, [Math.sin(a) * 0.1, -0.15, Math.cos(a) * 0.2]);
+  }
+  // fringe: short tufts across the forehead, pushed up off the brow, the
+  // middle one splitting the hairline
+  seed([0.05, 0.46, 1], 0.36, 0.32, [0.15, 0.55, 0.2]);
+  seed([0.34, 0.44, 0.92], 0.34, 0.30, [0.25, 0.45, 0.2]);
+  seed([-0.30, 0.44, 0.94], 0.34, 0.30, [-0.25, 0.45, 0.2]);
+  seed([0.62, 0.38, 0.76], 0.32, 0.30, [0.35, 0.3, 0.2]);
+  seed([-0.60, 0.38, 0.78], 0.32, 0.30, [-0.35, 0.3, 0.2]);
+  // nape: down and back
+  for (const sx of [-0.5, 0, 0.5]) seed([sx, 0.10, -0.95], 0.34, 0.32, [sx * 0.2, -0.45, -0.2]);
+  // THE MASS. The rings above are the silhouette; this is the body of the
+  // hair — a Fibonacci field of short, fat clumps over the whole upper skull,
+  // dense enough that the cap under them is only glimpsed between clumps.
+  // Canon and the imported model both read as spikes all the way down to the
+  // hairline, never as a smooth dome with spikes on it.
+  {
+    const N = 64, gr = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < N; i++) {
+      const yy = 0.30 + (i / (N - 1)) * 0.68;            // n.y from the hairline to the crown
+      const rr = Math.sqrt(1 - yy * yy), th = i * gr;
+      const d = [Math.cos(th) * rr, yy, Math.sin(th) * rr];
+      if (d[2] > 0.55 && yy < 0.50) continue;            // the face is bare
+      const outward = [d[0] * 0.25, 0.12 - yy * 0.25, d[2] * 0.25 - 0.18];
+      seed(d, 0.34 + 0.12 * rnd(i, 7), 0.30, outward, 0.06);
+    }
+  }
+  // the undercut: a dark band below the pink from the temples round the nape
+  // (SphereGeometry's phi starts at -X and passes the FRONT at pi/2, so the
+  // open gap has to be centred there: 0.18pi..0.82pi leaves the face clear)
+  bag.add('hair', tGeo(sphereShell(headR * 1.02, { phiStart: Math.PI * 0.92, phiLength: Math.PI * 1.16, thetaStart: Math.PI * 0.44, thetaLength: Math.PI * 0.12, scale: [1.0, 1, 1.06] }),
+    { pos: [headC.x, headC.y + headR * 0.02, headC.z - headR * 0.05] }), { bone: 'Head', color: HAIR_DK });
   }
   // scalp cap: shallow in front (brows stay clear), deep at the back — a
   // second tilted shell closes the nape
-  bag.add('hair', tGeo(sphereShell(headR * 1.07, { thetaLength: Math.PI * 0.46, scale: [1, 0.96, 1.03] }),
-    { pos: [headC.x, headC.y + headR * 0.08, headC.z - headR * 0.05] }), { bone: 'Head', color: HAIR_C });
+  // (the base variant's cap is tilted back: the front edge sits high on the
+  // forehead where the fringe seeds take over, the back reaches the undercut)
+  bag.add('hair', tGeo(sphereShell(headR * 1.07, { thetaLength: Math.PI * (aged ? 0.46 : 0.47), scale: [1, 0.96, 1.03] }),
+    { rot: [aged ? 0 : -14, 0, 0], pos: [headC.x, headC.y + headR * 0.08, headC.z - headR * 0.05] }), { bone: 'Head', color: HAIR_C });
   bag.add('hair', tGeo(sphereShell(headR * 1.07, { thetaLength: Math.PI * 0.52, scale: [1, 1.04, 1] }),
     { rot: [-62, 0, 0], pos: [headC.x, headC.y - headR * 0.10, headC.z - headR * 0.30] }), { bone: 'Head', color: HAIR_C });
-  for (const s of spikes) bag.add('hair', s, { bone: 'Head', color: HAIR_C });
+  const HAIR_SH = aged ? 0xa89694 : 0xd98680;
+  for (const s of spikes) bag.add('hair', s, { bone: 'Head', color: s.userData.shade ? HAIR_SH : HAIR_C });
 
   // ---- springs: hem flaps + hood tail --------------------------------------
   const clothMat = MAT.cloth({ rimColor: spec.palette.rim });
@@ -346,7 +463,11 @@ export function buildYuji(opts = {}) {
   }
 
   // hair outline off — per-spike hulls turn short spikes into black burrs
-  const model = finalizeModel(ctx, { springs, outlineThickness: 0.012, outlineHairScale: 0 });
+  // hair outline off: even a third-weight hull on the clump field shows
+  // through the cap as a black hexagon per clump base (shot, discarded).
+  // The clumps separate by a two-tone vertex colour instead.
+  const model = finalizeModel(ctx, { springs, outlineThickness: 0.012, outlineHairScale: 0,
+    materials: { metal: MAT.metal({ rimColor: 0xfff0c0 }) } });
 
   // ---- Sukuna overlay: markings + second eyes on the same mesh -------------
   // parented to the Head/Neck bones in bone-local space, hidden by default
@@ -355,39 +476,41 @@ export function buildYuji(opts = {}) {
   const marks = new THREE.Group();
   marks.name = 'sukunaMarks';
   const flat = new THREE.MeshBasicMaterial({ color: MARK });
-  const faceZ = headC.z + headR * 0.615 - headJ.z;
-  const eyeY = headC.y - headR * 0.10 - headJ.y;
+  // every mark sits ON the sculpted skin (skinPoint), then into Head-bone
+  // space; the old flat-plane offsets floated off a face that now has cheeks
+  const onSkin = (dir, out = 0.012) => { const p = skinPoint(ctx, dir, out); return [p.x - headJ.x, p.y - headJ.y, p.z - headJ.z]; };
   const cy = headC.y - headJ.y;
-  const addMark = (geo, p, rotZ = 0) => {
+  const addMark = (geo, p, rotZ = 0, rotY = 0) => {
     const mesh = new THREE.Mesh(geo, flat);
     mesh.position.set(p[0], p[1], p[2]);
-    mesh.rotation.z = rotZ;
+    mesh.rotation.set(0, rotY, rotZ);
     marks.add(mesh);
   };
   for (const s of [1, -1]) {
     // cursed engraving across each cheek, just under the second eye
-    addMark(roundBox(headR * 0.4, headR * 0.05, 0.004, 0.002),
-      [s * headR * 0.46, eyeY - headR * 0.62, faceZ + headR * 0.02], s * -0.18);
+    addMark(roundBox(headR * 0.36, headR * 0.05, 0.004, 0.002), onSkin([s * 0.50, -0.56, 0.80]), s * -0.18, s * 0.35);
     // temple line dropping toward the jaw
-    addMark(roundBox(headR * 0.05, headR * 0.34, 0.004, 0.002),
-      [s * headR * 0.74, eyeY + headR * 0.02, faceZ - headR * 0.16], s * 0.22);
+    addMark(roundBox(headR * 0.05, headR * 0.32, 0.004, 0.002), onSkin([s * 0.86, -0.02, 0.42]), s * 0.22, s * 0.9);
     // second eye: dark slit + red iris on the cheekbone BELOW the natural eye
-    const slit = new THREE.Mesh(tGeo(almondEye(headR * 0.32, headR * 0.15, s * 4)), flat);
-    slit.position.set(s * headR * 0.42, eyeY - headR * 0.36, faceZ + headR * 0.028);
+    const sp = onSkin([s * 0.44, -0.36, 0.86], 0.014);
+    const slit = new THREE.Mesh(tGeo(almondEye(headR * 0.30, headR * 0.14, s * 4)), flat);
+    slit.position.set(sp[0], sp[1], sp[2]); slit.rotation.y = s * 0.28;
     marks.add(slit);
-    const iris = new THREE.Mesh(new THREE.CircleGeometry(headR * 0.05, 8),
+    const ip = onSkin([s * 0.42, -0.35, 0.88], 0.020);
+    const iris = new THREE.Mesh(new THREE.CircleGeometry(headR * 0.045, 8),
       new THREE.MeshBasicMaterial({ color: 0xff2038 }));
-    iris.position.set(s * headR * 0.40, eyeY - headR * 0.335, faceZ + headR * 0.034);
+    iris.position.set(ip[0], ip[1], ip[2]); iris.rotation.y = s * 0.28;
     marks.add(iris);
     // red glow over the natural iris — the vessel's eyes turn
-    const glow = new THREE.Mesh(new THREE.CircleGeometry(headR * 0.30 * 0.42, 10),
+    const gp = onSkin([s * 0.40, -0.06, 0.92], 0.026);
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(headR * 0.25 * 0.44, 10),
       new THREE.MeshBasicMaterial({ color: 0xff2038, transparent: true, opacity: 0.85 }));
-    glow.scale.set(0.82, 1.15, 1);
-    glow.position.set(s * headR * 0.40 - s * headR * 0.5 * 0.06, eyeY + headR * 0.3 * 0.05, faceZ + headR * 0.026);
+    glow.scale.set(0.82, 1.12, 1);
+    glow.position.set(gp[0] - s * headR * 0.02, gp[1], gp[2]); glow.rotation.y = s * 0.24;
     marks.add(glow);
   }
   // chin line
-  addMark(roundBox(headR * 0.05, headR * 0.22, 0.004, 0.002), [0, cy - headR * 0.72, faceZ - headR * 0.02]);
+  addMark(roundBox(headR * 0.05, headR * 0.20, 0.004, 0.002), onSkin([0, -0.80, 0.80]));
   head.add(marks);
   marks.visible = false;
 
