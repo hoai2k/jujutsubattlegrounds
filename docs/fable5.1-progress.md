@@ -8,8 +8,13 @@ only `fable5.1/`, `vite.config.js`, `README.md`, `docs/` may change.
 - Phases 0–5 first pass (see fable5.1-summary.md): render stack, authoring
   layer + 39 looks, front end, combat core + tests, ten maps, training mode.
 
+## Done (continued)
+- (1) Finishers ported: `fable5.1/src/finishers/*` (director, retarget, fight/moves clips, shots, registry, overlay, audio, config) + the old fx library as `fx/legacy/*` (FX extends FXSystem) + the old sfx library as `audio/legacy-sfx.js` (Sfx extends LegacySfx). Hook: Match._startKO sets `_matchPoint`; `_logicTick` calls `finishers.tryBegin(winner)` at phaseT>1.4; Match.update defers to the director while active. Verified headless: `playtest.mjs ... --finisher` reaches `gojo_purple`.
+
 ## In progress
-- (1) Finishers: copying `src/finishers` → `fable5.1/src/finishers`, adapting
+- (2) Domain minigames.
+
+## Old note on (1): copying `src/finishers` → `fable5.1/src/finishers`, adapting
   imports (`core/math.js`, `art/geo.js`, `art/shaders/toon.js`), match
   touchpoints (`hud.setHidden`, `cams`, `fx.hitSpark/guardSpark`,
   `arena.bounds`), and a `fx/comedy.js` port for confetti / piano /

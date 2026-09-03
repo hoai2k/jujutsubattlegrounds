@@ -7,6 +7,7 @@ import { Particles } from './particles.js';
 import { energyMaterial } from '../art/shaders/toon.js';
 import { rand, clamp, v3 } from '../core/math.js';
 import { quality } from '../render/quality.js';
+import { FXSystem as LegacyFX } from './legacy/fx.js';
 
 const GEO = {};
 function geo(shape, size) {
@@ -29,8 +30,9 @@ function geo(shape, size) {
   GEO[key] = g; return g;
 }
 
-export class FX {
+export class FX extends LegacyFX {
   constructor(stage) {
+    super(stage.scene);
     this.stage = stage; this.scene = stage.scene;
     this.root = new THREE.Group(); this.root.name = 'fx'; this.scene.add(this.root);
     this.particles = new Particles(this.root, 1600);
@@ -182,6 +184,7 @@ export class FX {
   dust(p, k = 1) { this.particles.emit(v3(p.x, p.y + 0.1, p.z), { color: 0xb0a898, count: Math.round(6 * k), size: 0.3, life: 0.5, vel: [0, 0.6, 0], velSpread: 1.4 * k, alpha: 0.4, drag: 3 }); }
   update(dt) {
     this.time += dt;
+    super.update(dt);
     this.particles.update(dt);
     for (let i = this.timed.length - 1; i >= 0; i--) {
       const t = this.timed[i]; t.t += dt;
@@ -190,5 +193,5 @@ export class FX {
       if (t.t >= t.life) { this.root.remove(t.node); this.timed.splice(i, 1); }
     }
   }
-  clear() { for (const t of this.timed) this.root.remove(t.node); this.timed.length = 0; this.particles.clear(); }
+  clear() { for (const t of this.timed) this.root.remove(t.node); this.timed.length = 0; this.particles.clear(); for (const list of [this.parts, this.rings, this.beams]) { if (!list) continue; for (const p of list) this.scene.remove(p.mesh); list.length = 0; } }
 }

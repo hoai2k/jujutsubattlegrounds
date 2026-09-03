@@ -41,6 +41,7 @@ export class HUD {
     this.floatLayer = document.createElement('div'); this.floatLayer.className = 'floaters'; this.el.appendChild(this.floatLayer);
     this.annT = 0;
   }
+  setHidden(on) { this.el.style.display = on ? 'none' : ''; }
   unbind() { this.el.innerHTML = ''; this.match = null; }
   announce(big, small) {
     if (big) { this.ann.querySelector('.big').textContent = big; this.ann.classList.remove('show'); void this.ann.offsetWidth; this.ann.classList.add('show'); this.annT = big.length > 8 ? 1.6 : 1.1; }

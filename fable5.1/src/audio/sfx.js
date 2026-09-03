@@ -1,9 +1,9 @@
 // SFX — every sound effect, synthesized. Layered where the old game was
 // single-voice: a hit is a noise crack + a sub thump + a tonal ring, panned by
 // where it happened on screen. `pan` is -1..1.
-import { Synth } from './synth.js';
+import { LegacySfx } from './legacy-sfx.js';
 
-export class Sfx extends Synth {
+export class Sfx extends LegacySfx {
   constructor() { super(); this.reduced = false; }
   ok() { return this.ensure() && this.ctx; }
   // ---- impacts -------------------------------------------------------------

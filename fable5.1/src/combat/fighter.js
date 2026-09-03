@@ -594,6 +594,15 @@ export class Fighter {
     if (this.domainRadius != null) { const dr = Math.hypot(this.pos.x, this.pos.z); if (dr > this.domainRadius) { const s = this.domainRadius / dr; this.pos.x *= s; this.pos.z *= s; } }
     if (this.grounded && !['walk', 'run', 'dash'].includes(this.state)) { this.vel.x = damp(this.vel.x, 0, 8, dt); this.vel.z = damp(this.vel.z, 0, 8, dt); }
   }
+  // used by the finisher director: sync the model to pos/facing and step the anim
+  applyRender(alpha, frameDt, timeScale = 1) {
+    const g = this.model.group;
+    g.position.lerpVectors(this.prevPos, this.pos, alpha);
+    g.rotation.y = this.prevFacing + (this.facing - this.prevFacing) * alpha;
+    this.anim.update(frameDt * timeScale);
+    this.model.update(frameDt * timeScale);
+  }
+  _props() {}
   _faceOpponent(ctx, dt) {
     if (['knockdown', 'getup', 'launched', 'ko', 'hitHeavy', 'intro', 'victory'].includes(this.state)) return;
     let target;

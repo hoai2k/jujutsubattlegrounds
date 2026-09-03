@@ -59,7 +59,14 @@ const CHUNK = /* glsl */ `
 // shared uniforms written once per frame by the stage: key light direction in view space
 export const SHARED = { keyDirView: { value: new THREE.Vector3(0.4, 0.8, 0.4) } };
 
+// `steps` (the old game's 0..255 luminance list) is accepted and converted to
+// hard bands, so ported material code works unchanged.
+function stepsToBands(steps) {
+  const n = steps.length;
+  return steps.map((v, i) => (i === 0 ? { value: v / 255 } : { at: i / n, value: v / 255, soft: 0.015 }));
+}
 export function toonMaterial(opts = {}) {
+  if (opts.steps && !opts.bands) opts = { ...opts, bands: stepsToBands(opts.steps) };
   const {
     color = 0xffffff, map = null,
     bands = [{ value: 0.34 }, { at: 0.5, value: 1.0, soft: 0.02 }],
@@ -144,3 +151,13 @@ export function energyMaterial({ color = 0x8fd4ff, opacity = 0.9, additive = tru
   mat.toneMapped = false;
   return mat;
 }
+
+// Old-API archetype table (MAT.skin(...) etc.) for ported code.
+export const MAT = {
+  skin: (o = {}) => toonMaterial({ ...ARCH.skin, vertexColors: true, ...o }),
+  cloth: (o = {}) => toonMaterial({ ...ARCH.cloth, vertexColors: true, ...o }),
+  hair: (o = {}) => toonMaterial({ ...ARCH.hair, vertexColors: true, ...o }),
+  metal: (o = {}) => toonMaterial({ ...ARCH.metal, vertexColors: true, ...o }),
+  fur: (o = {}) => toonMaterial({ ...ARCH.fur, vertexColors: true, ...o }),
+  flat: (o = {}) => flatMaterial(o)
+};

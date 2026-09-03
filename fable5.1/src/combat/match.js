@@ -14,6 +14,7 @@ import { makeCharacter, pickInfo } from '../roster/index.js';
 import { emptyFrame } from './input.js';
 import { flatDist, v3, clamp } from '../core/math.js';
 import { quality } from '../render/quality.js';
+import { Finishers } from '../finishers/index.js';
 
 const EMPTY = emptyFrame();
 const EDGE_KEYS = ['jumpP', 'punchP', 'heavyP', 'ct1P', 'ct2P', 'ultP', 'specialP', 'dashP'];
@@ -62,9 +63,12 @@ export class Match {
     }
     this.cam = this.cams[0];
     for (let i = 1; i < this.cams.length; i++) this.cam.links.push(this.cams[i]);
+    this.chargedAuras = new Map();
+    this.finishers = new Finishers(this, opts.uiRoot || document.getElementById('ui-root'));
     this.hud?.bind(this);
     this._startRound(true);
   }
+  get matchOver() { return this.phase === 'ko' && this._matchPoint; }
   get activeFighters() { return this.fighters.filter(f => f.alive || f.state === 'ko'); }
   on(type, fn) { if (!this.listeners.has(type)) this.listeners.set(type, []); this.listeners.get(type).push(fn); }
   emitMatch(type, data = {}) { for (const fn of this.listeners.get(type) || []) fn(data); this.hud?.onEvent?.(type, data); }
@@ -81,6 +85,7 @@ export class Match {
 
   // ---- rounds --------------------------------------------------------------
   _startRound(first = false) {
+    this.finishers?.abort(); this.finishers.spent = false; this.hud?.setHidden(false); this._matchPoint = false;
     this.phase = 'intro'; this.phaseT = 0; this.timer = this.opts.timer ?? 99;
     this.effects.clear(); this.domains.clear(); this.fx.clear();
     const n = this.fighters.length;
@@ -119,6 +124,7 @@ export class Match {
     loser.setState('ko', { clip: 'ko' }); loser.alive = false;
     const winner = this.fighters.find(f => f.alive && f !== loser) || this.fighters.find(f => f !== loser);
     this.winner = winner;
+    this._matchPoint = !!winner && this.wins[winner.index] + 1 >= this.roundsToWin;
     this.announce('K.O.'); this.announcer?.ko();
     this.music?.duck(0.6, 2.5);
     for (const f of this.fighters) this.input.rumble(f.index, f === loser ? 1 : 0.5, 0.8, 400);
@@ -141,6 +147,7 @@ export class Match {
     if (this.paused) return;
     dt = Math.min(dt, 0.1);
     this.music?.update(dt);
+    if (this.finishers?.active) { this.finishers.update(dt); this.hud?.update(dt); return; }
     if (this.hitstopT > 0) { this.hitstopT -= dt; this._hitstopShake(dt); this.fx.update(dt * 0.15); return; }
     if (this.slowT > 0) { this.slowT -= dt; if (this.slowT <= 0) this.slowmo = 1; }
     if (this._gradeT > 0) { this._gradeT -= dt; if (this._gradeT <= 0) this.setGrade('map'); }
@@ -199,7 +206,8 @@ export class Match {
       this.domains.update(1 / 60, this);
       for (const f of live) { this._drainEvents(f); if (f.res.hp <= 0 && f.alive) this._onDown(f); }
     } else for (const f of this.fighters) this._drainEvents(f);
-    if (this.phase === 'ko' && this.phaseT > 2.6) this._endRound();
+    if (this.phase === 'ko' && this.phaseT > 1.4 && this._matchPoint && !this.finishers.spent) { this.finishers.tryBegin(this.winner); }
+    if (this.phase === 'ko' && this.phaseT > 2.6 && !this.finishers.active) this._endRound();
     if (this.phase === 'roundEnd' && this.phaseT > 2.4) this._startRound();
     // camera + shadows + focus
     this.fighters.forEach((f, i) => { this.shadows[i].update(f.pos, f.groundY, f.H ?? 1); this.shadows[i].mesh.visible = f.alive || f.state === 'ko'; });
@@ -317,6 +325,7 @@ export class Match {
   }
   _tauntLine(f) { const lines = { gojo: "Nah, I'd win.", sukuna: 'Know your place.', yuji: "I'll take it from here!", todo: 'My brother!', nanami: 'Overtime.', megumi: 'With this treasure, I summon...', nobara: "I'm the one who's gonna win.", toji: "Sorry, I'm not a sorcerer.", mahito: 'Shall we play?', jogo: 'I am a disaster.', hakari: 'The reels are spinning.', geto: 'Monkeys.', naoya: 'Too slow.', maki: 'Come on.', panda: 'Panda is not a panda.' }; return lines[f.cfg.id] || '...'; }
   destroy() {
+    this.finishers?.abort();
     this.effects.clear(); this.domains.clear(); this.fx.clear();
     this.stage.scene.remove(this.root);
     this.stage.setViews(1);

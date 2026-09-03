@@ -97,6 +97,8 @@ export class FightCamera {
     this.cam.position.x += Math.sin(n * 1.7) * 0.12 * s; this.cam.position.y += Math.sin(n * 2.3 + 1) * 0.10 * s;
     this.cam.rotation.z += Math.sin(n * 2.9) * 0.02 * s;
   }
+  endCinematic() { this.cine = null; }
+  applySubject() {}
   snap() { this._snap = true; }
   reset(me, opp) { this._deckInit = false; this.cine = null; this.trauma = 0; if (opp) this.yaw = yawBetween(opp.pos, me.pos); this._snap = true; this.yawOffset = 0; this.pitch = 0.2; }
 }
