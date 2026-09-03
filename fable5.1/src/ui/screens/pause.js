@@ -26,5 +26,7 @@ export class PauseMenu {
     else if (k === 'select') { this.hide(); S.go('select', { mode: S.session.mode, seats: S.G.opts.picks.length, training: S.session.training }); }
     else if (k === 'quit') { this.hide(); if (S.G.match?.net) S.G.online.leave('YOU LEFT THE MATCH'); S.go('title'); }
   }
+  // SELECT/TAB during a match: the controls legend over the paused game
+  toggleLegend() { if (!this.open) { this.show(); this.legend.hidden = false; } else this.legend.hidden = !this.legend.hidden; }
   update(dt, f) { if (f.startP || f.pauseP) { this.hide(); return; } this.nav.update(dt, f); }
 }

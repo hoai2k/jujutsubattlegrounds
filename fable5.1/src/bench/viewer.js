@@ -24,14 +24,16 @@ export function startViewer() {
     label.textContent = `${picks[pi]}   clip: ${clipNames[ci]}\n[ ] clip   , . character   R restart   F4 quality   P shot`;
   }
   load();
-  stage.camera.position.set(0, 1.35, 4.6);
-  stage.camera.lookAt(0, 0.95, 0);
-  stage.focus.set(0, 1, 0);
+  // ?face — a head close-up for the faces pass (the camera framing the
+  // head at portrait distance); default is the full body
+  const faceCam = () => { const H = ch.model.H || 1.8; const y = H * 0.92; stage.camera.position.set(0.28, y + 0.04, 0.78); stage.camera.lookAt(0, y - 0.02, 0); stage.focus.set(0, y, 0); };
+  if (q.has('face')) faceCam(); else { stage.camera.position.set(0, 1.35, 4.6); stage.camera.lookAt(0, 0.95, 0); stage.focus.set(0, 1, 0); }
   addEventListener('keydown', e => {
     if (e.code === 'BracketRight') { ci = (ci + 1) % clipNames.length; ch.anim.play(clipNames[ci], { restart: true }); }
     if (e.code === 'BracketLeft') { ci = (ci + clipNames.length - 1) % clipNames.length; ch.anim.play(clipNames[ci], { restart: true }); }
     if (e.code === 'Period') { pi = (pi + 1) % picks.length; load(); }
     if (e.code === 'Comma') { pi = (pi + picks.length - 1) % picks.length; load(); }
+    if (q.has('face') && (e.code === 'Period' || e.code === 'Comma')) faceCam();
     if (e.code === 'KeyR') ch.anim.play(clipNames[ci], { restart: true });
     if (e.code === 'KeyS') spin = spin ? 0 : 0.5;
     if (e.code === 'F4') cycleQuality();

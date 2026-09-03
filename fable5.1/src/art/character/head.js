@@ -104,7 +104,7 @@ export function addFace2(ctx, o = {}) {
   const { bag } = ctx;
   const { headR } = ctx.m;
   const skin = ctx.spec.skinTone;
-  const eyeW = headR * (o.eyeW ?? 0.56), eyeH = headR * (o.eyeH ?? 0.30);
+  const eyeW = headR * (o.eyeW ?? 0.64), eyeH = headR * (o.eyeH ?? 0.36);
   const white = o.scleraColor ?? 0xf3f5f9;
   const ink = o.lashColor ?? 0x14121a;
   const iris = o.eyeColor ?? 0x6a4630;
@@ -127,20 +127,26 @@ export function addFace2(ctx, o = {}) {
     bag.add('flat', place(tGeo(new THREE.CircleGeometry(ir * 0.42, 10), { scale: [0.85, 1.15, 1] }), 0.024, -s * eyeW * 0.04, eyeH * 0.0), { bone: 'Head', color: 0x120c0c });
     bag.add('flat', place(new THREE.CircleGeometry(ir * 0.26, 8), 0.028, -s * eyeW * 0.10, eyeH * 0.16), { bone: 'Head', color: 0xffffff });
     // upper lid / lash line, thick toward the outer corner
-    bag.add('flat', place(lidShape(eyeW * 1.06, eyeH * 0.72, s), 0.030, 0, eyeH * 0.30), { bone: 'Head', color: ink });
+    bag.add('flat', place(lidShape(eyeW * 1.08, eyeH * 0.84, s), 0.030, 0, eyeH * 0.30), { bone: 'Head', color: ink });
     // lower lid crease, outer half only
     bag.add('flat', place(tGeo(roundBox(eyeW * 0.46, eyeH * 0.07, 0.003, 0.001), { rot: [0, 0, s * -6] }), 0.026, s * eyeW * 0.14, -eyeH * 0.50), { bone: 'Head', color: o.lowerLidColor ?? 0x6b4a44 });
     // brow, riding the brow ridge
     const bp = skinPoint(ctx, [s * 0.40, 0.14, 0.92], 0.024);
-    bag.add('flat', tGeo(browShape(eyeW * (o.browW ?? 1.0), eyeH * (o.browH ?? 0.55), s),
-      { rot: [0, rotY, s * (o.browTilt ?? 12)], pos: [bp.x + s * eyeW * 0.04, bp.y + eyeH * (o.browUp ?? 0.0), bp.z] }),
+    bag.add('flat', tGeo(browShape(eyeW * (o.browW ?? 1.0), eyeH * (o.browH ?? 0.68), s),
+      { rot: [0, rotY, s * (o.browTilt ?? 12)], pos: [bp.x + s * eyeW * 0.04, bp.y + eyeH * (o.browUp ?? 0.12), bp.z] }),
       { bone: 'Head', color: o.browColor ?? ink });
   }
-  // mouth: a short line with the corners drawn down a touch, and the shadow
-  // under the lower lip
+  // the nose: one bridge line down the shadow side, the way a cel keeps it
+  const nb = skinPoint(ctx, [0.07, -0.22, 0.96], 0.010);
+  bag.add('flat', tGeo(roundBox(headR * 0.018, headR * 0.20, 0.003, 0.001), { rot: [0, 0, -5], pos: [nb.x, nb.y, nb.z] }),
+    { bone: 'Head', color: o.noseShadow ?? 0xb98f78 });
+  // mouth: a short line with the corners drawn down a touch, and the
+  // lower-lip highlight under it
   const mp = skinPoint(ctx, [0, -0.60, 0.95], 0.014);
-  bag.add('flat', tGeo(roundBox(headR * (o.mouthW ?? 0.22), headR * 0.035, 0.003, 0.001), { rot: [0, 0, o.mouthTilt ?? 0], pos: [mp.x, mp.y, mp.z] }),
+  bag.add('flat', tGeo(roundBox(headR * (o.mouthW ?? 0.22), headR * 0.045, 0.003, 0.001), { rot: [0, 0, o.mouthTilt ?? 0], pos: [mp.x, mp.y, mp.z] }),
     { bone: 'Head', color: o.mouthColor ?? 0x4a2a30 });
+  bag.add('flat', tGeo(roundBox(headR * (o.mouthW ?? 0.22) * 0.55, headR * 0.022, 0.003, 0.001), { pos: [mp.x, mp.y - headR * 0.055, mp.z - 0.002] }),
+    { bone: 'Head', color: o.lipLight ?? 0xe6b3a8 });
   for (const s of [1, -1]) {
     bag.add('flat', tGeo(roundBox(headR * 0.035, headR * 0.028, 0.003, 0.001), { rot: [0, 0, s * (o.mouthCorner ?? -14)], pos: [mp.x + s * headR * (o.mouthW ?? 0.22) * 0.50, mp.y - headR * 0.006, mp.z] }),
       { bone: 'Head', color: o.mouthColor ?? 0x4a2a30 });

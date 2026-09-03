@@ -34,8 +34,16 @@ only `fable5.1/`, `vite.config.js`, `README.md`, `docs/` may change.
   trackResult), CPU profiles (old ai.js in legacy), `?render3d` hooked in
   `roster/index.js` makeCharacter/makeSummon via `art/legacy/rig3d`.
 
+- Verified after the port: 32-character round-robin smoke (`playtest.mjs
+  --fast 3`, no page errors), training, KO → result screen on the legacy
+  match (result screen now resolves pickInfo for legacy fighters), viewer
+  `?face` close-up added and a faces pass (bigger eyes, heavier lash and
+  brow, nose bridge line, lip highlight). Summary doc rewritten for the
+  second pass.
+
 ## In progress
-- (6) faces pass on the viewer bench; (7) docs/summary refresh.
+- Nothing open. Remaining ideas: bespoke body transforms for the character
+  systems (CharacterModel hooks are glow shims), a live-backend online test.
 
 ## Old note on (1): copying `src/finishers` → `fable5.1/src/finishers`, adapting
   imports (`core/math.js`, `art/geo.js`, `art/shaders/toon.js`), match

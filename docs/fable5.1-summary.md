@@ -104,40 +104,56 @@ Draw calls per map are in the low dozens (statics are merged per material;
 characters are five to seven meshes plus their outline hulls); triangle
 counts are 60–140k on the heaviest maps.
 
-## What was deliberately left undone
+## The second pass: the old runtime under the new game
 
-- **Online play.** The lobby screen exists; the InstantDB transport,
-  rollback sync and seat takeover of the old game were not ported. The old
-  netcode is 1.8k lines tied to the old fighter's state names.
-- **Bespoke domain minigames.** Every domain casts, clashes on refinement,
-  ticks its sure-hit, can be simple-domained and barrier-broken, and pays
-  backlash on the same numbers as before. The execution duel, the sword rain
-  roll table, the jackpot reels, Takaba's set, and Megumi's summon ritual are
-  not reproduced; those domains run the generic barrier + sure-hit.
-- **Character systems reduced to archetypes.** Megumi's shikigami, Geto's
-  curses, Yaga's corpses, Higuruma's Judgeman, Mahito's minions and Reggie's
-  drone are all "summons": an energy construct that pursues and strikes.
-  The three radial wheels, Panda's cores, Ino's masks, Toji's arsenal, Maki's
-  weapons, Naoya's stance and Yuki's commands are a stance cycle on B.
-  Inumaki's speech is a cone with the command's effect kind. Uro's flight,
-  Kurourushi's growth, Ryu's output tiers, Kashimo's charge, Choso's blood
-  gauge, Nobara's essence and Hakari's jackpot kit are approximated by buffs
-  or absent.
-- **Finishers.** The old game's 3.3k-line finisher registry and its cinematic
-  moves are not ported; a KO is the slow-motion sweep.
-- **Destructible level geometry** and the x-ray occlusion dissolve are not
-  ported; the new camera pulls in along its ray instead.
-- **Visitor telemetry** is not wired into the new page.
-- **Faces** are the sculpted head with planar decals; they read at gameplay
-  distance but are the weakest part of the models close up, and are the first
-  thing to iterate on the viewer bench.
+The first pass shipped a small combat core with the systems reduced to
+archetypes, and a list of what that left out (online, the bespoke domain
+minigames, the per-character systems, finishers, destructibles, the x-ray
+dissolve, telemetry, `?render3d`, the per-character CPU profiles). The second
+pass closes that list by porting the old runtime wholesale rather than
+re-implementing it against the small core, and running it under the new
+renderer, models, camera stack and front end:
 
-## What is still missing compared to the old game at `/`
+- `combat/legacy/` — the old fighter, effects, hit resolution, every
+  per-character system (shikigami, curses, corpses, Judgeman, minions,
+  Reggie's objects and drone, the radial wheels, Panda's cores, Ino's masks,
+  Toji's arsenal, Maki's weapons and awakening, Naoya's stance and freeze,
+  Yuki's mass, Inumaki's speech, Uro's flight and reflect, Kurourushi's
+  growth, Ryu's output, Kashimo's charge, Choso's blood, Nobara's nails and
+  essence, Hakari's kit, Sukuna's fire arrow, Nanami's ratio sweep), the
+  five domain minigames (the execution duel, the sword rain, the jackpot
+  reels, Takaba's set, Megumi's summon ritual), the per-character CPU
+  profiles, and the match itself. `app/game.js` builds this match by
+  default; the small core stays for benches and the node tests (`opts.lite`).
+- `stage/legacy/` — the old arena kit with its destructible geometry, and
+  `art/legacy/shaders/xray.js` for the occlusion dissolve, both driven by the
+  old match's render pass.
+- The old HUD runs inside a shadow root (`ui/legacy/host.js`) so its
+  stylesheet never touches the new screens; the old camera runs as
+  `render/camera-legacy.js` and the old fx / sfx libraries are the base
+  classes of the new ones.
+- `finishers/` — the old director, clips, registry, overlay and audio.
+- `net/` — the old InstantDB transport, lobby, session, lockstep sync and
+  seat takeover, with `net/flow.js` (the old online controller) driving the
+  new lobby screen, an online character select, a host-authoritative result
+  screen and a clean leave from pause. Telemetry (`net/telemetry.js`) starts
+  a visit for the `fable5.1` page and tracks matches and results.
+- `?render3d` is hooked into `makeCharacter` / `makeSummon` through the old
+  `rig3d` stack (`docs/render3d.md`); the default path stays procedural.
 
-Everything in the section above, plus: the `?render3d` runtime-`.glb` swap
-(the old path still works at `/`), the workbench benches (finishers, faces,
-verification), and the per-character CPU profiles (the new CPU has four
-personalities keyed by character id).
+The new `CharacterModel` answers the hooks the old systems call
+(`setSubmerged`, `setSukuna`, `setCharge`, `setJackpot`, …) with the closest
+thing it has — most map onto the energy glow — so a character-specific body
+transform that the old models did with bespoke geometry is a glow and a
+palette shift here. That is the honest remaining gap: the systems run, the
+bespoke bodies for them are the next art pass.
+
+Headless verification of this pass: every roster character fights every
+other in a round-robin smoke (`playtest.mjs --fast 3`) with no page errors,
+training and the KO → result flow run on the ported match, and the old game
+at `/` is unchanged (`tools/oldcheck.mjs`). Online was not exercised against
+a live backend from the build environment (no outbound network); the code
+paths are the old game's, unchanged below the controller.
 
 ## How to check it
 

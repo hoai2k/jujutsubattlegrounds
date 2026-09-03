@@ -12,14 +12,15 @@ const opt = (k, d) => { const i = process.argv.indexOf(k); return i >= 0 ? proce
 const p1 = args[0] || 'yuji', p2 = args[1] || 'megumi', map = args[2] || 'shibuya_crossing', mode = opt('--mode', 'cpu'), p3 = opt('--p3', null);
 const shot = opt('--shot', null), frames = +opt('--frames', 900), script = opt('--script', 'brawl'), evalSrc = opt('--eval', null), training = process.argv.includes('--training'), finisher = process.argv.includes('--finisher'), fast = +opt('--fast', 0);
 
-const server = await createServer({ server: { port: 5241, strictPort: true, hmr: false }, logLevel: 'error' });
+const port = +opt('--port', 5241);
+const server = await createServer({ server: { port, strictPort: true, hmr: false }, logLevel: 'error' });
 await server.listen();
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errs = [];
 page.on('pageerror', e => errs.push(e.message + '\n' + String(e.stack || '').split('\n').slice(1, 5).join('\n')));
 page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
-await page.goto('http://localhost:5241/fable5.1/?quality=' + opt('--quality', 'medium'), { waitUntil: 'networkidle' });
+await page.goto(`http://localhost:${port}/fable5.1/?quality=` + opt('--quality', 'medium'), { waitUntil: 'networkidle' });
 await page.waitForFunction(() => !!window.__skipSelect, null, { timeout: 20000 });
 const out = await page.evaluate(async ({ p1, p2, p3, map, frames, script, mode, evalSrc, training, finisher, fast }) => {
   let rafs = 0; const cnt = () => { rafs++; requestAnimationFrame(cnt); }; cnt();
@@ -43,7 +44,7 @@ const out = await page.evaluate(async ({ p1, p2, p3, map, frames, script, mode, 
   let last = performance.now();
   m.on?.('hit', d => { if (log.length < 60) log.push(`${m.tick} ${d.attacker.cfg.id}->${d.defender.cfg.id} ${d.result} ${d.hit.dmg?.toFixed(1)} ${d.hit.type || ''}`); });
   m.on?.('ko', () => log.push(`${m.tick} KO`));
-  while ((m.tick | 0) < frames && m.phase !== 'result') { if (fast) { for (let k = 0; k < fast && (m.tick | 0) < frames; k++) m.update(1 / 60); await sleep(0); } else await sleep(30); tick = m.tick; if (finisher && m.phase === 'ko') { m.slowmo = 1; m.slowT = 0; } if (finisher && m.finishers?.active && m.finishers.active.t > 1.2) { log.push('finisher ' + m.finishers.active.def.id + ' t=' + m.finishers.active.t.toFixed(2)); break; } const now = performance.now(); frameTimes.push(now - last); last = now; if (Date.now() - t0 > 90000) break; }
+  while ((m.tick | 0) < frames && m.phase !== 'result') { if (fast) { for (let k = 0; k < fast && (m.tick | 0) < frames; k++) { tick = m.tick | 0; im.frames[0] = im.poll(0); m.update(1 / 60); } await sleep(0); } else await sleep(30); tick = m.tick; if (finisher && m.phase === 'ko') { m.slowmo = 1; m.slowT = 0; } if (finisher && m.finishers?.active && m.finishers.active.t > 1.2) { log.push('finisher ' + m.finishers.active.def.id + ' t=' + m.finishers.active.t.toFixed(2)); break; } const now = performance.now(); frameTimes.push(now - last); last = now; if (Date.now() - t0 > 90000) break; }
   const f = m.fighters.map(x => ({ id: x.cfg.id, hp: +(x.res?.hp ?? x.hp ?? 0).toFixed(1), maxCE: +(x.res?.maxCE ?? x.maxCE ?? 0).toFixed(1), ce: +(x.res?.curCE ?? x.ce ?? 0).toFixed(1), st: +(x.res?.stamina ?? x.stamina ?? 0).toFixed(0), state: x.state, pos: [+x.pos.x.toFixed(2), +x.pos.y.toFixed(2), +x.pos.z.toFixed(2)], hits: x.hitsDealt, taken: x.hitsTaken }));
   const info = window.__game.stage.renderer.info;
   const u = window.__game.stage._eyes[0].post.look.uniforms; const look = Object.fromEntries(Object.entries(u).filter(([k,v])=>typeof v.value==='number').map(([k,v])=>[k,+v.value.toFixed(3)]));
