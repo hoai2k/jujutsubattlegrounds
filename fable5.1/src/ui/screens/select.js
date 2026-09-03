@@ -19,6 +19,9 @@ export class SelectScreen {
     this.grid = this.el.querySelector('.sel-grid'); this.hero = this.el.querySelector('.sel-hero'); this.seatsEl = this.el.querySelector('.sel-seats');
     this.seats = []; this.preview = null;
   }
+  get online() { return this.data?.mode === 'online' ? this.S.G.online : null; }
+  get localSeats() { return this.seats.length; }
+  _refresh() { this._renderSeats(); }
   show(data) {
     this.el.hidden = false; this.data = data; const S = this.S;
     this.grid.innerHTML = '';
@@ -39,10 +42,11 @@ export class SelectScreen {
       if (isCpu) { seat.locked = true; seat.pick = this._randomPick(); }
     }
     this._renderSeats(); this.focusTile(this.seats[0], this.seats[0].nav.current);
+    if (this.online) { this.online.attachSelect(this); this.online.setPicks(null); }
     this.preview = new PreviewStage(S.G.stage);
     this._showPreview(this.seats[0]);
   }
-  hide() { this.el.hidden = true; this.preview?.dispose(); this.preview = null; }
+  hide() { this.el.hidden = true; this.preview?.dispose(); this.preview = null; if (this.online) this.online.detachSelect(); }
   _randomPick() { const p = allPicks(); return p[(Math.random() * p.length) | 0]; }
   _pickOf(seat) { const id = seat.nav.current.dataset.id; const vs = variantsOf(ROSTER[id], id); const v = vs[seat.variant % vs.length]; return joinPick(id, v.id); }
   focusTile(seat, el) {
@@ -67,9 +71,13 @@ export class SelectScreen {
     seat.locked = true; seat.pick = this._pickOf(seat); this.S.G.sfx.uiLock();
     this.preview?.play('victory');
     this._renderSeats();
-    if (this.seats.every(s => s.locked)) setTimeout(() => this._done(), 500);
+    if (this.seats.every(s => s.locked)) { if (this.online) this.online.setPicks(this.seats.map(s => s.pick)); else setTimeout(() => this._done(), 500); }
   }
-  back(seat) { if (seat.locked && !seat.cpu) { seat.locked = false; this._renderSeats(); return; } if (seat.i === 0) this.S.go('mode'); }
+  back(seat) {
+    if (seat.locked && !seat.cpu) { seat.locked = false; this._renderSeats(); if (this.online) this.online.setPicks(null); return; }
+    if (seat.i !== 0) return;
+    if (this.online) { this.online.leave('YOU LEFT THE GAME'); if (!this.online.active) this.S.go('lobby'); } else this.S.go('mode');
+  }
   extra(seat, f) {
     if (seat.locked) return;
     const id = seat.nav.current.dataset.id; const vs = variantsOf(ROSTER[id], id);
@@ -79,7 +87,7 @@ export class SelectScreen {
     if (f.selectP) { const p = this._randomPick(); const { charId } = splitPick(p); seat.nav.focus(ROSTER_IDS.indexOf(charId)); seat.variant = 0; this.S.G.sfx.uiSwoosh(); }
   }
   _renderSeats() {
-    this.seatsEl.innerHTML = this.seats.map(s => { const info = s.locked ? pickInfo(s.pick) : pickInfo(this._pickOf(s)); return `<div class="seat seat-${s.i} ${s.locked ? 'locked' : ''}" style="--accent:${hex(info.accent)}"><span class="who">${s.cpu ? 'CPU' : 'P' + (s.i + 1)}</span><span class="name">${info.name}</span><span class="state">${s.locked ? 'READY' : 'CHOOSING'}</span></div>`; }).join('');
+    this.seatsEl.innerHTML = this.seats.map(s => { const info = s.locked ? pickInfo(s.pick) : pickInfo(this._pickOf(s)); return `<div class="seat seat-${s.i} ${s.locked ? 'locked' : ''}" style="--accent:${hex(info.accent)}"><span class="who">${s.cpu ? 'CPU' : 'P' + (s.i + 1)}</span><span class="name">${info.name}</span><span class="state">${s.locked ? (this.online ? (this.online.canStart ? 'PRESS A TO START' : 'READY — WAITING FOR THE LOBBY') : 'READY') : 'CHOOSING'}</span></div>`; }).join('');
   }
   _done() {
     const S = this.S; const picks = this.seats.map(s => s.pick);
@@ -90,7 +98,12 @@ export class SelectScreen {
     const frames = this.S.G.input.frames;
     this.preview?.update(dt);
     // a solo player (VS CPU / training, no pads) drives seat 0 with either keyboard cluster
-    const solo = this.data.mode === 'cpu' && this.S.G.input.livePads === 0;
+    const solo = (this.data.mode === 'cpu' || this.data.mode === 'online') && this.S.G.input.livePads === 0;
+    if (this.online) {
+      const sig = `${!!this.online.active}|${!!this.online.canStart}|${!!this.online.session?.everyoneReady}`;
+      if (sig !== this._onlineSig) { this._onlineSig = sig; this._renderSeats(); }
+      if (this.seats.every(s => s.locked) && this.online.canStart && (f?.confirmP || frames[0]?.confirmP)) this.online.startMatch();
+    }
     this.seats.forEach((s, i) => { if (s.cpu) return; const fr = (solo && i === 0) ? this.S.G.input.menuFrame() : frames[i]; if (!fr) return; s.nav.update(dt, fr); });
   }
 }

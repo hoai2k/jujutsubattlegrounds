@@ -78,6 +78,15 @@ export class CharacterModel {
     }
   }
   dispose() { for (const m of Object.values(this.meshes)) m.geometry.dispose(); }
+  // Hooks the legacy combat runtime calls on the old hand-built models. The
+  // described models answer the ones that have a visual meaning here; the
+  // rest are accepted and ignored so ported systems never branch on them.
+  setSubmerged(k) { this.group.visible = k < 0.95; this.group.position.y = -k * 1.2; }
+  projectionStep() {}
+  setStance() {} setMask() {} setSukuna(on) { this.setEnergy(on ? 0.6 : 0, 0xff2f45); } setRedScale(on) { this.setEnergy(on ? 0.4 : 0, 0xd0202c); }
+  setOverheat(on) { this.setEnergy(on ? 0.4 : 0, 0xff6a2a); } setMaw() {} setCharge(tier) { this.setEnergy(Math.min(0.5, (tier || 0) * 0.15), 0xa8e0ff); } setAllCores() {}
+  projectionClear() {} setWings() {} setStrain() {} setStock() {} setStage() {} setStable() {} setMarks() {} setJackpot(on) { this.setEnergy(on ? 0.5 : 0, 0xffd040); }
+  setGrowth() {} setCollar() {} setAmber(on) { this.setEnergy(on ? 0.5 : 0, 0xa8e8ff); } clearStrain() {} setSeal() {} spinWheel() {} lockWheel() {} setWeapon() {} setMass() {} setProjectionStance() {} projectionAttach() {}
 }
 
 export function buildCharacter(spec) {

@@ -103,6 +103,8 @@ export class InputManager {
     if (m > 1) { f.move.x /= m; f.move.z /= m; }
     const p = this.prev[i];
     for (const k of HELD) f[k + 'P'] = f[k] && !p[k];
+    // aliases the ported runtime reads: the special was called `copy`
+    f.copy = f.special; f.copyP = f.specialP; f.startP = f.start && !p.start;
     f.confirmP = f.confirm && !p.confirm;
     f.backP = f.back && !p.back;
     f.pauseP = f.pause && !p.pause;
@@ -114,6 +116,7 @@ export class InputManager {
   // loop polls once and every screen / the match reads `frames`.
   pollAll() { for (let i = 0; i < MAX_PLAYERS; i++) this.poll(i); this.latched.clear(); return this.frames; }
   menuFrame() { return mergeMenu(this.frames[0], this.frames[1]); }
+  frameFor(i) { return this.frames[i] || this.frames[0]; }
   // strip the edge flags after a logic tick has consumed them, so a second
   // tick in the same render frame does not replay the press
   consumeEdges() { for (const f of this.frames) for (const k of HELD) f[k + 'P'] = false; }

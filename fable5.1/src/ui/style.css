@@ -186,3 +186,7 @@ html.nodmg .dmg { display: none; }
 .ph { padding: 1px 6px; font-size: 11px; } .ph.startup { background: #4060c0; } .ph.active { background: #d03040; } .ph.recovery { background: #806020; } .ph.done { background: #333; }
 .tr-adv { font-size: 13px; letter-spacing: 0.15em; } .tr-adv .plus { color: #9ff5c9; font-style: normal; } .tr-adv .minus { color: #ff6070; font-style: normal; }
 .tr-help { font-size: 10px; opacity: 0.6; letter-spacing: 0.15em; }
+/* online lobby + host-authoritative result */
+.room { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.08); } .room b { letter-spacing: 0.06em; } .room span { opacity: 0.7; font-family: var(--font-body); text-transform: none; }
+.lobby-item.dim { opacity: 0.4; }
+.res-note { margin-top: 10px; font-size: 13px; letter-spacing: 0.3em; color: var(--accent); opacity: 0; transition: opacity 0.2s; } .result.locked .res-note { opacity: 1; } .result.locked .res-item { opacity: 0.35; }

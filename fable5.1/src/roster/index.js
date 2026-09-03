@@ -53,7 +53,19 @@ export const ROSTER_IDS = ['gojo', 'sukuna', 'toji', 'maki', 'naoya', 'kashimo',
 
 export const SUMMONS = { mahoraga: { config: CONFIGS.mahoraga, jp: '魔虚羅', accent: 0xc6ac72, role: 'ADAPTATION · SUMMON ONLY' } };
 
+export const hex = c => '#' + (c >>> 0).toString(16).padStart(6, '0');
+export function makeSummon(id) {
+  const entry = SUMMONS[id]; if (!entry) return null;
+  const model = buildCharacter(LOOKS[id]);
+  model.palette.accent = entry.accent;
+  maybeAttachRender3D(model, id);
+  return { config: entry.config, model, clips: makeClips(id), variant: { id: 'base' } };
+}
 export function lookFor(lookId) { return LOOKS[lookId] || LOOKS[lookId.split(':')[0]] || null; }
+
+// ?render3d — opt-in swap of the procedural body for a rigged .glb loaded at
+// runtime (docs/render3d.md). No-op without the URL parameter / HEAD_STYLE.
+import { maybeAttachRender3D } from '../art/legacy/rig3d/render3d.js';
 
 export function makeCharacter(pick) {
   const { charId, variantId } = splitPick(pick);
@@ -62,6 +74,7 @@ export function makeCharacter(pick) {
   const spec = lookFor(r.look);
   const model = buildCharacter(spec);
   model.palette.accent = r.accent ?? model.palette.accent;
+  maybeAttachRender3D(model, pick);
   return { config: applyHealthScale ? r.config : r.config, model, clips: makeClips(r.clipId), variant: r.variant, spec };
 }
 

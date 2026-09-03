@@ -46,3 +46,10 @@ export const yawBetween = (from, to) => Math.atan2(to.x - from.x, to.z - from.z)
 // frames at 60 Hz <-> seconds
 export const F = 1 / 60;
 export const frames = n => n * F;
+
+export function weightedPick(entries, rng = Math.random, weightOf = e => e.weight ?? 1) {
+  let total = 0; for (const e of entries) total += weightOf(e);
+  let r = rng() * total;
+  for (const e of entries) { r -= weightOf(e); if (r <= 0) return e; }
+  return entries[entries.length - 1];
+}
