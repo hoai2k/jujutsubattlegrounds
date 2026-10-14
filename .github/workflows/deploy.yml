@@ -10,10 +10,12 @@ permissions:
   pages: write
   id-token: write
 
-# Let a running deploy finish; queue at most one more.
+# A newer push cancels a deploy still running: the newest commit is the one
+# worth publishing, and every deploy costs Actions minutes in a private repo.
+# (This used to let a running deploy finish and queue at most one more.)
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -38,9 +40,24 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      actions: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+      # The uploaded site would otherwise sit in Actions storage for a day
+      # after every push, which counts against the account's quota while the
+      # repository is private. Pages keeps its own copy, so delete ours as
+      # soon as the deploy is done.
+      - name: Delete the deployed site artifact
+        if: always()
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: github-pages
+          failOnError: false

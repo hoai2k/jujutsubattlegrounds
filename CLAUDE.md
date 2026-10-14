@@ -62,6 +62,23 @@ fully procedural — unless a character is deliberately set to `model` in
 (`/workbench/?edit=faces`) exports, which makes that one character load its
 manifest model by default.
 
+## Tests and deploys
+
+Pushes to `main` build and deploy only; they run no tests. Tests are your job
+before you commit:
+
+- Run the tests your change affects: `npm run build` must pass for any change,
+  and a change to the `fable5.1/` build also runs `node fable5.1/test/run.mjs`.
+  The game at `/` has no automated tests; check it in a browser (`npm run dev`)
+  before committing. For a change to shared code, run all of them.
+- Say in the commit message what you ran and that it passed.
+
+Every deploy is paid for in GitHub Actions minutes while the repository is
+private, so batch a task's work into one push to `main` at the end rather than
+pushing after every small step. Pushes to a working branch run nothing. A newer
+push cancels a deploy still in progress, so a burst of pushes publishes only the
+last one.
+
 ## Models
 
 - Only a session already running on Fable may start Fable subagents, workers or helper agents. Opus,
