@@ -2,37 +2,38 @@
 
 ## Deploy state: **ENABLED**
 
-This switch overrides every other instruction in this file about pushing,
-merging or fast-forwarding `main`, opening or merging pull requests into it,
-and deploying.
+Deploy branch: `deploy`
 
-- **DISABLED** means `main` is frozen to save GitHub Actions minutes:
-  - Commit your work and push **only your working branch** (name it
-    `claude/<topic>`; pushes to a working branch run no workflows). Never push,
-    merge or fast-forward `main`, and don't merge pull requests into it.
-  - Run tests and builds locally as usual (they cost no Actions minutes).
-  - End every change with this warning to the owner:
-    > ⚠️ Deploys are disabled for this repo: the change is on branch
-    > `<branch>`, NOT on `main`, and NOT deployed.
-- **ENABLED** means follow the normal push and deploy rules in this file.
-- **Turning deploys on** happens only when the owner explicitly asks for a push
-  to `main` (or to enable deploys). Then:
-  1. Change the heading above to `**ENABLED**` (this is what lets the push
-     guard below allow the push).
-  2. Merge the pending work: `git fetch origin && git branch -r --no-merged
-     origin/main` lists it. Merge oldest first, resolve conflicts, and run the
-     tests.
-  3. Push `main` once; that push deploys. If the owner disabled the deploy
-     workflow in the Actions tab, remind them to re-enable it.
+This repository deploys from the `deploy` branch, not from `main`. Pushing to
+`main` runs no workflow and costs nothing; the site is published only when
+`deploy` is moved forward to `main`. This switch overrides every other
+instruction in this file about deploying.
+
+- **ENABLED** means deploy after every change, exactly as before the deploy
+  branch existed: commit, push `main` as the rest of this file says, then
+  publish it with `git push origin main:deploy`. That push deploys. A deploy
+  that is already running always finishes, and pushes waiting behind it
+  collapse into the newest one.
+- **DISABLED** means deploys are off to save GitHub Actions minutes. Commit and
+  push `main` as usual, so finished work still lands on `main`, but never push,
+  merge or fast-forward `deploy`. End every change with this warning to the
+  owner:
+  > ⚠️ Deploys are disabled for this repo: the change is on `main` but NOT
+  > deployed. The live site is still whatever `deploy` holds.
+- **Turning deploys on** happens only when the owner explicitly asks to deploy,
+  to enable deploys, or for a push to `main` that should go live. Change the
+  heading above to `**ENABLED**`, commit and push `main`, then
+  `git push origin main:deploy`. If the owner disabled the deploy workflow in
+  the Actions tab, remind them to re-enable it.
 - **Turning deploys off**, when the owner asks: change the heading to
-  `**DISABLED**`, commit only that change with `[skip ci]` in the message (so
-  the push runs no workflow), and push `main`.
+  `**DISABLED**`, commit and push `main`. It costs nothing.
+- `git push origin main:deploy` is always a fast-forward. Never force-push
+  `deploy`. If the push is refused, `deploy` has commits `main` lacks: merge
+  `origin/deploy` into `main` first, then push both.
 - `.claude/hooks/deploy-guard.sh` enforces this for Claude sessions: while the
-  heading says DISABLED it refuses a `git push` to `main` and pull-request
-  merges into it, except a `[skip ci]` push that changes only this file and
-  `.claude/` (config, no workflow runs). It
-  reads the heading at the moment of the push, so flipping it to ENABLED is all
-  it takes to let the push through.
+  heading says DISABLED it refuses any push to `deploy`. It reads the heading
+  at the moment of the push, so flipping it to ENABLED is all it takes to let
+  the push through.
 
 ## Git policy
 
@@ -56,7 +57,7 @@ Exceptions, where you should still stop and ask first:
 - The user says otherwise for a given task ("don't push this", "keep it local",
   "put it on a branch").
 - The change is experimental, half-finished, or knowingly broken. Pushing to
-  `main` publishes it: every push redeploys the live site.
+  `main` and then `deploy` publishes it: every deploy redeploys the live site.
 - Anything destructive to history: force-push, `reset --hard` on pushed commits,
   rewriting or deleting remote branches, deleting the remote.
 - Committing secrets, credentials, or large binaries.
@@ -66,9 +67,10 @@ Keep commits scoped to one change with a descriptive message. Never use
 
 ## Deployment
 
-`main` auto-deploys to GitHub Pages via
+The `deploy` branch auto-deploys to GitHub Pages via
 [.github/workflows/deploy.yml](.github/workflows/deploy.yml) — `npm ci`,
-`npm run build`, publish `dist/`. A push to `main` is a release. Vite's
+`npm run build`, publish `dist/`. Work lands on `main`, and `git push origin main:deploy` (while
+deploys are ENABLED, see "Deploy state" above) is the release. Vite's
 `base: './'` in [vite.config.js](vite.config.js) keeps asset paths relative so
 the build works under the `/jujutsubattlegrounds/` sub-path; don't change it to
 an absolute base.
@@ -98,8 +100,8 @@ manifest model by default.
 
 ## Tests and deploys
 
-Pushes to `main` build and deploy only; they run no tests. Tests are your job
-before you commit:
+Deploys (pushes to `deploy`) build and publish only; they run no tests. Tests
+are your job before you commit:
 
 - Run the tests your change affects: `npm run build` must pass for any change,
   and a change to the `fable5.1/` build also runs `node fable5.1/test/run.mjs`.
@@ -108,8 +110,9 @@ before you commit:
 - Say in the commit message what you ran and that it passed.
 
 Every deploy is paid for in GitHub Actions minutes while the repository is
-private, so batch a task's work into one push to `main` at the end rather than
-pushing after every small step. Pushes to a working branch run nothing. A deploy
+private, so batch a task's work into one deploy at the end rather than
+deploying after every small step. Pushes to `main` and to working branches run
+nothing. A deploy
 that is already running always finishes — never cancel one unless the owner asks
 — and pushes waiting behind it collapse into the newest one. Pushes that only
 change Markdown or `.claude/` don't deploy at all (`paths-ignore` in the deploy
